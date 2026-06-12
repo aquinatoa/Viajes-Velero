@@ -556,3 +556,17 @@ tr.is-selected {
   line-height: 1.5;
   color: #13232f;
 }
+
+.ai-result {
+  border: 1px solid rgba(41, 98, 158, 0.18);
+  background: rgba(229, 244, 255, 0.45);
+  border-radius: 18px;
+  padding: 16px 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.ai-result__label {
+  font-weight: 700;
+  color: #28404d;
+}
