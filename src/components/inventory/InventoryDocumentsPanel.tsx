@@ -7,6 +7,7 @@ import type {
 import {
   createInventoryDocumentApi,
   listInventoryDocumentsApi,
+  uploadInventoryDocumentFileApi,
 } from "../../services/apiClient";
 
 const targetTypeLabels: Record<InventoryTargetType, string> = {
@@ -47,6 +48,8 @@ const initialForm: CreateSourceDocumentInput = {
 export function InventoryDocumentsPanel() {
   const [documents, setDocuments] = useState<SourceDocumentSummary[]>([]);
   const [form, setForm] = useState<CreateSourceDocumentInput>(initialForm);
+  const [selectedFiles, setSelectedFiles] = useState<Record<string, File | undefined>>({});
+  const [uploadingDocumentId, setUploadingDocumentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -89,6 +92,30 @@ export function InventoryDocumentsPanel() {
       alert(error instanceof Error ? error.message : "No se pudo crear el documento.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleUpload(documentId: string) {
+    const file = selectedFiles[documentId];
+
+    if (!file) {
+      alert("Selecciona un archivo antes de subirlo.");
+      return;
+    }
+
+    setUploadingDocumentId(documentId);
+    try {
+      await uploadInventoryDocumentFileApi(documentId, file);
+      setSelectedFiles((current) => ({
+        ...current,
+        [documentId]: undefined,
+      }));
+      await loadDocuments();
+      alert("Archivo subido correctamente.");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "No se pudo subir el archivo.");
+    } finally {
+      setUploadingDocumentId(null);
     }
   }
 
@@ -222,27 +249,64 @@ export function InventoryDocumentsPanel() {
               <th>Estado</th>
               <th>Extracción</th>
               <th>Creado</th>
+              <th>Archivo fuente</th>
             </tr>
           </thead>
           <tbody>
-            {documents.map((document) => (
-              <tr key={document.id}>
-                <td>{document.controlName}</td>
-                <td>{targetTypeLabels[document.targetType]}</td>
-                <td>{document.controlLocation ?? "-"}</td>
-                <td>{document.controlYear ?? "-"}</td>
-                <td>{statusLabels[document.status] ?? document.status}</td>
-                <td>
-                  {extractionStatusLabels[document.extractionStatus] ??
-                    document.extractionStatus}
-                </td>
-                <td>{new Date(document.createdAt).toLocaleDateString()}</td>
-              </tr>
-            ))}
+            {documents.map((document) => {
+              const selectedFile = selectedFiles[document.id];
+              const isUploading = uploadingDocumentId === document.id;
+
+              return (
+                <tr key={document.id}>
+                  <td>{document.controlName}</td>
+                  <td>{targetTypeLabels[document.targetType]}</td>
+                  <td>{document.controlLocation ?? "-"}</td>
+                  <td>{document.controlYear ?? "-"}</td>
+                  <td>{statusLabels[document.status] ?? document.status}</td>
+                  <td>
+                    {extractionStatusLabels[document.extractionStatus] ??
+                      document.extractionStatus}
+                  </td>
+                  <td>{new Date(document.createdAt).toLocaleDateString()}</td>
+                  <td>
+                    <div className="stack compact">
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,image/*"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+
+                          setSelectedFiles((current) => ({
+                            ...current,
+                            [document.id]: file,
+                          }));
+                        }}
+                      />
+
+                      {selectedFile ? (
+                        <small>
+                          Seleccionado: {selectedFile.name} (
+                          {Math.round(selectedFile.size / 1024)} KB)
+                        </small>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        disabled={!selectedFile || isUploading}
+                        onClick={() => void handleUpload(document.id)}
+                      >
+                        {isUploading ? "Subiendo..." : "Subir archivo"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
 
             {!loading && documents.length === 0 && (
               <tr>
-                <td colSpan={7}>Todavía no hay documentos registrados.</td>
+                <td colSpan={8}>Todavía no hay documentos registrados.</td>
               </tr>
             )}
           </tbody>
