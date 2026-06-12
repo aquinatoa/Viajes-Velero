@@ -1,0 +1,474 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id                   String        @id @default(cuid())
+  email                String        @unique
+  firstName            String
+  lastName             String
+  fullName             String
+  isReturningCustomer  Boolean       @default(false)
+  crmContactId         String?
+  crmAccountId         String?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  tripRequests         TripRequest[]
+}
+
+model TripRequest {
+  id                 String         @id @default(cuid())
+  clientId           String
+  opportunityName    String?
+  originalMessage    String
+  language           String?
+  destinationText    String?
+  destinationCountry String?
+  dateFrom           DateTime?
+  dateTo             DateTime?
+  participants       Int?
+  teachers           Int?
+  ageRangeText       String?
+  averageAgeText     String?
+  groupType          String?
+  regimeRequested    String?
+  categoryRequested  String?
+  requirementsText   String?
+  requestStatus      RequestStatus  @default(RECEIVED)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  client             Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  proposals          TripProposal[]
+}
+
+model Accommodation {
+  id                 String                   @id @default(cuid())
+  accommodationName  String
+  locality           String
+  categoryType       String?
+  accommodationType  String?
+  observations       String?
+  conditionsText     String?
+  freePolicy         String?
+  sourceFile         String?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  rates              AccommodationRate[]
+  proposalOptions    ProposalAccommodationOption[]
+}
+
+model AccommodationRate {
+  id                     String         @id @default(cuid())
+  accommodationId        String
+  rateSource             String?
+  year                   Int
+  seasonName             String?
+  dateFrom               DateTime?
+  dateTo                 DateTime?
+  minNights              Int?
+  boardType              String?
+  tariffUnit             String?
+  pvpAmount              Decimal?
+  netSaleAmount          Decimal?
+  netAzulmarinoAmount    Decimal?
+  sourceFile             String?
+  sourceSheet            String?
+  accommodation          Accommodation  @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+}
+
+model Activity {
+  id               String                  @id @default(cuid())
+  activityName     String
+  supplierName     String?
+  locationMain     String?
+  durationText     String?
+  descriptionText  String?
+  sourceFile       String?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  rates            ActivityRate[]
+  proposalOptions  ProposalActivityOption[]
+}
+
+model ActivityRate {
+  id                String     @id @default(cuid())
+  activityId        String
+  year              Int
+  ageLabel          String?
+  ageMin            Int?
+  ageMax            Int?
+  salePvpAmount     Decimal?
+  costNetAmount     Decimal?
+  commissionPercent Decimal?
+  durationText      String?
+  sourceFile        String?
+  sourceSheet       String?
+  activity          Activity   @relation(fields: [activityId], references: [id], onDelete: Cascade)
+}
+
+model TripProposal {
+  id                   String                        @id @default(cuid())
+  tripRequestId        String
+  versionNumber        Int
+  proposalStatus       ProposalStatus               @default(DRAFT)
+  approvedOptionNumber Int?
+  crmPayloadJson       String?
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+  tripRequest          TripRequest                  @relation(fields: [tripRequestId], references: [id], onDelete: Cascade)
+  accommodationOptions ProposalAccommodationOption[]
+  activityOptions      ProposalActivityOption[]
+}
+
+model ProposalAccommodationOption {
+  id               String        @id @default(cuid())
+  proposalId       String
+  accommodationId  String
+  optionNumber     Int
+  boardType        String?
+  dateFrom         DateTime?
+  dateTo           DateTime?
+  nights           Int?
+  participants     Int?
+  teachers         Int?
+  totalPvpText     String?
+  conditionsText   String?
+  observationsText String?
+  isSelected       Boolean       @default(false)
+  proposal         TripProposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  accommodation    Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+}
+
+model ProposalActivityOption {
+  id                   String       @id @default(cuid())
+  proposalId           String
+  activityId           String
+  optionNumber         Int          @default(1)
+  displayOrder         Int
+  activityNameSnapshot String
+  providerSnapshot     String?
+  durationSnapshot     String?
+  pvpSnapshot          String?
+  descriptionSnapshot  String?
+  isSelected           Boolean      @default(true)
+  proposal             TripProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  activity             Activity     @relation(fields: [activityId], references: [id], onDelete: Cascade)
+}
+
+model CrmSyncLog {
+  id              String      @id @default(cuid())
+  entityType      String
+  actionType      String
+  requestPayload  String?
+  responsePayload String?
+  syncStatus      SyncStatus
+  errorMessage    String?
+  createdAt       DateTime    @default(now())
+}
+
+enum RequestStatus {
+  RECEIVED
+  NORMALIZED
+  PROPOSAL_IN_PROGRESS
+  APPROVED
+  CRM_READY
+}
+
+enum ProposalStatus {
+  DRAFT
+  REVIEWED
+  APPROVED
+}
+
+enum SyncStatus {
+  PENDING
+  SUCCESS
+  ERROR
+}
+model SourceDocument {
+  id                 String   @id @default(cuid())
+  documentType       String   @default("SOURCE")
+  targetType         String
+  originalFileName   String?
+  storedFilePath     String?
+  fileMimeType       String?
+  fileSizeBytes      Int?
+  fileHash           String?
+  controlName        String
+  controlLocation    String?
+  controlYear        Int?
+  controlCategory    String?
+  controlNotes       String?
+  status             String   @default("UPLOADED")
+  extractionStatus   String   @default("NOT_STARTED")
+  requiresOcr        Boolean  @default(false)
+  aiConfidence       Decimal?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  processedAt        DateTime?
+
+  extractions            DocumentExtraction[]
+  importIssues           ImportIssue[]
+  stagingAccommodations  StagingAccommodation[]
+  stagingActivities      StagingActivity[]
+}
+
+model DocumentExtraction {
+  id                String   @id @default(cuid())
+  sourceDocumentId  String
+  extractionMethod  String
+  pageNumber        Int?
+  rawText           String?
+  rawJson           Json?
+  confidenceScore   Decimal?
+  createdAt         DateTime @default(now())
+
+  sourceDocument    SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([sourceDocumentId])
+}
+
+model ImportIssue {
+  id                String   @id @default(cuid())
+  sourceDocumentId  String
+  severity          String
+  issueType         String
+  message           String
+  fieldName         String?
+  rawValue          String?
+  pageNumber        Int?
+  resolved          Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  sourceDocument    SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([sourceDocumentId])
+  @@index([severity])
+  @@index([resolved])
+}
+
+model StagingAccommodation {
+  id                  String   @id @default(cuid())
+  sourceDocumentId    String
+  accommodationName   String
+  providerName        String?
+  locality            String?
+  province            String?
+  country             String?
+  categoryType        String?
+  accommodationType   String?
+  confidenceScore     Decimal?
+  reviewStatus        String   @default("PENDING")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  sourceDocument      SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+  rates               StagingAccommodationRate[]
+  adjustments         StagingAccommodationAdjustment[]
+  policies            StagingAccommodationPolicy[]
+  blackoutDates       StagingAccommodationBlackoutDate[]
+
+  @@index([sourceDocumentId])
+  @@index([accommodationName])
+  @@index([locality])
+  @@index([reviewStatus])
+}
+
+model StagingAccommodationRate {
+  id                       String   @id @default(cuid())
+  stagingAccommodationId   String
+  sourceDocumentId         String
+
+  seasonName               String?
+  year                     Int?
+  dateFrom                 DateTime?
+  dateTo                   DateTime?
+
+  boardType                String?
+  unitName                 String?
+  unitType                 String?
+  rateUnit                 String?
+  occupancyLabel           String?
+
+  minNights                Int?
+  minPax                   Int?
+  minUnits                 Int?
+
+  currency                 String   @default("EUR")
+  taxIncluded              Boolean?
+  pvpAmount                Decimal?
+  netAmount                Decimal?
+  costAmount               Decimal?
+  commissionPercent        Decimal?
+
+  rawText                  String?
+  sourcePage               Int?
+  confidenceScore          Decimal?
+  requiresReview           Boolean  @default(true)
+  reviewStatus             String   @default("PENDING")
+
+  stagingAccommodation     StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
+
+  @@index([stagingAccommodationId])
+  @@index([sourceDocumentId])
+  @@index([year])
+  @@index([dateFrom, dateTo])
+  @@index([reviewStatus])
+}
+
+model StagingAccommodationAdjustment {
+  id                       String   @id @default(cuid())
+  stagingAccommodationId   String
+
+  adjustmentType            String
+  concept                   String
+  amountType                String?
+  amount                    Decimal?
+  appliesPer                String?
+  dateFrom                  DateTime?
+  dateTo                    DateTime?
+
+  conditionText             String?
+  rawText                   String?
+  sourcePage                Int?
+  confidenceScore           Decimal?
+  requiresReview            Boolean @default(true)
+  reviewStatus              String  @default("PENDING")
+
+  stagingAccommodation      StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
+
+  @@index([stagingAccommodationId])
+  @@index([adjustmentType])
+  @@index([reviewStatus])
+}
+
+model StagingAccommodationPolicy {
+  id                       String   @id @default(cuid())
+  stagingAccommodationId   String
+
+  policyType                String
+  policyText                String
+  structuredJson            Json?
+  sourcePage                Int?
+  confidenceScore           Decimal?
+  requiresReview            Boolean @default(true)
+  reviewStatus              String  @default("PENDING")
+
+  stagingAccommodation      StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
+
+  @@index([stagingAccommodationId])
+  @@index([policyType])
+  @@index([reviewStatus])
+}
+
+model StagingAccommodationBlackoutDate {
+  id                       String   @id @default(cuid())
+  stagingAccommodationId   String
+
+  dateFrom                  DateTime?
+  dateTo                    DateTime?
+  availabilityStatus        String
+  reason                    String?
+  rawText                   String?
+  sourcePage                Int?
+  confidenceScore           Decimal?
+  requiresReview            Boolean @default(true)
+  reviewStatus              String  @default("PENDING")
+
+  stagingAccommodation      StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
+
+  @@index([stagingAccommodationId])
+  @@index([dateFrom, dateTo])
+  @@index([availabilityStatus])
+  @@index([reviewStatus])
+}
+
+model StagingActivity {
+  id                  String   @id @default(cuid())
+  sourceDocumentId    String
+
+  activityName        String
+  supplierName        String?
+  locationMain        String?
+  province            String?
+  country             String?
+  activityType        String?
+  durationText        String?
+  descriptionText     String?
+
+  confidenceScore     Decimal?
+  reviewStatus        String   @default("PENDING")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  sourceDocument      SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+  rates               StagingActivityRate[]
+  policies            StagingActivityPolicy[]
+
+  @@index([sourceDocumentId])
+  @@index([activityName])
+  @@index([supplierName])
+  @@index([locationMain])
+  @@index([reviewStatus])
+}
+
+model StagingActivityRate {
+  id                  String   @id @default(cuid())
+  stagingActivityId   String
+
+  year                Int?
+  seasonName          String?
+  dateFrom            DateTime?
+  dateTo              DateTime?
+
+  ageLabel            String?
+  ageMin              Int?
+  ageMax              Int?
+
+  rateUnit            String?
+  currency            String   @default("EUR")
+  salePvpAmount       Decimal?
+  costNetAmount       Decimal?
+  commissionPercent   Decimal?
+
+  minPax              Int?
+  maxPax              Int?
+
+  durationText        String?
+  rawText             String?
+  sourcePage          Int?
+  confidenceScore     Decimal?
+  requiresReview      Boolean  @default(true)
+  reviewStatus        String   @default("PENDING")
+
+  stagingActivity     StagingActivity @relation(fields: [stagingActivityId], references: [id], onDelete: Cascade)
+
+  @@index([stagingActivityId])
+  @@index([year])
+  @@index([dateFrom, dateTo])
+  @@index([reviewStatus])
+}
+
+model StagingActivityPolicy {
+  id                  String   @id @default(cuid())
+  stagingActivityId   String
+
+  policyType           String
+  policyText           String
+  structuredJson       Json?
+  sourcePage           Int?
+  confidenceScore      Decimal?
+  requiresReview       Boolean @default(true)
+  reviewStatus         String  @default("PENDING")
+
+  stagingActivity      StagingActivity @relation(fields: [stagingActivityId], references: [id], onDelete: Cascade)
+
+  @@index([stagingActivityId])
+  @@index([policyType])
+  @@index([reviewStatus])
+}

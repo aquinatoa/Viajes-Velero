@@ -1,0 +1,12 @@
+node_modules/
+dist/
+
+.env
+*.local
+
+.DS_Store
+._*
+*.tsbuildinfo
+
+prisma/dev.db
+rae-zoho-migration/

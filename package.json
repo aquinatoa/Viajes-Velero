@@ -1,0 +1,36 @@
+{
+  "name": "viajes-velero-ops",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run api\" \"vite\"",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "api": "node --import tsx server/index.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:seed": "node --import tsx prisma/seed.ts",
+    "prisma:import-rates": "node --import tsx prisma/importRates.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.6.0",
+    "@types/express": "^5.0.6",
+    "express": "^5.2.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "xlsx": "^0.18.5",
+    "zod": "^3.24.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.2",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "concurrently": "^9.2.1",
+    "prisma": "^6.6.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  }
+}
