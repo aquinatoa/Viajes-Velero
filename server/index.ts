@@ -582,6 +582,13 @@ app.post("/api/inventory/documents/:id/create-staging", async (request, response
       });
     }
 
+    // Reconciliar el estado del documento: al existir candidatos revisables y
+    // texto extraído (TEXT/OCR), el documento debe quedar como pendiente de
+    // revisión y con la extracción marcada como completada. No se publica nada.
+    if (document.status !== "PUBLISHED") {
+      await updateInventoryDocumentStatus(documentId, "PENDING_REVIEW", "EXTRACTED");
+    }
+
     response.json(result);
   } catch (error) {
     console.error("Error creating inventory document staging", error);

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type {
   AiDocumentAnalysisResult,
   CreateSourceDocumentInput,
+  DocumentExtraction,
   InventoryDocumentDetail,
   InventoryTargetType,
   SourceDocumentSummary,
@@ -108,6 +109,36 @@ function formatFileSize(bytes?: number | null) {
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
+}
+
+interface AnnotatedExtraction {
+  extraction: DocumentExtraction;
+  isCurrentText: boolean;
+  isHistoricalText: boolean;
+}
+
+/**
+ * Marca la extracción TEXT más reciente como actual y las TEXT anteriores como
+ * históricas, sin alterar ni eliminar datos. Las extracciones llegan ya
+ * ordenadas de más reciente a más antigua desde el backend.
+ */
+function annotateExtractions(extractions: DocumentExtraction[]): AnnotatedExtraction[] {
+  let textSeen = false;
+
+  return extractions.map((extraction) => {
+    const isText = extraction.extractionMethod === "TEXT";
+    const isCurrentText = isText && !textSeen;
+
+    if (isText) {
+      textSeen = true;
+    }
+
+    return {
+      extraction,
+      isCurrentText,
+      isHistoricalText: isText && !isCurrentText,
+    };
+  });
 }
 
 const stagingReviewStatusLabels: Record<string, string> = {
@@ -913,6 +944,7 @@ export function InventoryDocumentsPanel() {
                   <h4>Candidatos revisables (staging)</h4>
                   <p>Pendientes de revisión humana. No publicados al inventario operativo.</p>
                 </div>
+                <span className="staging-badge">No publicado</span>
               </div>
 
               <div className="grid two">
@@ -1154,6 +1186,14 @@ export function InventoryDocumentsPanel() {
                 </div>
               ) : null}
 
+              {detail.importIssues.some((issue) => issue.issueType === "ANALYSIS_PLACEHOLDER") ? (
+                <div className="alert alert--warning" role="status">
+                  Este documento tiene incidencias antiguas de tipo marcador de posición
+                  (ANALYSIS_PLACEHOLDER) de versiones anteriores. Son históricas y no afectan al
+                  análisis actual; se conservan para trazabilidad.
+                </div>
+              ) : null}
+
               <div className="section-card__header compact">
                 <div>
                   <h4>Incidencias de importación</h4>
@@ -1187,23 +1227,36 @@ export function InventoryDocumentsPanel() {
 
               {detail.extractions.length > 0 ? (
                 <ul className="detail-list">
-                  {detail.extractions.map((extraction) => (
-                    <li key={extraction.id}>
-                      <strong>
-                        {extractionMethodLabels[extraction.extractionMethod] ??
-                          extraction.extractionMethod}
-                      </strong>
-                      {extraction.pageNumber != null ? (
-                        <span> · Página {extraction.pageNumber}</span>
-                      ) : null}
-                      {extraction.confidenceScore != null ? (
-                        <span> · Confianza {extraction.confidenceScore}</span>
-                      ) : null}
-                      {extraction.rawText ? (
-                        <pre className="extraction-text">{extraction.rawText}</pre>
-                      ) : null}
-                    </li>
-                  ))}
+                  {annotateExtractions(detail.extractions).map(
+                    ({ extraction, isCurrentText, isHistoricalText }) => (
+                      <li
+                        key={extraction.id}
+                        className={isHistoricalText ? "extraction--historical" : undefined}
+                      >
+                        <strong>
+                          {extractionMethodLabels[extraction.extractionMethod] ??
+                            extraction.extractionMethod}
+                        </strong>
+                        {isCurrentText ? (
+                          <span className="extraction-badge extraction-badge--current">Actual</span>
+                        ) : null}
+                        {isHistoricalText ? (
+                          <span className="extraction-badge extraction-badge--historical">
+                            Histórica (no se usa)
+                          </span>
+                        ) : null}
+                        {extraction.pageNumber != null ? (
+                          <span> · Página {extraction.pageNumber}</span>
+                        ) : null}
+                        {extraction.confidenceScore != null ? (
+                          <span> · Confianza {extraction.confidenceScore}</span>
+                        ) : null}
+                        {extraction.rawText ? (
+                          <pre className="extraction-text">{extraction.rawText}</pre>
+                        ) : null}
+                      </li>
+                    ),
+                  )}
                 </ul>
               ) : (
                 <p>No hay extracciones registradas.</p>
