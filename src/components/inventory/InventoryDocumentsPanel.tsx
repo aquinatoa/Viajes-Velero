@@ -3,6 +3,7 @@ import type {
   AiDocumentAnalysisResult,
   CreateSourceDocumentInput,
   DocumentExtraction,
+  DryRunPublishResult,
   InventoryDocumentDetail,
   InventoryTargetType,
   PublishApprovedResult,
@@ -16,6 +17,7 @@ import {
   approveInventoryDocumentApi,
   createInventoryDocumentApi,
   createInventoryDocumentStagingApi,
+  dryRunPublishApprovedInventoryDocumentApi,
   getInventoryDocumentApi,
   listInventoryDocumentsApi,
   patchInventoryStagingApi,
@@ -663,6 +665,8 @@ export function InventoryDocumentsPanel() {
   const [stagingCreating, setStagingCreating] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<PublishApprovedResult | null>(null);
+  const [dryRunning, setDryRunning] = useState(false);
+  const [dryRunResult, setDryRunResult] = useState<DryRunPublishResult | null>(null);
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -755,6 +759,7 @@ export function InventoryDocumentsPanel() {
     setDetail(null);
     setAiResult(null);
     setPublishResult(null);
+    setDryRunResult(null);
     setErrorMessage(null);
     setFeedbackMessage(null);
     setDetailLoading(true);
@@ -772,6 +777,7 @@ export function InventoryDocumentsPanel() {
     setDetail(null);
     setAiResult(null);
     setPublishResult(null);
+    setDryRunResult(null);
     setActionInProgress(null);
   }
 
@@ -827,6 +833,30 @@ export function InventoryDocumentsPanel() {
       return;
     }
     await refreshDetail(selectedDocumentId);
+  }
+
+  async function handleDryRun() {
+    if (!selectedDocumentId) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setDryRunning(true);
+
+    try {
+      const result = await dryRunPublishApprovedInventoryDocumentApi(selectedDocumentId);
+      setDryRunResult(result);
+      setFeedbackMessage(
+        "Simulación de publicación lista. No se escribió nada en el inventario operativo.",
+      );
+    } catch (error) {
+      setErrorMessage(
+        getErrorMessage(error, "No se pudo simular la publicación del documento."),
+      );
+    } finally {
+      setDryRunning(false);
+    }
   }
 
   async function handlePublishApproved() {
@@ -1486,25 +1516,106 @@ export function InventoryDocumentsPanel() {
                   <h4>Publicación al inventario operativo</h4>
                   <p>Solo se publican candidatos aprobados. Operación idempotente.</p>
                 </div>
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={
-                    publishing ||
-                    !(
-                      detail.stagingAccommodations.some(
-                        (accommodation) => String(accommodation.reviewStatus) === "APPROVED",
-                      ) ||
-                      detail.stagingActivities.some(
-                        (activity) => String(activity.reviewStatus) === "APPROVED",
+                <div className="stack compact actions-row">
+                  <button
+                    type="button"
+                    disabled={dryRunning}
+                    onClick={() => void handleDryRun()}
+                  >
+                    {dryRunning ? "Simulando..." : "Simular publicación"}
+                  </button>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={
+                      publishing ||
+                      !(
+                        detail.stagingAccommodations.some(
+                          (accommodation) => String(accommodation.reviewStatus) === "APPROVED",
+                        ) ||
+                        detail.stagingActivities.some(
+                          (activity) => String(activity.reviewStatus) === "APPROVED",
+                        )
                       )
-                    )
-                  }
-                  onClick={() => void handlePublishApproved()}
-                >
-                  {publishing ? "Publicando..." : "Publicar aprobados al inventario"}
-                </button>
+                    }
+                    onClick={() => void handlePublishApproved()}
+                  >
+                    {publishing ? "Publicando..." : "Publicar aprobados al inventario"}
+                  </button>
+                </div>
               </div>
+
+              {dryRunResult ? (
+                <div className="publish-result publish-result--dryrun">
+                  <div className="section-card__header compact">
+                    <div>
+                      <h4>Simulación de publicación (dry-run)</h4>
+                      <p>
+                        Esta simulación no escribe en el inventario operativo. Solo muestra qué
+                        ocurriría al publicar.
+                      </p>
+                    </div>
+                    <span className="staging-badge">Sin efectos</span>
+                  </div>
+
+                  <div className="grid two">
+                    <div className="field">
+                      <span>Alojamientos a publicar</span>
+                      <strong>{dryRunResult.accommodationsToPublish}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Tarifas de alojamiento a publicar</span>
+                      <strong>{dryRunResult.accommodationRatesToPublish}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Actividades a publicar</span>
+                      <strong>{dryRunResult.activitiesToPublish}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Tarifas de actividad a publicar</span>
+                      <strong>{dryRunResult.activityRatesToPublish}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Candidatos que se omitirían</span>
+                      <strong>{dryRunResult.skipped}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Aprobados / Pendientes / Rechazados / Requieren cambios</span>
+                      <strong>
+                        {dryRunResult.approvedCandidates} / {dryRunResult.pendingCandidates} /{" "}
+                        {dryRunResult.rejectedCandidates} / {dryRunResult.needsChangesCandidates}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {!dryRunResult.hasPublishableCandidates ? (
+                    <div className="alert alert--warning" role="status">
+                      No hay candidatos aprobados: al publicar no se crearía ningún registro
+                      operativo.
+                    </div>
+                  ) : null}
+
+                  {dryRunResult.wouldReplaceExisting ? (
+                    <div className="alert alert--warning" role="status">
+                      Publicar reemplazaría la publicación previa de este documento (operación
+                      idempotente).
+                    </div>
+                  ) : null}
+
+                  {dryRunResult.warnings.length > 0 ? (
+                    <>
+                      <span className="ai-result__label">Advertencias de la simulación</span>
+                      <ul className="detail-list">
+                        {dryRunResult.warnings.map((warning, index) => (
+                          <li key={index}>{warning}</li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <p>Sin advertencias. Todo lo aprobado se publicaría.</p>
+                  )}
+                </div>
+              ) : null}
 
               {publishResult ? (
                 <div className="publish-result">

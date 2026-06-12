@@ -1,5 +1,8 @@
 import { PrismaClient } from "@prisma/client";
-import type { AiDocumentAnalysisResult } from "../src/domain/documentImportTypes";
+import type {
+  AiDocumentAnalysisResult,
+  DryRunPublishResult,
+} from "../src/domain/documentImportTypes";
 
 const prisma = new PrismaClient();
 
@@ -706,10 +709,13 @@ export interface PublishApprovedResult {
 
 const isApprovedStatus = (status: string) => status === "APPROVED";
 
-export async function publishApprovedInventoryDocument(
-  sourceDocumentId: string,
-  context: PublishApprovedContext,
-): Promise<PublishApprovedResult> {
+/**
+ * Construye el plan de publicación (registros a crear, advertencias y conteos
+ * de omisiones) a partir de los candidatos staging aprobados. Es de SOLO
+ * LECTURA: no escribe en ninguna tabla. Lo reutilizan tanto la publicación real
+ * como la simulación (dry-run).
+ */
+async function buildPublishPlan(sourceDocumentId: string, context: PublishApprovedContext) {
   const accommodations = await prisma.stagingAccommodation.findMany({
     where: { sourceDocumentId },
     include: { rates: true, adjustments: true, policies: true, blackoutDates: true },
@@ -722,12 +728,6 @@ export async function publishApprovedInventoryDocument(
   const anyPublishable =
     accommodations.some((accommodation) => isApprovedStatus(accommodation.reviewStatus)) ||
     activities.some((activity) => isApprovedStatus(activity.reviewStatus));
-
-  if (!anyPublishable) {
-    throw new PublishValidationError(
-      "No hay candidatos aprobados para publicar (se requiere al menos un alojamiento o actividad aprobado).",
-    );
-  }
 
   const warnings: string[] = [];
   let skippedAccommodations = 0;
@@ -951,38 +951,143 @@ export async function publishApprovedInventoryDocument(
     });
   }
 
+  return {
+    accommodations,
+    activities,
+    anyPublishable,
+    accommodationsToCreate,
+    activitiesToCreate,
+    warnings,
+    skippedAccommodations,
+    skippedRates,
+    skippedActivities,
+    skippedActivityRates,
+  };
+}
+
+function countCreatedRates(items: Record<string, unknown>[]): number {
+  return items.reduce(
+    (total, item) => total + ((item.rates as { create: unknown[] }).create.length ?? 0),
+    0,
+  );
+}
+
+export async function publishApprovedInventoryDocument(
+  sourceDocumentId: string,
+  context: PublishApprovedContext,
+): Promise<PublishApprovedResult> {
+  const plan = await buildPublishPlan(sourceDocumentId, context);
+
+  if (!plan.anyPublishable) {
+    throw new PublishValidationError(
+      "No hay candidatos aprobados para publicar (se requiere al menos un alojamiento o actividad aprobado).",
+    );
+  }
+
   await prisma.$transaction(async (tx) => {
     // Idempotencia: borrar lo publicado previamente desde ESTE documento y
     // reinsertar. No afecta a filas de Excel (sourceDocumentId null).
     await tx.accommodation.deleteMany({ where: { sourceDocumentId } });
     await tx.activity.deleteMany({ where: { sourceDocumentId } });
 
-    for (const data of accommodationsToCreate) {
+    for (const data of plan.accommodationsToCreate) {
       await tx.accommodation.create({ data: data as never });
     }
-    for (const data of activitiesToCreate) {
+    for (const data of plan.activitiesToCreate) {
       await tx.activity.create({ data: data as never });
     }
   });
 
-  const accommodationRates = accommodationsToCreate.reduce(
-    (total, item) => total + ((item.rates as { create: unknown[] }).create.length ?? 0),
-    0,
-  );
-  const activityRates = activitiesToCreate.reduce(
-    (total, item) => total + ((item.rates as { create: unknown[] }).create.length ?? 0),
-    0,
-  );
+  return {
+    accommodations: plan.accommodationsToCreate.length,
+    accommodationRates: countCreatedRates(plan.accommodationsToCreate),
+    activities: plan.activitiesToCreate.length,
+    activityRates: countCreatedRates(plan.activitiesToCreate),
+    skippedAccommodations: plan.skippedAccommodations,
+    skippedRates: plan.skippedRates,
+    skippedActivities: plan.skippedActivities,
+    skippedActivityRates: plan.skippedActivityRates,
+    warnings: plan.warnings,
+  };
+}
+
+/**
+ * Simulación de publicación (dry-run). Reutiliza buildPublishPlan para calcular
+ * qué se publicaría/omitiría y qué advertencias surgirían, SIN escribir nada:
+ * no hace deleteMany, create, ni cambia el estado del documento, ni crea
+ * incidencias. Solo lee.
+ */
+export async function dryRunPublishApprovedInventoryDocument(
+  sourceDocumentId: string,
+  context: PublishApprovedContext,
+): Promise<DryRunPublishResult> {
+  const plan = await buildPublishPlan(sourceDocumentId, context);
+
+  const warnings = [...plan.warnings];
+  if (!plan.anyPublishable) {
+    warnings.unshift(
+      "No hay candidatos aprobados: al publicar no se crearía ningún registro operativo (se requiere al menos un alojamiento o actividad aprobado).",
+    );
+  }
+
+  let approvedCandidates = 0;
+  let pendingCandidates = 0;
+  let rejectedCandidates = 0;
+  let needsChangesCandidates = 0;
+
+  const tally = (status: string) => {
+    if (status === "APPROVED") approvedCandidates += 1;
+    else if (status === "REJECTED") rejectedCandidates += 1;
+    else if (status === "NEEDS_CHANGES") needsChangesCandidates += 1;
+    else pendingCandidates += 1;
+  };
+
+  for (const accommodation of plan.accommodations) {
+    tally(accommodation.reviewStatus);
+    accommodation.rates.forEach((rate) => tally(rate.reviewStatus));
+    accommodation.adjustments.forEach((adjustment) => tally(adjustment.reviewStatus));
+    accommodation.policies.forEach((policy) => tally(policy.reviewStatus));
+    accommodation.blackoutDates.forEach((blackout) => tally(blackout.reviewStatus));
+  }
+  for (const activity of plan.activities) {
+    tally(activity.reviewStatus);
+    activity.rates.forEach((rate) => tally(rate.reviewStatus));
+    activity.policies.forEach((policy) => tally(policy.reviewStatus));
+  }
+
+  // Lectura: ¿ya existen registros operativos publicados desde este documento?
+  const existingAccommodations = await prisma.accommodation.count({
+    where: { sourceDocumentId },
+  });
+  const existingActivities = await prisma.activity.count({ where: { sourceDocumentId } });
+  const wouldReplaceExisting = existingAccommodations + existingActivities > 0;
+
+  if (wouldReplaceExisting) {
+    warnings.push(
+      `Publicar reemplazaría la publicación previa de este documento (${existingAccommodations} alojamiento(s) y ${existingActivities} actividad(es) ya publicados). La operación es idempotente.`,
+    );
+  }
 
   return {
-    accommodations: accommodationsToCreate.length,
-    accommodationRates,
-    activities: activitiesToCreate.length,
-    activityRates,
-    skippedAccommodations,
-    skippedRates,
-    skippedActivities,
-    skippedActivityRates,
+    hasPublishableCandidates: plan.anyPublishable,
+    accommodationsToPublish: plan.accommodationsToCreate.length,
+    accommodationRatesToPublish: countCreatedRates(plan.accommodationsToCreate),
+    activitiesToPublish: plan.activitiesToCreate.length,
+    activityRatesToPublish: countCreatedRates(plan.activitiesToCreate),
+    skipped:
+      plan.skippedAccommodations +
+      plan.skippedRates +
+      plan.skippedActivities +
+      plan.skippedActivityRates,
+    skippedAccommodations: plan.skippedAccommodations,
+    skippedRates: plan.skippedRates,
+    skippedActivities: plan.skippedActivities,
+    skippedActivityRates: plan.skippedActivityRates,
     warnings,
+    approvedCandidates,
+    pendingCandidates,
+    rejectedCandidates,
+    needsChangesCandidates,
+    wouldReplaceExisting,
   };
 }

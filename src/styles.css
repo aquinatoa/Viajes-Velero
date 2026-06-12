@@ -765,6 +765,11 @@ tr.is-selected {
   gap: 14px;
 }
 
+.publish-result--dryrun {
+  border-color: rgba(19, 35, 47, 0.18);
+  background: rgba(245, 248, 250, 0.7);
+}
+
 .staging-badge--published {
   color: #127452;
   background: rgba(24, 158, 109, 0.16);

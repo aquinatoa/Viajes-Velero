@@ -27,6 +27,7 @@ import {
   countInventoryDocumentStaging,
   createInventoryDocument,
   createInventoryDocumentStaging,
+  dryRunPublishApprovedInventoryDocument,
   getInventoryDocumentDetail,
   listInventoryDocuments,
   publishApprovedInventoryDocument,
@@ -677,6 +678,38 @@ app.post("/api/inventory/documents/:id/publish", async (request, response) => {
     });
   }
 });
+
+// Simulación de publicación (dry-run). Se usa GET porque NO muta estado: solo
+// lee el staging y calcula qué se publicaría/omitiría. La publicación real es
+// POST porque escribe en el inventario operativo.
+app.get(
+  "/api/inventory/documents/:id/publish-approved/dry-run",
+  async (request, response) => {
+    try {
+      const documentId = String(request.params.id);
+      const document = await getInventoryDocumentDetail(documentId);
+
+      if (!document) {
+        response.status(404).json({
+          error: "Documento no encontrado.",
+        });
+        return;
+      }
+
+      const result = await dryRunPublishApprovedInventoryDocument(documentId, {
+        controlLocation: document.controlLocation,
+        controlYear: document.controlYear,
+      });
+
+      response.json(result);
+    } catch (error) {
+      console.error("Error running publish dry-run on inventory document", error);
+      response.status(500).json({
+        error: "No se pudo simular la publicación del documento.",
+      });
+    }
+  },
+);
 
 app.post("/api/inventory/documents/:id/publish-approved", async (request, response) => {
   try {

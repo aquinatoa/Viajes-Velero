@@ -398,3 +398,29 @@ export interface PublishApprovedResult {
   skippedActivityRates: number;
   warnings: string[];
 }
+
+/**
+ * Resultado de la simulación de publicación (dry-run). Refleja qué se
+ * publicaría y qué se omitiría sin escribir nada en el inventario operativo.
+ */
+export interface DryRunPublishResult {
+  /** true si hay al menos un alojamiento o actividad aprobado. */
+  hasPublishableCandidates: boolean;
+  accommodationsToPublish: number;
+  accommodationRatesToPublish: number;
+  activitiesToPublish: number;
+  activityRatesToPublish: number;
+  /** Total de candidatos que se omitirían (suma de los "skipped"). */
+  skipped: number;
+  skippedAccommodations: number;
+  skippedRates: number;
+  skippedActivities: number;
+  skippedActivityRates: number;
+  warnings: string[];
+  approvedCandidates: number;
+  pendingCandidates: number;
+  rejectedCandidates: number;
+  needsChangesCandidates: number;
+  /** true si publicar reemplazaría una publicación previa de este documento. */
+  wouldReplaceExisting: boolean;
+}

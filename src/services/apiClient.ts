@@ -2,6 +2,7 @@ import type {
   AiDocumentAnalysisResult,
   CreateSourceDocumentInput,
   CreateStagingResult,
+  DryRunPublishResult,
   InventoryDocumentDetail,
   PublishApprovedResult,
   SourceDocumentSummary,
@@ -284,5 +285,13 @@ export function publishApprovedInventoryDocumentApi(documentId: string) {
     `/api/inventory/documents/${encodeURIComponent(documentId)}/publish-approved`,
     {},
     "No se pudo publicar el documento al inventario operativo.",
+  );
+}
+
+// Simulación de publicación (dry-run): GET, de solo lectura. No escribe nada.
+export function dryRunPublishApprovedInventoryDocumentApi(documentId: string) {
+  return getJson<DryRunPublishResult>(
+    `/api/inventory/documents/${encodeURIComponent(documentId)}/publish-approved/dry-run`,
+    "No se pudo simular la publicación del documento.",
   );
 }
