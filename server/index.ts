@@ -375,6 +375,28 @@ app.post("/api/inventory/documents/:id/analyze", async (request, response) => {
       return;
     }
 
+    const hasExistingTextExtraction = document.extractions.some(
+      (existingExtraction) => existingExtraction.extractionMethod === "TEXT",
+    );
+
+    if (hasExistingTextExtraction) {
+      await addInventoryDocumentIssue({
+        sourceDocumentId: documentId,
+        severity: "INFO",
+        issueType: "TEXT_ALREADY_EXTRACTED",
+        message:
+          "El documento ya tenía texto extraído. No se creó una extracción duplicada.",
+      });
+
+      const updatedDocument = await updateInventoryDocumentStatus(
+        documentId,
+        "PENDING_REVIEW",
+        "EXTRACTED",
+      );
+      response.json(updatedDocument);
+      return;
+    }
+
     try {
       const extraction = await extractPdfText(document.storedFilePath);
 

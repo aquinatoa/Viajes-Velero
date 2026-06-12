@@ -566,7 +566,10 @@ export function InventoryDocumentsPanel() {
               <div className="section-card__header compact">
                 <div>
                   <h4>Acciones de revisión</h4>
-                  <p>El análisis es un marcador de posición; la extracción real llegará después.</p>
+                  <p>
+                    El análisis extrae texto básico del PDF para revisión humana. No crea tarifas
+                    automáticamente.
+                  </p>
                 </div>
               </div>
 
