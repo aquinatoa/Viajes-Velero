@@ -281,6 +281,7 @@ export async function createInventoryDocumentStaging(
       currency: rate.currency ?? "EUR",
       pvpAmount: rate.pvpAmount ?? null,
       netAmount: rate.netAmount ?? null,
+      costAmount: rate.costAmount ?? null,
       rawText: rate.rawText ?? null,
       confidenceScore: confidence,
       reviewStatus: "PENDING",
