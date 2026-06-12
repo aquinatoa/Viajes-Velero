@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type {
+  AiDocumentAnalysisResult,
   CreateSourceDocumentInput,
   InventoryDocumentDetail,
   InventoryTargetType,
@@ -7,6 +8,7 @@ import type {
 } from "../../domain/documentImportTypes";
 import {
   analyzeInventoryDocumentApi,
+  analyzeInventoryDocumentWithAiApi,
   approveInventoryDocumentApi,
   createInventoryDocumentApi,
   getInventoryDocumentApi,
@@ -116,6 +118,8 @@ export function InventoryDocumentsPanel() {
   const [detail, setDetail] = useState<InventoryDocumentDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [actionInProgress, setActionInProgress] = useState<DocumentActionKey | null>(null);
+  const [aiResult, setAiResult] = useState<AiDocumentAnalysisResult | null>(null);
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -206,6 +210,7 @@ export function InventoryDocumentsPanel() {
   async function handleViewDetail(documentId: string) {
     setSelectedDocumentId(documentId);
     setDetail(null);
+    setAiResult(null);
     setErrorMessage(null);
     setFeedbackMessage(null);
     setDetailLoading(true);
@@ -221,7 +226,31 @@ export function InventoryDocumentsPanel() {
   function handleCloseDetail() {
     setSelectedDocumentId(null);
     setDetail(null);
+    setAiResult(null);
     setActionInProgress(null);
+  }
+
+  async function handleAiAnalyze() {
+    if (!selectedDocumentId) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setAiAnalyzing(true);
+
+    try {
+      const result = await analyzeInventoryDocumentWithAiApi(selectedDocumentId);
+      setAiResult(result);
+      setFeedbackMessage(
+        `Análisis IA ejecutado (modo ${result.mode}). Candidatos preliminares listos para revisión.`,
+      );
+      await refreshDetail(selectedDocumentId);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "No se pudo ejecutar el análisis IA del documento."));
+    } finally {
+      setAiAnalyzing(false);
+    }
   }
 
   async function handleDocumentAction(action: DocumentActionKey) {
@@ -577,10 +606,17 @@ export function InventoryDocumentsPanel() {
                 <button
                   type="button"
                   className="primary"
-                  disabled={actionInProgress !== null}
+                  disabled={actionInProgress !== null || aiAnalyzing}
                   onClick={() => void handleDocumentAction("analyze")}
                 >
                   {actionInProgress === "analyze" ? "Analizando..." : "Ejecutar análisis"}
+                </button>
+                <button
+                  type="button"
+                  disabled={actionInProgress !== null || aiAnalyzing}
+                  onClick={() => void handleAiAnalyze()}
+                >
+                  {aiAnalyzing ? "Analizando con IA..." : "Analizar con IA"}
                 </button>
                 <button
                   type="button"
@@ -604,6 +640,68 @@ export function InventoryDocumentsPanel() {
                   {actionInProgress === "publish" ? "Publicando..." : "Publicar"}
                 </button>
               </div>
+
+              {aiResult ? (
+                <div className="ai-result">
+                  <div className="section-card__header compact">
+                    <div>
+                      <h4>Análisis IA (candidatos preliminares)</h4>
+                      <p>
+                        Modo {aiResult.mode} · Confianza {Math.round(aiResult.confidence * 100)}% ·
+                        Sin guardar en staging
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <span>Resumen</span>
+                    <strong>{aiResult.documentSummary}</strong>
+                  </div>
+
+                  <div className="grid two">
+                    <div className="field">
+                      <span>Alojamiento detectado</span>
+                      <strong>
+                        {aiResult.detectedAccommodation?.accommodationName ?? "No detectado"}
+                      </strong>
+                    </div>
+                    <div className="field">
+                      <span>Actividades detectadas</span>
+                      <strong>{aiResult.detectedActivities.length}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Tarifas candidatas</span>
+                      <strong>{aiResult.candidateRates.length}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Suplementos candidatos</span>
+                      <strong>{aiResult.candidateSupplements.length}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Políticas candidatas</span>
+                      <strong>{aiResult.candidatePolicies.length}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Fechas especiales candidatas</span>
+                      <strong>{aiResult.candidateBlackoutDates.length}</strong>
+                    </div>
+                  </div>
+
+                  {aiResult.warnings.length > 0 ? (
+                    <>
+                      <span className="ai-result__label">Advertencias</span>
+                      <ul className="detail-list">
+                        {aiResult.warnings.map((warning, index) => (
+                          <li key={index}>{warning}</li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : null}
+
+                  <span className="ai-result__label">JSON devuelto</span>
+                  <pre className="extraction-text">{JSON.stringify(aiResult, null, 2)}</pre>
+                </div>
+              ) : null}
 
               <div className="section-card__header compact">
                 <div>

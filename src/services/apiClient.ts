@@ -1,4 +1,5 @@
 import type {
+  AiDocumentAnalysisResult,
   CreateSourceDocumentInput,
   InventoryDocumentDetail,
   SourceDocumentSummary,
@@ -200,6 +201,14 @@ export function analyzeInventoryDocumentApi(documentId: string) {
     `/api/inventory/documents/${encodeURIComponent(documentId)}/analyze`,
     {},
     "No se pudo analizar el documento de inventario.",
+  );
+}
+
+export function analyzeInventoryDocumentWithAiApi(documentId: string) {
+  return postJson<AiDocumentAnalysisResult>(
+    `/api/inventory/documents/${encodeURIComponent(documentId)}/ai-analyze`,
+    {},
+    "No se pudo ejecutar el análisis IA del documento.",
   );
 }
 

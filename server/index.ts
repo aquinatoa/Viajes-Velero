@@ -32,6 +32,7 @@ import {
 } from "./documentImportDb";
 import { saveInventoryDocumentFile } from "./documentStorage";
 import { extractPdfText } from "./pdfTextExtraction";
+import { analyzeDocumentText } from "./aiDocumentAnalysis";
 
 const app = express();
 const port = 8787;
@@ -451,6 +452,61 @@ app.post("/api/inventory/documents/:id/analyze", async (request, response) => {
     console.error("Error analyzing inventory document", error);
     response.status(500).json({
       error: "No se pudo analizar el documento de inventario.",
+    });
+  }
+});
+
+app.post("/api/inventory/documents/:id/ai-analyze", async (request, response) => {
+  try {
+    const documentId = String(request.params.id);
+    const document = await getInventoryDocumentDetail(documentId);
+
+    if (!document) {
+      response.status(404).json({
+        error: "Documento no encontrado.",
+      });
+      return;
+    }
+
+    // Buscar la última extracción con texto utilizable (TEXT u OCR).
+    // Las extracciones vienen ordenadas por fecha de creación descendente.
+    const textExtraction = document.extractions.find(
+      (extraction) =>
+        (extraction.extractionMethod === "TEXT" || extraction.extractionMethod === "OCR") &&
+        (extraction.rawText ?? "").trim().length > 0,
+    );
+
+    if (!textExtraction?.rawText) {
+      response.status(400).json({
+        error:
+          "El documento no tiene texto extraído. Ejecuta primero el análisis de texto del PDF antes del análisis IA.",
+      });
+      return;
+    }
+
+    const result = await analyzeDocumentText({
+      text: textExtraction.rawText,
+      context: {
+        targetType: document.targetType,
+        controlName: document.controlName,
+        controlLocation: document.controlLocation,
+        controlYear: document.controlYear,
+        controlCategory: document.controlCategory,
+      },
+    });
+
+    await addInventoryDocumentIssue({
+      sourceDocumentId: documentId,
+      severity: "INFO",
+      issueType: "AI_ANALYSIS_EXECUTED",
+      message: `Se ejecutó el análisis IA (${result.mode}). Generó candidatos preliminares para revisión humana; no se guardó nada en staging.`,
+    });
+
+    response.json(result);
+  } catch (error) {
+    console.error("Error running AI analysis on inventory document", error);
+    response.status(500).json({
+      error: "No se pudo ejecutar el análisis IA del documento de inventario.",
     });
   }
 });

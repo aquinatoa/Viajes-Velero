@@ -282,3 +282,84 @@ export interface InventoryDocumentDetail extends SourceDocumentSummary {
   stagingAccommodations: StagingAccommodation[];
   stagingActivities: StagingActivity[];
 }
+
+// ----------------------------------------------------------------------------
+// Contrato de salida del análisis IA (candidatos preliminares, NO definitivos).
+// Los candidatos se devuelven para revisión humana; nunca se publican
+// automáticamente al inventario operativo.
+// ----------------------------------------------------------------------------
+
+export type AiAnalysisMode = "mock" | "live";
+
+export interface AiDetectedAccommodation {
+  accommodationName?: string | null;
+  providerName?: string | null;
+  locality?: string | null;
+  province?: string | null;
+  country?: string | null;
+  categoryType?: string | null;
+  accommodationType?: string | null;
+}
+
+export interface AiDetectedActivity {
+  activityName: string;
+  supplierName?: string | null;
+  locationMain?: string | null;
+  activityType?: string | null;
+  durationText?: string | null;
+  descriptionText?: string | null;
+}
+
+export interface AiCandidateRate {
+  seasonName?: string | null;
+  year?: number | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  boardType?: string | null;
+  unitName?: string | null;
+  rateUnit?: string | null;
+  occupancyLabel?: string | null;
+  minNights?: number | null;
+  currency?: string | null;
+  pvpAmount?: number | null;
+  netAmount?: number | null;
+  rawText?: string | null;
+}
+
+export interface AiCandidateSupplement {
+  adjustmentType?: string | null;
+  concept: string;
+  amountType?: string | null;
+  amount?: number | null;
+  appliesPer?: string | null;
+  conditionText?: string | null;
+  rawText?: string | null;
+}
+
+export interface AiCandidatePolicy {
+  policyType?: string | null;
+  policyText: string;
+  rawText?: string | null;
+}
+
+export interface AiCandidateBlackoutDate {
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  availabilityStatus?: string | null;
+  reason?: string | null;
+  rawText?: string | null;
+}
+
+export interface AiDocumentAnalysisResult {
+  mode: AiAnalysisMode;
+  documentSummary: string;
+  detectedAccommodation: AiDetectedAccommodation | null;
+  detectedActivities: AiDetectedActivity[];
+  candidateRates: AiCandidateRate[];
+  candidateSupplements: AiCandidateSupplement[];
+  candidatePolicies: AiCandidatePolicy[];
+  candidateBlackoutDates: AiCandidateBlackoutDate[];
+  warnings: string[];
+  confidence: number;
+  rawModelOutput?: string | null;
+}
