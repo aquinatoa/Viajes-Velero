@@ -648,10 +648,7 @@ export function InventoryDocumentsPanel() {
                         <span> · Confianza {extraction.confidenceScore}</span>
                       ) : null}
                       {extraction.rawText ? (
-                        <>
-                          <br />
-                          <span>{extraction.rawText}</span>
-                        </>
+                        <pre className="extraction-text">{extraction.rawText}</pre>
                       ) : null}
                     </li>
                   ))}
