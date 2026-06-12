@@ -1,5 +1,6 @@
 import "./loadEnv";
 import express from "express";
+import multer from "multer";
 import type { SearchFilters } from "../src/domain/types";
 import { importRatesFromExcel } from "../prisma/importRates";
 import {
@@ -19,6 +20,7 @@ import {
 } from "./searchDb";
 import {
   approveInventoryDocument,
+  attachInventoryDocumentFile,
   createInventoryDocument,
   getInventoryDocumentDetail,
   listInventoryDocuments,
@@ -26,9 +28,17 @@ import {
   rejectInventoryDocument,
   updateInventoryDocumentStatus,
 } from "./documentImportDb";
+import { saveInventoryDocumentFile } from "./documentStorage";
 
 const app = express();
 const port = 8787;
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 25 * 1024 * 1024,
+  },
+});
 
 app.use(express.json());
 
@@ -62,12 +72,14 @@ app.get("/api/crm/auth/url", (_request, response) => {
 app.post("/api/crm/auth/exchange", async (request, response) => {
   try {
     const payload = request.body as { code?: string };
+
     if (!payload.code) {
       response.status(400).json({ error: "Falta el código de autorización de Zoho." });
       return;
     }
 
     const result = await exchangeZohoAuthCode(payload.code);
+
     response.json({
       ok: true,
       ...result,
@@ -146,10 +158,34 @@ app.post("/api/search/activities", async (request, response) => {
 
 app.post("/api/inventory/documents", async (request, response) => {
   try {
-    const document = await createInventoryDocument(request.body);
-    response.status(201).json(document);
+    const payload = request.body as {
+      targetType?: "ACCOMMODATION" | "ACTIVITY" | "MIXED" | "UNKNOWN";
+      controlName?: string;
+      controlLocation?: string;
+      controlYear?: number | null;
+      controlCategory?: string;
+      controlNotes?: string;
+    };
+
+    if (!payload.controlName?.trim()) {
+      response.status(400).json({
+        error: "Falta el nombre de control del documento.",
+      });
+      return;
+    }
+
+    const document = await createInventoryDocument({
+      targetType: payload.targetType ?? "UNKNOWN",
+      controlName: payload.controlName.trim(),
+      controlLocation: payload.controlLocation?.trim() || undefined,
+      controlYear: payload.controlYear ?? null,
+      controlCategory: payload.controlCategory?.trim() || undefined,
+      controlNotes: payload.controlNotes?.trim() || undefined,
+    });
+
+    response.json(document);
   } catch (error) {
-    console.error("Error creando documento de inventario", error);
+    console.error("Error creating inventory document", error);
     response.status(500).json({
       error: "No se pudo crear el documento de inventario.",
     });
@@ -161,39 +197,86 @@ app.get("/api/inventory/documents", async (_request, response) => {
     const documents = await listInventoryDocuments();
     response.json(documents);
   } catch (error) {
-    console.error("Error listando documentos de inventario", error);
+    console.error("Error listing inventory documents", error);
     response.status(500).json({
-      error: "No se pudieron listar los documentos de inventario.",
+      error: "No se pudieron cargar los documentos de inventario.",
     });
   }
 });
 
 app.get("/api/inventory/documents/:id", async (request, response) => {
   try {
-    const document = await getInventoryDocumentDetail(request.params.id);
+    const documentId = String(request.params.id);
+    const document = await getInventoryDocumentDetail(documentId);
 
     if (!document) {
       response.status(404).json({
-        error: "Documento de inventario no encontrado.",
+        error: "Documento no encontrado.",
       });
       return;
     }
 
     response.json(document);
   } catch (error) {
-    console.error("Error obteniendo detalle de documento de inventario", error);
+    console.error("Error reading inventory document", error);
     response.status(500).json({
-      error: "No se pudo obtener el detalle del documento de inventario.",
+      error: "No se pudo cargar el detalle del documento.",
     });
   }
 });
 
+app.post(
+  "/api/inventory/documents/:id/file",
+  upload.single("file"),
+  async (request, response) => {
+    try {
+      const documentId = String(request.params.id);
+
+      if (!request.file) {
+        response.status(400).json({
+          error: "No se recibió ningún archivo.",
+        });
+        return;
+      }
+
+      const existingDocument = await getInventoryDocumentDetail(documentId);
+
+      if (!existingDocument) {
+        response.status(404).json({
+          error: "Documento no encontrado.",
+        });
+        return;
+      }
+
+      const storedFile = await saveInventoryDocumentFile({
+        documentId,
+        originalFileName: request.file.originalname,
+        mimeType: request.file.mimetype,
+        buffer: request.file.buffer,
+      });
+
+      const updatedDocument = await attachInventoryDocumentFile({
+        documentId,
+        ...storedFile,
+      });
+
+      response.json(updatedDocument);
+    } catch (error) {
+      console.error("Error uploading inventory document file", error);
+      response.status(500).json({
+        error: "No se pudo subir el archivo del documento.",
+      });
+    }
+  },
+);
+
 app.post("/api/inventory/documents/:id/analyze", async (request, response) => {
   try {
-    const document = await markInventoryDocumentAsPendingReview(request.params.id);
+    const documentId = String(request.params.id);
+    const document = await markInventoryDocumentAsPendingReview(documentId);
     response.json(document);
   } catch (error) {
-    console.error("Error marcando documento como pendiente de revisión", error);
+    console.error("Error analyzing inventory document", error);
     response.status(500).json({
       error: "No se pudo analizar el documento de inventario.",
     });
@@ -202,10 +285,11 @@ app.post("/api/inventory/documents/:id/analyze", async (request, response) => {
 
 app.post("/api/inventory/documents/:id/approve", async (request, response) => {
   try {
-    const document = await approveInventoryDocument(request.params.id);
+    const documentId = String(request.params.id);
+    const document = await approveInventoryDocument(documentId);
     response.json(document);
   } catch (error) {
-    console.error("Error aprobando documento de inventario", error);
+    console.error("Error approving inventory document", error);
     response.status(500).json({
       error: "No se pudo aprobar el documento de inventario.",
     });
@@ -214,10 +298,11 @@ app.post("/api/inventory/documents/:id/approve", async (request, response) => {
 
 app.post("/api/inventory/documents/:id/reject", async (request, response) => {
   try {
-    const document = await rejectInventoryDocument(request.params.id);
+    const documentId = String(request.params.id);
+    const document = await rejectInventoryDocument(documentId);
     response.json(document);
   } catch (error) {
-    console.error("Error rechazando documento de inventario", error);
+    console.error("Error rejecting inventory document", error);
     response.status(500).json({
       error: "No se pudo rechazar el documento de inventario.",
     });
@@ -226,10 +311,11 @@ app.post("/api/inventory/documents/:id/reject", async (request, response) => {
 
 app.post("/api/inventory/documents/:id/publish", async (request, response) => {
   try {
-    const document = await updateInventoryDocumentStatus(request.params.id, "PUBLISHED");
+    const documentId = String(request.params.id);
+    const document = await updateInventoryDocumentStatus(documentId, "PUBLISHED");
     response.json(document);
   } catch (error) {
-    console.error("Error publicando documento de inventario", error);
+    console.error("Error publishing inventory document", error);
     response.status(500).json({
       error: "No se pudo publicar el documento de inventario.",
     });
@@ -284,6 +370,7 @@ app.post("/api/crm/opportunities/approve", async (request, response) => {
       dealId: string;
       approvedOptionNumber: number;
     };
+
     const result = await approveZohoOpportunityOption(payload);
     response.json(result);
   } catch (error) {

@@ -16,6 +16,15 @@ export interface CreateInventoryDocumentInput {
   fileHash?: string;
 }
 
+export interface AttachInventoryDocumentFileInput {
+  documentId: string;
+  originalFileName: string;
+  storedFilePath: string;
+  fileMimeType: string;
+  fileSizeBytes: number;
+  fileHash: string;
+}
+
 export async function createInventoryDocument(input: CreateInventoryDocumentInput) {
   return prisma.sourceDocument.create({
     data: {
@@ -30,6 +39,24 @@ export async function createInventoryDocument(input: CreateInventoryDocumentInpu
       fileSizeBytes: input.fileSizeBytes ?? null,
       storedFilePath: input.storedFilePath ?? null,
       fileHash: input.fileHash ?? null,
+      status: "UPLOADED",
+      extractionStatus: "NOT_STARTED",
+      requiresOcr: false,
+    },
+  });
+}
+
+export async function attachInventoryDocumentFile(input: AttachInventoryDocumentFileInput) {
+  return prisma.sourceDocument.update({
+    where: {
+      id: input.documentId,
+    },
+    data: {
+      originalFileName: input.originalFileName,
+      storedFilePath: input.storedFilePath,
+      fileMimeType: input.fileMimeType,
+      fileSizeBytes: input.fileSizeBytes,
+      fileHash: input.fileHash,
       status: "UPLOADED",
       extractionStatus: "NOT_STARTED",
       requiresOcr: false,

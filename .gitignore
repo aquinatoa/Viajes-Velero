@@ -10,3 +10,4 @@ dist/
 
 prisma/dev.db
 rae-zoho-migration/
+storage/
