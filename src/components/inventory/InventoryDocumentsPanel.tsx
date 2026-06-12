@@ -11,6 +11,7 @@ import {
   analyzeInventoryDocumentWithAiApi,
   approveInventoryDocumentApi,
   createInventoryDocumentApi,
+  createInventoryDocumentStagingApi,
   getInventoryDocumentApi,
   listInventoryDocumentsApi,
   publishInventoryDocumentApi,
@@ -120,6 +121,7 @@ export function InventoryDocumentsPanel() {
   const [actionInProgress, setActionInProgress] = useState<DocumentActionKey | null>(null);
   const [aiResult, setAiResult] = useState<AiDocumentAnalysisResult | null>(null);
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [stagingCreating, setStagingCreating] = useState(false);
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -250,6 +252,30 @@ export function InventoryDocumentsPanel() {
       setErrorMessage(getErrorMessage(error, "No se pudo ejecutar el análisis IA del documento."));
     } finally {
       setAiAnalyzing(false);
+    }
+  }
+
+  async function handleCreateStaging() {
+    if (!selectedDocumentId) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setStagingCreating(true);
+
+    try {
+      const result = await createInventoryDocumentStagingApi(selectedDocumentId);
+      setFeedbackMessage(
+        `Candidatos revisables creados: ${result.accommodations} alojamiento(s), ${result.rates} tarifa(s), ${result.adjustments} suplemento(s), ${result.policies} política(s), ${result.blackoutDates} fecha(s) especial(es) y ${result.activities} actividad(es).`,
+      );
+      await refreshDetail(selectedDocumentId);
+    } catch (error) {
+      setErrorMessage(
+        getErrorMessage(error, "No se pudieron crear los candidatos revisables del documento."),
+      );
+    } finally {
+      setStagingCreating(false);
     }
   }
 
@@ -613,10 +639,17 @@ export function InventoryDocumentsPanel() {
                 </button>
                 <button
                   type="button"
-                  disabled={actionInProgress !== null || aiAnalyzing}
+                  disabled={actionInProgress !== null || aiAnalyzing || stagingCreating}
                   onClick={() => void handleAiAnalyze()}
                 >
                   {aiAnalyzing ? "Analizando con IA..." : "Analizar con IA"}
+                </button>
+                <button
+                  type="button"
+                  disabled={actionInProgress !== null || aiAnalyzing || stagingCreating}
+                  onClick={() => void handleCreateStaging()}
+                >
+                  {stagingCreating ? "Creando candidatos..." : "Crear candidatos revisables"}
                 </button>
                 <button
                   type="button"
@@ -639,6 +672,68 @@ export function InventoryDocumentsPanel() {
                 >
                   {actionInProgress === "publish" ? "Publicando..." : "Publicar"}
                 </button>
+              </div>
+
+              <div className="section-card__header compact">
+                <div>
+                  <h4>Candidatos revisables (staging)</h4>
+                  <p>Pendientes de revisión humana. No publicados al inventario operativo.</p>
+                </div>
+              </div>
+
+              <div className="grid two">
+                <div className="field">
+                  <span>Alojamientos</span>
+                  <strong>{detail.stagingAccommodations.length}</strong>
+                </div>
+                <div className="field">
+                  <span>Tarifas</span>
+                  <strong>
+                    {detail.stagingAccommodations.reduce(
+                      (total, accommodation) => total + accommodation.rates.length,
+                      0,
+                    ) +
+                      detail.stagingActivities.reduce(
+                        (total, activity) => total + activity.rates.length,
+                        0,
+                      )}
+                  </strong>
+                </div>
+                <div className="field">
+                  <span>Suplementos</span>
+                  <strong>
+                    {detail.stagingAccommodations.reduce(
+                      (total, accommodation) => total + accommodation.adjustments.length,
+                      0,
+                    )}
+                  </strong>
+                </div>
+                <div className="field">
+                  <span>Políticas</span>
+                  <strong>
+                    {detail.stagingAccommodations.reduce(
+                      (total, accommodation) => total + accommodation.policies.length,
+                      0,
+                    ) +
+                      detail.stagingActivities.reduce(
+                        (total, activity) => total + activity.policies.length,
+                        0,
+                      )}
+                  </strong>
+                </div>
+                <div className="field">
+                  <span>Fechas especiales</span>
+                  <strong>
+                    {detail.stagingAccommodations.reduce(
+                      (total, accommodation) => total + accommodation.blackoutDates.length,
+                      0,
+                    )}
+                  </strong>
+                </div>
+                <div className="field">
+                  <span>Actividades</span>
+                  <strong>{detail.stagingActivities.length}</strong>
+                </div>
               </div>
 
               {aiResult ? (

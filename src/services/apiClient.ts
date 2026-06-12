@@ -1,6 +1,7 @@
 import type {
   AiDocumentAnalysisResult,
   CreateSourceDocumentInput,
+  CreateStagingResult,
   InventoryDocumentDetail,
   SourceDocumentSummary,
 } from "../domain/documentImportTypes";
@@ -209,6 +210,14 @@ export function analyzeInventoryDocumentWithAiApi(documentId: string) {
     `/api/inventory/documents/${encodeURIComponent(documentId)}/ai-analyze`,
     {},
     "No se pudo ejecutar el análisis IA del documento.",
+  );
+}
+
+export function createInventoryDocumentStagingApi(documentId: string) {
+  return postJson<CreateStagingResult>(
+    `/api/inventory/documents/${encodeURIComponent(documentId)}/create-staging`,
+    {},
+    "No se pudieron crear los candidatos revisables del documento.",
   );
 }
 

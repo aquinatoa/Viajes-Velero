@@ -363,3 +363,13 @@ export interface AiDocumentAnalysisResult {
   confidence: number;
   rawModelOutput?: string | null;
 }
+
+export interface CreateStagingResult {
+  accommodations: number;
+  rates: number;
+  adjustments: number;
+  policies: number;
+  blackoutDates: number;
+  activities: number;
+  warnings: string[];
+}

@@ -24,7 +24,9 @@ import {
   addInventoryDocumentIssue,
   approveInventoryDocument,
   attachInventoryDocumentFile,
+  countInventoryDocumentStaging,
   createInventoryDocument,
+  createInventoryDocumentStaging,
   getInventoryDocumentDetail,
   listInventoryDocuments,
   rejectInventoryDocument,
@@ -507,6 +509,82 @@ app.post("/api/inventory/documents/:id/ai-analyze", async (request, response) =>
     console.error("Error running AI analysis on inventory document", error);
     response.status(500).json({
       error: "No se pudo ejecutar el análisis IA del documento de inventario.",
+    });
+  }
+});
+
+app.post("/api/inventory/documents/:id/create-staging", async (request, response) => {
+  try {
+    const documentId = String(request.params.id);
+    const document = await getInventoryDocumentDetail(documentId);
+
+    if (!document) {
+      response.status(404).json({
+        error: "Documento no encontrado.",
+      });
+      return;
+    }
+
+    const textExtraction = document.extractions.find(
+      (extraction) =>
+        (extraction.extractionMethod === "TEXT" || extraction.extractionMethod === "OCR") &&
+        (extraction.rawText ?? "").trim().length > 0,
+    );
+
+    if (!textExtraction?.rawText) {
+      response.status(400).json({
+        error:
+          "El documento no tiene texto extraído. Ejecuta primero el análisis de texto del PDF antes de crear candidatos.",
+      });
+      return;
+    }
+
+    const existingStaging = await countInventoryDocumentStaging(documentId);
+
+    if (existingStaging.total > 0) {
+      response.status(409).json({
+        error: "Ya existen candidatos revisables para este documento.",
+      });
+      return;
+    }
+
+    const analysis = await analyzeDocumentText({
+      text: textExtraction.rawText,
+      context: {
+        targetType: document.targetType,
+        controlName: document.controlName,
+        controlLocation: document.controlLocation,
+        controlYear: document.controlYear,
+        controlCategory: document.controlCategory,
+      },
+    });
+
+    const result = await createInventoryDocumentStaging(documentId, analysis, {
+      targetType: document.targetType,
+      controlName: document.controlName,
+    });
+
+    await addInventoryDocumentIssue({
+      sourceDocumentId: documentId,
+      severity: "INFO",
+      issueType: "STAGING_CANDIDATES_CREATED",
+      message: `Se crearon candidatos revisables: ${result.accommodations} alojamiento(s), ${result.rates} tarifa(s), ${result.adjustments} suplemento(s), ${result.policies} política(s), ${result.blackoutDates} fecha(s) especial(es) y ${result.activities} actividad(es). Pendientes de revisión humana; no se publicó nada.`,
+    });
+
+    for (const warning of result.warnings) {
+      await addInventoryDocumentIssue({
+        sourceDocumentId: documentId,
+        severity: "WARNING",
+        issueType: "STAGING_AMBIGUOUS_DATA",
+        message: warning,
+      });
+    }
+
+    response.json(result);
+  } catch (error) {
+    console.error("Error creating inventory document staging", error);
+    response.status(500).json({
+      error: "No se pudieron crear los candidatos revisables del documento.",
     });
   }
 });
