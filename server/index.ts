@@ -27,11 +27,11 @@ import {
   createInventoryDocument,
   getInventoryDocumentDetail,
   listInventoryDocuments,
-  markInventoryDocumentAsPendingReview,
   rejectInventoryDocument,
   updateInventoryDocumentStatus,
 } from "./documentImportDb";
 import { saveInventoryDocumentFile } from "./documentStorage";
+import { extractPdfText } from "./pdfTextExtraction";
 
 const app = express();
 const port = 8787;
@@ -349,22 +349,82 @@ app.post("/api/inventory/documents/:id/analyze", async (request, response) => {
       return;
     }
 
-    await addInventoryDocumentExtraction({
-      sourceDocumentId: documentId,
-      extractionMethod: "MANUAL",
-      rawText: "Análisis pendiente de implementar. Registro preparado para revisión humana.",
-    });
+    if (!document.storedFilePath) {
+      response.status(400).json({
+        error: "El documento no tiene un archivo asociado. Sube un archivo antes de analizarlo.",
+      });
+      return;
+    }
 
-    await addInventoryDocumentIssue({
-      sourceDocumentId: documentId,
-      severity: "INFO",
-      issueType: "ANALYSIS_PLACEHOLDER",
-      message:
-        "El documento quedó marcado como pendiente de revisión. La extracción automática se implementará en una fase posterior.",
-    });
+    const mimeType = (document.fileMimeType ?? "").toLowerCase();
+    const fileName = (document.originalFileName ?? "").toLowerCase();
+    const isPdf = mimeType.includes("pdf") || fileName.endsWith(".pdf");
 
-    const updatedDocument = await markInventoryDocumentAsPendingReview(documentId);
-    response.json(updatedDocument);
+    if (!isPdf) {
+      await addInventoryDocumentIssue({
+        sourceDocumentId: documentId,
+        severity: "INFO",
+        issueType: "EXTRACTION_PENDING_FOR_TYPE",
+        message: `La extracción automática para archivos de tipo "${
+          document.fileMimeType ?? "desconocido"
+        }" queda pendiente. Por ahora solo se procesan documentos PDF.`,
+      });
+
+      const updatedDocument = await updateInventoryDocumentStatus(documentId, "PENDING_REVIEW");
+      response.json(updatedDocument);
+      return;
+    }
+
+    try {
+      const extraction = await extractPdfText(document.storedFilePath);
+
+      if (extraction.hasText) {
+        await addInventoryDocumentExtraction({
+          sourceDocumentId: documentId,
+          extractionMethod: "TEXT",
+          rawText: extraction.text,
+        });
+
+        const updatedDocument = await updateInventoryDocumentStatus(
+          documentId,
+          "PENDING_REVIEW",
+          "EXTRACTED",
+        );
+        response.json(updatedDocument);
+        return;
+      }
+
+      await addInventoryDocumentIssue({
+        sourceDocumentId: documentId,
+        severity: "WARNING",
+        issueType: "NO_TEXT_LAYER",
+        message:
+          "No se pudo extraer texto del PDF. Puede tratarse de un documento escaneado que requiere OCR en una fase posterior.",
+      });
+
+      const updatedDocument = await updateInventoryDocumentStatus(
+        documentId,
+        "PENDING_REVIEW",
+        "NEEDS_OCR",
+      );
+      response.json(updatedDocument);
+    } catch (extractionError) {
+      console.error("Error extracting PDF text", extractionError);
+
+      await addInventoryDocumentIssue({
+        sourceDocumentId: documentId,
+        severity: "ERROR",
+        issueType: "PDF_EXTRACTION_FAILED",
+        message: "No se pudo procesar el PDF para extraer su texto. Revisa el archivo subido.",
+      });
+
+      const updatedDocument = await updateInventoryDocumentStatus(
+        documentId,
+        "PENDING_REVIEW",
+        "FAILED",
+      );
+      response.json(updatedDocument);
+    }
   } catch (error) {
     console.error("Error analyzing inventory document", error);
     response.status(500).json({
