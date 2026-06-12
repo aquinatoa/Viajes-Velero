@@ -1,5 +1,6 @@
 import "./loadEnv";
 import express from "express";
+import cors from "cors";
 import multer from "multer";
 import type { SearchFilters } from "../src/domain/types";
 import { importRatesFromExcel } from "../prisma/importRates";
@@ -8,9 +9,9 @@ import {
   createZohoOpportunity,
   exchangeZohoAuthCode,
   getZohoAuthStatus,
-  ZohoReauthRequiredError,
   getZohoAuthUrl,
   searchZohoOpportunitiesByEmail,
+  ZohoReauthRequiredError,
 } from "./zoho";
 import {
   getImportedCatalogDb,
@@ -19,6 +20,8 @@ import {
   searchActivitiesDb,
 } from "./searchDb";
 import {
+  addInventoryDocumentExtraction,
+  addInventoryDocumentIssue,
   approveInventoryDocument,
   attachInventoryDocumentFile,
   createInventoryDocument,
@@ -39,6 +42,12 @@ const upload = multer({
     fileSize: 25 * 1024 * 1024,
   },
 });
+
+app.use(
+  cors({
+    origin: ["http://localhost:5173", "http://localhost:5174"],
+  }),
+);
 
 app.use(express.json());
 
@@ -74,7 +83,9 @@ app.post("/api/crm/auth/exchange", async (request, response) => {
     const payload = request.body as { code?: string };
 
     if (!payload.code) {
-      response.status(400).json({ error: "Falta el código de autorización de Zoho." });
+      response.status(400).json({
+        error: "Falta el código de autorización de Zoho.",
+      });
       return;
     }
 
@@ -156,6 +167,62 @@ app.post("/api/search/activities", async (request, response) => {
   }
 });
 
+app.post("/api/crm/opportunities/new", async (request, response) => {
+  try {
+    const payload = request.body as {
+      contact: {
+        email: string;
+        first_name: string;
+        last_name: string;
+        full_name: string;
+      };
+      account: {
+        crm_account_id?: string | null;
+      };
+      opportunity: {
+        opportunity_name?: string;
+        destination?: string;
+        destination_country?: string;
+        date_from?: string;
+        date_to?: string;
+        participants?: number | null;
+        teachers?: number | null;
+        group_type?: string;
+      };
+      proposalOptions: unknown;
+    };
+
+    const result = await createZohoOpportunity(payload);
+    response.json(result);
+  } catch (error) {
+    crmErrorResponse(error, response, "No se pudo crear el trato en Zoho.");
+  }
+});
+
+app.get("/api/crm/opportunities/search", async (request, response) => {
+  try {
+    const email = String(request.query.email ?? "");
+    const result = await searchZohoOpportunitiesByEmail(email);
+    response.json({ opportunities: result });
+  } catch (error) {
+    crmErrorResponse(error, response, "No se pudieron buscar tratos en Zoho.");
+  }
+});
+
+app.post("/api/crm/opportunities/approve", async (request, response) => {
+  try {
+    const payload = request.body as {
+      dealId: string;
+      approvedOptionNumber: number;
+    };
+
+    const result = await approveZohoOpportunityOption(payload);
+    response.json(result);
+  } catch (error) {
+    crmErrorResponse(error, response, "No se pudo actualizar el trato en Zoho.");
+  }
+});
+
 app.post("/api/inventory/documents", async (request, response) => {
   try {
     const payload = request.body as {
@@ -177,10 +244,10 @@ app.post("/api/inventory/documents", async (request, response) => {
     const document = await createInventoryDocument({
       targetType: payload.targetType ?? "UNKNOWN",
       controlName: payload.controlName.trim(),
-      controlLocation: payload.controlLocation?.trim() || undefined,
-      controlYear: payload.controlYear ?? null,
-      controlCategory: payload.controlCategory?.trim() || undefined,
-      controlNotes: payload.controlNotes?.trim() || undefined,
+      controlLocation: payload.controlLocation,
+      controlYear: payload.controlYear,
+      controlCategory: payload.controlCategory,
+      controlNotes: payload.controlNotes,
     });
 
     response.json(document);
@@ -218,9 +285,9 @@ app.get("/api/inventory/documents/:id", async (request, response) => {
 
     response.json(document);
   } catch (error) {
-    console.error("Error reading inventory document", error);
+    console.error("Error getting inventory document detail", error);
     response.status(500).json({
-      error: "No se pudo cargar el detalle del documento.",
+      error: "No se pudo cargar el detalle del documento de inventario.",
     });
   }
 });
@@ -273,8 +340,31 @@ app.post(
 app.post("/api/inventory/documents/:id/analyze", async (request, response) => {
   try {
     const documentId = String(request.params.id);
-    const document = await markInventoryDocumentAsPendingReview(documentId);
-    response.json(document);
+    const document = await getInventoryDocumentDetail(documentId);
+
+    if (!document) {
+      response.status(404).json({
+        error: "Documento no encontrado.",
+      });
+      return;
+    }
+
+    await addInventoryDocumentExtraction({
+      sourceDocumentId: documentId,
+      extractionMethod: "MANUAL",
+      rawText: "Análisis pendiente de implementar. Registro preparado para revisión humana.",
+    });
+
+    await addInventoryDocumentIssue({
+      sourceDocumentId: documentId,
+      severity: "INFO",
+      issueType: "ANALYSIS_PLACEHOLDER",
+      message:
+        "El documento quedó marcado como pendiente de revisión. La extracción automática se implementará en una fase posterior.",
+    });
+
+    const updatedDocument = await markInventoryDocumentAsPendingReview(documentId);
+    response.json(updatedDocument);
   } catch (error) {
     console.error("Error analyzing inventory document", error);
     response.status(500).json({
@@ -286,8 +376,8 @@ app.post("/api/inventory/documents/:id/analyze", async (request, response) => {
 app.post("/api/inventory/documents/:id/approve", async (request, response) => {
   try {
     const documentId = String(request.params.id);
-    const document = await approveInventoryDocument(documentId);
-    response.json(document);
+    const updatedDocument = await approveInventoryDocument(documentId);
+    response.json(updatedDocument);
   } catch (error) {
     console.error("Error approving inventory document", error);
     response.status(500).json({
@@ -299,8 +389,8 @@ app.post("/api/inventory/documents/:id/approve", async (request, response) => {
 app.post("/api/inventory/documents/:id/reject", async (request, response) => {
   try {
     const documentId = String(request.params.id);
-    const document = await rejectInventoryDocument(documentId);
-    response.json(document);
+    const updatedDocument = await rejectInventoryDocument(documentId);
+    response.json(updatedDocument);
   } catch (error) {
     console.error("Error rejecting inventory document", error);
     response.status(500).json({
@@ -312,69 +402,13 @@ app.post("/api/inventory/documents/:id/reject", async (request, response) => {
 app.post("/api/inventory/documents/:id/publish", async (request, response) => {
   try {
     const documentId = String(request.params.id);
-    const document = await updateInventoryDocumentStatus(documentId, "PUBLISHED");
-    response.json(document);
+    const updatedDocument = await updateInventoryDocumentStatus(documentId, "PUBLISHED");
+    response.json(updatedDocument);
   } catch (error) {
     console.error("Error publishing inventory document", error);
     response.status(500).json({
       error: "No se pudo publicar el documento de inventario.",
     });
-  }
-});
-
-app.post("/api/crm/opportunities/new", async (request, response) => {
-  try {
-    const payload = request.body as {
-      contact: {
-        email: string;
-        first_name: string;
-        last_name: string;
-        full_name: string;
-      };
-      account: {
-        crm_account_id?: string | null;
-      };
-      opportunity: {
-        opportunity_name?: string;
-        destination?: string;
-        destination_country?: string;
-        date_from?: string;
-        date_to?: string;
-        participants?: number | null;
-        teachers?: number | null;
-        group_type?: string;
-      };
-      proposalOptions: unknown;
-    };
-
-    const result = await createZohoOpportunity(payload);
-    response.json(result);
-  } catch (error) {
-    crmErrorResponse(error, response, "No se pudo crear la oportunidad en Zoho.");
-  }
-});
-
-app.get("/api/crm/opportunities/search", async (request, response) => {
-  try {
-    const email = String(request.query.email ?? "");
-    const result = await searchZohoOpportunitiesByEmail(email);
-    response.json({ opportunities: result });
-  } catch (error) {
-    crmErrorResponse(error, response, "No se pudieron buscar oportunidades en Zoho.");
-  }
-});
-
-app.post("/api/crm/opportunities/approve", async (request, response) => {
-  try {
-    const payload = request.body as {
-      dealId: string;
-      approvedOptionNumber: number;
-    };
-
-    const result = await approveZohoOpportunityOption(payload);
-    response.json(result);
-  } catch (error) {
-    crmErrorResponse(error, response, "No se pudo actualizar la oportunidad en Zoho.");
   }
 });
 

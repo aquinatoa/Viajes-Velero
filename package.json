@@ -16,6 +16,7 @@
   "dependencies": {
     "@prisma/client": "^6.6.0",
     "@types/express": "^5.0.6",
+    "cors": "^2.8.6",
     "express": "^5.2.1",
     "multer": "^2.1.1",
     "react": "^19.1.0",
@@ -24,6 +25,7 @@
     "zod": "^3.24.3"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
     "@types/multer": "^2.1.0",
     "@types/node": "^24.7.2",
     "@types/react": "^19.1.2",
