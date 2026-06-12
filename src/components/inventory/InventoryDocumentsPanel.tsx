@@ -243,6 +243,193 @@ const stagingReviewStatusOptions: { value: StagingReviewStatus; label: string }[
   { value: "NEEDS_CHANGES", label: "Requiere cambios" },
 ];
 
+const reviewStatusOrder: StagingReviewStatus[] = [
+  "PENDING",
+  "APPROVED",
+  "REJECTED",
+  "NEEDS_CHANGES",
+];
+
+interface QualitySummary {
+  /** Conteo de candidatos por estado de revisión (todas las entidades staging). */
+  counts: Record<string, number>;
+  totalCandidates: number;
+  /** Advertencias de calidad calculadas antes de publicar (solo lectura). */
+  warnings: string[];
+}
+
+function isApprovedReview(status: unknown): boolean {
+  return String(status) === "APPROVED";
+}
+
+/**
+ * Calcula un resumen de control de calidad a partir del detalle del documento.
+ * Es de solo lectura: no modifica datos, no publica nada y refleja la misma
+ * lógica que aplica el backend al publicar (sin ejecutarla).
+ */
+function computeQualitySummary(detail: InventoryDocumentDetail): QualitySummary {
+  const counts: Record<string, number> = {
+    PENDING: 0,
+    APPROVED: 0,
+    REJECTED: 0,
+    NEEDS_CHANGES: 0,
+  };
+  let totalCandidates = 0;
+
+  const tally = (status: unknown) => {
+    const key = String(status ?? "PENDING");
+    counts[key] = (counts[key] ?? 0) + 1;
+    totalCandidates += 1;
+  };
+
+  // El backend solo omite por año cuando no hay año en la tarifa NI año de
+  // control en el documento; reflejamos esa misma condición para no alarmar.
+  const hasControlYear = detail.controlYear != null;
+
+  let approvedRatesNoPrice = 0;
+  let approvedRatesNoCurrency = 0;
+  let approvedRatesNoYear = 0;
+  let orphanApprovedRates = 0;
+  let foldedPolicies = 0;
+  let foldedAdjustments = 0;
+  let foldedBlackouts = 0;
+
+  for (const accommodation of detail.stagingAccommodations) {
+    tally(accommodation.reviewStatus);
+    const parentApproved = isApprovedReview(accommodation.reviewStatus);
+
+    for (const rate of accommodation.rates) {
+      tally(rate.reviewStatus);
+      if (!isApprovedReview(rate.reviewStatus)) {
+        continue;
+      }
+      const hasPrice = rate.pvpAmount != null || rate.netAmount != null;
+      if (!hasPrice) approvedRatesNoPrice += 1;
+      if (!rate.currency || String(rate.currency).trim() === "") approvedRatesNoCurrency += 1;
+      if (rate.year == null && !hasControlYear) approvedRatesNoYear += 1;
+      if (!parentApproved) orphanApprovedRates += 1;
+    }
+
+    for (const adjustment of accommodation.adjustments) {
+      tally(adjustment.reviewStatus);
+      if (isApprovedReview(adjustment.reviewStatus) && parentApproved) foldedAdjustments += 1;
+    }
+    for (const policy of accommodation.policies) {
+      tally(policy.reviewStatus);
+      if (isApprovedReview(policy.reviewStatus) && parentApproved) foldedPolicies += 1;
+    }
+    for (const blackout of accommodation.blackoutDates) {
+      tally(blackout.reviewStatus);
+      if (isApprovedReview(blackout.reviewStatus) && parentApproved) foldedBlackouts += 1;
+    }
+  }
+
+  for (const activity of detail.stagingActivities) {
+    tally(activity.reviewStatus);
+    const parentApproved = isApprovedReview(activity.reviewStatus);
+
+    for (const rate of activity.rates) {
+      tally(rate.reviewStatus);
+      if (!isApprovedReview(rate.reviewStatus)) {
+        continue;
+      }
+      if (rate.salePvpAmount == null) approvedRatesNoPrice += 1;
+      if (!rate.currency || String(rate.currency).trim() === "") approvedRatesNoCurrency += 1;
+      if (rate.year == null && !hasControlYear) approvedRatesNoYear += 1;
+      if (!parentApproved) orphanApprovedRates += 1;
+    }
+
+    for (const policy of activity.policies) {
+      tally(policy.reviewStatus);
+      if (isApprovedReview(policy.reviewStatus) && parentApproved) foldedPolicies += 1;
+    }
+  }
+
+  const warnings: string[] = [];
+  if (approvedRatesNoPrice > 0) {
+    warnings.push(
+      `Hay ${approvedRatesNoPrice} tarifa(s) aprobada(s) sin precio (PVP ni neto); se omitirán al publicar.`,
+    );
+  }
+  if (approvedRatesNoCurrency > 0) {
+    warnings.push(
+      `Hay ${approvedRatesNoCurrency} tarifa(s) aprobada(s) sin moneda; se omitirán al publicar.`,
+    );
+  }
+  if (approvedRatesNoYear > 0) {
+    warnings.push(
+      `Hay ${approvedRatesNoYear} tarifa(s) aprobada(s) sin año y el documento no tiene año de control; se omitirán al publicar.`,
+    );
+  }
+  if (orphanApprovedRates > 0) {
+    warnings.push(
+      `Hay ${orphanApprovedRates} tarifa(s) aprobada(s) cuyo alojamiento o actividad no está aprobado; no se publicarán.`,
+    );
+  }
+  const foldedTotal = foldedPolicies + foldedAdjustments + foldedBlackouts;
+  if (foldedTotal > 0) {
+    warnings.push(
+      `Se publicarán como texto libre ${foldedPolicies} política(s), ${foldedAdjustments} suplemento(s) y ${foldedBlackouts} fecha(s) especial(es); se pierde su estructura.`,
+    );
+  }
+  const pending = (counts.PENDING ?? 0) + (counts.NEEDS_CHANGES ?? 0);
+  if (pending > 0) {
+    warnings.push(
+      `Hay ${pending} candidato(s) pendiente(s) o que requieren cambios sin revisar.`,
+    );
+  }
+
+  return { counts, totalCandidates, warnings };
+}
+
+interface QualityControlPanelProps {
+  summary: QualitySummary;
+}
+
+/**
+ * Resumen visual de control de calidad: conteos por estado de revisión y
+ * advertencias previas a la publicación. No publica ni modifica nada.
+ */
+function QualityControlPanel(props: QualityControlPanelProps) {
+  const { counts, totalCandidates, warnings } = props.summary;
+
+  return (
+    <div className="qc-panel">
+      <div className="qc-panel__head">
+        <strong>Control de calidad</strong>
+        <span className="qc-panel__total">{totalCandidates} candidato(s)</span>
+      </div>
+
+      <div className="qc-counts">
+        {reviewStatusOrder.map((status) => (
+          <span className={`qc-count qc-count--${status.toLowerCase()}`} key={status}>
+            {stagingReviewStatusLabels[status] ?? status}: <strong>{counts[status] ?? 0}</strong>
+          </span>
+        ))}
+      </div>
+
+      {warnings.length > 0 ? (
+        <div className="qc-warnings" role="status">
+          <span className="ai-result__label">Antes de publicar, revisa:</span>
+          <ul className="detail-list">
+            {warnings.map((warning, index) => (
+              <li key={index}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="qc-panel__ok">Sin alertas de calidad detectadas.</p>
+      )}
+
+      <p className="qc-panel__note">
+        Recuerda: un candidato "Aprobado" todavía no está en el inventario operativo hasta que
+        pulses "Publicar aprobados". Que el staging aparezca como "No publicado" es normal: no es
+        un error.
+      </p>
+    </div>
+  );
+}
+
 type StagingFieldType = "text" | "number" | "date";
 
 interface StagingFieldDef {
@@ -1135,6 +1322,11 @@ export function InventoryDocumentsPanel() {
                   <strong>{detail.stagingActivities.length}</strong>
                 </div>
               </div>
+
+              {detail.stagingAccommodations.length > 0 ||
+              detail.stagingActivities.length > 0 ? (
+                <QualityControlPanel summary={computeQualitySummary(detail)} />
+              ) : null}
 
               {detail.stagingAccommodations.length === 0 &&
               detail.stagingActivities.length === 0 ? (
