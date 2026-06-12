@@ -80,6 +80,27 @@ npm run prisma:seed
 npm run prisma:import-rates
 ```
 
+## Extracción de texto de documentos PDF
+
+El módulo documental de inventario incluye extracción básica de texto (sin IA y sin OCR) para los archivos PDF ya subidos. La lógica está en `server/pdfTextExtraction.ts` y se ejecuta desde `POST /api/inventory/documents/:id/analyze`:
+
+- si el documento no tiene archivo, la API responde con un error claro
+- si el archivo no es PDF, se registra una incidencia `INFO` y queda pendiente
+- si es PDF con capa de texto, se guarda una `DocumentExtraction` con `extractionMethod: "TEXT"`
+- si es PDF escaneado sin texto, se registra una incidencia `WARNING` y `extractionStatus` pasa a `NEEDS_OCR`
+
+Usa la dependencia [`pdfjs-dist`](https://www.npmjs.com/package/pdfjs-dist) (build *legacy* para Node).
+
+### Nota de instalación tras certificado TLS corporativo
+
+En equipos con interceptación TLS corporativa, `npm install` puede fallar con `UNABLE_TO_VERIFY_LEAF_SIGNATURE`. La solución segura es usar el almacén de certificados del sistema (no desactivar la verificación):
+
+```bash
+NODE_OPTIONS=--use-system-ca npm install
+```
+
+No usar `npm audit fix --force` ni desactivar `strict-ssl`.
+
 ## Importación inicial desde Excel
 
 Se añadió un importador real en `prisma/importRates.ts` para cargar:
