@@ -1,12 +1,18 @@
 import { useEffect, useState } from "react";
 import type {
   CreateSourceDocumentInput,
+  InventoryDocumentDetail,
   InventoryTargetType,
   SourceDocumentSummary,
 } from "../../domain/documentImportTypes";
 import {
+  analyzeInventoryDocumentApi,
+  approveInventoryDocumentApi,
   createInventoryDocumentApi,
+  getInventoryDocumentApi,
   listInventoryDocumentsApi,
+  publishInventoryDocumentApi,
+  rejectInventoryDocumentApi,
   uploadInventoryDocumentFileApi,
 } from "../../services/apiClient";
 
@@ -36,6 +42,23 @@ const extractionStatusLabels: Record<string, string> = {
   NEEDS_OCR: "Requiere OCR",
 };
 
+const extractionMethodLabels: Record<string, string> = {
+  TEXT: "Texto",
+  TABLE: "Tabla",
+  OCR: "OCR",
+  AI: "IA",
+  MANUAL: "Manual",
+};
+
+const issueSeverityLabels: Record<string, string> = {
+  INFO: "Información",
+  WARNING: "Aviso",
+  ERROR: "Error",
+  CRITICAL: "Crítico",
+};
+
+type DocumentActionKey = "analyze" | "approve" | "reject" | "publish";
+
 const initialForm: CreateSourceDocumentInput = {
   targetType: "ACCOMMODATION",
   controlName: "",
@@ -45,6 +68,42 @@ const initialForm: CreateSourceDocumentInput = {
   controlNotes: "",
 };
 
+function formatDateTime(value?: string | null) {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return date.toLocaleString();
+}
+
+function formatFileSize(bytes?: number | null) {
+  if (bytes == null) {
+    return "-";
+  }
+
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  const kilobytes = bytes / 1024;
+
+  if (kilobytes < 1024) {
+    return `${Math.round(kilobytes)} KB`;
+  }
+
+  return `${(kilobytes / 1024).toFixed(2)} MB`;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export function InventoryDocumentsPanel() {
   const [documents, setDocuments] = useState<SourceDocumentSummary[]>([]);
   const [form, setForm] = useState<CreateSourceDocumentInput>(initialForm);
@@ -53,11 +112,21 @@ export function InventoryDocumentsPanel() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<InventoryDocumentDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [actionInProgress, setActionInProgress] = useState<DocumentActionKey | null>(null);
+
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+
   async function loadDocuments() {
     setLoading(true);
     try {
       const result = await listInventoryDocumentsApi();
       setDocuments(result);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "No se pudieron cargar los documentos."));
     } finally {
       setLoading(false);
     }
@@ -67,11 +136,19 @@ export function InventoryDocumentsPanel() {
     void loadDocuments();
   }, []);
 
+  async function refreshDetail(documentId: string) {
+    const updatedDetail = await getInventoryDocumentApi(documentId);
+    setDetail(updatedDetail);
+    return updatedDetail;
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setErrorMessage(null);
+    setFeedbackMessage(null);
 
     if (!form.controlName.trim()) {
-      alert("Indica el nombre del alojamiento, actividad o proveedor.");
+      setErrorMessage("Indica el nombre del alojamiento, actividad o proveedor.");
       return;
     }
 
@@ -87,9 +164,10 @@ export function InventoryDocumentsPanel() {
       });
 
       setForm(initialForm);
+      setFeedbackMessage("Documento registrado correctamente.");
       await loadDocuments();
     } catch (error) {
-      alert(error instanceof Error ? error.message : "No se pudo crear el documento.");
+      setErrorMessage(getErrorMessage(error, "No se pudo crear el documento."));
     } finally {
       setSaving(false);
     }
@@ -97,9 +175,11 @@ export function InventoryDocumentsPanel() {
 
   async function handleUpload(documentId: string) {
     const file = selectedFiles[documentId];
+    setErrorMessage(null);
+    setFeedbackMessage(null);
 
     if (!file) {
-      alert("Selecciona un archivo antes de subirlo.");
+      setErrorMessage("Selecciona un archivo antes de subirlo.");
       return;
     }
 
@@ -110,12 +190,70 @@ export function InventoryDocumentsPanel() {
         ...current,
         [documentId]: undefined,
       }));
+      setFeedbackMessage("Archivo subido correctamente.");
       await loadDocuments();
-      alert("Archivo subido correctamente.");
+
+      if (selectedDocumentId === documentId) {
+        await refreshDetail(documentId);
+      }
     } catch (error) {
-      alert(error instanceof Error ? error.message : "No se pudo subir el archivo.");
+      setErrorMessage(getErrorMessage(error, "No se pudo subir el archivo."));
     } finally {
       setUploadingDocumentId(null);
+    }
+  }
+
+  async function handleViewDetail(documentId: string) {
+    setSelectedDocumentId(documentId);
+    setDetail(null);
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setDetailLoading(true);
+    try {
+      await refreshDetail(documentId);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "No se pudo cargar el detalle del documento."));
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  function handleCloseDetail() {
+    setSelectedDocumentId(null);
+    setDetail(null);
+    setActionInProgress(null);
+  }
+
+  async function handleDocumentAction(action: DocumentActionKey) {
+    if (!selectedDocumentId) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setActionInProgress(action);
+
+    try {
+      if (action === "analyze") {
+        await analyzeInventoryDocumentApi(selectedDocumentId);
+        setFeedbackMessage("Análisis ejecutado. El documento quedó pendiente de revisión.");
+      } else if (action === "approve") {
+        await approveInventoryDocumentApi(selectedDocumentId);
+        setFeedbackMessage("Documento aprobado.");
+      } else if (action === "reject") {
+        await rejectInventoryDocumentApi(selectedDocumentId);
+        setFeedbackMessage("Documento rechazado.");
+      } else if (action === "publish") {
+        await publishInventoryDocumentApi(selectedDocumentId);
+        setFeedbackMessage("Documento publicado.");
+      }
+
+      await refreshDetail(selectedDocumentId);
+      await loadDocuments();
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "No se pudo completar la acción sobre el documento."));
+    } finally {
+      setActionInProgress(null);
     }
   }
 
@@ -130,6 +268,18 @@ export function InventoryDocumentsPanel() {
           </p>
         </div>
       </div>
+
+      {errorMessage ? (
+        <div className="alert alert--error" role="alert">
+          {errorMessage}
+        </div>
+      ) : null}
+
+      {feedbackMessage ? (
+        <div className="alert alert--success" role="status">
+          {feedbackMessage}
+        </div>
+      ) : null}
 
       <form className="grid two" onSubmit={handleSubmit}>
         <label className="field">
@@ -249,6 +399,7 @@ export function InventoryDocumentsPanel() {
               <th>Estado</th>
               <th>Extracción</th>
               <th>Creado</th>
+              <th>Acciones</th>
               <th>Archivo fuente</th>
             </tr>
           </thead>
@@ -256,9 +407,10 @@ export function InventoryDocumentsPanel() {
             {documents.map((document) => {
               const selectedFile = selectedFiles[document.id];
               const isUploading = uploadingDocumentId === document.id;
+              const isSelected = selectedDocumentId === document.id;
 
               return (
-                <tr key={document.id}>
+                <tr key={document.id} className={isSelected ? "is-selected" : undefined}>
                   <td>{document.controlName}</td>
                   <td>{targetTypeLabels[document.targetType]}</td>
                   <td>{document.controlLocation ?? "-"}</td>
@@ -269,6 +421,11 @@ export function InventoryDocumentsPanel() {
                       document.extractionStatus}
                   </td>
                   <td>{new Date(document.createdAt).toLocaleDateString()}</td>
+                  <td>
+                    <button type="button" onClick={() => void handleViewDetail(document.id)}>
+                      {isSelected ? "Detalle abierto" : "Ver detalle"}
+                    </button>
+                  </td>
                   <td>
                     <div className="stack compact">
                       <input
@@ -306,12 +463,200 @@ export function InventoryDocumentsPanel() {
 
             {!loading && documents.length === 0 && (
               <tr>
-                <td colSpan={8}>Todavía no hay documentos registrados.</td>
+                <td colSpan={9}>Todavía no hay documentos registrados.</td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {selectedDocumentId ? (
+        <div className="section-card__detail">
+          <div className="section-card__header compact">
+            <div>
+              <h3>Detalle del documento</h3>
+              <p>Revisión humana del documento seleccionado.</p>
+            </div>
+            <button type="button" onClick={handleCloseDetail}>
+              Cerrar detalle
+            </button>
+          </div>
+
+          {detailLoading ? <p>Cargando detalle...</p> : null}
+
+          {!detailLoading && detail ? (
+            <div className="stack">
+              <div className="grid two">
+                <div className="field">
+                  <span>Nombre de control</span>
+                  <strong>{detail.controlName}</strong>
+                </div>
+                <div className="field">
+                  <span>Tipo de registro</span>
+                  <strong>{targetTypeLabels[detail.targetType]}</strong>
+                </div>
+                <div className="field">
+                  <span>Estado</span>
+                  <strong>{statusLabels[detail.status] ?? detail.status}</strong>
+                </div>
+                <div className="field">
+                  <span>Extracción</span>
+                  <strong>
+                    {extractionStatusLabels[detail.extractionStatus] ??
+                      detail.extractionStatus}
+                  </strong>
+                </div>
+                <div className="field">
+                  <span>Creado</span>
+                  <strong>{formatDateTime(detail.createdAt)}</strong>
+                </div>
+                <div className="field">
+                  <span>Actualizado</span>
+                  <strong>{formatDateTime(detail.updatedAt)}</strong>
+                </div>
+                {detail.processedAt ? (
+                  <div className="field">
+                    <span>Procesado</span>
+                    <strong>{formatDateTime(detail.processedAt)}</strong>
+                  </div>
+                ) : null}
+                {detail.controlNotes ? (
+                  <div className="field">
+                    <span>Notas internas</span>
+                    <strong>{detail.controlNotes}</strong>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="section-card__header compact">
+                <div>
+                  <h4>Archivo fuente</h4>
+                </div>
+              </div>
+
+              {detail.originalFileName ? (
+                <div className="grid two">
+                  <div className="field">
+                    <span>Nombre original</span>
+                    <strong>{detail.originalFileName}</strong>
+                  </div>
+                  <div className="field">
+                    <span>Tipo MIME</span>
+                    <strong>{detail.fileMimeType ?? "-"}</strong>
+                  </div>
+                  <div className="field">
+                    <span>Tamaño</span>
+                    <strong>{formatFileSize(detail.fileSizeBytes)}</strong>
+                  </div>
+                  <div className="field">
+                    <span>Hash</span>
+                    <strong className="break-all">{detail.fileHash ?? "-"}</strong>
+                  </div>
+                </div>
+              ) : (
+                <p>Todavía no se ha subido ningún archivo fuente para este documento.</p>
+              )}
+
+              <div className="section-card__header compact">
+                <div>
+                  <h4>Acciones de revisión</h4>
+                  <p>El análisis es un marcador de posición; la extracción real llegará después.</p>
+                </div>
+              </div>
+
+              <div className="stack compact actions-row">
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={actionInProgress !== null}
+                  onClick={() => void handleDocumentAction("analyze")}
+                >
+                  {actionInProgress === "analyze" ? "Analizando..." : "Ejecutar análisis"}
+                </button>
+                <button
+                  type="button"
+                  disabled={actionInProgress !== null}
+                  onClick={() => void handleDocumentAction("approve")}
+                >
+                  {actionInProgress === "approve" ? "Aprobando..." : "Aprobar"}
+                </button>
+                <button
+                  type="button"
+                  disabled={actionInProgress !== null}
+                  onClick={() => void handleDocumentAction("reject")}
+                >
+                  {actionInProgress === "reject" ? "Rechazando..." : "Rechazar"}
+                </button>
+                <button
+                  type="button"
+                  disabled={actionInProgress !== null}
+                  onClick={() => void handleDocumentAction("publish")}
+                >
+                  {actionInProgress === "publish" ? "Publicando..." : "Publicar"}
+                </button>
+              </div>
+
+              <div className="section-card__header compact">
+                <div>
+                  <h4>Incidencias de importación</h4>
+                  <p>{detail.importIssues.length} incidencia(s)</p>
+                </div>
+              </div>
+
+              {detail.importIssues.length > 0 ? (
+                <ul className="detail-list">
+                  {detail.importIssues.map((issue) => (
+                    <li key={issue.id}>
+                      <strong>{issueSeverityLabels[issue.severity] ?? issue.severity}</strong>
+                      {" · "}
+                      <span>{issue.issueType}</span>
+                      <br />
+                      <span>{issue.message}</span>
+                      {issue.resolved ? <em> (resuelta)</em> : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No hay incidencias registradas.</p>
+              )}
+
+              <div className="section-card__header compact">
+                <div>
+                  <h4>Extracciones</h4>
+                  <p>{detail.extractions.length} extracción(es)</p>
+                </div>
+              </div>
+
+              {detail.extractions.length > 0 ? (
+                <ul className="detail-list">
+                  {detail.extractions.map((extraction) => (
+                    <li key={extraction.id}>
+                      <strong>
+                        {extractionMethodLabels[extraction.extractionMethod] ??
+                          extraction.extractionMethod}
+                      </strong>
+                      {extraction.pageNumber != null ? (
+                        <span> · Página {extraction.pageNumber}</span>
+                      ) : null}
+                      {extraction.confidenceScore != null ? (
+                        <span> · Confianza {extraction.confidenceScore}</span>
+                      ) : null}
+                      {extraction.rawText ? (
+                        <>
+                          <br />
+                          <span>{extraction.rawText}</span>
+                        </>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No hay extracciones registradas.</p>
+              )}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }

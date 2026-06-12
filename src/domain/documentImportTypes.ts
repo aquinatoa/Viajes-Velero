@@ -273,6 +273,8 @@ export interface InventoryDocumentDetail extends SourceDocumentSummary {
   originalFileName?: string | null;
   fileMimeType?: string | null;
   fileSizeBytes?: number | null;
+  fileHash?: string | null;
+  storedFilePath?: string | null;
   controlNotes?: string | null;
   processedAt?: string | null;
   extractions: DocumentExtraction[];
