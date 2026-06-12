@@ -38,7 +38,7 @@ import {
 } from "./documentImportDb";
 import { saveInventoryDocumentFile } from "./documentStorage";
 import { extractPdfText } from "./pdfTextExtraction";
-import { analyzeDocumentText } from "./aiDocumentAnalysis";
+import { analyzeDocumentText, AiAnalysisError } from "./aiDocumentAnalysis";
 
 const app = express();
 const port = 8787;
@@ -510,6 +510,10 @@ app.post("/api/inventory/documents/:id/ai-analyze", async (request, response) =>
 
     response.json(result);
   } catch (error) {
+    if (error instanceof AiAnalysisError) {
+      response.status(502).json({ error: error.message });
+      return;
+    }
     console.error("Error running AI analysis on inventory document", error);
     response.status(500).json({
       error: "No se pudo ejecutar el análisis IA del documento de inventario.",
@@ -593,6 +597,10 @@ app.post("/api/inventory/documents/:id/create-staging", async (request, response
 
     response.json(result);
   } catch (error) {
+    if (error instanceof AiAnalysisError) {
+      response.status(502).json({ error: error.message });
+      return;
+    }
     console.error("Error creating inventory document staging", error);
     response.status(500).json({
       error: "No se pudieron crear los candidatos revisables del documento.",

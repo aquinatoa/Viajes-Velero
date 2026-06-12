@@ -289,7 +289,7 @@ export interface InventoryDocumentDetail extends SourceDocumentSummary {
 // automáticamente al inventario operativo.
 // ----------------------------------------------------------------------------
 
-export type AiAnalysisMode = "mock" | "live";
+export type AiAnalysisMode = "mock" | "ai";
 
 export interface AiDetectedAccommodation {
   accommodationName?: string | null;
@@ -323,6 +323,7 @@ export interface AiCandidateRate {
   currency?: string | null;
   pvpAmount?: number | null;
   netAmount?: number | null;
+  costAmount?: number | null;
   rawText?: string | null;
 }
 
