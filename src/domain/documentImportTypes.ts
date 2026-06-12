@@ -385,3 +385,15 @@ export type StagingEntityKey =
   | "activity-policies";
 
 export type StagingReviewStatus = "PENDING" | "APPROVED" | "REJECTED" | "NEEDS_CHANGES";
+
+export interface PublishApprovedResult {
+  accommodations: number;
+  accommodationRates: number;
+  activities: number;
+  activityRates: number;
+  skippedAccommodations: number;
+  skippedRates: number;
+  skippedActivities: number;
+  skippedActivityRates: number;
+  warnings: string[];
+}

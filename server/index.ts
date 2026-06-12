@@ -29,6 +29,8 @@ import {
   createInventoryDocumentStaging,
   getInventoryDocumentDetail,
   listInventoryDocuments,
+  publishApprovedInventoryDocument,
+  PublishValidationError,
   rejectInventoryDocument,
   StagingValidationError,
   updateInventoryDocumentStatus,
@@ -664,6 +666,58 @@ app.post("/api/inventory/documents/:id/publish", async (request, response) => {
     console.error("Error publishing inventory document", error);
     response.status(500).json({
       error: "No se pudo publicar el documento de inventario.",
+    });
+  }
+});
+
+app.post("/api/inventory/documents/:id/publish-approved", async (request, response) => {
+  try {
+    const documentId = String(request.params.id);
+    const document = await getInventoryDocumentDetail(documentId);
+
+    if (!document) {
+      response.status(404).json({
+        error: "Documento no encontrado.",
+      });
+      return;
+    }
+
+    const result = await publishApprovedInventoryDocument(documentId, {
+      controlLocation: document.controlLocation,
+      controlYear: document.controlYear,
+    });
+
+    // Marcar como publicado solo si la publicación terminó correctamente.
+    await updateInventoryDocumentStatus(documentId, "PUBLISHED");
+
+    await addInventoryDocumentIssue({
+      sourceDocumentId: documentId,
+      severity: "INFO",
+      issueType: "PUBLISH_COMPLETED",
+      message: `Publicación al inventario operativo: ${result.accommodations} alojamiento(s), ${result.accommodationRates} tarifa(s) de alojamiento, ${result.activities} actividad(es) y ${result.activityRates} tarifa(s) de actividad. Omitidos: ${result.skippedAccommodations} alojamiento(s), ${result.skippedRates} tarifa(s), ${result.skippedActivities} actividad(es), ${result.skippedActivityRates} tarifa(s) de actividad.`,
+    });
+
+    for (const warning of result.warnings) {
+      await addInventoryDocumentIssue({
+        sourceDocumentId: documentId,
+        severity: "WARNING",
+        issueType: "PUBLISH_WARNING",
+        message: warning,
+      });
+    }
+
+    response.json(result);
+  } catch (error) {
+    if (error instanceof PublishValidationError) {
+      response.status(400).json({
+        error: error.message,
+      });
+      return;
+    }
+
+    console.error("Error publishing approved inventory document", error);
+    response.status(500).json({
+      error: "No se pudo publicar el documento al inventario operativo.",
     });
   }
 });

@@ -669,3 +669,314 @@ export async function updateStagingEntity(
 
   return delegate.update({ where: { id }, data });
 }
+
+// ----------------------------------------------------------------------------
+// Publicación de candidatos aprobados al inventario operativo (Bloque 6).
+// Solo se publica reviewStatus === "APPROVED". Idempotente por sourceDocumentId.
+// No toca filas importadas desde Excel (sourceDocumentId null).
+// ----------------------------------------------------------------------------
+
+/** Error de validación de publicación; el endpoint lo traduce a HTTP 400. */
+export class PublishValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PublishValidationError";
+  }
+}
+
+export interface PublishApprovedContext {
+  controlLocation?: string | null;
+  controlYear?: number | null;
+}
+
+export interface PublishApprovedResult {
+  accommodations: number;
+  accommodationRates: number;
+  activities: number;
+  activityRates: number;
+  skippedAccommodations: number;
+  skippedRates: number;
+  skippedActivities: number;
+  skippedActivityRates: number;
+  warnings: string[];
+}
+
+const isApprovedStatus = (status: string) => status === "APPROVED";
+
+export async function publishApprovedInventoryDocument(
+  sourceDocumentId: string,
+  context: PublishApprovedContext,
+): Promise<PublishApprovedResult> {
+  const accommodations = await prisma.stagingAccommodation.findMany({
+    where: { sourceDocumentId },
+    include: { rates: true, adjustments: true, policies: true, blackoutDates: true },
+  });
+  const activities = await prisma.stagingActivity.findMany({
+    where: { sourceDocumentId },
+    include: { rates: true, policies: true },
+  });
+
+  const anyPublishable =
+    accommodations.some((accommodation) => isApprovedStatus(accommodation.reviewStatus)) ||
+    activities.some((activity) => isApprovedStatus(activity.reviewStatus));
+
+  if (!anyPublishable) {
+    throw new PublishValidationError(
+      "No hay candidatos aprobados para publicar (se requiere al menos un alojamiento o actividad aprobado).",
+    );
+  }
+
+  const warnings: string[] = [];
+  let skippedAccommodations = 0;
+  let skippedRates = 0;
+  let skippedActivities = 0;
+  let skippedActivityRates = 0;
+
+  const accommodationsToCreate: Record<string, unknown>[] = [];
+
+  for (const accommodation of accommodations) {
+    if (!isApprovedStatus(accommodation.reviewStatus)) {
+      skippedAccommodations += 1;
+      const approvedChildRates = accommodation.rates.filter((rate) =>
+        isApprovedStatus(rate.reviewStatus),
+      ).length;
+      if (approvedChildRates > 0) {
+        warnings.push(
+          `El alojamiento "${accommodation.accommodationName}" no está aprobado: no se publican sus ${approvedChildRates} tarifa(s) aprobada(s).`,
+        );
+        skippedRates += approvedChildRates;
+      }
+      continue;
+    }
+
+    const ratePayloads: Record<string, unknown>[] = [];
+    for (const rate of accommodation.rates) {
+      if (!isApprovedStatus(rate.reviewStatus)) {
+        skippedRates += 1;
+        continue;
+      }
+
+      const year = rate.year ?? context.controlYear ?? null;
+      if (rate.pvpAmount === null || rate.pvpAmount === undefined) {
+        warnings.push(`Tarifa de "${accommodation.accommodationName}" omitida: sin precio.`);
+        skippedRates += 1;
+        continue;
+      }
+      if (!rate.currency || rate.currency.trim() === "") {
+        warnings.push(`Tarifa de "${accommodation.accommodationName}" omitida: sin moneda.`);
+        skippedRates += 1;
+        continue;
+      }
+      if (year === null) {
+        warnings.push(`Tarifa de "${accommodation.accommodationName}" omitida: sin año.`);
+        skippedRates += 1;
+        continue;
+      }
+
+      ratePayloads.push({
+        rateSource: `staging:${rate.id}`,
+        year,
+        seasonName: rate.seasonName,
+        dateFrom: rate.dateFrom,
+        dateTo: rate.dateTo,
+        minNights: rate.minNights,
+        boardType: rate.boardType,
+        tariffUnit: rate.rateUnit,
+        currency: rate.currency,
+        pvpAmount: rate.pvpAmount,
+        netSaleAmount: rate.netAmount,
+        netAzulmarinoAmount: rate.costAmount,
+        sourceDocumentId,
+        sourceStagingId: rate.id,
+      });
+    }
+
+    const approvedPolicies = accommodation.policies.filter((policy) =>
+      isApprovedStatus(policy.reviewStatus),
+    );
+    const approvedAdjustments = accommodation.adjustments.filter((adjustment) =>
+      isApprovedStatus(adjustment.reviewStatus),
+    );
+    const approvedBlackouts = accommodation.blackoutDates.filter((blackout) =>
+      isApprovedStatus(blackout.reviewStatus),
+    );
+
+    const conditionsText =
+      approvedPolicies.map((policy) => `[${policy.policyType}] ${policy.policyText}`).join(" | ") ||
+      null;
+
+    const adjustmentsText = approvedAdjustments
+      .map((adjustment) =>
+        adjustment.amount != null
+          ? `${adjustment.concept} (${adjustment.amount})`
+          : adjustment.concept,
+      )
+      .join(" | ");
+    const blackoutText = approvedBlackouts
+      .map((blackout) =>
+        blackout.reason
+          ? `${blackout.availabilityStatus}: ${blackout.reason}`
+          : blackout.availabilityStatus,
+      )
+      .join(" | ");
+
+    const observations =
+      [
+        accommodation.providerName ? `Proveedor: ${accommodation.providerName}` : "",
+        accommodation.province ? `Provincia: ${accommodation.province}` : "",
+        accommodation.country ? `País: ${accommodation.country}` : "",
+        adjustmentsText ? `Suplementos: ${adjustmentsText}` : "",
+        blackoutText ? `Fechas especiales: ${blackoutText}` : "",
+      ]
+        .filter(Boolean)
+        .join(" | ") || null;
+
+    const freePolicySource = approvedPolicies.find((policy) => /GRAT|FREE/i.test(policy.policyType));
+    const freePolicy = freePolicySource ? freePolicySource.policyText : null;
+
+    if (approvedPolicies.length > 0 || approvedAdjustments.length > 0 || approvedBlackouts.length > 0) {
+      warnings.push(
+        `En "${accommodation.accommodationName}" se plegaron a texto libre ${approvedPolicies.length} política(s), ${approvedAdjustments.length} suplemento(s) y ${approvedBlackouts.length} fecha(s) especial(es); se pierde su estructura.`,
+      );
+    }
+
+    const locality =
+      (accommodation.locality && accommodation.locality.trim()) ||
+      (context.controlLocation ?? "") ||
+      "";
+
+    accommodationsToCreate.push({
+      accommodationName: accommodation.accommodationName,
+      locality,
+      categoryType: accommodation.categoryType,
+      accommodationType: accommodation.accommodationType,
+      observations,
+      conditionsText,
+      freePolicy,
+      sourceFile: null,
+      sourceDocumentId,
+      sourceStagingId: accommodation.id,
+      rates: { create: ratePayloads },
+    });
+  }
+
+  const activitiesToCreate: Record<string, unknown>[] = [];
+
+  for (const activity of activities) {
+    if (!isApprovedStatus(activity.reviewStatus)) {
+      skippedActivities += 1;
+      const approvedChildRates = activity.rates.filter((rate) =>
+        isApprovedStatus(rate.reviewStatus),
+      ).length;
+      if (approvedChildRates > 0) {
+        warnings.push(
+          `La actividad "${activity.activityName}" no está aprobada: no se publican sus ${approvedChildRates} tarifa(s) aprobada(s).`,
+        );
+        skippedActivityRates += approvedChildRates;
+      }
+      continue;
+    }
+
+    const ratePayloads: Record<string, unknown>[] = [];
+    for (const rate of activity.rates) {
+      if (!isApprovedStatus(rate.reviewStatus)) {
+        skippedActivityRates += 1;
+        continue;
+      }
+
+      const year = rate.year ?? context.controlYear ?? null;
+      if (rate.salePvpAmount === null || rate.salePvpAmount === undefined) {
+        warnings.push(`Tarifa de "${activity.activityName}" omitida: sin precio.`);
+        skippedActivityRates += 1;
+        continue;
+      }
+      if (!rate.currency || rate.currency.trim() === "") {
+        warnings.push(`Tarifa de "${activity.activityName}" omitida: sin moneda.`);
+        skippedActivityRates += 1;
+        continue;
+      }
+      if (year === null) {
+        warnings.push(`Tarifa de "${activity.activityName}" omitida: sin año.`);
+        skippedActivityRates += 1;
+        continue;
+      }
+
+      ratePayloads.push({
+        year,
+        ageLabel: rate.ageLabel,
+        ageMin: rate.ageMin,
+        ageMax: rate.ageMax,
+        currency: rate.currency,
+        salePvpAmount: rate.salePvpAmount,
+        costNetAmount: rate.costNetAmount,
+        commissionPercent: rate.commissionPercent,
+        durationText: rate.durationText,
+        sourceDocumentId,
+        sourceStagingId: rate.id,
+      });
+    }
+
+    const approvedPolicies = activity.policies.filter((policy) =>
+      isApprovedStatus(policy.reviewStatus),
+    );
+    const policyText = approvedPolicies
+      .map((policy) => `[${policy.policyType}] ${policy.policyText}`)
+      .join(" | ");
+
+    if (approvedPolicies.length > 0) {
+      warnings.push(
+        `En la actividad "${activity.activityName}" se plegaron ${approvedPolicies.length} política(s) a la descripción; se pierde su estructura.`,
+      );
+    }
+
+    const descriptionText =
+      [activity.descriptionText, policyText].filter(Boolean).join(" | ") || null;
+
+    activitiesToCreate.push({
+      activityName: activity.activityName,
+      supplierName: activity.supplierName,
+      locationMain: activity.locationMain,
+      durationText: activity.durationText,
+      descriptionText,
+      sourceFile: null,
+      sourceDocumentId,
+      sourceStagingId: activity.id,
+      rates: { create: ratePayloads },
+    });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // Idempotencia: borrar lo publicado previamente desde ESTE documento y
+    // reinsertar. No afecta a filas de Excel (sourceDocumentId null).
+    await tx.accommodation.deleteMany({ where: { sourceDocumentId } });
+    await tx.activity.deleteMany({ where: { sourceDocumentId } });
+
+    for (const data of accommodationsToCreate) {
+      await tx.accommodation.create({ data: data as never });
+    }
+    for (const data of activitiesToCreate) {
+      await tx.activity.create({ data: data as never });
+    }
+  });
+
+  const accommodationRates = accommodationsToCreate.reduce(
+    (total, item) => total + ((item.rates as { create: unknown[] }).create.length ?? 0),
+    0,
+  );
+  const activityRates = activitiesToCreate.reduce(
+    (total, item) => total + ((item.rates as { create: unknown[] }).create.length ?? 0),
+    0,
+  );
+
+  return {
+    accommodations: accommodationsToCreate.length,
+    accommodationRates,
+    activities: activitiesToCreate.length,
+    activityRates,
+    skippedAccommodations,
+    skippedRates,
+    skippedActivities,
+    skippedActivityRates,
+    warnings,
+  };
+}

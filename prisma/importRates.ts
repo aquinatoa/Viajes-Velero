@@ -373,12 +373,19 @@ export async function importRatesFromExcel(
   const activityData = parseActivityRows(activityPath);
 
   await prisma.$transaction(async (tx) => {
-    await tx.proposalActivityOption.deleteMany();
-    await tx.proposalAccommodationOption.deleteMany();
-    await tx.activityRate.deleteMany();
-    await tx.accommodationRate.deleteMany();
-    await tx.activity.deleteMany();
-    await tx.accommodation.deleteMany();
+    // Solo se borran las filas importadas desde Excel (sourceDocumentId null).
+    // Las filas publicadas desde documentos (sourceDocumentId no nulo) se
+    // preservan para no destruir el inventario publicado en una reimportación.
+    await tx.proposalActivityOption.deleteMany({
+      where: { activity: { sourceDocumentId: null } },
+    });
+    await tx.proposalAccommodationOption.deleteMany({
+      where: { accommodation: { sourceDocumentId: null } },
+    });
+    await tx.activityRate.deleteMany({ where: { sourceDocumentId: null } });
+    await tx.accommodationRate.deleteMany({ where: { sourceDocumentId: null } });
+    await tx.activity.deleteMany({ where: { sourceDocumentId: null } });
+    await tx.accommodation.deleteMany({ where: { sourceDocumentId: null } });
 
     for (const accommodation of accommodationData) {
       await tx.accommodation.create({

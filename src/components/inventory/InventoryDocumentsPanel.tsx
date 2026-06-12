@@ -5,6 +5,7 @@ import type {
   DocumentExtraction,
   InventoryDocumentDetail,
   InventoryTargetType,
+  PublishApprovedResult,
   SourceDocumentSummary,
   StagingEntityKey,
   StagingReviewStatus,
@@ -18,6 +19,7 @@ import {
   getInventoryDocumentApi,
   listInventoryDocumentsApi,
   patchInventoryStagingApi,
+  publishApprovedInventoryDocumentApi,
   publishInventoryDocumentApi,
   rejectInventoryDocumentApi,
   uploadInventoryDocumentFileApi,
@@ -380,6 +382,8 @@ export function InventoryDocumentsPanel() {
   const [aiResult, setAiResult] = useState<AiDocumentAnalysisResult | null>(null);
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [stagingCreating, setStagingCreating] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState<PublishApprovedResult | null>(null);
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -471,6 +475,7 @@ export function InventoryDocumentsPanel() {
     setSelectedDocumentId(documentId);
     setDetail(null);
     setAiResult(null);
+    setPublishResult(null);
     setErrorMessage(null);
     setFeedbackMessage(null);
     setDetailLoading(true);
@@ -487,6 +492,7 @@ export function InventoryDocumentsPanel() {
     setSelectedDocumentId(null);
     setDetail(null);
     setAiResult(null);
+    setPublishResult(null);
     setActionInProgress(null);
   }
 
@@ -542,6 +548,32 @@ export function InventoryDocumentsPanel() {
       return;
     }
     await refreshDetail(selectedDocumentId);
+  }
+
+  async function handlePublishApproved() {
+    if (!selectedDocumentId) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setPublishing(true);
+
+    try {
+      const result = await publishApprovedInventoryDocumentApi(selectedDocumentId);
+      setPublishResult(result);
+      setFeedbackMessage(
+        `Publicación completada: ${result.accommodations} alojamiento(s) y ${result.accommodationRates} tarifa(s); ${result.activities} actividad(es) y ${result.activityRates} tarifa(s) de actividad.`,
+      );
+      await refreshDetail(selectedDocumentId);
+      await loadDocuments();
+    } catch (error) {
+      setErrorMessage(
+        getErrorMessage(error, "No se pudo publicar el documento al inventario operativo."),
+      );
+    } finally {
+      setPublishing(false);
+    }
   }
 
   async function handleDocumentAction(action: DocumentActionKey) {
@@ -1123,6 +1155,76 @@ export function InventoryDocumentsPanel() {
                   ))}
                 </div>
               )}
+
+              <div className="section-card__header compact">
+                <div>
+                  <h4>Publicación al inventario operativo</h4>
+                  <p>Solo se publican candidatos aprobados. Operación idempotente.</p>
+                </div>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={
+                    publishing ||
+                    !(
+                      detail.stagingAccommodations.some(
+                        (accommodation) => String(accommodation.reviewStatus) === "APPROVED",
+                      ) ||
+                      detail.stagingActivities.some(
+                        (activity) => String(activity.reviewStatus) === "APPROVED",
+                      )
+                    )
+                  }
+                  onClick={() => void handlePublishApproved()}
+                >
+                  {publishing ? "Publicando..." : "Publicar aprobados al inventario"}
+                </button>
+              </div>
+
+              {publishResult ? (
+                <div className="publish-result">
+                  <div className="grid two">
+                    <div className="field">
+                      <span>Alojamientos publicados</span>
+                      <strong>{publishResult.accommodations}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Tarifas de alojamiento</span>
+                      <strong>{publishResult.accommodationRates}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Actividades publicadas</span>
+                      <strong>{publishResult.activities}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Tarifas de actividad</span>
+                      <strong>{publishResult.activityRates}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Omitidos (no aprobados / inválidos)</span>
+                      <strong>
+                        {publishResult.skippedAccommodations +
+                          publishResult.skippedRates +
+                          publishResult.skippedActivities +
+                          publishResult.skippedActivityRates}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {publishResult.warnings.length > 0 ? (
+                    <>
+                      <span className="ai-result__label">Advertencias de publicación</span>
+                      <ul className="detail-list">
+                        {publishResult.warnings.map((warning, index) => (
+                          <li key={index}>{warning}</li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <p>Sin advertencias.</p>
+                  )}
+                </div>
+              ) : null}
 
               {aiResult ? (
                 <div className="ai-result">

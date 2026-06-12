@@ -56,10 +56,14 @@ model Accommodation {
   conditionsText     String?
   freePolicy         String?
   sourceFile         String?
+  sourceDocumentId   String?
+  sourceStagingId    String?
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
   rates              AccommodationRate[]
   proposalOptions    ProposalAccommodationOption[]
+
+  @@index([sourceDocumentId])
 }
 
 model AccommodationRate {
@@ -73,12 +77,17 @@ model AccommodationRate {
   minNights              Int?
   boardType              String?
   tariffUnit             String?
+  currency               String?
   pvpAmount              Decimal?
   netSaleAmount          Decimal?
   netAzulmarinoAmount    Decimal?
   sourceFile             String?
   sourceSheet            String?
+  sourceDocumentId       String?
+  sourceStagingId        String?
   accommodation          Accommodation  @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+
+  @@index([sourceDocumentId])
 }
 
 model Activity {
@@ -89,10 +98,14 @@ model Activity {
   durationText     String?
   descriptionText  String?
   sourceFile       String?
+  sourceDocumentId String?
+  sourceStagingId  String?
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
   rates            ActivityRate[]
   proposalOptions  ProposalActivityOption[]
+
+  @@index([sourceDocumentId])
 }
 
 model ActivityRate {
@@ -102,13 +115,18 @@ model ActivityRate {
   ageLabel          String?
   ageMin            Int?
   ageMax            Int?
+  currency          String?
   salePvpAmount     Decimal?
   costNetAmount     Decimal?
   commissionPercent Decimal?
   durationText      String?
   sourceFile        String?
   sourceSheet       String?
+  sourceDocumentId  String?
+  sourceStagingId   String?
   activity          Activity   @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@index([sourceDocumentId])
 }
 
 model TripProposal {

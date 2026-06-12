@@ -3,6 +3,7 @@ import type {
   CreateSourceDocumentInput,
   CreateStagingResult,
   InventoryDocumentDetail,
+  PublishApprovedResult,
   SourceDocumentSummary,
   StagingEntityKey,
 } from "../domain/documentImportTypes";
@@ -275,5 +276,13 @@ export function publishInventoryDocumentApi(documentId: string) {
     `/api/inventory/documents/${encodeURIComponent(documentId)}/publish`,
     {},
     "No se pudo publicar el documento de inventario.",
+  );
+}
+
+export function publishApprovedInventoryDocumentApi(documentId: string) {
+  return postJson<PublishApprovedResult>(
+    `/api/inventory/documents/${encodeURIComponent(documentId)}/publish-approved`,
+    {},
+    "No se pudo publicar el documento al inventario operativo.",
   );
 }
