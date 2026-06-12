@@ -164,11 +164,17 @@ export function createInventoryDocumentApi(payload: CreateSourceDocumentInput) {
   );
 }
 
-export function listInventoryDocumentsApi() {
-  return getJson<SourceDocumentSummary[]>(
+export async function listInventoryDocumentsApi() {
+  const payload = await getJson<SourceDocumentSummary[] | { documents: SourceDocumentSummary[] }>(
     "/api/inventory/documents",
     "No se pudieron cargar los documentos de inventario.",
   );
+
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  return payload.documents ?? [];
 }
 
 export function getInventoryDocumentApi(documentId: string) {
