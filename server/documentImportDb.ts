@@ -418,8 +418,8 @@ interface StagingEntityConfig {
   booleanFields: string[];
   /** Campo crítico que no puede quedar vacío al aprobar. */
   nameField?: string;
-  /** Campo de precio: obliga moneda y no permite aprobar sin precio. */
-  priceField?: string;
+  /** Campos de precio: basta con que uno tenga valor. Obliga moneda y no permite aprobar sin precio. */
+  priceFields?: string[];
   currencyField?: string;
 }
 
@@ -457,7 +457,7 @@ const STAGING_ENTITY_REGISTRY: Record<string, StagingEntityConfig> = {
     decimalFields: ["pvpAmount", "netAmount", "costAmount", "commissionPercent"],
     dateFields: ["dateFrom", "dateTo"],
     booleanFields: ["taxIncluded"],
-    priceField: "pvpAmount",
+    priceFields: ["pvpAmount", "netAmount"],
     currencyField: "currency",
   },
   "accommodation-adjustments": {
@@ -515,7 +515,7 @@ const STAGING_ENTITY_REGISTRY: Record<string, StagingEntityConfig> = {
     decimalFields: ["salePvpAmount", "costNetAmount", "commissionPercent"],
     dateFields: ["dateFrom", "dateTo"],
     booleanFields: [],
-    priceField: "salePvpAmount",
+    priceFields: ["salePvpAmount"],
     currencyField: "currency",
   },
   "activity-policies": {
@@ -645,9 +645,11 @@ export async function updateStagingEntity(
   const merged = { ...existing, ...data };
   const resultingStatus = String(merged.reviewStatus ?? "PENDING");
 
-  if (config.priceField) {
-    const price = merged[config.priceField];
-    const hasPrice = price !== null && price !== undefined;
+  if (config.priceFields && config.priceFields.length > 0) {
+    const hasPrice = config.priceFields.some((field) => {
+      const value = merged[field];
+      return value !== null && value !== undefined;
+    });
 
     if (hasPrice && config.currencyField) {
       const currency = merged[config.currencyField];
@@ -657,7 +659,7 @@ export async function updateStagingEntity(
     }
 
     if (resultingStatus === "APPROVED" && !hasPrice) {
-      throw new StagingValidationError("No se puede aprobar una tarifa sin precio.");
+      throw new StagingValidationError("No se puede aprobar una tarifa sin precio (PVP o neto).");
     }
   }
 
@@ -758,8 +760,11 @@ export async function publishApprovedInventoryDocument(
       }
 
       const year = rate.year ?? context.controlYear ?? null;
-      if (rate.pvpAmount === null || rate.pvpAmount === undefined) {
-        warnings.push(`Tarifa de "${accommodation.accommodationName}" omitida: sin precio.`);
+      // El precio de venta operativo es el PVP; si no hay PVP pero sí precio
+      // neto (común cuando el documento da tarifas netas), se usa el neto.
+      const salePrice = rate.pvpAmount ?? rate.netAmount;
+      if (salePrice === null || salePrice === undefined) {
+        warnings.push(`Tarifa de "${accommodation.accommodationName}" omitida: sin precio (PVP ni neto).`);
         skippedRates += 1;
         continue;
       }
@@ -784,7 +789,7 @@ export async function publishApprovedInventoryDocument(
         boardType: rate.boardType,
         tariffUnit: rate.rateUnit,
         currency: rate.currency,
-        pvpAmount: rate.pvpAmount,
+        pvpAmount: salePrice,
         netSaleAmount: rate.netAmount,
         netAzulmarinoAmount: rate.costAmount,
         sourceDocumentId,

@@ -113,6 +113,92 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+const currencySymbols: Record<string, string> = {
+  EUR: "€",
+  USD: "$",
+  GBP: "£",
+};
+
+/** Formatea un importe con dos decimales en formato español y su moneda. */
+function formatAmount(amount: number, currency?: string | null): string {
+  const formatted = new Intl.NumberFormat("es-ES", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+  const code = (currency ?? "EUR").trim().toUpperCase() || "EUR";
+  const symbol = currencySymbols[code];
+  return symbol ? `${formatted} ${symbol}` : `${formatted} ${code}`;
+}
+
+/**
+ * Extrae el primer importe del texto de origen como respaldo de visualización
+ * (p. ej. "3 noches o más 35,0 €" → 35). Es de solo lectura: no modifica datos.
+ * Exige un símbolo de moneda o un decimal para evitar confundir números como
+ * "3 noches" con un precio.
+ */
+function extractAmountFromText(text?: string | null): number | null {
+  if (!text) {
+    return null;
+  }
+  const match =
+    text.match(/(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s*(?:€|EUR)/i) ??
+    text.match(/(\d+[.,]\d{1,2})/);
+  if (!match) {
+    return null;
+  }
+  const normalized = match[1].replace(/\./g, "").replace(",", ".");
+  const value = Number(normalized);
+  return Number.isFinite(value) ? value : null;
+}
+
+interface DetectedPrice {
+  label: string;
+  amount: number;
+}
+
+interface RatePriceSummaryProps {
+  prices: (DetectedPrice | null)[];
+  currency?: string | null;
+  rawText?: string | null;
+}
+
+/**
+ * Resumen de solo lectura de los precios de una tarifa staging. Muestra cada
+ * precio tipado que exista (PVP, neto, coste) y la moneda. Si no hay ningún
+ * precio tipado pero el texto de origen contiene un importe, lo muestra como
+ * "Precio detectado" sin asignarle un tipo.
+ */
+function RatePriceSummary(props: RatePriceSummaryProps) {
+  const prices = props.prices.filter((price): price is DetectedPrice => price !== null);
+  const currencyCode = (props.currency ?? "EUR").trim().toUpperCase() || "EUR";
+
+  if (prices.length === 0) {
+    const detected = extractAmountFromText(props.rawText);
+    return (
+      <div className="rate-prices">
+        {detected != null ? (
+          <span className="rate-price rate-price--detected">
+            Precio detectado: <strong>{formatAmount(detected, currencyCode)}</strong>
+          </span>
+        ) : (
+          <span className="rate-price rate-price--empty">Sin precio detectado</span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rate-prices">
+      {prices.map((price) => (
+        <span className="rate-price" key={price.label}>
+          {price.label}: <strong>{formatAmount(price.amount, currencyCode)}</strong>
+        </span>
+      ))}
+      <span className="rate-price rate-price--currency">Moneda: {currencyCode}</span>
+    </div>
+  );
+}
+
 interface AnnotatedExtraction {
   extraction: DocumentExtraction;
   isCurrentText: boolean;
@@ -183,6 +269,8 @@ const accommodationRateFields: StagingFieldDef[] = [
   { key: "minNights", label: "Noches mínimas", type: "number" },
   { key: "occupancyLabel", label: "Ocupación", type: "text" },
   { key: "pvpAmount", label: "Precio PVP", type: "number" },
+  { key: "netAmount", label: "Precio neto", type: "number" },
+  { key: "costAmount", label: "Coste", type: "number" },
   { key: "currency", label: "Moneda", type: "text" },
 ];
 
@@ -223,6 +311,7 @@ const activityRateFields: StagingFieldDef[] = [
   { key: "dateTo", label: "Fecha fin", type: "date" },
   { key: "ageLabel", label: "Edad", type: "text" },
   { key: "salePvpAmount", label: "Precio PVP", type: "number" },
+  { key: "costNetAmount", label: "Coste neto", type: "number" },
   { key: "currency", label: "Moneda", type: "text" },
 ];
 
@@ -240,6 +329,7 @@ interface StagingEditableCardProps {
   reviewStatus: string;
   rawText?: string | null;
   structuredJson?: unknown;
+  summary?: React.ReactNode;
   onSaved: () => Promise<void> | void;
 }
 
@@ -308,6 +398,8 @@ function StagingEditableCard(props: StagingEditableCardProps) {
           {stagingReviewStatusLabels[status] ?? status}
         </span>
       </div>
+
+      {props.summary ? <div className="staging-card__summary">{props.summary}</div> : null}
 
       <div className="grid two">
         {props.fields.map((field) => (
@@ -1074,6 +1166,23 @@ export function InventoryDocumentsPanel() {
                           values={rate}
                           reviewStatus={String(rate.reviewStatus)}
                           rawText={rate.rawText}
+                          summary={
+                            <RatePriceSummary
+                              prices={[
+                                rate.pvpAmount != null
+                                  ? { label: "Precio PVP", amount: rate.pvpAmount }
+                                  : null,
+                                rate.netAmount != null
+                                  ? { label: "Precio neto", amount: rate.netAmount }
+                                  : null,
+                                rate.costAmount != null
+                                  ? { label: "Precio coste", amount: rate.costAmount }
+                                  : null,
+                              ]}
+                              currency={rate.currency}
+                              rawText={rate.rawText}
+                            />
+                          }
                           onSaved={handleStagingSaved}
                         />
                       ))}
@@ -1144,6 +1253,20 @@ export function InventoryDocumentsPanel() {
                           values={rate}
                           reviewStatus={String(rate.reviewStatus)}
                           rawText={rate.rawText}
+                          summary={
+                            <RatePriceSummary
+                              prices={[
+                                rate.salePvpAmount != null
+                                  ? { label: "Precio PVP", amount: rate.salePvpAmount }
+                                  : null,
+                                rate.costNetAmount != null
+                                  ? { label: "Coste neto", amount: rate.costNetAmount }
+                                  : null,
+                              ]}
+                              currency={rate.currency}
+                              rawText={rate.rawText}
+                            />
+                          }
                           onSaved={handleStagingSaved}
                         />
                       ))}

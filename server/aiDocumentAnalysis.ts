@@ -47,7 +47,7 @@ const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
 const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5";
 const MAX_TEXT_CHARS = 30000;
-const AI_MAX_OUTPUT_TOKENS = 8000;
+const AI_MAX_OUTPUT_TOKENS = 16000;
 
 /**
  * Lee la configuración de IA desde variables de entorno.
@@ -140,16 +140,41 @@ async function analyzeWithAnthropic(
     throw mapAnthropicError(error);
   }
 
+  const stopReason = (message as { stop_reason?: string | null })?.stop_reason ?? null;
   const blocks = (message?.content ?? []) as Array<{ type?: string; text?: string }>;
   const outputText = blocks
     .map((block) => (block.type === "text" ? block.text ?? "" : ""))
     .join("");
 
   if (!outputText.trim()) {
+    console.error("Análisis IA Anthropic: respuesta sin texto.", { stopReason });
     throw new AiAnalysisError("La respuesta del proveedor IA no contenía texto analizable.");
   }
 
-  const parsed = parseModelJson(outputText);
+  if (stopReason === "max_tokens") {
+    extraWarnings.push(
+      "La respuesta de la IA alcanzó el límite de longitud; algunos candidatos pueden faltar.",
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = parseModelJson(outputText);
+  } catch (parseError) {
+    // Log de diagnóstico (no contiene secretos): estado y vista previa de la salida.
+    console.error("Análisis IA Anthropic: JSON inválido del proveedor.", {
+      stopReason,
+      outputLength: outputText.length,
+      preview: outputText.slice(0, 600),
+    });
+    if (stopReason === "max_tokens") {
+      throw new AiAnalysisError(
+        "La respuesta de la IA se truncó por longitud (límite de tokens). Reduce el documento o inténtalo de nuevo.",
+      );
+    }
+    throw parseError;
+  }
+
   return normalizeAnalysis(parsed, "ai", outputText, extraWarnings);
 }
 
@@ -188,24 +213,93 @@ function mapAnthropicError(error: unknown): AiAnalysisError {
 }
 
 /**
- * Parsea el JSON devuelto por el modelo de forma tolerante: intenta JSON.parse
- * directo y, si falla, extrae el primer objeto { ... } del texto.
+ * Parsea el JSON devuelto por el modelo de forma tolerante:
+ * 1. Quita envoltorios markdown (```json ... ```).
+ * 2. Intenta JSON.parse directo.
+ * 3. Extrae el primer objeto JSON balanceado (contando llaves, respetando cadenas).
+ * 4. Tolera comas finales antes de } o ].
  */
 function parseModelJson(text: string): unknown {
+  const cleaned = stripCodeFences(text).trim();
+
+  const direct = tryParseJson(cleaned);
+  if (direct.ok) {
+    return direct.value;
+  }
+
+  const candidate = extractFirstJsonObject(cleaned);
+  if (candidate) {
+    const parsed = tryParseJson(candidate);
+    if (parsed.ok) {
+      return parsed.value;
+    }
+
+    const withoutTrailingCommas = candidate.replace(/,(\s*[}\]])/g, "$1");
+    const retried = tryParseJson(withoutTrailingCommas);
+    if (retried.ok) {
+      return retried.value;
+    }
+  }
+
+  throw new AiAnalysisError("El proveedor IA devolvió un JSON inválido.");
+}
+
+function tryParseJson(text: string): { ok: true; value: unknown } | { ok: false } {
   try {
-    return JSON.parse(text);
+    return { ok: true, value: JSON.parse(text) };
   } catch {
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start !== -1 && end !== -1 && end > start) {
-      try {
-        return JSON.parse(text.slice(start, end + 1));
-      } catch {
-        // continúa al error final
+    return { ok: false };
+  }
+}
+
+/** Quita un envoltorio markdown ```json ... ``` (o ``` ... ```) si está presente. */
+function stripCodeFences(text: string): string {
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  return fenceMatch ? fenceMatch[1] : text;
+}
+
+/**
+ * Extrae el primer objeto JSON balanceado del texto, contando llaves y
+ * respetando las que aparecen dentro de cadenas. Devuelve null si no hay un
+ * objeto completo (por ejemplo, si la respuesta quedó truncada).
+ */
+function extractFirstJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start === -1) {
+    return null;
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i += 1) {
+    const char = text[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+    } else if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
       }
     }
-    throw new AiAnalysisError("El proveedor IA devolvió un JSON inválido.");
   }
+
+  return null;
 }
 
 // ----------------------------------------------------------------------------

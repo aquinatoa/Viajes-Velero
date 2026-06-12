@@ -608,6 +608,47 @@ tr.is-selected {
   padding: 4px 12px;
 }
 
+.staging-card__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rate-prices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.rate-price {
+  font-size: 0.85rem;
+  color: #28404d;
+  background: rgba(216, 231, 238, 0.5);
+  border-radius: 8px;
+  padding: 4px 10px;
+}
+
+.rate-price strong {
+  font-weight: 700;
+}
+
+.rate-price--detected {
+  background: rgba(240, 163, 46, 0.16);
+  color: #8a5a12;
+}
+
+.rate-price--empty {
+  background: rgba(19, 35, 47, 0.06);
+  color: #5a6a72;
+  font-style: italic;
+}
+
+.rate-price--currency {
+  background: transparent;
+  color: #5a6a72;
+}
+
 .alert--warning {
   background: rgba(240, 163, 46, 0.16);
   color: #8a5a12;
