@@ -770,6 +770,20 @@ tr.is-selected {
   background: rgba(245, 248, 250, 0.7);
 }
 
+.publish-confirm {
+  border: 1px solid rgba(240, 163, 46, 0.45);
+  background: rgba(255, 250, 240, 0.85);
+  border-radius: 18px;
+  padding: 16px 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.publish-confirm__summary {
+  margin: 0;
+  color: #28404d;
+}
+
 .staging-badge--published {
   color: #127452;
   background: rgba(24, 158, 109, 0.16);

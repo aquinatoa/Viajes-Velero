@@ -265,6 +265,38 @@ function isApprovedReview(status: unknown): boolean {
 }
 
 /**
+ * Clasifica las advertencias del dry-run en críticas (afectan a lo que se
+ * publicaría: tarifas aprobadas sin precio o sin moneda, alojamiento/actividad
+ * no aprobado con tarifas aprobadas, o ningún candidato aprobado) e
+ * informativas (p. ej. políticas/suplementos que se plegarán a texto libre).
+ * Las críticas se destacan antes de confirmar, pero no bloquean la decisión.
+ */
+function classifyDryRunWarnings(warnings: string[]): {
+  critical: string[];
+  info: string[];
+} {
+  const critical: string[] = [];
+  const info: string[] = [];
+
+  for (const warning of warnings) {
+    const lower = warning.toLowerCase();
+    const isCritical =
+      lower.includes("sin precio") ||
+      lower.includes("sin moneda") ||
+      lower.includes("no está aprobad") ||
+      lower.includes("no hay candidatos aprobados");
+
+    if (isCritical) {
+      critical.push(warning);
+    } else {
+      info.push(warning);
+    }
+  }
+
+  return { critical, info };
+}
+
+/**
  * Calcula un resumen de control de calidad a partir del detalle del documento.
  * Es de solo lectura: no modifica datos, no publica nada y refleja la misma
  * lógica que aplica el backend al publicar (sin ejecutarla).
@@ -667,6 +699,8 @@ export function InventoryDocumentsPanel() {
   const [publishResult, setPublishResult] = useState<PublishApprovedResult | null>(null);
   const [dryRunning, setDryRunning] = useState(false);
   const [dryRunResult, setDryRunResult] = useState<DryRunPublishResult | null>(null);
+  const [preparingPublish, setPreparingPublish] = useState(false);
+  const [awaitingPublishConfirm, setAwaitingPublishConfirm] = useState(false);
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -760,6 +794,7 @@ export function InventoryDocumentsPanel() {
     setAiResult(null);
     setPublishResult(null);
     setDryRunResult(null);
+    setAwaitingPublishConfirm(false);
     setErrorMessage(null);
     setFeedbackMessage(null);
     setDetailLoading(true);
@@ -778,6 +813,7 @@ export function InventoryDocumentsPanel() {
     setAiResult(null);
     setPublishResult(null);
     setDryRunResult(null);
+    setAwaitingPublishConfirm(false);
     setActionInProgress(null);
   }
 
@@ -832,6 +868,10 @@ export function InventoryDocumentsPanel() {
     if (!selectedDocumentId) {
       return;
     }
+    // Al cambiar un candidato, la simulación previa deja de ser válida: se
+    // descarta para obligar a re-simular antes de confirmar la publicación.
+    setDryRunResult(null);
+    setAwaitingPublishConfirm(false);
     await refreshDetail(selectedDocumentId);
   }
 
@@ -857,6 +897,44 @@ export function InventoryDocumentsPanel() {
     } finally {
       setDryRunning(false);
     }
+  }
+
+  // Paso 1 de la publicación real: asegurar una simulación reciente y pasar al
+  // estado de confirmación. No escribe nada todavía.
+  async function handleRequestPublish() {
+    if (!selectedDocumentId) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+
+    if (!dryRunResult) {
+      setPreparingPublish(true);
+      try {
+        const result = await dryRunPublishApprovedInventoryDocumentApi(selectedDocumentId);
+        setDryRunResult(result);
+      } catch (error) {
+        setErrorMessage(
+          getErrorMessage(error, "No se pudo simular la publicación del documento."),
+        );
+        return;
+      } finally {
+        setPreparingPublish(false);
+      }
+    }
+
+    setAwaitingPublishConfirm(true);
+  }
+
+  function handleCancelPublish() {
+    setAwaitingPublishConfirm(false);
+  }
+
+  // Paso 2: confirmación explícita. Aquí sí se escribe en el inventario.
+  async function handleConfirmPublish() {
+    setAwaitingPublishConfirm(false);
+    await handlePublishApproved();
   }
 
   async function handlePublishApproved() {
@@ -1529,6 +1607,8 @@ export function InventoryDocumentsPanel() {
                     className="primary"
                     disabled={
                       publishing ||
+                      preparingPublish ||
+                      awaitingPublishConfirm ||
                       !(
                         detail.stagingAccommodations.some(
                           (accommodation) => String(accommodation.reviewStatus) === "APPROVED",
@@ -1538,12 +1618,87 @@ export function InventoryDocumentsPanel() {
                         )
                       )
                     }
-                    onClick={() => void handlePublishApproved()}
+                    onClick={() => void handleRequestPublish()}
                   >
-                    {publishing ? "Publicando..." : "Publicar aprobados al inventario"}
+                    {preparingPublish
+                      ? "Preparando simulación..."
+                      : "Revisar y publicar aprobados"}
                   </button>
                 </div>
               </div>
+
+              {awaitingPublishConfirm && dryRunResult ? (
+                <div className="publish-confirm" role="alertdialog" aria-label="Confirmar publicación">
+                  <div className="section-card__header compact">
+                    <div>
+                      <h4>Confirmar publicación real</h4>
+                      <p>
+                        Revisa la simulación antes de publicar. Esta acción escribirá en el
+                        inventario operativo.
+                      </p>
+                    </div>
+                    <span className="staging-badge staging-badge--published">Escribe en inventario</span>
+                  </div>
+
+                  <p className="publish-confirm__summary">
+                    Se publicarían <strong>{dryRunResult.accommodationsToPublish}</strong>{" "}
+                    alojamiento(s) y <strong>{dryRunResult.accommodationRatesToPublish}</strong>{" "}
+                    tarifa(s); <strong>{dryRunResult.activitiesToPublish}</strong> actividad(es) y{" "}
+                    <strong>{dryRunResult.activityRatesToPublish}</strong> tarifa(s) de actividad. Se
+                    omitirían <strong>{dryRunResult.skipped}</strong> candidato(s).
+                    {dryRunResult.wouldReplaceExisting
+                      ? " Reemplazaría la publicación previa de este documento (idempotente)."
+                      : null}
+                  </p>
+
+                  {(() => {
+                    const { critical, info } = classifyDryRunWarnings(dryRunResult.warnings);
+                    return (
+                      <>
+                        {critical.length > 0 ? (
+                          <div className="alert alert--error" role="alert">
+                            <strong>Advertencias importantes:</strong>
+                            <ul className="detail-list">
+                              {critical.map((warning, index) => (
+                                <li key={index}>{warning}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+
+                        {info.length > 0 ? (
+                          <div className="alert alert--warning" role="status">
+                            <strong>Avisos informativos:</strong>
+                            <ul className="detail-list">
+                              {info.map((warning, index) => (
+                                <li key={index}>{warning}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+
+                        {critical.length === 0 && info.length === 0 ? (
+                          <p>Sin advertencias. Todo lo aprobado se publicaría.</p>
+                        ) : null}
+                      </>
+                    );
+                  })()}
+
+                  <div className="stack compact actions-row">
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={publishing}
+                      onClick={() => void handleConfirmPublish()}
+                    >
+                      {publishing ? "Publicando..." : "Confirmar publicación real"}
+                    </button>
+                    <button type="button" disabled={publishing} onClick={handleCancelPublish}>
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               {dryRunResult ? (
                 <div className="publish-result publish-result--dryrun">
