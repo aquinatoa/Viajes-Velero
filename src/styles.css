@@ -655,3 +655,8 @@ tr.is-selected {
   display: grid;
   gap: 14px;
 }
+
+.staging-badge--published {
+  color: #127452;
+  background: rgba(24, 158, 109, 0.16);
+}

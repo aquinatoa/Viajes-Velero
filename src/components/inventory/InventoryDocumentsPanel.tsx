@@ -974,9 +974,19 @@ export function InventoryDocumentsPanel() {
               <div className="section-card__header compact">
                 <div>
                   <h4>Candidatos revisables (staging)</h4>
-                  <p>Pendientes de revisión humana. No publicados al inventario operativo.</p>
+                  <p>
+                    {detail.status === "PUBLISHED"
+                      ? "Candidatos revisados y publicados al inventario operativo."
+                      : "Pendientes de revisión humana. No publicados al inventario operativo."}
+                  </p>
                 </div>
-                <span className="staging-badge">No publicado</span>
+                {detail.status === "PUBLISHED" ? (
+                  <span className="staging-badge staging-badge--published">
+                    Publicado al inventario operativo
+                  </span>
+                ) : (
+                  <span className="staging-badge">No publicado</span>
+                )}
               </div>
 
               <div className="grid two">
