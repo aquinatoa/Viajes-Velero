@@ -570,3 +570,40 @@ tr.is-selected {
   font-weight: 700;
   color: #28404d;
 }
+
+.staging-review {
+  display: grid;
+  gap: 18px;
+}
+
+.staging-group {
+  display: grid;
+  gap: 12px;
+  border-left: 3px solid rgba(41, 98, 158, 0.25);
+  padding-left: 14px;
+}
+
+.staging-card {
+  border: 1px solid rgba(19, 35, 47, 0.1);
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.staging-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.staging-card__status {
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: #28404d;
+  background: rgba(216, 231, 238, 0.7);
+  border-radius: 999px;
+  padding: 4px 12px;
+}

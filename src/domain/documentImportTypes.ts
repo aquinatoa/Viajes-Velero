@@ -373,3 +373,15 @@ export interface CreateStagingResult {
   activities: number;
   warnings: string[];
 }
+
+export type StagingEntityKey =
+  | "accommodations"
+  | "accommodation-rates"
+  | "accommodation-adjustments"
+  | "accommodation-policies"
+  | "accommodation-blackout-dates"
+  | "activities"
+  | "activity-rates"
+  | "activity-policies";
+
+export type StagingReviewStatus = "PENDING" | "APPROVED" | "REJECTED" | "NEEDS_CHANGES";

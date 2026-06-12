@@ -384,3 +384,288 @@ export async function createInventoryDocumentStaging(
     warnings,
   };
 }
+
+// ----------------------------------------------------------------------------
+// Edición de candidatos staging (revisión humana, Bloque 5).
+// ----------------------------------------------------------------------------
+
+/** Error de validación de edición de staging; el endpoint lo traduce a HTTP 400. */
+export class StagingValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StagingValidationError";
+  }
+}
+
+const VALID_STAGING_REVIEW_STATUS = new Set([
+  "PENDING",
+  "APPROVED",
+  "REJECTED",
+  "NEEDS_CHANGES",
+]);
+
+interface StagingEntityConfig {
+  getDelegate: () => {
+    findUnique: (args: { where: { id: string } }) => Promise<Record<string, unknown> | null>;
+    update: (args: { where: { id: string }; data: Record<string, unknown> }) => Promise<unknown>;
+  };
+  requiredStringFields: string[];
+  optionalStringFields: string[];
+  intFields: string[];
+  decimalFields: string[];
+  dateFields: string[];
+  booleanFields: string[];
+  /** Campo crítico que no puede quedar vacío al aprobar. */
+  nameField?: string;
+  /** Campo de precio: obliga moneda y no permite aprobar sin precio. */
+  priceField?: string;
+  currencyField?: string;
+}
+
+const STAGING_ENTITY_REGISTRY: Record<string, StagingEntityConfig> = {
+  accommodations: {
+    getDelegate: () => prisma.stagingAccommodation,
+    requiredStringFields: ["accommodationName"],
+    optionalStringFields: [
+      "providerName",
+      "locality",
+      "province",
+      "country",
+      "categoryType",
+      "accommodationType",
+    ],
+    intFields: [],
+    decimalFields: [],
+    dateFields: [],
+    booleanFields: [],
+    nameField: "accommodationName",
+  },
+  "accommodation-rates": {
+    getDelegate: () => prisma.stagingAccommodationRate,
+    requiredStringFields: ["currency"],
+    optionalStringFields: [
+      "seasonName",
+      "boardType",
+      "unitName",
+      "unitType",
+      "rateUnit",
+      "occupancyLabel",
+      "rawText",
+    ],
+    intFields: ["year", "minNights", "minPax", "minUnits"],
+    decimalFields: ["pvpAmount", "netAmount", "costAmount", "commissionPercent"],
+    dateFields: ["dateFrom", "dateTo"],
+    booleanFields: ["taxIncluded"],
+    priceField: "pvpAmount",
+    currencyField: "currency",
+  },
+  "accommodation-adjustments": {
+    getDelegate: () => prisma.stagingAccommodationAdjustment,
+    requiredStringFields: ["adjustmentType", "concept"],
+    optionalStringFields: ["amountType", "appliesPer", "conditionText", "rawText"],
+    intFields: [],
+    decimalFields: ["amount"],
+    dateFields: ["dateFrom", "dateTo"],
+    booleanFields: [],
+    nameField: "concept",
+  },
+  "accommodation-policies": {
+    getDelegate: () => prisma.stagingAccommodationPolicy,
+    requiredStringFields: ["policyType", "policyText"],
+    optionalStringFields: [],
+    intFields: [],
+    decimalFields: [],
+    dateFields: [],
+    booleanFields: [],
+    nameField: "policyText",
+  },
+  "accommodation-blackout-dates": {
+    getDelegate: () => prisma.stagingAccommodationBlackoutDate,
+    requiredStringFields: ["availabilityStatus"],
+    optionalStringFields: ["reason", "rawText"],
+    intFields: [],
+    decimalFields: [],
+    dateFields: ["dateFrom", "dateTo"],
+    booleanFields: [],
+  },
+  activities: {
+    getDelegate: () => prisma.stagingActivity,
+    requiredStringFields: ["activityName"],
+    optionalStringFields: [
+      "supplierName",
+      "locationMain",
+      "province",
+      "country",
+      "activityType",
+      "durationText",
+      "descriptionText",
+    ],
+    intFields: [],
+    decimalFields: [],
+    dateFields: [],
+    booleanFields: [],
+    nameField: "activityName",
+  },
+  "activity-rates": {
+    getDelegate: () => prisma.stagingActivityRate,
+    requiredStringFields: ["currency"],
+    optionalStringFields: ["seasonName", "ageLabel", "rateUnit", "durationText", "rawText"],
+    intFields: ["year", "ageMin", "ageMax", "minPax", "maxPax"],
+    decimalFields: ["salePvpAmount", "costNetAmount", "commissionPercent"],
+    dateFields: ["dateFrom", "dateTo"],
+    booleanFields: [],
+    priceField: "salePvpAmount",
+    currencyField: "currency",
+  },
+  "activity-policies": {
+    getDelegate: () => prisma.stagingActivityPolicy,
+    requiredStringFields: ["policyType", "policyText"],
+    optionalStringFields: [],
+    intFields: [],
+    decimalFields: [],
+    dateFields: [],
+    booleanFields: [],
+    nameField: "policyText",
+  },
+};
+
+function parseEditableNumber(value: unknown, label: string): number | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new StagingValidationError(`El campo ${label} debe ser numérico.`);
+  }
+
+  return parsed;
+}
+
+function parseEditableInt(value: unknown, label: string): number | null {
+  const parsed = parseEditableNumber(value, label);
+  if (parsed === null) {
+    return null;
+  }
+  if (!Number.isInteger(parsed)) {
+    throw new StagingValidationError(`El campo ${label} debe ser un número entero.`);
+  }
+  return parsed;
+}
+
+function parseEditableDate(value: unknown, label: string): Date | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) {
+    throw new StagingValidationError(`La fecha ${label} no es válida.`);
+  }
+
+  return parsed;
+}
+
+/**
+ * Actualiza un candidato staging de cualquier tipo soportado, validando el tipo
+ * de entidad, los campos editables y las reglas de revisión. Devuelve null si el
+ * candidato no existe. No publica nada al inventario operativo.
+ */
+export async function updateStagingEntity(
+  entityKey: string,
+  id: string,
+  patch: Record<string, unknown>,
+) {
+  const config = STAGING_ENTITY_REGISTRY[entityKey];
+  if (!config) {
+    throw new StagingValidationError("Tipo de candidato staging no válido.");
+  }
+
+  const delegate = config.getDelegate();
+  const existing = await delegate.findUnique({ where: { id } });
+  if (!existing) {
+    return null;
+  }
+
+  const data: Record<string, unknown> = {};
+
+  for (const field of config.requiredStringFields) {
+    if (field in patch) {
+      const value = patch[field];
+      const normalized = value === null || value === undefined ? "" : String(value).trim();
+      if (normalized === "") {
+        throw new StagingValidationError(`El campo ${field} no puede quedar vacío.`);
+      }
+      data[field] = normalized;
+    }
+  }
+
+  for (const field of config.optionalStringFields) {
+    if (field in patch) {
+      const value = patch[field];
+      const normalized = value === null || value === undefined ? "" : String(value).trim();
+      data[field] = normalized === "" ? null : normalized;
+    }
+  }
+
+  for (const field of config.intFields) {
+    if (field in patch) {
+      data[field] = parseEditableInt(patch[field], field);
+    }
+  }
+
+  for (const field of config.decimalFields) {
+    if (field in patch) {
+      data[field] = parseEditableNumber(patch[field], field);
+    }
+  }
+
+  for (const field of config.dateFields) {
+    if (field in patch) {
+      data[field] = parseEditableDate(patch[field], field);
+    }
+  }
+
+  for (const field of config.booleanFields) {
+    if (field in patch) {
+      const value = patch[field];
+      data[field] = value === null || value === undefined ? null : Boolean(value);
+    }
+  }
+
+  if ("reviewStatus" in patch) {
+    const reviewStatus = String(patch.reviewStatus);
+    if (!VALID_STAGING_REVIEW_STATUS.has(reviewStatus)) {
+      throw new StagingValidationError("Estado de revisión no válido.");
+    }
+    data.reviewStatus = reviewStatus;
+  }
+
+  const merged = { ...existing, ...data };
+  const resultingStatus = String(merged.reviewStatus ?? "PENDING");
+
+  if (config.priceField) {
+    const price = merged[config.priceField];
+    const hasPrice = price !== null && price !== undefined;
+
+    if (hasPrice && config.currencyField) {
+      const currency = merged[config.currencyField];
+      if (!currency || String(currency).trim() === "") {
+        throw new StagingValidationError("La moneda es obligatoria cuando la tarifa tiene precio.");
+      }
+    }
+
+    if (resultingStatus === "APPROVED" && !hasPrice) {
+      throw new StagingValidationError("No se puede aprobar una tarifa sin precio.");
+    }
+  }
+
+  if (config.nameField && resultingStatus === "APPROVED") {
+    const name = merged[config.nameField];
+    if (!name || String(name).trim() === "") {
+      throw new StagingValidationError("No se puede aprobar un candidato sin nombre o concepto.");
+    }
+  }
+
+  return delegate.update({ where: { id }, data });
+}

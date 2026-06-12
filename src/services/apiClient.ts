@@ -4,6 +4,7 @@ import type {
   CreateStagingResult,
   InventoryDocumentDetail,
   SourceDocumentSummary,
+  StagingEntityKey,
 } from "../domain/documentImportTypes";
 import type { SearchFilters } from "../domain/types";
 
@@ -73,6 +74,26 @@ async function postFormData<T>(
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
     body: payload,
+  });
+
+  if (!response.ok) {
+    await parseErrorResponse(response, fallbackError);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+async function patchJson<T>(
+  path: string,
+  payload: unknown,
+  fallbackError: string,
+): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
@@ -218,6 +239,18 @@ export function createInventoryDocumentStagingApi(documentId: string) {
     `/api/inventory/documents/${encodeURIComponent(documentId)}/create-staging`,
     {},
     "No se pudieron crear los candidatos revisables del documento.",
+  );
+}
+
+export function patchInventoryStagingApi(
+  entity: StagingEntityKey,
+  id: string,
+  patch: Record<string, unknown>,
+) {
+  return patchJson<Record<string, unknown>>(
+    `/api/inventory/staging/${entity}/${encodeURIComponent(id)}`,
+    patch,
+    "No se pudo actualizar el candidato.",
   );
 }
 

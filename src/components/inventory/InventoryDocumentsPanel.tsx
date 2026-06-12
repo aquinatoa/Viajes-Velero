@@ -5,6 +5,8 @@ import type {
   InventoryDocumentDetail,
   InventoryTargetType,
   SourceDocumentSummary,
+  StagingEntityKey,
+  StagingReviewStatus,
 } from "../../domain/documentImportTypes";
 import {
   analyzeInventoryDocumentApi,
@@ -14,6 +16,7 @@ import {
   createInventoryDocumentStagingApi,
   getInventoryDocumentApi,
   listInventoryDocumentsApi,
+  patchInventoryStagingApi,
   publishInventoryDocumentApi,
   rejectInventoryDocumentApi,
   uploadInventoryDocumentFileApi,
@@ -105,6 +108,230 @@ function formatFileSize(bytes?: number | null) {
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
+}
+
+const stagingReviewStatusLabels: Record<string, string> = {
+  PENDING: "Pendiente",
+  APPROVED: "Aprobado",
+  REJECTED: "Rechazado",
+  NEEDS_CHANGES: "Requiere cambios",
+};
+
+const stagingReviewStatusOptions: { value: StagingReviewStatus; label: string }[] = [
+  { value: "PENDING", label: "Pendiente" },
+  { value: "APPROVED", label: "Aprobado" },
+  { value: "REJECTED", label: "Rechazado" },
+  { value: "NEEDS_CHANGES", label: "Requiere cambios" },
+];
+
+type StagingFieldType = "text" | "number" | "date";
+
+interface StagingFieldDef {
+  key: string;
+  label: string;
+  type: StagingFieldType;
+}
+
+const accommodationFields: StagingFieldDef[] = [
+  { key: "accommodationName", label: "Nombre", type: "text" },
+  { key: "locality", label: "Localidad", type: "text" },
+  { key: "province", label: "Provincia", type: "text" },
+  { key: "categoryType", label: "Categoría", type: "text" },
+  { key: "accommodationType", label: "Tipo", type: "text" },
+  { key: "providerName", label: "Proveedor", type: "text" },
+];
+
+const accommodationRateFields: StagingFieldDef[] = [
+  { key: "seasonName", label: "Temporada", type: "text" },
+  { key: "year", label: "Año", type: "number" },
+  { key: "dateFrom", label: "Fecha inicio", type: "date" },
+  { key: "dateTo", label: "Fecha fin", type: "date" },
+  { key: "boardType", label: "Régimen", type: "text" },
+  { key: "minNights", label: "Noches mínimas", type: "number" },
+  { key: "occupancyLabel", label: "Ocupación", type: "text" },
+  { key: "pvpAmount", label: "Precio PVP", type: "number" },
+  { key: "currency", label: "Moneda", type: "text" },
+];
+
+const accommodationAdjustmentFields: StagingFieldDef[] = [
+  { key: "adjustmentType", label: "Tipo", type: "text" },
+  { key: "concept", label: "Concepto", type: "text" },
+  { key: "amountType", label: "Tipo de importe", type: "text" },
+  { key: "amount", label: "Importe", type: "number" },
+  { key: "appliesPer", label: "Aplica por", type: "text" },
+  { key: "conditionText", label: "Condición", type: "text" },
+];
+
+const accommodationPolicyFields: StagingFieldDef[] = [
+  { key: "policyType", label: "Tipo", type: "text" },
+  { key: "policyText", label: "Texto", type: "text" },
+];
+
+const accommodationBlackoutFields: StagingFieldDef[] = [
+  { key: "dateFrom", label: "Fecha inicio", type: "date" },
+  { key: "dateTo", label: "Fecha fin", type: "date" },
+  { key: "availabilityStatus", label: "Disponibilidad", type: "text" },
+  { key: "reason", label: "Motivo", type: "text" },
+];
+
+const activityFields: StagingFieldDef[] = [
+  { key: "activityName", label: "Nombre", type: "text" },
+  { key: "supplierName", label: "Proveedor", type: "text" },
+  { key: "locationMain", label: "Ubicación", type: "text" },
+  { key: "activityType", label: "Tipo", type: "text" },
+  { key: "durationText", label: "Duración", type: "text" },
+  { key: "descriptionText", label: "Descripción", type: "text" },
+];
+
+const activityRateFields: StagingFieldDef[] = [
+  { key: "seasonName", label: "Temporada", type: "text" },
+  { key: "year", label: "Año", type: "number" },
+  { key: "dateFrom", label: "Fecha inicio", type: "date" },
+  { key: "dateTo", label: "Fecha fin", type: "date" },
+  { key: "ageLabel", label: "Edad", type: "text" },
+  { key: "salePvpAmount", label: "Precio PVP", type: "number" },
+  { key: "currency", label: "Moneda", type: "text" },
+];
+
+const activityPolicyFields: StagingFieldDef[] = [
+  { key: "policyType", label: "Tipo", type: "text" },
+  { key: "policyText", label: "Texto", type: "text" },
+];
+
+interface StagingEditableCardProps {
+  entity: StagingEntityKey;
+  id: string;
+  title: string;
+  fields: StagingFieldDef[];
+  values: object;
+  reviewStatus: string;
+  rawText?: string | null;
+  structuredJson?: unknown;
+  onSaved: () => Promise<void> | void;
+}
+
+function StagingEditableCard(props: StagingEditableCardProps) {
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => {
+    const sourceValues = props.values as Record<string, unknown>;
+    const initial: Record<string, string> = {};
+    for (const field of props.fields) {
+      const value = sourceValues[field.key];
+      if (value === null || value === undefined) {
+        initial[field.key] = "";
+      } else if (field.type === "date") {
+        initial[field.key] = String(value).slice(0, 10);
+      } else {
+        initial[field.key] = String(value);
+      }
+    }
+    return initial;
+  });
+  const [status, setStatus] = useState<string>(props.reviewStatus || "PENDING");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  async function handleSave() {
+    setError(null);
+    setSaved(false);
+
+    for (const field of props.fields) {
+      const raw = fieldValues[field.key] ?? "";
+      if (field.type === "number" && raw.trim() !== "" && !Number.isFinite(Number(raw))) {
+        setError(`El campo ${field.label} debe ser numérico.`);
+        return;
+      }
+    }
+
+    setSaving(true);
+    try {
+      const patch: Record<string, unknown> = { reviewStatus: status };
+      for (const field of props.fields) {
+        const raw = (fieldValues[field.key] ?? "").trim();
+        if (field.type === "number") {
+          patch[field.key] = raw === "" ? null : Number(raw);
+        } else if (field.type === "date") {
+          patch[field.key] = raw === "" ? null : raw;
+        } else {
+          patch[field.key] = raw;
+        }
+      }
+
+      await patchInventoryStagingApi(props.entity, props.id, patch);
+      setSaved(true);
+      await props.onSaved();
+    } catch (saveError) {
+      setError(getErrorMessage(saveError, "No se pudo guardar el candidato."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="staging-card">
+      <div className="staging-card__head">
+        <strong>{props.title}</strong>
+        <span className="staging-card__status">
+          {stagingReviewStatusLabels[status] ?? status}
+        </span>
+      </div>
+
+      <div className="grid two">
+        {props.fields.map((field) => (
+          <label className="field" key={field.key}>
+            <span>{field.label}</span>
+            <input
+              type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
+              value={fieldValues[field.key] ?? ""}
+              onChange={(event) =>
+                setFieldValues((current) => ({
+                  ...current,
+                  [field.key]: event.target.value,
+                }))
+              }
+            />
+          </label>
+        ))}
+
+        <label className="field">
+          <span>Estado de revisión</span>
+          <select value={status} onChange={(event) => setStatus(event.target.value)}>
+            {stagingReviewStatusOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {props.rawText ? (
+        <>
+          <span className="ai-result__label">Texto de origen</span>
+          <pre className="extraction-text">{props.rawText}</pre>
+        </>
+      ) : null}
+
+      {props.structuredJson ? (
+        <>
+          <span className="ai-result__label">Datos estructurados</span>
+          <pre className="extraction-text">{JSON.stringify(props.structuredJson, null, 2)}</pre>
+        </>
+      ) : null}
+
+      {error ? (
+        <div className="alert alert--error" role="alert">
+          {error}
+        </div>
+      ) : null}
+
+      {saved ? <small>Cambios guardados.</small> : null}
+
+      <button type="button" disabled={saving} onClick={() => void handleSave()}>
+        {saving ? "Guardando..." : "Guardar candidato"}
+      </button>
+    </div>
+  );
 }
 
 export function InventoryDocumentsPanel() {
@@ -277,6 +504,13 @@ export function InventoryDocumentsPanel() {
     } finally {
       setStagingCreating(false);
     }
+  }
+
+  async function handleStagingSaved() {
+    if (!selectedDocumentId) {
+      return;
+    }
+    await refreshDetail(selectedDocumentId);
   }
 
   async function handleDocumentAction(action: DocumentActionKey) {
@@ -735,6 +969,128 @@ export function InventoryDocumentsPanel() {
                   <strong>{detail.stagingActivities.length}</strong>
                 </div>
               </div>
+
+              {detail.stagingAccommodations.length === 0 &&
+              detail.stagingActivities.length === 0 ? (
+                <p>
+                  Todavía no hay candidatos. Usa "Crear candidatos revisables" para generarlos a
+                  partir del análisis.
+                </p>
+              ) : (
+                <div className="staging-review">
+                  {detail.stagingAccommodations.map((accommodation) => (
+                    <div key={accommodation.id} className="staging-group">
+                      <StagingEditableCard
+                        entity="accommodations"
+                        id={accommodation.id}
+                        title={`Alojamiento: ${accommodation.accommodationName}`}
+                        fields={accommodationFields}
+                        values={accommodation}
+                        reviewStatus={String(accommodation.reviewStatus)}
+                        onSaved={handleStagingSaved}
+                      />
+
+                      {accommodation.rates.map((rate) => (
+                        <StagingEditableCard
+                          key={rate.id}
+                          entity="accommodation-rates"
+                          id={rate.id}
+                          title="Tarifa"
+                          fields={accommodationRateFields}
+                          values={rate}
+                          reviewStatus={String(rate.reviewStatus)}
+                          rawText={rate.rawText}
+                          onSaved={handleStagingSaved}
+                        />
+                      ))}
+
+                      {accommodation.adjustments.map((adjustment) => (
+                        <StagingEditableCard
+                          key={adjustment.id}
+                          entity="accommodation-adjustments"
+                          id={adjustment.id}
+                          title="Suplemento / ajuste"
+                          fields={accommodationAdjustmentFields}
+                          values={adjustment}
+                          reviewStatus={String(adjustment.reviewStatus)}
+                          rawText={adjustment.rawText}
+                          onSaved={handleStagingSaved}
+                        />
+                      ))}
+
+                      {accommodation.policies.map((policy) => (
+                        <StagingEditableCard
+                          key={policy.id}
+                          entity="accommodation-policies"
+                          id={policy.id}
+                          title="Política"
+                          fields={accommodationPolicyFields}
+                          values={policy}
+                          reviewStatus={String(policy.reviewStatus)}
+                          structuredJson={policy.structuredJson}
+                          onSaved={handleStagingSaved}
+                        />
+                      ))}
+
+                      {accommodation.blackoutDates.map((blackout) => (
+                        <StagingEditableCard
+                          key={blackout.id}
+                          entity="accommodation-blackout-dates"
+                          id={blackout.id}
+                          title="Fecha especial / blackout"
+                          fields={accommodationBlackoutFields}
+                          values={blackout}
+                          reviewStatus={String(blackout.reviewStatus)}
+                          rawText={blackout.rawText}
+                          onSaved={handleStagingSaved}
+                        />
+                      ))}
+                    </div>
+                  ))}
+
+                  {detail.stagingActivities.map((activity) => (
+                    <div key={activity.id} className="staging-group">
+                      <StagingEditableCard
+                        entity="activities"
+                        id={activity.id}
+                        title={`Actividad: ${activity.activityName}`}
+                        fields={activityFields}
+                        values={activity}
+                        reviewStatus={String(activity.reviewStatus)}
+                        onSaved={handleStagingSaved}
+                      />
+
+                      {activity.rates.map((rate) => (
+                        <StagingEditableCard
+                          key={rate.id}
+                          entity="activity-rates"
+                          id={rate.id}
+                          title="Tarifa de actividad"
+                          fields={activityRateFields}
+                          values={rate}
+                          reviewStatus={String(rate.reviewStatus)}
+                          rawText={rate.rawText}
+                          onSaved={handleStagingSaved}
+                        />
+                      ))}
+
+                      {activity.policies.map((policy) => (
+                        <StagingEditableCard
+                          key={policy.id}
+                          entity="activity-policies"
+                          id={policy.id}
+                          title="Política de actividad"
+                          fields={activityPolicyFields}
+                          values={policy}
+                          reviewStatus={String(policy.reviewStatus)}
+                          structuredJson={policy.structuredJson}
+                          onSaved={handleStagingSaved}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {aiResult ? (
                 <div className="ai-result">

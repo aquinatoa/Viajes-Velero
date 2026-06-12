@@ -30,7 +30,9 @@ import {
   getInventoryDocumentDetail,
   listInventoryDocuments,
   rejectInventoryDocument,
+  StagingValidationError,
   updateInventoryDocumentStatus,
+  updateStagingEntity,
 } from "./documentImportDb";
 import { saveInventoryDocumentFile } from "./documentStorage";
 import { extractPdfText } from "./pdfTextExtraction";
@@ -585,6 +587,37 @@ app.post("/api/inventory/documents/:id/create-staging", async (request, response
     console.error("Error creating inventory document staging", error);
     response.status(500).json({
       error: "No se pudieron crear los candidatos revisables del documento.",
+    });
+  }
+});
+
+app.patch("/api/inventory/staging/:entity/:id", async (request, response) => {
+  try {
+    const entity = String(request.params.entity);
+    const id = String(request.params.id);
+    const patch = (request.body ?? {}) as Record<string, unknown>;
+
+    const updated = await updateStagingEntity(entity, id, patch);
+
+    if (!updated) {
+      response.status(404).json({
+        error: "Candidato staging no encontrado.",
+      });
+      return;
+    }
+
+    response.json(updated);
+  } catch (error) {
+    if (error instanceof StagingValidationError) {
+      response.status(400).json({
+        error: error.message,
+      });
+      return;
+    }
+
+    console.error("Error updating staging entity", error);
+    response.status(500).json({
+      error: "No se pudo actualizar el candidato staging.",
     });
   }
 });
