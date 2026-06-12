@@ -511,3 +511,33 @@ button {
 tr.is-selected {
   background: rgba(216, 231, 238, 0.55);
 }
+
+.file-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.file-cell__input {
+  width: 100%;
+  font-size: 0.85rem;
+}
+
+.file-cell__name {
+  display: block;
+  width: 100%;
+  word-break: break-word;
+  color: #28404d;
+}
+
+.file-cell__name--empty {
+  color: rgba(40, 64, 77, 0.55);
+  font-style: italic;
+}
+
+.file-cell__button {
+  align-self: flex-start;
+  margin-top: 2px;
+}

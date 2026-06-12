@@ -427,8 +427,9 @@ export function InventoryDocumentsPanel() {
                     </button>
                   </td>
                   <td>
-                    <div className="stack compact">
+                    <div className="file-cell">
                       <input
+                        className="file-cell__input"
                         type="file"
                         accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,image/*"
                         onChange={(event) => {
@@ -442,14 +443,19 @@ export function InventoryDocumentsPanel() {
                       />
 
                       {selectedFile ? (
-                        <small>
+                        <small className="file-cell__name">
                           Seleccionado: {selectedFile.name} (
                           {Math.round(selectedFile.size / 1024)} KB)
                         </small>
-                      ) : null}
+                      ) : (
+                        <small className="file-cell__name file-cell__name--empty">
+                          Sin archivo seleccionado.
+                        </small>
+                      )}
 
                       <button
                         type="button"
+                        className="file-cell__button"
                         disabled={!selectedFile || isUploading}
                         onClick={() => void handleUpload(document.id)}
                       >
