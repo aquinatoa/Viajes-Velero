@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 import type {
   AiDocumentAnalysisResult,
   AiAnalysisMode,
@@ -32,13 +33,21 @@ export class AiAnalysisError extends Error {
 
 interface AiProviderConfig {
   provider: string;
+  anthropicApiKey: string;
+  openaiApiKey: string;
+  model: string;
+}
+
+interface ProviderCallConfig {
   apiKey: string;
   model: string;
 }
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
+const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5";
 const MAX_TEXT_CHARS = 30000;
+const AI_MAX_OUTPUT_TOKENS = 8000;
 
 /**
  * Lee la configuración de IA desde variables de entorno.
@@ -47,7 +56,8 @@ const MAX_TEXT_CHARS = 30000;
 function getAiProviderConfig(): AiProviderConfig {
   return {
     provider: (process.env.AI_PROVIDER ?? "").trim().toLowerCase(),
-    apiKey: (process.env.AI_API_KEY ?? "").trim(),
+    anthropicApiKey: (process.env.ANTHROPIC_API_KEY ?? "").trim(),
+    openaiApiKey: (process.env.AI_API_KEY ?? "").trim(),
     model: (process.env.AI_MODEL ?? "").trim(),
   };
 }
@@ -55,6 +65,9 @@ function getAiProviderConfig(): AiProviderConfig {
 /**
  * Análisis IA del texto extraído.
  *
+ * - Si AI_PROVIDER=anthropic y hay ANTHROPIC_API_KEY, llama a la Messages API de
+ *   Anthropic (Claude) mediante el SDK oficial. Modelo por defecto:
+ *   claude-sonnet-4-5 (configurable con AI_MODEL).
  * - Si AI_PROVIDER=openai y hay AI_API_KEY, llama a la Responses API de OpenAI.
  * - En cualquier otro caso (sin proveedor o sin clave) usa el modo mock
  *   controlado, que no inventa tarifas ni políticas.
@@ -66,18 +79,133 @@ export async function analyzeDocumentText(
 ): Promise<AiDocumentAnalysisResult> {
   const config = getAiProviderConfig();
 
+  if (config.provider === "anthropic") {
+    if (!config.anthropicApiKey) {
+      return buildMockAnalysis(input, [
+        "Falta ANTHROPIC_API_KEY: no se pudo usar Anthropic; se usó el modo mock controlado.",
+      ]);
+    }
+    return analyzeWithAnthropic(input, {
+      apiKey: config.anthropicApiKey,
+      model: config.model,
+    });
+  }
+
   if (config.provider === "openai") {
-    if (!config.apiKey) {
+    if (!config.openaiApiKey) {
       return buildMockAnalysis(input, [
         "Falta AI_API_KEY: no se pudo usar OpenAI; se usó el modo mock controlado.",
       ]);
     }
-    return analyzeWithOpenAi(input, config);
+    return analyzeWithOpenAi(input, {
+      apiKey: config.openaiApiKey,
+      model: config.model,
+    });
   }
 
   return buildMockAnalysis(input, [
     "No hay un proveedor IA configurado (AI_PROVIDER); se usó el modo mock controlado.",
   ]);
+}
+
+// ----------------------------------------------------------------------------
+// Proveedor real: Anthropic (Messages API, SDK oficial)
+// ----------------------------------------------------------------------------
+
+async function analyzeWithAnthropic(
+  input: AnalyzeDocumentTextInput,
+  config: ProviderCallConfig,
+): Promise<AiDocumentAnalysisResult> {
+  const extraWarnings: string[] = [];
+
+  let text = input.text;
+  if (text.length > MAX_TEXT_CHARS) {
+    text = text.slice(0, MAX_TEXT_CHARS);
+    extraWarnings.push(
+      `El texto se truncó a ${MAX_TEXT_CHARS} caracteres para el análisis IA; puede faltar contenido del final.`,
+    );
+  }
+
+  const client = new Anthropic({ apiKey: config.apiKey });
+
+  let message;
+  try {
+    message = await client.messages.create({
+      model: config.model || DEFAULT_ANTHROPIC_MODEL,
+      max_tokens: AI_MAX_OUTPUT_TOKENS,
+      system: buildSystemPrompt(),
+      messages: [{ role: "user", content: buildUserPrompt(input, text) }],
+    });
+  } catch (error) {
+    throw mapAnthropicError(error);
+  }
+
+  const blocks = (message?.content ?? []) as Array<{ type?: string; text?: string }>;
+  const outputText = blocks
+    .map((block) => (block.type === "text" ? block.text ?? "" : ""))
+    .join("");
+
+  if (!outputText.trim()) {
+    throw new AiAnalysisError("La respuesta del proveedor IA no contenía texto analizable.");
+  }
+
+  const parsed = parseModelJson(outputText);
+  return normalizeAnalysis(parsed, "ai", outputText, extraWarnings);
+}
+
+function mapAnthropicError(error: unknown): AiAnalysisError {
+  if (error instanceof Anthropic.AuthenticationError) {
+    return new AiAnalysisError("La clave de API de Anthropic no es válida o no tiene permisos.");
+  }
+  if (error instanceof Anthropic.PermissionDeniedError) {
+    return new AiAnalysisError(
+      "La clave de API de Anthropic no tiene permiso para el modelo solicitado.",
+    );
+  }
+  if (error instanceof Anthropic.NotFoundError) {
+    return new AiAnalysisError(
+      "El modelo indicado en AI_MODEL no existe o no está disponible en Anthropic.",
+    );
+  }
+  if (error instanceof Anthropic.RateLimitError) {
+    return new AiAnalysisError(
+      "Se alcanzó el límite de uso o de frecuencia del proveedor IA. Inténtalo más tarde.",
+    );
+  }
+  if (error instanceof Anthropic.BadRequestError) {
+    return new AiAnalysisError(
+      "La solicitud al proveedor IA no es válida (revisa el modelo o el tamaño del documento).",
+    );
+  }
+  if (error instanceof Anthropic.APIError) {
+    return new AiAnalysisError(
+      `El proveedor IA devolvió un error (${error.status ?? "desconocido"}).`,
+    );
+  }
+  return new AiAnalysisError(
+    "No se pudo conectar con el proveedor IA (Anthropic). Revisa la conexión.",
+  );
+}
+
+/**
+ * Parsea el JSON devuelto por el modelo de forma tolerante: intenta JSON.parse
+ * directo y, si falla, extrae el primer objeto { ... } del texto.
+ */
+function parseModelJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start !== -1 && end !== -1 && end > start) {
+      try {
+        return JSON.parse(text.slice(start, end + 1));
+      } catch {
+        // continúa al error final
+      }
+    }
+    throw new AiAnalysisError("El proveedor IA devolvió un JSON inválido.");
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -141,7 +269,7 @@ function buildUserPrompt(input: AnalyzeDocumentTextInput, text: string): string 
 
 async function analyzeWithOpenAi(
   input: AnalyzeDocumentTextInput,
-  config: AiProviderConfig,
+  config: ProviderCallConfig,
 ): Promise<AiDocumentAnalysisResult> {
   const extraWarnings: string[] = [];
 
