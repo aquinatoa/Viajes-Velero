@@ -73,7 +73,8 @@ export async function attachInventoryDocumentFile(input: AttachInventoryDocument
 }
 
 export async function listInventoryDocuments() {
-  return prisma.sourceDocument.findMany({
+  const reviewSelect = { select: { reviewStatus: true } } as const;
+  const documents = await prisma.sourceDocument.findMany({
     orderBy: {
       createdAt: "desc",
     },
@@ -90,7 +91,51 @@ export async function listInventoryDocuments() {
       aiConfidence: true,
       createdAt: true,
       updatedAt: true,
+      stagingAccommodations: {
+        select: {
+          reviewStatus: true,
+          rates: reviewSelect,
+          adjustments: reviewSelect,
+          policies: reviewSelect,
+          blackoutDates: reviewSelect,
+        },
+      },
+      stagingActivities: {
+        select: {
+          reviewStatus: true,
+          rates: reviewSelect,
+          policies: reviewSelect,
+        },
+      },
     },
+  });
+
+  // Calcula contadores de revisión por documento (para priorizar de un vistazo)
+  // y descarta las relaciones del payload de la lista.
+  return documents.map((document) => {
+    const statuses: string[] = [];
+    for (const accommodation of document.stagingAccommodations) {
+      statuses.push(accommodation.reviewStatus);
+      accommodation.rates.forEach((row) => statuses.push(row.reviewStatus));
+      accommodation.adjustments.forEach((row) => statuses.push(row.reviewStatus));
+      accommodation.policies.forEach((row) => statuses.push(row.reviewStatus));
+      accommodation.blackoutDates.forEach((row) => statuses.push(row.reviewStatus));
+    }
+    for (const activity of document.stagingActivities) {
+      statuses.push(activity.reviewStatus);
+      activity.rates.forEach((row) => statuses.push(row.reviewStatus));
+      activity.policies.forEach((row) => statuses.push(row.reviewStatus));
+    }
+
+    const { stagingAccommodations: _a, stagingActivities: _b, ...summary } = document;
+    return {
+      ...summary,
+      candidateCount: statuses.length,
+      pendingReviewCount: statuses.filter(
+        (status) => status === "PENDING" || status === "NEEDS_CHANGES",
+      ).length,
+      approvedCount: statuses.filter((status) => status === "APPROVED").length,
+    };
   });
 }
 

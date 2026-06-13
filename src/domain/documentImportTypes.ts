@@ -111,6 +111,12 @@ export interface SourceDocumentSummary {
   aiConfidence?: number | null;
   createdAt: string;
   updatedAt: string;
+  /** Candidatos staging totales del documento. */
+  candidateCount?: number;
+  /** Candidatos pendientes o que requieren cambios (por revisar). */
+  pendingReviewCount?: number;
+  /** Candidatos aprobados. */
+  approvedCount?: number;
 }
 
 export interface ImportIssue {

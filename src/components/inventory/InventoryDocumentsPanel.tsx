@@ -1982,6 +1982,7 @@ export function InventoryDocumentsPanel() {
               <th>Ubicación</th>
               <th>Año</th>
               <th>Estado</th>
+              <th>Por revisar</th>
               <th>Extracción</th>
               <th>Creado</th>
               <th>Acciones</th>
@@ -2001,6 +2002,17 @@ export function InventoryDocumentsPanel() {
                   <td>{document.controlLocation ?? "-"}</td>
                   <td>{document.controlYear ?? "-"}</td>
                   <td>{statusLabels[document.status] ?? document.status}</td>
+                  <td>
+                    {document.pendingReviewCount && document.pendingReviewCount > 0 ? (
+                      <span className="status-tag status-tag--needs_changes">
+                        {document.pendingReviewCount} pendiente(s)
+                      </span>
+                    ) : document.candidateCount ? (
+                      <span className="status-tag status-tag--approved">Revisado</span>
+                    ) : (
+                      <span className="rate-table__empty">Sin candidatos</span>
+                    )}
+                  </td>
                   <td>
                     {extractionStatusLabels[document.extractionStatus] ??
                       document.extractionStatus}
@@ -2054,7 +2066,7 @@ export function InventoryDocumentsPanel() {
 
             {!loading && filteredDocuments.length === 0 && (
               <tr>
-                <td colSpan={9}>
+                <td colSpan={10}>
                   {documents.length === 0
                     ? "Todavía no hay documentos registrados."
                     : "Ningún documento coincide con la búsqueda."}
