@@ -4,6 +4,7 @@ import type {
   CreateSourceDocumentInput,
   DocumentExtraction,
   DryRunPublishResult,
+  ImportIssue,
   InventoryDocumentDetail,
   InventoryTargetType,
   PublishApprovedResult,
@@ -294,6 +295,190 @@ function classifyDryRunWarnings(warnings: string[]): {
   }
 
   return { critical, info };
+}
+
+const issueTypeLabels: Record<string, string> = {
+  EXTRACTION_PENDING_FOR_TYPE: "Extracción pendiente para el tipo",
+  TEXT_ALREADY_EXTRACTED: "Texto ya extraído",
+  NO_TEXT_LAYER: "Sin capa de texto",
+  PDF_EXTRACTION_FAILED: "Fallo de extracción de PDF",
+  AI_ANALYSIS_EXECUTED: "Análisis IA ejecutado",
+  STAGING_CANDIDATES_CREATED: "Candidatos creados",
+  STAGING_AMBIGUOUS_DATA: "Datos ambiguos en candidatos",
+  PUBLISH_COMPLETED: "Publicación completada",
+  PUBLISH_WARNING: "Aviso de publicación",
+  ANALYSIS_PLACEHOLDER: "Marcador de posición (antiguo)",
+};
+
+const issueSeverityRank: Record<string, number> = {
+  INFO: 0,
+  WARNING: 1,
+  ERROR: 2,
+  CRITICAL: 3,
+};
+
+/** Tipos de incidencia heredados de versiones anteriores (no del flujo actual). */
+const historicalIssueTypes = new Set(["ANALYSIS_PLACEHOLDER"]);
+
+interface ImportIssueGroup {
+  issueType: string;
+  /** Severidad más alta encontrada dentro del grupo. */
+  severity: string;
+  count: number;
+  resolvedCount: number;
+  /** Mensaje más reciente del grupo (las incidencias llegan de nuevas a viejas). */
+  latestMessage: string;
+  isHistorical: boolean;
+  issues: ImportIssue[];
+}
+
+/**
+ * Agrupa las incidencias por tipo para reducir el ruido de los eventos de
+ * trazabilidad repetidos (p. ej. "Análisis IA ejecutado" se registra en cada
+ * ejecución). Es de solo lectura: no borra ni modifica incidencias.
+ */
+function groupImportIssues(issues: ImportIssue[]): {
+  groups: ImportIssueGroup[];
+  severityCounts: Record<string, number>;
+} {
+  const map = new Map<string, ImportIssueGroup>();
+  const severityCounts: Record<string, number> = {
+    INFO: 0,
+    WARNING: 0,
+    ERROR: 0,
+    CRITICAL: 0,
+  };
+
+  for (const issue of issues) {
+    const severity = String(issue.severity);
+    severityCounts[severity] = (severityCounts[severity] ?? 0) + 1;
+
+    const existing = map.get(issue.issueType);
+    if (!existing) {
+      map.set(issue.issueType, {
+        issueType: issue.issueType,
+        severity,
+        count: 1,
+        resolvedCount: issue.resolved ? 1 : 0,
+        latestMessage: issue.message,
+        isHistorical: historicalIssueTypes.has(issue.issueType),
+        issues: [issue],
+      });
+      continue;
+    }
+
+    existing.count += 1;
+    if (issue.resolved) {
+      existing.resolvedCount += 1;
+    }
+    if ((issueSeverityRank[severity] ?? 0) > (issueSeverityRank[existing.severity] ?? 0)) {
+      existing.severity = severity;
+    }
+    existing.issues.push(issue);
+  }
+
+  const groups = Array.from(map.values()).sort((a, b) => {
+    const bySeverity =
+      (issueSeverityRank[b.severity] ?? 0) - (issueSeverityRank[a.severity] ?? 0);
+    if (bySeverity !== 0) {
+      return bySeverity;
+    }
+    return b.count - a.count;
+  });
+
+  return { groups, severityCounts };
+}
+
+const issueSeverityOrder = ["CRITICAL", "ERROR", "WARNING", "INFO"];
+
+/**
+ * Panel consolidado de incidencias de importación: conteos por severidad y
+ * grupos plegables por tipo. Solo lectura.
+ */
+function ImportIssuesPanel({ issues }: { issues: ImportIssue[] }) {
+  if (issues.length === 0) {
+    return (
+      <>
+        <div className="section-card__header compact">
+          <div>
+            <h4>Incidencias de importación</h4>
+            <p>0 incidencia(s)</p>
+          </div>
+        </div>
+        <p>No hay incidencias registradas.</p>
+      </>
+    );
+  }
+
+  const { groups, severityCounts } = groupImportIssues(issues);
+  const hasHistorical = groups.some((group) => group.isHistorical);
+
+  return (
+    <>
+      <div className="section-card__header compact">
+        <div>
+          <h4>Incidencias de importación</h4>
+          <p>
+            {issues.length} incidencia(s) en {groups.length} tipo(s)
+          </p>
+        </div>
+      </div>
+
+      <div className="issue-counts">
+        {issueSeverityOrder
+          .filter((severity) => (severityCounts[severity] ?? 0) > 0)
+          .map((severity) => (
+            <span className={`issue-count issue-count--${severity.toLowerCase()}`} key={severity}>
+              {issueSeverityLabels[severity] ?? severity}: <strong>{severityCounts[severity]}</strong>
+            </span>
+          ))}
+      </div>
+
+      {hasHistorical ? (
+        <p className="issue-note">
+          Las incidencias marcadas como "Histórica" provienen de versiones anteriores; se conservan
+          para trazabilidad y no afectan al análisis actual.
+        </p>
+      ) : null}
+
+      <ul className="issue-groups">
+        {groups.map((group) => (
+          <li key={group.issueType} className="issue-group">
+            <details>
+              <summary>
+                <span className={`issue-badge issue-badge--${group.severity.toLowerCase()}`}>
+                  {issueSeverityLabels[group.severity] ?? group.severity}
+                </span>
+                <span className="issue-group__type">
+                  {issueTypeLabels[group.issueType] ?? group.issueType}
+                </span>
+                {group.count > 1 ? (
+                  <span className="issue-group__count">×{group.count}</span>
+                ) : null}
+                {group.isHistorical ? (
+                  <span className="issue-badge issue-badge--historical">Histórica</span>
+                ) : null}
+                {group.resolvedCount > 0 ? (
+                  <span className="issue-group__resolved">
+                    {group.resolvedCount} resuelta(s)
+                  </span>
+                ) : null}
+                <span className="issue-group__latest">{group.latestMessage}</span>
+              </summary>
+              <ul className="detail-list issue-group__list">
+                {group.issues.map((issue) => (
+                  <li key={issue.id}>
+                    <span>{issue.message}</span>
+                    {issue.resolved ? <em> (resuelta)</em> : null}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
 }
 
 /**
@@ -1879,37 +2064,7 @@ export function InventoryDocumentsPanel() {
                 </div>
               ) : null}
 
-              {detail.importIssues.some((issue) => issue.issueType === "ANALYSIS_PLACEHOLDER") ? (
-                <div className="alert alert--warning" role="status">
-                  Este documento tiene incidencias antiguas de tipo marcador de posición
-                  (ANALYSIS_PLACEHOLDER) de versiones anteriores. Son históricas y no afectan al
-                  análisis actual; se conservan para trazabilidad.
-                </div>
-              ) : null}
-
-              <div className="section-card__header compact">
-                <div>
-                  <h4>Incidencias de importación</h4>
-                  <p>{detail.importIssues.length} incidencia(s)</p>
-                </div>
-              </div>
-
-              {detail.importIssues.length > 0 ? (
-                <ul className="detail-list">
-                  {detail.importIssues.map((issue) => (
-                    <li key={issue.id}>
-                      <strong>{issueSeverityLabels[issue.severity] ?? issue.severity}</strong>
-                      {" · "}
-                      <span>{issue.issueType}</span>
-                      <br />
-                      <span>{issue.message}</span>
-                      {issue.resolved ? <em> (resuelta)</em> : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>No hay incidencias registradas.</p>
-              )}
+              <ImportIssuesPanel issues={detail.importIssues} />
 
               <div className="section-card__header compact">
                 <div>
