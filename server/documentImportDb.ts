@@ -1,7 +1,11 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import type {
   AiDocumentAnalysisResult,
+  BulkReviewResult,
   DryRunPublishResult,
+  DryRunUnpublishResult,
+  PublishedInventorySummary,
+  UnpublishResult,
 } from "../src/domain/documentImportTypes";
 
 const prisma = new PrismaClient();
@@ -90,8 +94,30 @@ export async function listInventoryDocuments() {
   });
 }
 
+/**
+ * Convierte recursivamente los Decimal de Prisma a number para que la respuesta
+ * JSON exponga importes numéricos (no strings) y los tipos del dominio se
+ * cumplan. Preserva fechas y el resto de valores.
+ */
+function decimalsToNumbers<T>(value: T): T {
+  if (value instanceof Prisma.Decimal) {
+    return Number(value) as unknown as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => decimalsToNumbers(item)) as unknown as T;
+  }
+  if (value && typeof value === "object" && !(value instanceof Date)) {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = decimalsToNumbers(item);
+    }
+    return out as unknown as T;
+  }
+  return value;
+}
+
 export async function getInventoryDocumentDetail(documentId: string) {
-  return prisma.sourceDocument.findUnique({
+  const detail = await prisma.sourceDocument.findUnique({
     where: {
       id: documentId,
     },
@@ -128,6 +154,8 @@ export async function getInventoryDocumentDetail(documentId: string) {
       },
     },
   });
+
+  return decimalsToNumbers(detail);
 }
 
 export async function updateInventoryDocumentStatus(
@@ -150,6 +178,22 @@ export async function updateInventoryDocumentStatus(
   });
 }
 
+/**
+ * Tipos de incidencia INFO que son eventos de bitácora repetibles: al registrar
+ * uno nuevo se marcan como resueltos los anteriores del mismo tipo, de modo que
+ * solo el último queda "activo". No se borra historial (sigue disponible para
+ * trazabilidad), pero se evita que la lista de incidencias activas crezca sin
+ * fin con cada análisis/publicación.
+ */
+const SUPERSEDING_ISSUE_TYPES = new Set([
+  "AI_ANALYSIS_EXECUTED",
+  "STAGING_CANDIDATES_CREATED",
+  "STAGING_REGENERATED",
+  "PUBLISH_COMPLETED",
+  "UNPUBLISH_COMPLETED",
+  "TEXT_ALREADY_EXTRACTED",
+]);
+
 export async function addInventoryDocumentIssue(input: {
   sourceDocumentId: string;
   severity: "INFO" | "WARNING" | "ERROR" | "CRITICAL";
@@ -159,6 +203,17 @@ export async function addInventoryDocumentIssue(input: {
   rawValue?: string;
   pageNumber?: number;
 }) {
+  if (input.severity === "INFO" && SUPERSEDING_ISSUE_TYPES.has(input.issueType)) {
+    await prisma.importIssue.updateMany({
+      where: {
+        sourceDocumentId: input.sourceDocumentId,
+        issueType: input.issueType,
+        resolved: false,
+      },
+      data: { resolved: true },
+    });
+  }
+
   return prisma.importIssue.create({
     data: {
       sourceDocumentId: input.sourceDocumentId,
@@ -188,14 +243,6 @@ export async function addInventoryDocumentExtraction(input: {
       confidenceScore: input.confidenceScore ?? null,
     },
   });
-}
-
-export async function approveInventoryDocument(documentId: string) {
-  return updateInventoryDocumentStatus(documentId, "APPROVED");
-}
-
-export async function rejectInventoryDocument(documentId: string) {
-  return updateInventoryDocumentStatus(documentId, "REJECTED");
 }
 
 export async function markInventoryDocumentAsPendingReview(documentId: string) {
@@ -676,6 +723,60 @@ export async function updateStagingEntity(
   return delegate.update({ where: { id }, data });
 }
 
+/**
+ * Cambia el estado de revisión de varios candidatos del mismo tipo a la vez.
+ * Aplica la misma validación que la edición individual por cada candidato; si
+ * uno no se puede cambiar (p. ej. aprobar una tarifa sin precio), se omite con
+ * su motivo y el resto continúa. No publica nada.
+ */
+export async function bulkUpdateStagingReview(
+  entityKey: string,
+  ids: string[],
+  reviewStatus: string,
+): Promise<BulkReviewResult> {
+  if (!STAGING_ENTITY_REGISTRY[entityKey]) {
+    throw new StagingValidationError("Tipo de candidato staging no válido.");
+  }
+  if (!VALID_STAGING_REVIEW_STATUS.has(reviewStatus)) {
+    throw new StagingValidationError("Estado de revisión no válido.");
+  }
+
+  let updated = 0;
+  let notFound = 0;
+  const skipped: { id: string; reason: string }[] = [];
+
+  for (const id of ids) {
+    try {
+      const result = await updateStagingEntity(entityKey, id, { reviewStatus });
+      if (result === null) {
+        notFound += 1;
+      } else {
+        updated += 1;
+      }
+    } catch (error) {
+      if (error instanceof StagingValidationError) {
+        skipped.push({ id, reason: error.message });
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  return { updated, notFound, skipped };
+}
+
+/**
+ * Borra TODOS los candidatos staging de un documento (alojamientos y
+ * actividades; sus hijos caen por onDelete: Cascade). Solo afecta al staging,
+ * nunca al inventario operativo. Se usa para regenerar candidatos desde cero.
+ */
+export async function deleteInventoryDocumentStaging(sourceDocumentId: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.stagingAccommodation.deleteMany({ where: { sourceDocumentId } });
+    await tx.stagingActivity.deleteMany({ where: { sourceDocumentId } });
+  });
+}
+
 // ----------------------------------------------------------------------------
 // Publicación de candidatos aprobados al inventario operativo (Bloque 6).
 // Solo se publica reviewStatus === "APPROVED". Idempotente por sourceDocumentId.
@@ -1089,5 +1190,133 @@ export async function dryRunPublishApprovedInventoryDocument(
     rejectedCandidates,
     needsChangesCandidates,
     wouldReplaceExisting,
+  };
+}
+
+/** Convierte un Decimal de Prisma (u otro valor) a number, o null si no aplica. */
+function decimalToNumber(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Trazabilidad: devuelve los registros del inventario operativo publicados
+ * desde un documento (filtrando por sourceDocumentId). Es de SOLO LECTURA: no
+ * escribe ni borra nada. Refleja el estado vivo actual del inventario.
+ */
+export async function getPublishedInventoryByDocument(
+  sourceDocumentId: string,
+): Promise<PublishedInventorySummary> {
+  const accommodations = await prisma.accommodation.findMany({
+    where: { sourceDocumentId },
+    include: { rates: true },
+    orderBy: { createdAt: "desc" },
+  });
+  const activities = await prisma.activity.findMany({
+    where: { sourceDocumentId },
+    include: { rates: true },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const mappedAccommodations = accommodations.map((accommodation) => ({
+    id: accommodation.id,
+    accommodationName: accommodation.accommodationName,
+    locality: accommodation.locality,
+    categoryType: accommodation.categoryType,
+    accommodationType: accommodation.accommodationType,
+    sourceStagingId: accommodation.sourceStagingId,
+    rates: accommodation.rates.map((rate) => ({
+      id: rate.id,
+      year: rate.year,
+      seasonName: rate.seasonName,
+      dateFrom: rate.dateFrom ? rate.dateFrom.toISOString() : null,
+      dateTo: rate.dateTo ? rate.dateTo.toISOString() : null,
+      boardType: rate.boardType,
+      currency: rate.currency,
+      pvpAmount: decimalToNumber(rate.pvpAmount),
+      netSaleAmount: decimalToNumber(rate.netSaleAmount),
+      netAzulmarinoAmount: decimalToNumber(rate.netAzulmarinoAmount),
+      sourceStagingId: rate.sourceStagingId,
+    })),
+  }));
+
+  const mappedActivities = activities.map((activity) => ({
+    id: activity.id,
+    activityName: activity.activityName,
+    supplierName: activity.supplierName,
+    locationMain: activity.locationMain,
+    sourceStagingId: activity.sourceStagingId,
+    rates: activity.rates.map((rate) => ({
+      id: rate.id,
+      year: rate.year,
+      ageLabel: rate.ageLabel,
+      currency: rate.currency,
+      salePvpAmount: decimalToNumber(rate.salePvpAmount),
+      costNetAmount: decimalToNumber(rate.costNetAmount),
+      sourceStagingId: rate.sourceStagingId,
+    })),
+  }));
+
+  return {
+    accommodations: mappedAccommodations,
+    activities: mappedActivities,
+    accommodationCount: mappedAccommodations.length,
+    accommodationRateCount: mappedAccommodations.reduce(
+      (total, accommodation) => total + accommodation.rates.length,
+      0,
+    ),
+    activityCount: mappedActivities.length,
+    activityRateCount: mappedActivities.reduce(
+      (total, activity) => total + activity.rates.length,
+      0,
+    ),
+  };
+}
+
+/**
+ * Simulación de retirada (dry-run): cuántos registros operativos se eliminarían
+ * del inventario para este documento. Solo lectura; reutiliza la consulta de
+ * trazabilidad. No borra nada.
+ */
+export async function dryRunUnpublishInventoryDocument(
+  sourceDocumentId: string,
+): Promise<DryRunUnpublishResult> {
+  const published = await getPublishedInventoryByDocument(sourceDocumentId);
+
+  return {
+    hasPublishedRecords: published.accommodationCount + published.activityCount > 0,
+    accommodationsToRemove: published.accommodationCount,
+    accommodationRatesToRemove: published.accommodationRateCount,
+    activitiesToRemove: published.activityCount,
+    activityRatesToRemove: published.activityRateCount,
+  };
+}
+
+/**
+ * Retira del inventario operativo lo publicado desde un documento. Borra SOLO
+ * las filas vinculadas a ESTE documento (por sourceDocumentId); nunca toca las
+ * filas de Excel (sourceDocumentId null). Las tarifas caen por onDelete:
+ * Cascade. Idempotente: si no hay nada publicado, no borra nada y devuelve 0.
+ * Recuperable: se puede volver a publicar desde el staging aprobado.
+ */
+export async function unpublishInventoryDocument(
+  sourceDocumentId: string,
+): Promise<UnpublishResult> {
+  // Conteo previo (para el resultado) reutilizando la trazabilidad.
+  const published = await getPublishedInventoryByDocument(sourceDocumentId);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.accommodation.deleteMany({ where: { sourceDocumentId } });
+    await tx.activity.deleteMany({ where: { sourceDocumentId } });
+  });
+
+  return {
+    accommodationsRemoved: published.accommodationCount,
+    accommodationRatesRemoved: published.accommodationRateCount,
+    activitiesRemoved: published.activityCount,
+    activityRatesRemoved: published.activityRateCount,
   };
 }

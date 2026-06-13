@@ -387,6 +387,14 @@ export type StagingEntityKey =
 
 export type StagingReviewStatus = "PENDING" | "APPROVED" | "REJECTED" | "NEEDS_CHANGES";
 
+/** Resultado de un cambio de estado de revisión en lote sobre candidatos staging. */
+export interface BulkReviewResult {
+  updated: number;
+  notFound: number;
+  /** Candidatos que no se pudieron cambiar (p. ej. aprobar una tarifa sin precio). */
+  skipped: { id: string; reason: string }[];
+}
+
 export interface PublishApprovedResult {
   accommodations: number;
   accommodationRates: number;
@@ -397,6 +405,63 @@ export interface PublishApprovedResult {
   skippedActivities: number;
   skippedActivityRates: number;
   warnings: string[];
+}
+
+// ----------------------------------------------------------------------------
+// Trazabilidad: registros del inventario operativo publicados desde un
+// documento (consulta de solo lectura por sourceDocumentId).
+// ----------------------------------------------------------------------------
+
+export interface PublishedAccommodationRate {
+  id: string;
+  year: number;
+  seasonName?: string | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  boardType?: string | null;
+  currency?: string | null;
+  pvpAmount?: number | null;
+  netSaleAmount?: number | null;
+  netAzulmarinoAmount?: number | null;
+  sourceStagingId?: string | null;
+}
+
+export interface PublishedAccommodation {
+  id: string;
+  accommodationName: string;
+  locality: string;
+  categoryType?: string | null;
+  accommodationType?: string | null;
+  sourceStagingId?: string | null;
+  rates: PublishedAccommodationRate[];
+}
+
+export interface PublishedActivityRate {
+  id: string;
+  year: number;
+  ageLabel?: string | null;
+  currency?: string | null;
+  salePvpAmount?: number | null;
+  costNetAmount?: number | null;
+  sourceStagingId?: string | null;
+}
+
+export interface PublishedActivity {
+  id: string;
+  activityName: string;
+  supplierName?: string | null;
+  locationMain?: string | null;
+  sourceStagingId?: string | null;
+  rates: PublishedActivityRate[];
+}
+
+export interface PublishedInventorySummary {
+  accommodations: PublishedAccommodation[];
+  activities: PublishedActivity[];
+  accommodationCount: number;
+  accommodationRateCount: number;
+  activityCount: number;
+  activityRateCount: number;
 }
 
 /**
@@ -423,4 +488,24 @@ export interface DryRunPublishResult {
   needsChangesCandidates: number;
   /** true si publicar reemplazaría una publicación previa de este documento. */
   wouldReplaceExisting: boolean;
+}
+
+/**
+ * Simulación de retirada de publicación (dry-run). Indica cuántos registros
+ * operativos se eliminarían del inventario para este documento, sin borrar nada.
+ */
+export interface DryRunUnpublishResult {
+  hasPublishedRecords: boolean;
+  accommodationsToRemove: number;
+  accommodationRatesToRemove: number;
+  activitiesToRemove: number;
+  activityRatesToRemove: number;
+}
+
+/** Resultado de retirar del inventario operativo lo publicado desde un documento. */
+export interface UnpublishResult {
+  accommodationsRemoved: number;
+  accommodationRatesRemoved: number;
+  activitiesRemoved: number;
+  activityRatesRemoved: number;
 }

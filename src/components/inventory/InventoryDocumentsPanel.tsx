@@ -1,30 +1,35 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type {
   AiDocumentAnalysisResult,
   CreateSourceDocumentInput,
   DocumentExtraction,
   DryRunPublishResult,
+  DryRunUnpublishResult,
   ImportIssue,
   InventoryDocumentDetail,
   InventoryTargetType,
   PublishApprovedResult,
+  PublishedInventorySummary,
   SourceDocumentSummary,
   StagingEntityKey,
   StagingReviewStatus,
+  UnpublishResult,
 } from "../../domain/documentImportTypes";
 import {
   analyzeInventoryDocumentApi,
   analyzeInventoryDocumentWithAiApi,
-  approveInventoryDocumentApi,
+  bulkUpdateInventoryStagingApi,
   createInventoryDocumentApi,
   createInventoryDocumentStagingApi,
   dryRunPublishApprovedInventoryDocumentApi,
+  dryRunUnpublishInventoryDocumentApi,
   getInventoryDocumentApi,
+  getPublishedInventoryByDocumentApi,
   listInventoryDocumentsApi,
   patchInventoryStagingApi,
   publishApprovedInventoryDocumentApi,
-  publishInventoryDocumentApi,
-  rejectInventoryDocumentApi,
+  regenerateInventoryDocumentStagingApi,
+  unpublishInventoryDocumentApi,
   uploadInventoryDocumentFileApi,
 } from "../../services/apiClient";
 
@@ -69,7 +74,7 @@ const issueSeverityLabels: Record<string, string> = {
   CRITICAL: "Crítico",
 };
 
-type DocumentActionKey = "analyze" | "approve" | "reject" | "publish";
+type DocumentActionKey = "analyze";
 
 const initialForm: CreateSourceDocumentInput = {
   targetType: "ACCOMMODATION",
@@ -131,75 +136,6 @@ function formatAmount(amount: number, currency?: string | null): string {
   const code = (currency ?? "EUR").trim().toUpperCase() || "EUR";
   const symbol = currencySymbols[code];
   return symbol ? `${formatted} ${symbol}` : `${formatted} ${code}`;
-}
-
-/**
- * Extrae el primer importe del texto de origen como respaldo de visualización
- * (p. ej. "3 noches o más 35,0 €" → 35). Es de solo lectura: no modifica datos.
- * Exige un símbolo de moneda o un decimal para evitar confundir números como
- * "3 noches" con un precio.
- */
-function extractAmountFromText(text?: string | null): number | null {
-  if (!text) {
-    return null;
-  }
-  const match =
-    text.match(/(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s*(?:€|EUR)/i) ??
-    text.match(/(\d+[.,]\d{1,2})/);
-  if (!match) {
-    return null;
-  }
-  const normalized = match[1].replace(/\./g, "").replace(",", ".");
-  const value = Number(normalized);
-  return Number.isFinite(value) ? value : null;
-}
-
-interface DetectedPrice {
-  label: string;
-  amount: number;
-}
-
-interface RatePriceSummaryProps {
-  prices: (DetectedPrice | null)[];
-  currency?: string | null;
-  rawText?: string | null;
-}
-
-/**
- * Resumen de solo lectura de los precios de una tarifa staging. Muestra cada
- * precio tipado que exista (PVP, neto, coste) y la moneda. Si no hay ningún
- * precio tipado pero el texto de origen contiene un importe, lo muestra como
- * "Precio detectado" sin asignarle un tipo.
- */
-function RatePriceSummary(props: RatePriceSummaryProps) {
-  const prices = props.prices.filter((price): price is DetectedPrice => price !== null);
-  const currencyCode = (props.currency ?? "EUR").trim().toUpperCase() || "EUR";
-
-  if (prices.length === 0) {
-    const detected = extractAmountFromText(props.rawText);
-    return (
-      <div className="rate-prices">
-        {detected != null ? (
-          <span className="rate-price rate-price--detected">
-            Precio detectado: <strong>{formatAmount(detected, currencyCode)}</strong>
-          </span>
-        ) : (
-          <span className="rate-price rate-price--empty">Sin precio detectado</span>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="rate-prices">
-      {prices.map((price) => (
-        <span className="rate-price" key={price.label}>
-          {price.label}: <strong>{formatAmount(price.amount, currencyCode)}</strong>
-        </span>
-      ))}
-      <span className="rate-price rate-price--currency">Moneda: {currencyCode}</span>
-    </div>
-  );
 }
 
 interface AnnotatedExtraction {
@@ -307,6 +243,7 @@ const issueTypeLabels: Record<string, string> = {
   STAGING_AMBIGUOUS_DATA: "Datos ambiguos en candidatos",
   PUBLISH_COMPLETED: "Publicación completada",
   PUBLISH_WARNING: "Aviso de publicación",
+  UNPUBLISH_COMPLETED: "Publicación retirada",
   ANALYSIS_PLACEHOLDER: "Marcador de posición (antiguo)",
 };
 
@@ -340,6 +277,7 @@ interface ImportIssueGroup {
 function groupImportIssues(issues: ImportIssue[]): {
   groups: ImportIssueGroup[];
   severityCounts: Record<string, number>;
+  resolvedTotal: number;
 } {
   const map = new Map<string, ImportIssueGroup>();
   const severityCounts: Record<string, number> = {
@@ -348,10 +286,17 @@ function groupImportIssues(issues: ImportIssue[]): {
     ERROR: 0,
     CRITICAL: 0,
   };
+  let resolvedTotal = 0;
 
   for (const issue of issues) {
     const severity = String(issue.severity);
-    severityCounts[severity] = (severityCounts[severity] ?? 0) + 1;
+    // Los conteos por severidad reflejan solo las incidencias activas; las
+    // resueltas (p. ej. eventos antiguos superados) se cuentan aparte.
+    if (issue.resolved) {
+      resolvedTotal += 1;
+    } else {
+      severityCounts[severity] = (severityCounts[severity] ?? 0) + 1;
+    }
 
     const existing = map.get(issue.issueType);
     if (!existing) {
@@ -386,7 +331,7 @@ function groupImportIssues(issues: ImportIssue[]): {
     return b.count - a.count;
   });
 
-  return { groups, severityCounts };
+  return { groups, severityCounts, resolvedTotal };
 }
 
 const issueSeverityOrder = ["CRITICAL", "ERROR", "WARNING", "INFO"];
@@ -410,8 +355,9 @@ function ImportIssuesPanel({ issues }: { issues: ImportIssue[] }) {
     );
   }
 
-  const { groups, severityCounts } = groupImportIssues(issues);
+  const { groups, severityCounts, resolvedTotal } = groupImportIssues(issues);
   const hasHistorical = groups.some((group) => group.isHistorical);
+  const activeTotal = issues.length - resolvedTotal;
 
   return (
     <>
@@ -419,7 +365,8 @@ function ImportIssuesPanel({ issues }: { issues: ImportIssue[] }) {
         <div>
           <h4>Incidencias de importación</h4>
           <p>
-            {issues.length} incidencia(s) en {groups.length} tipo(s)
+            {activeTotal} activa(s)
+            {resolvedTotal > 0 ? ` (+${resolvedTotal} resuelta(s))` : ""} en {groups.length} tipo(s)
           </p>
         </div>
       </div>
@@ -601,6 +548,38 @@ function computeQualitySummary(detail: InventoryDocumentDetail): QualitySummary 
   return { counts, totalCandidates, warnings };
 }
 
+/**
+ * Cuenta las tarifas aprobadas que SÍ se publicarían (con precio, moneda y año
+ * resoluble), replicando las reglas de publicación. Sirve para detectar cambios
+ * aprobados aún no publicados comparando con la trazabilidad en vivo.
+ */
+function countApprovedPublishableRates(detail: InventoryDocumentDetail): number {
+  const hasControlYear = detail.controlYear != null;
+  let total = 0;
+
+  for (const accommodation of detail.stagingAccommodations) {
+    if (!isApprovedReview(accommodation.reviewStatus)) continue;
+    for (const rate of accommodation.rates) {
+      if (!isApprovedReview(rate.reviewStatus)) continue;
+      const hasPrice = rate.pvpAmount != null || rate.netAmount != null;
+      const hasCurrency = !!rate.currency && String(rate.currency).trim() !== "";
+      const hasYear = rate.year != null || hasControlYear;
+      if (hasPrice && hasCurrency && hasYear) total += 1;
+    }
+  }
+  for (const activity of detail.stagingActivities) {
+    if (!isApprovedReview(activity.reviewStatus)) continue;
+    for (const rate of activity.rates) {
+      if (!isApprovedReview(rate.reviewStatus)) continue;
+      const hasPrice = rate.salePvpAmount != null;
+      const hasCurrency = !!rate.currency && String(rate.currency).trim() !== "";
+      const hasYear = rate.year != null || hasControlYear;
+      if (hasPrice && hasCurrency && hasYear) total += 1;
+    }
+  }
+  return total;
+}
+
 interface QualityControlPanelProps {
   summary: QualitySummary;
 }
@@ -736,6 +715,8 @@ interface StagingEditableCardProps {
   rawText?: string | null;
   structuredJson?: unknown;
   summary?: React.ReactNode;
+  /** Si true, la tarjeta se muestra plegada (resumen en una línea, editar al expandir). */
+  collapsible?: boolean;
   onSaved: () => Promise<void> | void;
 }
 
@@ -759,6 +740,14 @@ function StagingEditableCard(props: StagingEditableCardProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+
+  // Re-sincroniza el estado mostrado cuando cambia desde fuera (acciones en
+  // lote, regeneración, refresco): la tarjeta se reutiliza por su key y el
+  // useState inicial no se vuelve a ejecutar.
+  useEffect(() => {
+    setStatus(props.reviewStatus || "PENDING");
+    setSaved(false);
+  }, [props.reviewStatus]);
 
   async function handleSave() {
     setError(null);
@@ -796,17 +785,11 @@ function StagingEditableCard(props: StagingEditableCardProps) {
     }
   }
 
-  return (
-    <div className="staging-card">
-      <div className="staging-card__head">
-        <strong>{props.title}</strong>
-        <span className="staging-card__status">
-          {stagingReviewStatusLabels[status] ?? status}
-        </span>
-      </div>
+  const statusLabel = stagingReviewStatusLabels[status] ?? status;
+  const statusClass = `staging-card__status staging-card__status--${status.toLowerCase()}`;
 
-      {props.summary ? <div className="staging-card__summary">{props.summary}</div> : null}
-
+  const editableBody = (
+    <>
       <div className="grid two">
         {props.fields.map((field) => (
           <label className="field" key={field.key}>
@@ -861,12 +844,404 @@ function StagingEditableCard(props: StagingEditableCardProps) {
       <button type="button" disabled={saving} onClick={() => void handleSave()}>
         {saving ? "Guardando..." : "Guardar candidato"}
       </button>
+    </>
+  );
+
+  if (props.collapsible) {
+    return (
+      <details className="staging-card staging-card--collapsible">
+        <summary className="staging-card__summary-row">
+          <span className="staging-card__title">{props.title}</span>
+          {props.summary ? (
+            <span className="staging-card__summary-inline">{props.summary}</span>
+          ) : null}
+          <span className={statusClass}>{statusLabel}</span>
+        </summary>
+        <div className="staging-card__body">{editableBody}</div>
+      </details>
+    );
+  }
+
+  return (
+    <div className="staging-card">
+      <div className="staging-card__head">
+        <strong>{props.title}</strong>
+        <span className={statusClass}>{statusLabel}</span>
+      </div>
+
+      {props.summary ? <div className="staging-card__summary">{props.summary}</div> : null}
+
+      {editableBody}
     </div>
   );
 }
 
+interface RateLike {
+  id: string;
+  reviewStatus: string;
+  year?: number | null;
+  seasonName?: string | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  boardType?: string | null;
+  occupancyLabel?: string | null;
+  minNights?: number | null;
+  ageLabel?: string | null;
+  currency?: string | null;
+  pvpAmount?: number | null;
+  netAmount?: number | null;
+  costAmount?: number | null;
+  salePvpAmount?: number | null;
+  costNetAmount?: number | null;
+  rawText?: string | null;
+}
+
+/** Periodo legible de una tarifa: rango de fechas o temporada. */
+function formatRatePeriod(rate: RateLike): string {
+  const fmt = (value?: string | null) => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+    return date.toLocaleDateString("es-ES", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit",
+    });
+  };
+  const from = fmt(rate.dateFrom);
+  const to = fmt(rate.dateTo);
+  if (from && to) return `${from} → ${to}`;
+  if (from) return `desde ${from}`;
+  if (rate.seasonName) return rate.seasonName;
+  return "—";
+}
+
+/** Precio principal compacto de una tarifa, con su tipo. */
+function compactPrice(
+  rate: RateLike,
+  kind: "accommodation" | "activity",
+): { amount: number | null; label: string } {
+  if (kind === "accommodation") {
+    if (rate.pvpAmount != null) return { amount: Number(rate.pvpAmount), label: "PVP" };
+    if (rate.netAmount != null) return { amount: Number(rate.netAmount), label: "neto" };
+    if (rate.costAmount != null) return { amount: Number(rate.costAmount), label: "coste" };
+    return { amount: null, label: "" };
+  }
+  if (rate.salePvpAmount != null) return { amount: Number(rate.salePvpAmount), label: "PVP" };
+  if (rate.costNetAmount != null) return { amount: Number(rate.costNetAmount), label: "coste" };
+  return { amount: null, label: "" };
+}
+
+type CandidateItem = {
+  id: string;
+  reviewStatus: string;
+  rawText?: string | null;
+  structuredJson?: unknown;
+} & Record<string, unknown>;
+
+interface CandidateColumn {
+  header: string;
+  render: (item: CandidateItem) => React.ReactNode;
+}
+
+/** Celda de texto segura: muestra "—" si el valor está vacío. */
+function cell(value: unknown): string {
+  return value === null || value === undefined || value === "" ? "—" : String(value);
+}
+
+/** Celda de precio: importe principal con su tipo (PVP/neto/coste). */
+function renderPriceCell(rate: RateLike, kind: "accommodation" | "activity"): React.ReactNode {
+  const price = compactPrice(rate, kind);
+  if (price.amount == null) {
+    return <span className="rate-table__empty">sin precio</span>;
+  }
+  return (
+    <>
+      <strong>{formatAmount(price.amount, rate.currency)}</strong>{" "}
+      <span className="rate-table__pricetype">{price.label}</span>
+    </>
+  );
+}
+
+interface RateReviewTableProps {
+  entity: StagingEntityKey;
+  parentEntity: StagingEntityKey;
+  parentId: string;
+  /** Candidatos ya filtrados por la pestaña activa. */
+  rates: CandidateItem[];
+  columns: CandidateColumn[];
+  itemLabel: string;
+  editorTitle: string;
+  fields: StagingFieldDef[];
+  busy: boolean;
+  onBulkReview: (
+    entity: StagingEntityKey,
+    ids: string[],
+    reviewStatus: string,
+    label: string,
+  ) => void;
+  onApprove: (
+    entity: StagingEntityKey,
+    parentEntity: StagingEntityKey,
+    parentId: string,
+    ids: string[],
+    label: string,
+  ) => void;
+  onSaved: () => Promise<void> | void;
+}
+
+/**
+ * Tabla de revisión de candidatos (tarifas, suplementos, políticas, fechas):
+ * lectura compacta por columnas configurables, selección múltiple, aprobación
+ * de un clic por fila y acciones en lote. Pensada para revisar muchos
+ * candidatos con poco esfuerzo.
+ */
+function RateReviewTable(props: RateReviewTableProps) {
+  const { rates, entity, parentEntity, parentId, busy, columns } = props;
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const visibleIds = rates.map((rate) => rate.id);
+  const selectedVisible = visibleIds.filter((id) => selected.has(id));
+  const allSelected = rates.length > 0 && selectedVisible.length === rates.length;
+
+  // Limpia la selección si cambian las tarifas (refresco / cambio de pestaña).
+  useEffect(() => {
+    setSelected((current) => {
+      const next = new Set<string>();
+      for (const id of visibleIds) {
+        if (current.has(id)) next.add(id);
+      }
+      return next.size === current.size ? current : next;
+    });
+    setExpandedId((current) => (current && visibleIds.includes(current) ? current : null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleIds.join(",")]);
+
+  if (rates.length === 0) {
+    return null;
+  }
+
+  const toggleAll = () => setSelected(() => (allSelected ? new Set() : new Set(visibleIds)));
+  const toggleOne = (id: string) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const approveRates = (list: CandidateItem[]) =>
+    props.onApprove(
+      entity,
+      parentEntity,
+      parentId,
+      list.map((item) => item.id),
+      props.itemLabel,
+    );
+
+  return (
+    <div className="rate-table-wrap">
+      <div className="rate-table__bar">
+        <span className="rate-table__count">
+          {rates.length} {props.itemLabel}
+        </span>
+        <div className="rate-table__bar-actions">
+          {selectedVisible.length > 0 ? (
+            <>
+              <strong>{selectedVisible.length} seleccionada(s):</strong>
+              <button
+                type="button"
+                className="primary"
+                disabled={busy}
+                onClick={() => approveRates(rates.filter((rate) => selected.has(rate.id)))}
+              >
+                Aprobar
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  props.onBulkReview(entity, selectedVisible, "REJECTED", "Rechazar seleccionadas")
+                }
+              >
+                Rechazar
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  props.onBulkReview(entity, selectedVisible, "PENDING", "Pasar a pendientes")
+                }
+              >
+                A pendientes
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="primary"
+                disabled={busy}
+                onClick={() => approveRates(rates)}
+              >
+                Aprobar todas
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  props.onBulkReview(entity, visibleIds, "REJECTED", "Rechazar todas")
+                }
+              >
+                Rechazar todas
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="table-wrap">
+        <table className="rate-table">
+          <thead>
+            <tr>
+              <th className="rate-table__check">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  aria-label="Seleccionar todas"
+                />
+              </th>
+              {columns.map((column) => (
+                <th key={column.header}>{column.header}</th>
+              ))}
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rates.map((rate) => {
+              const status = String(rate.reviewStatus);
+              const isExpanded = expandedId === rate.id;
+              return (
+                <Fragment key={rate.id}>
+                  <tr className={selected.has(rate.id) ? "is-selected" : undefined}>
+                    <td className="rate-table__check">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(rate.id)}
+                        onChange={() => toggleOne(rate.id)}
+                        aria-label="Seleccionar tarifa"
+                      />
+                    </td>
+                    {columns.map((column) => (
+                      <td key={column.header}>{column.render(rate)}</td>
+                    ))}
+                    <td>
+                      <span className={`status-tag status-tag--${status.toLowerCase()}`}>
+                        {stagingReviewStatusLabels[status] ?? status}
+                      </span>
+                    </td>
+                    <td className="rate-table__actions">
+                      {status !== "APPROVED" ? (
+                        <button
+                          type="button"
+                          className="link-action link-action--approve"
+                          disabled={busy}
+                          onClick={() => approveRates([rate])}
+                        >
+                          Aprobar
+                        </button>
+                      ) : null}
+                      {status !== "REJECTED" ? (
+                        <button
+                          type="button"
+                          className="link-action link-action--reject"
+                          disabled={busy}
+                          onClick={() =>
+                            props.onBulkReview(entity, [rate.id], "REJECTED", "Rechazar tarifa")
+                          }
+                        >
+                          Rechazar
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="link-action"
+                        onClick={() => setExpandedId(isExpanded ? null : rate.id)}
+                      >
+                        {isExpanded ? "Cerrar" : "Editar"}
+                      </button>
+                    </td>
+                  </tr>
+                  {isExpanded ? (
+                    <tr className="rate-table__editor">
+                      <td colSpan={columns.length + 3}>
+                        <StagingEditableCard
+                          entity={entity}
+                          id={rate.id}
+                          title={props.editorTitle}
+                          fields={props.fields}
+                          values={rate}
+                          reviewStatus={status}
+                          rawText={rate.rawText}
+                          structuredJson={rate.structuredJson}
+                          onSaved={props.onSaved}
+                        />
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+const accommodationRateColumns: CandidateColumn[] = [
+  { header: "Periodo", render: (i) => formatRatePeriod(i as unknown as RateLike) },
+  { header: "Régimen", render: (i) => cell(i.boardType) },
+  { header: "Precio", render: (i) => renderPriceCell(i as unknown as RateLike, "accommodation") },
+  { header: "Año", render: (i) => cell(i.year) },
+];
+
+const activityRateColumns: CandidateColumn[] = [
+  { header: "Periodo", render: (i) => formatRatePeriod(i as unknown as RateLike) },
+  { header: "Edad", render: (i) => cell(i.ageLabel) },
+  { header: "Precio", render: (i) => renderPriceCell(i as unknown as RateLike, "activity") },
+  { header: "Año", render: (i) => cell(i.year) },
+];
+
+const adjustmentColumns: CandidateColumn[] = [
+  { header: "Concepto", render: (i) => cell(i.concept) },
+  {
+    header: "Importe",
+    render: (i) =>
+      i.amount != null ? `${i.amount}${i.amountType ? ` ${String(i.amountType)}` : ""}` : "—",
+  },
+  { header: "Aplica por", render: (i) => cell(i.appliesPer) },
+];
+
+const policyColumns: CandidateColumn[] = [
+  { header: "Tipo", render: (i) => cell(i.policyType) },
+  {
+    header: "Texto",
+    render: (i) => <span className="cell-truncate">{cell(i.policyText)}</span>,
+  },
+];
+
+const blackoutColumns: CandidateColumn[] = [
+  { header: "Fechas", render: (i) => formatRatePeriod(i as unknown as RateLike) },
+  { header: "Disponibilidad", render: (i) => cell(i.availabilityStatus) },
+  { header: "Motivo", render: (i) => cell(i.reason) },
+];
+
 export function InventoryDocumentsPanel() {
   const [documents, setDocuments] = useState<SourceDocumentSummary[]>([]);
+  const [documentFilter, setDocumentFilter] = useState("");
   const [form, setForm] = useState<CreateSourceDocumentInput>(initialForm);
   const [selectedFiles, setSelectedFiles] = useState<Record<string, File | undefined>>({});
   const [uploadingDocumentId, setUploadingDocumentId] = useState<string | null>(null);
@@ -886,6 +1261,19 @@ export function InventoryDocumentsPanel() {
   const [dryRunResult, setDryRunResult] = useState<DryRunPublishResult | null>(null);
   const [preparingPublish, setPreparingPublish] = useState(false);
   const [awaitingPublishConfirm, setAwaitingPublishConfirm] = useState(false);
+  const [publishedInventory, setPublishedInventory] = useState<PublishedInventorySummary | null>(
+    null,
+  );
+  const [publishedLoading, setPublishedLoading] = useState(false);
+  const [preparingUnpublish, setPreparingUnpublish] = useState(false);
+  const [awaitingUnpublishConfirm, setAwaitingUnpublishConfirm] = useState(false);
+  const [unpublishDryRun, setUnpublishDryRun] = useState<DryRunUnpublishResult | null>(null);
+  const [unpublishing, setUnpublishing] = useState(false);
+  const [unpublishResult, setUnpublishResult] = useState<UnpublishResult | null>(null);
+  const [workspaceTab, setWorkspaceTab] = useState<string>("resumen");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [awaitingRegenerateConfirm, setAwaitingRegenerateConfirm] = useState(false);
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -980,11 +1368,24 @@ export function InventoryDocumentsPanel() {
     setPublishResult(null);
     setDryRunResult(null);
     setAwaitingPublishConfirm(false);
+    setPublishedInventory(null);
+    setAwaitingUnpublishConfirm(false);
+    setUnpublishDryRun(null);
+    setUnpublishResult(null);
+    setWorkspaceTab("resumen");
+    setAwaitingRegenerateConfirm(false);
     setErrorMessage(null);
     setFeedbackMessage(null);
     setDetailLoading(true);
     try {
       await refreshDetail(documentId);
+      // Carga la trazabilidad en vivo para poder avisar de cambios sin publicar.
+      try {
+        const live = await getPublishedInventoryByDocumentApi(documentId);
+        setPublishedInventory(live);
+      } catch {
+        // No bloquea el detalle: la trazabilidad se puede cargar manualmente.
+      }
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "No se pudo cargar el detalle del documento."));
     } finally {
@@ -999,6 +1400,12 @@ export function InventoryDocumentsPanel() {
     setPublishResult(null);
     setDryRunResult(null);
     setAwaitingPublishConfirm(false);
+    setPublishedInventory(null);
+    setAwaitingUnpublishConfirm(false);
+    setUnpublishDryRun(null);
+    setUnpublishResult(null);
+    setWorkspaceTab("resumen");
+    setAwaitingRegenerateConfirm(false);
     setActionInProgress(null);
   }
 
@@ -1058,6 +1465,104 @@ export function InventoryDocumentsPanel() {
     setDryRunResult(null);
     setAwaitingPublishConfirm(false);
     await refreshDetail(selectedDocumentId);
+  }
+
+  // Cambia el estado de revisión de varios candidatos del mismo tipo a la vez.
+  async function handleBulkReview(
+    entity: StagingEntityKey,
+    ids: string[],
+    reviewStatus: string,
+    label: string,
+  ) {
+    if (!selectedDocumentId || ids.length === 0) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setBulkBusy(true);
+
+    try {
+      const result = await bulkUpdateInventoryStagingApi(entity, ids, reviewStatus);
+      const skippedNote =
+        result.skipped.length > 0 ? `; ${result.skipped.length} omitida(s) por validación` : "";
+      setFeedbackMessage(`${label}: ${result.updated} actualizada(s)${skippedNote}.`);
+      // La revisión cambió: invalida simulación y confirmaciones, y muestra todo
+      // para que se vea el resultado del cambio.
+      setDryRunResult(null);
+      setAwaitingPublishConfirm(false);
+      await refreshDetail(selectedDocumentId);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "No se pudo actualizar el estado de los candidatos."));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  /**
+   * Aprueba el alojamiento/actividad y sus tarifas a la vez, para que el
+   * conjunto sea realmente publicable (una tarifa aprobada bajo un padre no
+   * aprobado no se publica). Si onlyWithPrice, solo aprueba las tarifas con
+   * precio y moneda.
+   */
+  // Aprueba el alojamiento/actividad padre y los candidatos indicados a la vez,
+  // para que el conjunto sea realmente publicable.
+  async function handleApproveWithParent(
+    entity: StagingEntityKey,
+    parentEntity: StagingEntityKey,
+    parentId: string,
+    ids: string[],
+    label: string,
+  ) {
+    if (!selectedDocumentId || ids.length === 0) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setBulkBusy(true);
+
+    try {
+      await bulkUpdateInventoryStagingApi(parentEntity, [parentId], "APPROVED");
+      const result = await bulkUpdateInventoryStagingApi(entity, ids, "APPROVED");
+      const skippedNote =
+        result.skipped.length > 0
+          ? `; ${result.skipped.length} omitida(s) por validación`
+          : "";
+      setFeedbackMessage(`${label}: ${result.updated} aprobada(s)${skippedNote}.`);
+      setDryRunResult(null);
+      setAwaitingPublishConfirm(false);
+      await refreshDetail(selectedDocumentId);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "No se pudo aprobar el conjunto."));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function handleRegenerate() {
+    if (!selectedDocumentId) {
+      return;
+    }
+
+    setAwaitingRegenerateConfirm(false);
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setRegenerating(true);
+
+    try {
+      const result = await regenerateInventoryDocumentStagingApi(selectedDocumentId);
+      setFeedbackMessage(
+        `Candidatos regenerados (se descartó la revisión previa): ${result.accommodations} alojamiento(s), ${result.rates} tarifa(s), ${result.adjustments} suplemento(s), ${result.policies} política(s) y ${result.activities} actividad(es).`,
+      );
+      setDryRunResult(null);
+      setAwaitingPublishConfirm(false);
+      await refreshDetail(selectedDocumentId);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "No se pudieron regenerar los candidatos."));
+    } finally {
+      setRegenerating(false);
+    }
   }
 
   async function handleDryRun() {
@@ -1139,6 +1644,16 @@ export function InventoryDocumentsPanel() {
       );
       await refreshDetail(selectedDocumentId);
       await loadDocuments();
+      // Si la trazabilidad estaba cargada, refrescarla para reflejar lo vivo.
+      if (publishedInventory) {
+        try {
+          const live = await getPublishedInventoryByDocumentApi(selectedDocumentId);
+          setPublishedInventory(live);
+        } catch {
+          // No bloquea la publicación: la traza se puede recargar manualmente.
+          setPublishedInventory(null);
+        }
+      }
     } catch (error) {
       setErrorMessage(
         getErrorMessage(error, "No se pudo publicar el documento al inventario operativo."),
@@ -1148,6 +1663,100 @@ export function InventoryDocumentsPanel() {
     }
   }
 
+  async function handleLoadPublished() {
+    if (!selectedDocumentId) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setPublishedLoading(true);
+
+    try {
+      const result = await getPublishedInventoryByDocumentApi(selectedDocumentId);
+      setPublishedInventory(result);
+    } catch (error) {
+      setErrorMessage(
+        getErrorMessage(error, "No se pudo obtener la trazabilidad de lo publicado."),
+      );
+    } finally {
+      setPublishedLoading(false);
+    }
+  }
+
+  // Paso 1 de la retirada: simular cuántos registros se quitarían y, si hay
+  // algo publicado, pasar a confirmación. No borra nada.
+  async function handleRequestUnpublish() {
+    if (!selectedDocumentId) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setUnpublishResult(null);
+    setPreparingUnpublish(true);
+
+    try {
+      const result = await dryRunUnpublishInventoryDocumentApi(selectedDocumentId);
+      setUnpublishDryRun(result);
+      if (!result.hasPublishedRecords) {
+        setFeedbackMessage(
+          "No hay registros operativos publicados desde este documento; no hay nada que retirar.",
+        );
+        setAwaitingUnpublishConfirm(false);
+        return;
+      }
+      setAwaitingUnpublishConfirm(true);
+    } catch (error) {
+      setErrorMessage(
+        getErrorMessage(error, "No se pudo simular la retirada de la publicación."),
+      );
+    } finally {
+      setPreparingUnpublish(false);
+    }
+  }
+
+  function handleCancelUnpublish() {
+    setAwaitingUnpublishConfirm(false);
+  }
+
+  // Paso 2: confirmación explícita. Aquí sí se elimina del inventario operativo.
+  async function handleConfirmUnpublish() {
+    if (!selectedDocumentId) {
+      return;
+    }
+
+    setAwaitingUnpublishConfirm(false);
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setUnpublishing(true);
+
+    try {
+      const result = await unpublishInventoryDocumentApi(selectedDocumentId);
+      setUnpublishResult(result);
+      setFeedbackMessage(
+        `Publicación retirada: ${result.accommodationsRemoved} alojamiento(s) y ${result.accommodationRatesRemoved} tarifa(s); ${result.activitiesRemoved} actividad(es) y ${result.activityRatesRemoved} tarifa(s) de actividad. Los candidatos staging se conservan.`,
+      );
+      await refreshDetail(selectedDocumentId);
+      await loadDocuments();
+      // La trazabilidad ya no debe mostrar registros: refrescarla si estaba abierta.
+      if (publishedInventory) {
+        try {
+          const live = await getPublishedInventoryByDocumentApi(selectedDocumentId);
+          setPublishedInventory(live);
+        } catch {
+          setPublishedInventory(null);
+        }
+      }
+    } catch (error) {
+      setErrorMessage(
+        getErrorMessage(error, "No se pudo retirar la publicación del documento."),
+      );
+    } finally {
+      setUnpublishing(false);
+    }
+  }
+
+  // Extrae el texto del PDF (no crea candidatos; eso es un paso aparte).
   async function handleDocumentAction(action: DocumentActionKey) {
     if (!selectedDocumentId) {
       return;
@@ -1158,28 +1767,67 @@ export function InventoryDocumentsPanel() {
     setActionInProgress(action);
 
     try {
-      if (action === "analyze") {
-        await analyzeInventoryDocumentApi(selectedDocumentId);
-        setFeedbackMessage("Análisis ejecutado. El documento quedó pendiente de revisión.");
-      } else if (action === "approve") {
-        await approveInventoryDocumentApi(selectedDocumentId);
-        setFeedbackMessage("Documento aprobado.");
-      } else if (action === "reject") {
-        await rejectInventoryDocumentApi(selectedDocumentId);
-        setFeedbackMessage("Documento rechazado.");
-      } else if (action === "publish") {
-        await publishInventoryDocumentApi(selectedDocumentId);
-        setFeedbackMessage("Documento publicado.");
-      }
-
+      await analyzeInventoryDocumentApi(selectedDocumentId);
+      setFeedbackMessage("Texto extraído. El documento quedó pendiente de revisión.");
       await refreshDetail(selectedDocumentId);
       await loadDocuments();
     } catch (error) {
-      setErrorMessage(getErrorMessage(error, "No se pudo completar la acción sobre el documento."));
+      setErrorMessage(getErrorMessage(error, "No se pudo extraer el texto del documento."));
     } finally {
       setActionInProgress(null);
     }
   }
+
+  // Las pestañas de candidatos determinan qué estados se muestran.
+  const tabStatusFilter: Record<string, string[] | null> = {
+    pendientes: ["PENDING", "NEEDS_CHANGES"],
+    aprobados: ["APPROVED"],
+    rechazados: ["REJECTED"],
+  };
+  const passesReviewFilter = (status: unknown) => {
+    const allowed = tabStatusFilter[workspaceTab];
+    return allowed ? allowed.includes(String(status)) : true;
+  };
+
+  const isCandidateTab =
+    workspaceTab === "pendientes" ||
+    workspaceTab === "aprobados" ||
+    workspaceTab === "rechazados";
+
+  const qcSummary = detail ? computeQualitySummary(detail) : null;
+  const candidateCounts = qcSummary?.counts ?? {};
+  const pendingTabCount = (candidateCounts.PENDING ?? 0) + (candidateCounts.NEEDS_CHANGES ?? 0);
+  const approvedTabCount = candidateCounts.APPROVED ?? 0;
+  const rejectedTabCount = candidateCounts.REJECTED ?? 0;
+  const publishedTabCount = publishedInventory
+    ? publishedInventory.accommodationCount + publishedInventory.activityCount
+    : null;
+  const activeIssuesCount = detail
+    ? detail.importIssues.filter((issue) => !issue.resolved).length
+    : 0;
+
+  const workspaceTabs: { id: string; label: string; badge: number | null }[] = [
+    { id: "resumen", label: "Resumen", badge: null },
+    { id: "pendientes", label: "Pendientes", badge: pendingTabCount },
+    { id: "aprobados", label: "Aprobados", badge: approvedTabCount },
+    { id: "rechazados", label: "Rechazados", badge: rejectedTabCount },
+    { id: "publicados", label: "Publicados", badge: publishedTabCount },
+    { id: "incidencias", label: "Incidencias", badge: activeIssuesCount },
+  ];
+
+  const documentQuery = documentFilter.trim().toLowerCase();
+  const filteredDocuments = documentQuery
+    ? documents.filter((document) =>
+        [
+          document.controlName,
+          document.controlLocation ?? "",
+          statusLabels[document.status] ?? document.status,
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(documentQuery),
+      )
+    : documents;
 
   return (
     <section className="section-card">
@@ -1305,11 +1953,24 @@ export function InventoryDocumentsPanel() {
       <div className="section-card__header compact">
         <div>
           <h3>Documentos registrados</h3>
-          <p>{loading ? "Cargando documentos..." : `${documents.length} documento(s)`}</p>
+          <p>
+            {loading
+              ? "Cargando documentos..."
+              : `${filteredDocuments.length} de ${documents.length} documento(s)`}
+          </p>
         </div>
-        <button type="button" onClick={() => void loadDocuments()}>
-          Actualizar
-        </button>
+        <div className="stack compact actions-row">
+          <input
+            className="doc-search"
+            type="search"
+            value={documentFilter}
+            onChange={(event) => setDocumentFilter(event.target.value)}
+            placeholder="Buscar por nombre, ubicación o estado"
+          />
+          <button type="button" onClick={() => void loadDocuments()}>
+            Actualizar
+          </button>
+        </div>
       </div>
 
       <div className="table-wrap">
@@ -1328,7 +1989,7 @@ export function InventoryDocumentsPanel() {
             </tr>
           </thead>
           <tbody>
-            {documents.map((document) => {
+            {filteredDocuments.map((document) => {
               const selectedFile = selectedFiles[document.id];
               const isUploading = uploadingDocumentId === document.id;
               const isSelected = selectedDocumentId === document.id;
@@ -1391,9 +2052,13 @@ export function InventoryDocumentsPanel() {
               );
             })}
 
-            {!loading && documents.length === 0 && (
+            {!loading && filteredDocuments.length === 0 && (
               <tr>
-                <td colSpan={9}>Todavía no hay documentos registrados.</td>
+                <td colSpan={9}>
+                  {documents.length === 0
+                    ? "Todavía no hay documentos registrados."
+                    : "Ningún documento coincide con la búsqueda."}
+                </td>
               </tr>
             )}
           </tbody>
@@ -1432,8 +2097,17 @@ export function InventoryDocumentsPanel() {
                 <div className="field">
                   <span>Extracción</span>
                   <strong>
-                    {extractionStatusLabels[detail.extractionStatus] ??
-                      detail.extractionStatus}
+                    {/* Si ya existe una extracción TEXT/OCR con contenido, mostrar
+                        "Extraído" aunque el estado almacenado no se haya reconciliado. */}
+                    {detail.extractions.some(
+                      (extraction) =>
+                        (extraction.extractionMethod === "TEXT" ||
+                          extraction.extractionMethod === "OCR") &&
+                        (extraction.rawText ?? "").trim().length > 0,
+                    ) && detail.extractionStatus === "NOT_STARTED"
+                      ? "Extraído"
+                      : extractionStatusLabels[detail.extractionStatus] ??
+                        detail.extractionStatus}
                   </strong>
                 </div>
                 <div className="field">
@@ -1458,6 +2132,24 @@ export function InventoryDocumentsPanel() {
                 ) : null}
               </div>
 
+              <nav className="ws-tabs">
+                {workspaceTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={`ws-tab ${workspaceTab === tab.id ? "ws-tab--active" : ""}`}
+                    onClick={() => setWorkspaceTab(tab.id)}
+                  >
+                    {tab.label}
+                    {tab.badge != null ? (
+                      <span className="ws-tab__badge">{tab.badge}</span>
+                    ) : null}
+                  </button>
+                ))}
+              </nav>
+
+              {workspaceTab === "resumen" ? (
+                <>
               <div className="section-card__header compact">
                 <div>
                   <h4>Archivo fuente</h4>
@@ -1515,31 +2207,22 @@ export function InventoryDocumentsPanel() {
                 </button>
                 <button
                   type="button"
-                  disabled={actionInProgress !== null || aiAnalyzing || stagingCreating}
+                  disabled={
+                    actionInProgress !== null ||
+                    aiAnalyzing ||
+                    stagingCreating ||
+                    detail.stagingAccommodations.length > 0 ||
+                    detail.stagingActivities.length > 0
+                  }
+                  title={
+                    detail.stagingAccommodations.length > 0 ||
+                    detail.stagingActivities.length > 0
+                      ? "Ya existen candidatos. Usa 'Regenerar candidatos' para rehacerlos."
+                      : undefined
+                  }
                   onClick={() => void handleCreateStaging()}
                 >
                   {stagingCreating ? "Creando candidatos..." : "Crear candidatos revisables"}
-                </button>
-                <button
-                  type="button"
-                  disabled={actionInProgress !== null}
-                  onClick={() => void handleDocumentAction("approve")}
-                >
-                  {actionInProgress === "approve" ? "Aprobando..." : "Aprobar"}
-                </button>
-                <button
-                  type="button"
-                  disabled={actionInProgress !== null}
-                  onClick={() => void handleDocumentAction("reject")}
-                >
-                  {actionInProgress === "reject" ? "Rechazando..." : "Rechazar"}
-                </button>
-                <button
-                  type="button"
-                  disabled={actionInProgress !== null}
-                  onClick={() => void handleDocumentAction("publish")}
-                >
-                  {actionInProgress === "publish" ? "Publicando..." : "Publicar"}
                 </button>
               </div>
 
@@ -1621,14 +2304,100 @@ export function InventoryDocumentsPanel() {
                 <QualityControlPanel summary={computeQualitySummary(detail)} />
               ) : null}
 
-              {detail.stagingAccommodations.length === 0 &&
-              detail.stagingActivities.length === 0 ? (
+              {(detail.stagingAccommodations.length > 0 ||
+                detail.stagingActivities.length > 0) &&
+              publishedInventory != null &&
+              countApprovedPublishableRates(detail) !==
+                publishedInventory.accommodationRateCount +
+                  publishedInventory.activityRateCount ? (
+                <div className="alert alert--warning" role="status">
+                  Tienes cambios aprobados sin publicar:{" "}
+                  <strong>{countApprovedPublishableRates(detail)}</strong> tarifa(s) aprobada(s)
+                  lista(s) frente a{" "}
+                  <strong>
+                    {publishedInventory.accommodationRateCount +
+                      publishedInventory.activityRateCount}
+                  </strong>{" "}
+                  publicada(s) ahora. Usa "Simular publicación" y luego "Revisar y publicar".
+                </div>
+              ) : null}
+
+              {detail.stagingAccommodations.length > 0 ||
+              detail.stagingActivities.length > 0 ? (
+                <div className="review-controls">
+                  <span className="review-controls__label">
+                    Revisa los candidatos en las pestañas "Pendientes" y "Aprobados".
+                  </span>
+                  <button
+                    type="button"
+                    disabled={regenerating || awaitingRegenerateConfirm}
+                    onClick={() => setAwaitingRegenerateConfirm(true)}
+                  >
+                    {regenerating ? "Regenerando..." : "Regenerar candidatos"}
+                  </button>
+                </div>
+              ) : null}
+
+              {awaitingRegenerateConfirm ? (
+                <div className="publish-confirm" role="alertdialog" aria-label="Confirmar regeneración">
+                  <p className="publish-confirm__summary">
+                    Regenerar <strong>descartará todos los candidatos actuales y su revisión
+                    manual</strong>, y los volverá a crear con IA desde el texto del documento. No
+                    afecta al inventario operativo ya publicado.
+                  </p>
+                  <div className="stack compact actions-row">
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={regenerating}
+                      onClick={() => void handleRegenerate()}
+                    >
+                      {regenerating ? "Regenerando..." : "Sí, regenerar candidatos"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={regenerating}
+                      onClick={() => setAwaitingRegenerateConfirm(false)}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+                </>
+              ) : null}
+
+              {isCandidateTab ? (
+                detail.stagingAccommodations.length === 0 &&
+                detail.stagingActivities.length === 0 ? (
                 <p>
                   Todavía no hay candidatos. Usa "Crear candidatos revisables" para generarlos a
                   partir del análisis.
                 </p>
               ) : (
                 <div className="staging-review">
+                  <div className="review-context">
+                    <span>
+                      Vista:{" "}
+                      <strong>
+                        {workspaceTab === "pendientes"
+                          ? "Pendientes de revisar"
+                          : workspaceTab === "aprobados"
+                            ? "Aprobados"
+                            : "Rechazados"}
+                      </strong>
+                    </span>
+                  </div>
+
+                  {(workspaceTab === "pendientes" && pendingTabCount === 0) ||
+                  (workspaceTab === "aprobados" && approvedTabCount === 0) ||
+                  (workspaceTab === "rechazados" && rejectedTabCount === 0) ? (
+                    <p className="empty-hint">
+                      No hay candidatos en este estado. Usa las acciones en lote de cada alojamiento
+                      para mover candidatos aquí.
+                    </p>
+                  ) : null}
+
                   {detail.stagingAccommodations.map((accommodation) => (
                     <div key={accommodation.id} className="staging-group">
                       <StagingEditableCard
@@ -1638,81 +2407,85 @@ export function InventoryDocumentsPanel() {
                         fields={accommodationFields}
                         values={accommodation}
                         reviewStatus={String(accommodation.reviewStatus)}
+                        collapsible
                         onSaved={handleStagingSaved}
                       />
 
-                      {accommodation.rates.map((rate) => (
-                        <StagingEditableCard
-                          key={rate.id}
-                          entity="accommodation-rates"
-                          id={rate.id}
-                          title="Tarifa"
-                          fields={accommodationRateFields}
-                          values={rate}
-                          reviewStatus={String(rate.reviewStatus)}
-                          rawText={rate.rawText}
-                          summary={
-                            <RatePriceSummary
-                              prices={[
-                                rate.pvpAmount != null
-                                  ? { label: "Precio PVP", amount: rate.pvpAmount }
-                                  : null,
-                                rate.netAmount != null
-                                  ? { label: "Precio neto", amount: rate.netAmount }
-                                  : null,
-                                rate.costAmount != null
-                                  ? { label: "Precio coste", amount: rate.costAmount }
-                                  : null,
-                              ]}
-                              currency={rate.currency}
-                              rawText={rate.rawText}
-                            />
-                          }
-                          onSaved={handleStagingSaved}
-                        />
-                      ))}
+                      <RateReviewTable
+                        entity="accommodation-rates"
+                        parentEntity="accommodations"
+                        parentId={accommodation.id}
+                        rates={
+                          accommodation.rates.filter((rate) =>
+                            passesReviewFilter(rate.reviewStatus),
+                          ) as unknown as CandidateItem[]
+                        }
+                        columns={accommodationRateColumns}
+                        itemLabel="tarifa(s)"
+                        editorTitle="Editar tarifa"
+                        fields={accommodationRateFields}
+                        busy={bulkBusy}
+                        onApprove={handleApproveWithParent}
+                        onBulkReview={handleBulkReview}
+                        onSaved={handleStagingSaved}
+                      />
 
-                      {accommodation.adjustments.map((adjustment) => (
-                        <StagingEditableCard
-                          key={adjustment.id}
-                          entity="accommodation-adjustments"
-                          id={adjustment.id}
-                          title="Suplemento / ajuste"
-                          fields={accommodationAdjustmentFields}
-                          values={adjustment}
-                          reviewStatus={String(adjustment.reviewStatus)}
-                          rawText={adjustment.rawText}
-                          onSaved={handleStagingSaved}
-                        />
-                      ))}
+                      <RateReviewTable
+                        entity="accommodation-adjustments"
+                        parentEntity="accommodations"
+                        parentId={accommodation.id}
+                        rates={
+                          accommodation.adjustments.filter((adjustment) =>
+                            passesReviewFilter(adjustment.reviewStatus),
+                          ) as unknown as CandidateItem[]
+                        }
+                        columns={adjustmentColumns}
+                        itemLabel="suplemento(s)"
+                        editorTitle="Editar suplemento"
+                        fields={accommodationAdjustmentFields}
+                        busy={bulkBusy}
+                        onApprove={handleApproveWithParent}
+                        onBulkReview={handleBulkReview}
+                        onSaved={handleStagingSaved}
+                      />
 
-                      {accommodation.policies.map((policy) => (
-                        <StagingEditableCard
-                          key={policy.id}
-                          entity="accommodation-policies"
-                          id={policy.id}
-                          title="Política"
-                          fields={accommodationPolicyFields}
-                          values={policy}
-                          reviewStatus={String(policy.reviewStatus)}
-                          structuredJson={policy.structuredJson}
-                          onSaved={handleStagingSaved}
-                        />
-                      ))}
+                      <RateReviewTable
+                        entity="accommodation-policies"
+                        parentEntity="accommodations"
+                        parentId={accommodation.id}
+                        rates={
+                          accommodation.policies.filter((policy) =>
+                            passesReviewFilter(policy.reviewStatus),
+                          ) as unknown as CandidateItem[]
+                        }
+                        columns={policyColumns}
+                        itemLabel="política(s)"
+                        editorTitle="Editar política"
+                        fields={accommodationPolicyFields}
+                        busy={bulkBusy}
+                        onApprove={handleApproveWithParent}
+                        onBulkReview={handleBulkReview}
+                        onSaved={handleStagingSaved}
+                      />
 
-                      {accommodation.blackoutDates.map((blackout) => (
-                        <StagingEditableCard
-                          key={blackout.id}
-                          entity="accommodation-blackout-dates"
-                          id={blackout.id}
-                          title="Fecha especial / blackout"
-                          fields={accommodationBlackoutFields}
-                          values={blackout}
-                          reviewStatus={String(blackout.reviewStatus)}
-                          rawText={blackout.rawText}
-                          onSaved={handleStagingSaved}
-                        />
-                      ))}
+                      <RateReviewTable
+                        entity="accommodation-blackout-dates"
+                        parentEntity="accommodations"
+                        parentId={accommodation.id}
+                        rates={
+                          accommodation.blackoutDates.filter((blackout) =>
+                            passesReviewFilter(blackout.reviewStatus),
+                          ) as unknown as CandidateItem[]
+                        }
+                        columns={blackoutColumns}
+                        itemLabel="fecha(s) especial(es)"
+                        editorTitle="Editar fecha especial"
+                        fields={accommodationBlackoutFields}
+                        busy={bulkBusy}
+                        onApprove={handleApproveWithParent}
+                        onBulkReview={handleBulkReview}
+                        onSaved={handleStagingSaved}
+                      />
                     </div>
                   ))}
 
@@ -1725,55 +2498,55 @@ export function InventoryDocumentsPanel() {
                         fields={activityFields}
                         values={activity}
                         reviewStatus={String(activity.reviewStatus)}
+                        collapsible
                         onSaved={handleStagingSaved}
                       />
 
-                      {activity.rates.map((rate) => (
-                        <StagingEditableCard
-                          key={rate.id}
-                          entity="activity-rates"
-                          id={rate.id}
-                          title="Tarifa de actividad"
-                          fields={activityRateFields}
-                          values={rate}
-                          reviewStatus={String(rate.reviewStatus)}
-                          rawText={rate.rawText}
-                          summary={
-                            <RatePriceSummary
-                              prices={[
-                                rate.salePvpAmount != null
-                                  ? { label: "Precio PVP", amount: rate.salePvpAmount }
-                                  : null,
-                                rate.costNetAmount != null
-                                  ? { label: "Coste neto", amount: rate.costNetAmount }
-                                  : null,
-                              ]}
-                              currency={rate.currency}
-                              rawText={rate.rawText}
-                            />
-                          }
-                          onSaved={handleStagingSaved}
-                        />
-                      ))}
+                      <RateReviewTable
+                        entity="activity-rates"
+                        parentEntity="activities"
+                        parentId={activity.id}
+                        rates={
+                          activity.rates.filter((rate) =>
+                            passesReviewFilter(rate.reviewStatus),
+                          ) as unknown as CandidateItem[]
+                        }
+                        columns={activityRateColumns}
+                        itemLabel="tarifa(s)"
+                        editorTitle="Editar tarifa de actividad"
+                        fields={activityRateFields}
+                        busy={bulkBusy}
+                        onApprove={handleApproveWithParent}
+                        onBulkReview={handleBulkReview}
+                        onSaved={handleStagingSaved}
+                      />
 
-                      {activity.policies.map((policy) => (
-                        <StagingEditableCard
-                          key={policy.id}
-                          entity="activity-policies"
-                          id={policy.id}
-                          title="Política de actividad"
-                          fields={activityPolicyFields}
-                          values={policy}
-                          reviewStatus={String(policy.reviewStatus)}
-                          structuredJson={policy.structuredJson}
-                          onSaved={handleStagingSaved}
-                        />
-                      ))}
+                      <RateReviewTable
+                        entity="activity-policies"
+                        parentEntity="activities"
+                        parentId={activity.id}
+                        rates={
+                          activity.policies.filter((policy) =>
+                            passesReviewFilter(policy.reviewStatus),
+                          ) as unknown as CandidateItem[]
+                        }
+                        columns={policyColumns}
+                        itemLabel="política(s)"
+                        editorTitle="Editar política"
+                        fields={activityPolicyFields}
+                        busy={bulkBusy}
+                        onApprove={handleApproveWithParent}
+                        onBulkReview={handleBulkReview}
+                        onSaved={handleStagingSaved}
+                      />
                     </div>
                   ))}
                 </div>
-              )}
+              )
+              ) : null}
 
+              {workspaceTab === "aprobados" ? (
+                <>
               <div className="section-card__header compact">
                 <div>
                   <h4>Publicación al inventario operativo</h4>
@@ -2001,8 +2774,226 @@ export function InventoryDocumentsPanel() {
                   )}
                 </div>
               ) : null}
+                </>
+              ) : null}
 
-              {aiResult ? (
+              {workspaceTab === "publicados" ? (
+                <>
+              <div className="section-card__header compact">
+                <div>
+                  <h4>Trazabilidad: ¿qué hay publicado ahora?</h4>
+                  <p>
+                    Registros del inventario operativo vinculados a este documento (lectura en
+                    vivo). No modifica nada.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={publishedLoading}
+                  onClick={() => void handleLoadPublished()}
+                >
+                  {publishedLoading
+                    ? "Cargando..."
+                    : publishedInventory
+                      ? "Actualizar lo publicado"
+                      : "Ver lo publicado ahora"}
+                </button>
+              </div>
+
+              {publishedInventory ? (
+                <div className="published-trace">
+                  <div className="grid two">
+                    <div className="field">
+                      <span>Alojamientos publicados</span>
+                      <strong>{publishedInventory.accommodationCount}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Tarifas de alojamiento</span>
+                      <strong>{publishedInventory.accommodationRateCount}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Actividades publicadas</span>
+                      <strong>{publishedInventory.activityCount}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Tarifas de actividad</span>
+                      <strong>{publishedInventory.activityRateCount}</strong>
+                    </div>
+                  </div>
+
+                  {publishedInventory.accommodationCount === 0 &&
+                  publishedInventory.activityCount === 0 ? (
+                    <p>
+                      No hay registros operativos publicados desde este documento ahora mismo.
+                    </p>
+                  ) : (
+                    <ul className="published-list">
+                      {publishedInventory.accommodations.map((accommodation) => (
+                        <li key={accommodation.id} className="published-item">
+                          <details>
+                            <summary>
+                              <strong>{accommodation.accommodationName}</strong>
+                              {accommodation.locality ? (
+                                <span className="published-item__meta">
+                                  {accommodation.locality}
+                                </span>
+                              ) : null}
+                              <span className="published-item__count">
+                                {accommodation.rates.length} tarifa(s)
+                              </span>
+                            </summary>
+                            <ul className="detail-list">
+                              {accommodation.rates.map((rate) => (
+                                <li key={rate.id}>
+                                  {rate.year} · {rate.boardType ?? "—"} ·{" "}
+                                  {rate.pvpAmount != null
+                                    ? formatAmount(rate.pvpAmount, rate.currency)
+                                    : "sin precio"}
+                                  {rate.sourceStagingId ? (
+                                    <span className="published-item__trace">
+                                      {" "}
+                                      · origen staging {rate.sourceStagingId.slice(0, 8)}…
+                                    </span>
+                                  ) : null}
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        </li>
+                      ))}
+
+                      {publishedInventory.activities.map((activity) => (
+                        <li key={activity.id} className="published-item">
+                          <details>
+                            <summary>
+                              <strong>{activity.activityName}</strong>
+                              {activity.locationMain ? (
+                                <span className="published-item__meta">
+                                  {activity.locationMain}
+                                </span>
+                              ) : null}
+                              <span className="published-item__count">
+                                {activity.rates.length} tarifa(s)
+                              </span>
+                            </summary>
+                            <ul className="detail-list">
+                              {activity.rates.map((rate) => (
+                                <li key={rate.id}>
+                                  {rate.year} · {rate.ageLabel ?? "—"} ·{" "}
+                                  {rate.salePvpAmount != null
+                                    ? formatAmount(rate.salePvpAmount, rate.currency)
+                                    : "sin precio"}
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
+
+              <div className="section-card__header compact">
+                <div>
+                  <h4>Retirar publicación del inventario</h4>
+                  <p>
+                    Elimina del inventario operativo los registros publicados desde este documento.
+                    Solo afecta a lo publicado desde aquí (nunca a datos importados de Excel). Los
+                    candidatos staging se conservan y se puede volver a publicar.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={preparingUnpublish || unpublishing || awaitingUnpublishConfirm}
+                  onClick={() => void handleRequestUnpublish()}
+                >
+                  {preparingUnpublish ? "Comprobando..." : "Retirar del inventario"}
+                </button>
+              </div>
+
+              {awaitingUnpublishConfirm && unpublishDryRun ? (
+                <div className="publish-confirm" role="alertdialog" aria-label="Confirmar retirada">
+                  <div className="section-card__header compact">
+                    <div>
+                      <h4>Confirmar retirada de la publicación</h4>
+                      <p>
+                        Esta acción eliminará del inventario operativo los registros publicados
+                        desde este documento. Es recuperable: podrás volver a publicar desde los
+                        candidatos aprobados.
+                      </p>
+                    </div>
+                    <span className="staging-badge">Borra del inventario</span>
+                  </div>
+
+                  <p className="publish-confirm__summary">
+                    Se retirará <strong>todo</strong> lo publicado desde este documento:{" "}
+                    <strong>{unpublishDryRun.accommodationsToRemove}</strong> alojamiento(s) y{" "}
+                    <strong>{unpublishDryRun.accommodationRatesToRemove}</strong> tarifa(s);{" "}
+                    <strong>{unpublishDryRun.activitiesToRemove}</strong> actividad(es) y{" "}
+                    <strong>{unpublishDryRun.activityRatesToRemove}</strong> tarifa(s) de actividad.
+                    Los candidatos staging no se borran.
+                  </p>
+
+                  {publishedInventory &&
+                  (publishedInventory.accommodations.length > 0 ||
+                    publishedInventory.activities.length > 0) ? (
+                    <ul className="detail-list">
+                      {publishedInventory.accommodations.map((accommodation) => (
+                        <li key={accommodation.id}>
+                          {accommodation.accommodationName} ({accommodation.rates.length} tarifa(s))
+                        </li>
+                      ))}
+                      {publishedInventory.activities.map((activity) => (
+                        <li key={activity.id}>
+                          {activity.activityName} ({activity.rates.length} tarifa(s))
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+
+                  <div className="stack compact actions-row">
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={unpublishing}
+                      onClick={() => void handleConfirmUnpublish()}
+                    >
+                      {unpublishing ? "Retirando..." : "Confirmar retirada"}
+                    </button>
+                    <button type="button" disabled={unpublishing} onClick={handleCancelUnpublish}>
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {unpublishResult ? (
+                <div className="publish-result publish-result--dryrun">
+                  <div className="grid two">
+                    <div className="field">
+                      <span>Alojamientos retirados</span>
+                      <strong>{unpublishResult.accommodationsRemoved}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Tarifas de alojamiento retiradas</span>
+                      <strong>{unpublishResult.accommodationRatesRemoved}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Actividades retiradas</span>
+                      <strong>{unpublishResult.activitiesRemoved}</strong>
+                    </div>
+                    <div className="field">
+                      <span>Tarifas de actividad retiradas</span>
+                      <strong>{unpublishResult.activityRatesRemoved}</strong>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+                </>
+              ) : null}
+
+              {workspaceTab === "resumen" && aiResult ? (
                 <div className="ai-result">
                   <div className="section-card__header compact">
                     <div>
@@ -2064,6 +3055,8 @@ export function InventoryDocumentsPanel() {
                 </div>
               ) : null}
 
+              {workspaceTab === "incidencias" ? (
+                <>
               <ImportIssuesPanel issues={detail.importIssues} />
 
               <div className="section-card__header compact">
@@ -2109,6 +3102,8 @@ export function InventoryDocumentsPanel() {
               ) : (
                 <p>No hay extracciones registradas.</p>
               )}
+                </>
+              ) : null}
             </div>
           ) : null}
         </div>

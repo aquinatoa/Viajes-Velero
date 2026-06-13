@@ -1,12 +1,16 @@
 import type {
   AiDocumentAnalysisResult,
   CreateSourceDocumentInput,
+  BulkReviewResult,
   CreateStagingResult,
   DryRunPublishResult,
+  DryRunUnpublishResult,
   InventoryDocumentDetail,
   PublishApprovedResult,
+  PublishedInventorySummary,
   SourceDocumentSummary,
   StagingEntityKey,
+  UnpublishResult,
 } from "../domain/documentImportTypes";
 import type { SearchFilters } from "../domain/types";
 
@@ -256,27 +260,25 @@ export function patchInventoryStagingApi(
   );
 }
 
-export function approveInventoryDocumentApi(documentId: string) {
-  return postJson<InventoryDocumentDetail>(
-    `/api/inventory/documents/${encodeURIComponent(documentId)}/approve`,
-    {},
-    "No se pudo aprobar el documento de inventario.",
+// Cambio de estado de revisión en lote para varios candidatos del mismo tipo.
+export function bulkUpdateInventoryStagingApi(
+  entity: StagingEntityKey,
+  ids: string[],
+  reviewStatus: string,
+) {
+  return patchJson<BulkReviewResult>(
+    "/api/inventory/staging/bulk",
+    { entity, ids, reviewStatus },
+    "No se pudo actualizar el estado de los candidatos.",
   );
 }
 
-export function rejectInventoryDocumentApi(documentId: string) {
-  return postJson<InventoryDocumentDetail>(
-    `/api/inventory/documents/${encodeURIComponent(documentId)}/reject`,
+// Regenerar candidatos: descarta el staging actual y lo vuelve a crear con IA.
+export function regenerateInventoryDocumentStagingApi(documentId: string) {
+  return postJson<CreateStagingResult>(
+    `/api/inventory/documents/${encodeURIComponent(documentId)}/regenerate-staging`,
     {},
-    "No se pudo rechazar el documento de inventario.",
-  );
-}
-
-export function publishInventoryDocumentApi(documentId: string) {
-  return postJson<InventoryDocumentDetail>(
-    `/api/inventory/documents/${encodeURIComponent(documentId)}/publish`,
-    {},
-    "No se pudo publicar el documento de inventario.",
+    "No se pudieron regenerar los candidatos del documento.",
   );
 }
 
@@ -293,5 +295,30 @@ export function dryRunPublishApprovedInventoryDocumentApi(documentId: string) {
   return getJson<DryRunPublishResult>(
     `/api/inventory/documents/${encodeURIComponent(documentId)}/publish-approved/dry-run`,
     "No se pudo simular la publicación del documento.",
+  );
+}
+
+// Trazabilidad: GET de solo lectura con lo publicado desde este documento.
+export function getPublishedInventoryByDocumentApi(documentId: string) {
+  return getJson<PublishedInventorySummary>(
+    `/api/inventory/documents/${encodeURIComponent(documentId)}/published`,
+    "No se pudo obtener la trazabilidad de lo publicado.",
+  );
+}
+
+// Simulación de retirada (dry-run): GET de solo lectura. No borra nada.
+export function dryRunUnpublishInventoryDocumentApi(documentId: string) {
+  return getJson<DryRunUnpublishResult>(
+    `/api/inventory/documents/${encodeURIComponent(documentId)}/unpublish/dry-run`,
+    "No se pudo simular la retirada de la publicación.",
+  );
+}
+
+// Retirada real: POST que elimina del inventario lo publicado (idempotente).
+export function unpublishInventoryDocumentApi(documentId: string) {
+  return postJson<UnpublishResult>(
+    `/api/inventory/documents/${encodeURIComponent(documentId)}/unpublish`,
+    {},
+    "No se pudo retirar la publicación del documento.",
   );
 }

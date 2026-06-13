@@ -22,18 +22,21 @@ import {
 import {
   addInventoryDocumentExtraction,
   addInventoryDocumentIssue,
-  approveInventoryDocument,
   attachInventoryDocumentFile,
   countInventoryDocumentStaging,
+  bulkUpdateStagingReview,
   createInventoryDocument,
   createInventoryDocumentStaging,
+  deleteInventoryDocumentStaging,
   dryRunPublishApprovedInventoryDocument,
+  dryRunUnpublishInventoryDocument,
   getInventoryDocumentDetail,
+  getPublishedInventoryByDocument,
   listInventoryDocuments,
   publishApprovedInventoryDocument,
   PublishValidationError,
-  rejectInventoryDocument,
   StagingValidationError,
+  unpublishInventoryDocument,
   updateInventoryDocumentStatus,
   updateStagingEntity,
 } from "./documentImportDb";
@@ -609,6 +612,104 @@ app.post("/api/inventory/documents/:id/create-staging", async (request, response
   }
 });
 
+// Regenera los candidatos: descarta el staging existente del documento y lo
+// vuelve a crear desde el análisis IA. Destructivo SOLO sobre staging (nunca
+// sobre el inventario operativo). Se pierde la revisión manual previa.
+app.post("/api/inventory/documents/:id/regenerate-staging", async (request, response) => {
+  try {
+    const documentId = String(request.params.id);
+    const document = await getInventoryDocumentDetail(documentId);
+
+    if (!document) {
+      response.status(404).json({ error: "Documento no encontrado." });
+      return;
+    }
+
+    const textExtraction = document.extractions.find(
+      (extraction) =>
+        (extraction.extractionMethod === "TEXT" || extraction.extractionMethod === "OCR") &&
+        (extraction.rawText ?? "").trim().length > 0,
+    );
+
+    if (!textExtraction?.rawText) {
+      response.status(400).json({
+        error:
+          "El documento no tiene texto extraído. Ejecuta primero el análisis de texto del PDF antes de regenerar candidatos.",
+      });
+      return;
+    }
+
+    await deleteInventoryDocumentStaging(documentId);
+
+    const analysis = await analyzeDocumentText({
+      text: textExtraction.rawText,
+      context: {
+        targetType: document.targetType,
+        controlName: document.controlName,
+        controlLocation: document.controlLocation,
+        controlYear: document.controlYear,
+        controlCategory: document.controlCategory,
+      },
+    });
+
+    const result = await createInventoryDocumentStaging(documentId, analysis, {
+      targetType: document.targetType,
+      controlName: document.controlName,
+    });
+
+    await addInventoryDocumentIssue({
+      sourceDocumentId: documentId,
+      severity: "INFO",
+      issueType: "STAGING_REGENERATED",
+      message: `Se regeneraron los candidatos (se descartó la revisión previa): ${result.accommodations} alojamiento(s), ${result.rates} tarifa(s), ${result.adjustments} suplemento(s), ${result.policies} política(s) y ${result.activities} actividad(es).`,
+    });
+
+    if (document.status !== "PUBLISHED") {
+      await updateInventoryDocumentStatus(documentId, "PENDING_REVIEW", "EXTRACTED");
+    }
+
+    response.json(result);
+  } catch (error) {
+    if (error instanceof AiAnalysisError) {
+      response.status(502).json({ error: error.message });
+      return;
+    }
+    console.error("Error regenerating inventory document staging", error);
+    response.status(500).json({
+      error: "No se pudieron regenerar los candidatos del documento.",
+    });
+  }
+});
+
+// Cambio de estado de revisión en lote para varios candidatos del mismo tipo.
+app.patch("/api/inventory/staging/bulk", async (request, response) => {
+  try {
+    const body = (request.body ?? {}) as {
+      entity?: unknown;
+      ids?: unknown;
+      reviewStatus?: unknown;
+    };
+    const entity = String(body.entity ?? "");
+    const reviewStatus = String(body.reviewStatus ?? "");
+    const ids = Array.isArray(body.ids) ? body.ids.map((id) => String(id)) : [];
+
+    if (ids.length === 0) {
+      response.status(400).json({ error: "No se indicaron candidatos a actualizar." });
+      return;
+    }
+
+    const result = await bulkUpdateStagingReview(entity, ids, reviewStatus);
+    response.json(result);
+  } catch (error) {
+    if (error instanceof StagingValidationError) {
+      response.status(400).json({ error: error.message });
+      return;
+    }
+    console.error("Error bulk-updating staging entities", error);
+    response.status(500).json({ error: "No se pudo actualizar el estado de los candidatos." });
+  }
+});
+
 app.patch("/api/inventory/staging/:entity/:id", async (request, response) => {
   try {
     const entity = String(request.params.entity);
@@ -640,41 +741,26 @@ app.patch("/api/inventory/staging/:entity/:id", async (request, response) => {
   }
 });
 
-app.post("/api/inventory/documents/:id/approve", async (request, response) => {
+// Trazabilidad (GET, solo lectura): registros del inventario operativo
+// publicados actualmente desde este documento (por sourceDocumentId).
+app.get("/api/inventory/documents/:id/published", async (request, response) => {
   try {
     const documentId = String(request.params.id);
-    const updatedDocument = await approveInventoryDocument(documentId);
-    response.json(updatedDocument);
-  } catch (error) {
-    console.error("Error approving inventory document", error);
-    response.status(500).json({
-      error: "No se pudo aprobar el documento de inventario.",
-    });
-  }
-});
+    const document = await getInventoryDocumentDetail(documentId);
 
-app.post("/api/inventory/documents/:id/reject", async (request, response) => {
-  try {
-    const documentId = String(request.params.id);
-    const updatedDocument = await rejectInventoryDocument(documentId);
-    response.json(updatedDocument);
-  } catch (error) {
-    console.error("Error rejecting inventory document", error);
-    response.status(500).json({
-      error: "No se pudo rechazar el documento de inventario.",
-    });
-  }
-});
+    if (!document) {
+      response.status(404).json({
+        error: "Documento no encontrado.",
+      });
+      return;
+    }
 
-app.post("/api/inventory/documents/:id/publish", async (request, response) => {
-  try {
-    const documentId = String(request.params.id);
-    const updatedDocument = await updateInventoryDocumentStatus(documentId, "PUBLISHED");
-    response.json(updatedDocument);
+    const result = await getPublishedInventoryByDocument(documentId);
+    response.json(result);
   } catch (error) {
-    console.error("Error publishing inventory document", error);
+    console.error("Error fetching published inventory for document", error);
     response.status(500).json({
-      error: "No se pudo publicar el documento de inventario.",
+      error: "No se pudo obtener la trazabilidad de lo publicado.",
     });
   }
 });
@@ -759,6 +845,68 @@ app.post("/api/inventory/documents/:id/publish-approved", async (request, respon
     console.error("Error publishing approved inventory document", error);
     response.status(500).json({
       error: "No se pudo publicar el documento al inventario operativo.",
+    });
+  }
+});
+
+// Simulación de retirada (GET, solo lectura): cuántos registros operativos se
+// eliminarían del inventario para este documento. No borra nada.
+app.get("/api/inventory/documents/:id/unpublish/dry-run", async (request, response) => {
+  try {
+    const documentId = String(request.params.id);
+    const document = await getInventoryDocumentDetail(documentId);
+
+    if (!document) {
+      response.status(404).json({
+        error: "Documento no encontrado.",
+      });
+      return;
+    }
+
+    const result = await dryRunUnpublishInventoryDocument(documentId);
+    response.json(result);
+  } catch (error) {
+    console.error("Error running unpublish dry-run on inventory document", error);
+    response.status(500).json({
+      error: "No se pudo simular la retirada de la publicación.",
+    });
+  }
+});
+
+// Retirada real (POST, escribe/borra): elimina del inventario operativo lo
+// publicado desde este documento (idempotente, solo por sourceDocumentId).
+app.post("/api/inventory/documents/:id/unpublish", async (request, response) => {
+  try {
+    const documentId = String(request.params.id);
+    const document = await getInventoryDocumentDetail(documentId);
+
+    if (!document) {
+      response.status(404).json({
+        error: "Documento no encontrado.",
+      });
+      return;
+    }
+
+    const result = await unpublishInventoryDocument(documentId);
+
+    // Si el documento estaba marcado como publicado, revertir a pendiente de
+    // revisión (los candidatos staging se conservan tal cual).
+    if (document.status === "PUBLISHED") {
+      await updateInventoryDocumentStatus(documentId, "PENDING_REVIEW");
+    }
+
+    await addInventoryDocumentIssue({
+      sourceDocumentId: documentId,
+      severity: "INFO",
+      issueType: "UNPUBLISH_COMPLETED",
+      message: `Retirada del inventario operativo: ${result.accommodationsRemoved} alojamiento(s), ${result.accommodationRatesRemoved} tarifa(s) de alojamiento, ${result.activitiesRemoved} actividad(es) y ${result.activityRatesRemoved} tarifa(s) de actividad. Los candidatos staging se conservan.`,
+    });
+
+    response.json(result);
+  } catch (error) {
+    console.error("Error unpublishing inventory document", error);
+    response.status(500).json({
+      error: "No se pudo retirar la publicación del documento.",
     });
   }
 });

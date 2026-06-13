@@ -1,8 +1,10 @@
 # Handoff - Viajes Velero Ops
 
 > Documento de compactación de contexto para continuar el trabajo en una conversación nueva
-> sin arrastrar todo el historial. Última actualización: estado de prueba del documento
-> "4R 4 estrellas" con análisis IA real de Anthropic/Claude Sonnet ya funcionando.
+> sin arrastrar todo el historial. Última actualización: Bloque 7 (limpieza, trazabilidad y
+> control de calidad del módulo documental) completado en sus Fases 1–5, más el Bloque 8
+> (rediseño de usabilidad de la revisión), con análisis IA real de Anthropic/Claude Sonnet
+> funcionando. Producto listo para pruebas finales.
 
 ## Goal we are working toward
 
@@ -57,21 +59,97 @@ El flujo nunca debe publicar automáticamente. La revisión humana es obligatori
 - `.env` local no debe versionarse.
 - `.env.example` contiene solo variables vacías o de ejemplo.
 
-### Estado del árbol de trabajo (IMPORTANTE)
+### Estado del árbol de trabajo
 
-`git status` NO está limpio. Hay 3 archivos modificados sin commit, que corresponden al
-arreglo en curso de la prioridad actual (precios PVP/neto de las tarifas IA):
+El arreglo de precios PVP/neto (incluido el caso "Precio detectado") ya está commiteado:
 
-- `server/aiDocumentAnalysis.ts` — parser JSON robusto (quita fences markdown, extrae el
-  objeto con conteo de llaves, tolera comas finales) + logs de diagnóstico; `max_tokens` 16000.
-- `server/documentImportDb.ts` — la validación de precio acepta PVP **o** neto
-  (`priceFields: ["pvpAmount","netAmount"]`); la publicación usa `pvpAmount ?? netAmount` como
-  precio de venta operativo; mapea `netAmount`→`netSaleAmount`, `costAmount`→`netAzulmarinoAmount`.
+- `server/aiDocumentAnalysis.ts` — parser JSON robusto + logs; `max_tokens` 16000.
+- `server/documentImportDb.ts` — la validación de precio acepta PVP **o** neto; la publicación
+  usa `pvpAmount ?? netAmount`; mapea `netAmount`→`netSaleAmount`, `costAmount`→`netAzulmarinoAmount`.
 - `src/components/inventory/InventoryDocumentsPanel.tsx` — las tarjetas de tarifa muestran
-  "Precio neto" y "Coste" además de "Precio PVP" (actividad: "Coste neto").
+  "Precio PVP", "Precio neto", "Coste" y, si solo hay un importe sin tipo claro, "Precio detectado".
 
-Pendiente de la lista de tareas: el caso "Precio detectado" (un único importe sin tipo claro)
-todavía NO está implementado.
+### Bloque 7 (limpieza, trazabilidad y control de calidad)
+
+Fases completadas (todas con `npm.cmd run build` verde):
+
+- **Fase 1** — Panel de control de calidad en el detalle: conteos por estado de revisión
+  (PENDING/APPROVED/REJECTED/NEEDS_CHANGES) y advertencias previas a publicar. Solo UI.
+- **Fase 2A** — Dry-run de publicación: `buildPublishPlan()` (solo lectura) compartido por la
+  publicación real y la simulación; endpoint `GET /api/inventory/documents/:id/publish-approved/dry-run`;
+  `dryRunPublishApprovedInventoryDocument()`. No escribe nada.
+- **Fase 2B** — Confirmación previa: el botón real exige una simulación reciente y una
+  confirmación explícita ("Confirmar publicación real" / "Cancelar"); advertencias críticas vs
+  informativas; la simulación se invalida al editar un candidato.
+- **Fase 3** — Limpieza de incidencias: `ImportIssue` agrupadas por tipo, plegables, con conteos
+  por severidad y badge "Histórica". Solo UI; no borra incidencias.
+- **Fase 4** — Trazabilidad de lo publicado: endpoint `GET /api/inventory/documents/:id/published`
+  (solo lectura) + `getPublishedInventoryByDocument()`; panel "¿Qué hay publicado ahora?" que
+  lista los registros operativos vivos vinculados por `sourceDocumentId`/`sourceStagingId`.
+- **Fase 5** — Retirar publicación (despublicar): `dryRunUnpublishInventoryDocument()` (solo
+  lectura) + `unpublishInventoryDocument()` (borrado idempotente SOLO por `sourceDocumentId`,
+  nunca toca filas de Excel; tarifas por `onDelete: Cascade`); endpoints
+  `GET .../unpublish/dry-run` y `POST .../unpublish`; la retirada revierte el estado del documento
+  de PUBLISHED a PENDING_REVIEW y registra incidencia INFO `UNPUBLISH_COMPLETED`. En la UI: botón
+  "Retirar del inventario" con dry-run + confirmación explícita. Recuperable (se puede volver a
+  publicar desde el staging aprobado). Verificado en runtime: `/published` y `/unpublish/dry-run`
+  responden correctamente para "4R 4 estrellas" (1 alojamiento, 3 tarifas).
+
+Nota Prisma: el cliente generado puede quedar desactualizado respecto al esquema (el IDE marca
+`sourceDocumentId`/`sourceStagingId`/`rates` en tablas operativas como inexistentes). Es ruido del
+TS-server: `tsc -b` no typechquea `server/` (corre con `tsx`) y en runtime el cliente sí los conoce
+(la publicación real los usa). Con la API detenida, `npm.cmd run prisma:generate` lo limpia.
+
+### Bloque 8 (usabilidad de la revisión documental)
+
+Rediseño de la experiencia de revisión/publicación (todo con `npm.cmd run build` verde y
+validado en runtime):
+
+- **Revisión a escala**: tarjetas de candidatos **plegables** (resumen en una línea, editar al
+  abrir); **acciones en lote** por alojamiento/actividad ("Aprobar alojamiento y todas", "Aprobar
+  solo con precio y moneda", "Rechazar todas", "Pasar a pendientes"); **filtro por estado** (chips).
+  - Backend: `PATCH /api/inventory/staging/bulk` `{ entity, ids, reviewStatus }` →
+    `bulkUpdateStagingReview()` (valida por ítem; omite con motivo, no rompe el lote).
+  - "Aprobar … y todas" aprueba el padre + sus tarifas para que el conjunto sea publicable.
+- **Regenerar candidatos**: `POST /api/inventory/documents/:id/regenerate-staging` →
+  `deleteInventoryDocumentStaging()` + recrear con IA (destructivo SOLO sobre staging). Botón con
+  confirmación. "Crear candidatos revisables" se deshabilita si ya existen.
+- **Aprobado ≠ publicado**: banner "tienes N cambios aprobados sin publicar" comparando staging
+  aprobado publicable con la trazabilidad en vivo (que se carga automáticamente al abrir el detalle).
+- **Retirada transparente**: la confirmación lista qué registros se quitarán.
+- **Saneamiento**: `getInventoryDocumentDetail()` convierte los `Decimal` de Prisma a number
+  (`decimalsToNumbers()`), así el staging expone importes numéricos (antes strings); el estado de
+  extracción muestra "Extraído" si hay extracción TEXT/OCR aunque el campo guardado fuese
+  "NOT_STARTED".
+- Corrección: `StagingEditableCard` re-sincroniza su estado con `useEffect` cuando cambia desde
+  fuera (acciones en lote/regeneración), evitando badges obsoletos.
+
+Control de acumulación de incidencias: `addInventoryDocumentIssue` ahora "supersede" — al
+registrar un evento INFO repetible (`AI_ANALYSIS_EXECUTED`, `STAGING_CANDIDATES_CREATED`,
+`STAGING_REGENERATED`, `PUBLISH_COMPLETED`, `UNPUBLISH_COMPLETED`, `TEXT_ALREADY_EXTRACTED`) marca
+como resueltas las anteriores del mismo tipo, así solo la última queda activa (historial intacto).
+El panel muestra "N activa(s) (+M resuelta(s))".
+
+### Workspace por pestañas (UX simple)
+
+El detalle del documento se reorganizó en una barra de pestañas en lugar de un scroll largo:
+
+- **Resumen**: archivo fuente, acciones del pipeline (Ejecutar análisis · Analizar con IA · Crear
+  candidatos), estado/contadores de staging, control de calidad, banner "aprobado sin publicar",
+  regenerar candidatos, y vista previa del análisis IA.
+- **Pendientes / Aprobados / Rechazados**: TODOS los tipos de candidato (tarifas, suplementos,
+  políticas, fechas especiales) se muestran en una **tabla** genérica (`RateReviewTable`, con
+  columnas configurables vía `CandidateColumn[]`): selección múltiple, aprobación de 1 clic por
+  fila (aprueba también el padre para que sea publicable mediante `handleApproveWithParent`),
+  acciones en lote (Aprobar/Rechazar/A pendientes) y edición en línea al expandir la fila. La
+  cabecera del alojamiento/actividad es una tarjeta plegable. Pensado para revisar cientos de
+  candidatos sin fatiga. Las pestañas llevan contador.
+- **Publicados**: trazabilidad en vivo de lo publicado + retirar publicación (con confirmación).
+- **Incidencias**: incidencias agrupadas + extracciones.
+
+Se eliminaron los botones legacy a nivel de documento (Aprobar/Rechazar/Publicar) que se solapaban
+con el flujo real de publicación por candidatos. `InventoryDocumentsPanel.tsx` sigue siendo un
+único componente grande; si crece más, conviene extraer el workspace a su propio archivo.
 
 ## Known working functionality
 
@@ -203,32 +281,21 @@ Nota: los 3 archivos modificados del arreglo de precios PVP/neto AÚN NO están 
 
 ## Current blocker / next step
 
-Corregir/terminar la visualización y/o mapeo de precios en tarifas staging generadas por IA.
+El arreglo de precios y todo el Bloque 7 (Fases 1–5: control de calidad, dry-run, confirmación
+previa, limpieza de incidencias, trazabilidad de lo publicado y retirada/despublicar) están
+terminados (ver sección "Bloque 7" arriba). Bloque 7 cerrado.
 
-Diagnóstico ya realizado (confirmado en DB): los 40 importes están en `netAmount`, no en
-`pvpAmount`. La extracción de Claude es correcta (precios netos). Lo abordan los 3 archivos sin
-commit.
+Posibles siguientes pasos (no iniciados):
 
-Pasos de diagnóstico de referencia:
+- Mostrar la trazabilidad de origen documental también desde el catálogo/búsqueda operativa.
+- Pruebas automatizadas del flujo documental (publicar/dry-run/retirar) si se desea cobertura.
 
-1. `server/aiDocumentAnalysis.ts` — `candidateRates[]`:
-   - `pvpAmount`, `netAmount`, `costAmount`, `currency`, `rawText` (el contrato usa `rawText`,
-     no `rawSourceText`).
-2. `server/documentImportDb.ts` — `createInventoryDocumentStaging`:
-   - Mapea `pvpAmount`, `netAmount`, `costAmount` (y `currency` por defecto "EUR") a
-     `StagingAccommodationRate`.
-3. `src/components/inventory/InventoryDocumentsPanel.tsx`:
-   - Tarjetas de tarifa: ya muestran PVP, y (sin commit) neto y coste.
+Recordatorio al retomar:
 
-Implementación recomendada / pendiente:
-
-- Si `pvpAmount` está vacío pero `netAmount` o `costAmount` tienen valor, mostrarlos claramente
-  (hecho en el árbol de trabajo sin commit).
-- Si solo hay un precio detectado sin tipo claro, mostrarlo como "Precio detectado" (PENDIENTE).
-- Mantener la moneda visible (hecho).
-- No borrar candidatos existentes.
-- No publicar automáticamente.
-- Ejecutar `npm.cmd run build`.
+- Tras editar el esquema o si el IDE marca `sourceDocumentId`/`sourceStagingId`/`rates` como
+  inexistentes en tablas operativas, ejecutar `npm.cmd run prisma:generate` con la API detenida.
+- No borrar candidatos existentes. No publicar automáticamente. Ejecutar `npm.cmd run build` al
+  cerrar cada bloque.
 
 ## Rules and constraints
 
