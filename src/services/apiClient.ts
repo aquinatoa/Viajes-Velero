@@ -17,7 +17,7 @@ import type {
   UnpublishItemResult,
   UnpublishResult,
 } from "../domain/documentImportTypes";
-import type { SearchFilters } from "../domain/types";
+import type { Client, SearchFilters, TripProposal, TripRequest } from "../domain/types";
 
 const API_BASE_URL = "http://localhost:8787";
 
@@ -368,5 +368,56 @@ export function unpublishPublishedItemApi(kind: PublishedItemKind, id: string) {
   return deleteJson<UnpublishItemResult>(
     `/api/inventory/published/${kind}/${encodeURIComponent(id)}`,
     "No se pudo retirar el registro del inventario.",
+  );
+}
+
+// ─── Flujo comercial (persistencia real en BD) ──────────────────────────────
+
+export function findClientByEmailApi(email: string) {
+  return getJson<{ client: Client | null }>(
+    `/api/commercial/clients?email=${encodeURIComponent(email)}`,
+    "No se pudo buscar el cliente.",
+  );
+}
+
+export function upsertClientApi(input: {
+  email: string;
+  firstName: string;
+  lastName: string;
+  clientType: "new" | "existing";
+}) {
+  return postJson<Client>("/api/commercial/clients", input, "No se pudo guardar el cliente.");
+}
+
+export function getClientTripRequestsApi(clientId: string) {
+  return getJson<{
+    requests: { id: string; opportunityName: string | null; destinationText: string | null; createdAt: string }[];
+  }>(
+    `/api/commercial/clients/${encodeURIComponent(clientId)}/trip-requests`,
+    "No se pudieron cargar las solicitudes del cliente.",
+  );
+}
+
+export function saveTripRequestApi(input: Record<string, unknown>) {
+  return postJson<TripRequest>(
+    "/api/commercial/trip-requests",
+    input,
+    "No se pudo guardar la solicitud.",
+  );
+}
+
+export function saveTripProposalApi(input: Record<string, unknown>) {
+  return postJson<TripProposal>(
+    "/api/commercial/proposals",
+    input,
+    "No se pudo guardar la propuesta.",
+  );
+}
+
+export function approveTripProposalApi(proposalId: string, approvedOptionNumber: number) {
+  return postJson<TripProposal>(
+    `/api/commercial/proposals/${encodeURIComponent(proposalId)}/approve`,
+    { approvedOptionNumber },
+    "No se pudo aprobar la propuesta.",
   );
 }

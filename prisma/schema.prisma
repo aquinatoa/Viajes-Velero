@@ -135,6 +135,7 @@ model TripProposal {
   versionNumber        Int
   proposalStatus       ProposalStatus               @default(DRAFT)
   approvedOptionNumber Int?
+  summaryText          String?
   crmPayloadJson       String?
   createdAt            DateTime                     @default(now())
   updatedAt            DateTime                     @updatedAt
@@ -148,6 +149,7 @@ model ProposalAccommodationOption {
   proposalId       String
   accommodationId  String
   optionNumber     Int
+  accommodationNameSnapshot String?
   boardType        String?
   dateFrom         DateTime?
   dateTo           DateTime?
@@ -155,6 +157,7 @@ model ProposalAccommodationOption {
   participants     Int?
   teachers         Int?
   totalPvpText     String?
+  priceBreakdownText String?
   conditionsText   String?
   observationsText String?
   isSelected       Boolean       @default(false)
@@ -191,7 +194,8 @@ model CrmSyncLog {
 
 enum RequestStatus {
   RECEIVED
-  NORMALIZED
+  PARSED_WITH_GAPS
+  READY_FOR_SEARCH
   PROPOSAL_IN_PROGRESS
   APPROVED
   CRM_READY
@@ -199,7 +203,7 @@ enum RequestStatus {
 
 enum ProposalStatus {
   DRAFT
-  REVIEWED
+  READY_FOR_APPROVAL
   APPROVED
 }
 

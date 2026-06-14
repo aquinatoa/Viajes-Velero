@@ -41,6 +41,14 @@ import {
   updateInventoryDocumentStatus,
   updateStagingEntity,
 } from "./documentImportDb";
+import {
+  approveTripProposalDb,
+  findClientByEmailDb,
+  getClientTripRequestsDb,
+  saveTripProposalDb,
+  saveTripRequestDb,
+  upsertClientFromIntakeDb,
+} from "./commercialDb";
 import { saveInventoryDocumentFile } from "./documentStorage";
 import { extractPdfText } from "./pdfTextExtraction";
 import { analyzeDocumentText, AiAnalysisError } from "./aiDocumentAnalysis";
@@ -1007,6 +1015,113 @@ app.delete("/api/inventory/published/:kind/:id", async (request, response) => {
   } catch (error) {
     console.error("Error unpublishing single inventory item", error);
     response.status(500).json({ error: "No se pudo retirar el registro del inventario." });
+  }
+});
+
+// ─── Flujo comercial (Nuevo/Existente): persistencia real en BD ─────────────
+
+// Buscar cliente por email (para detectar cliente recurrente / validación).
+app.get("/api/commercial/clients", async (request, response) => {
+  try {
+    const email = String(request.query.email ?? "").trim();
+    if (!email) {
+      response.status(400).json({ error: "Falta el email." });
+      return;
+    }
+    const client = await findClientByEmailDb(email);
+    response.json({ client });
+  } catch (error) {
+    console.error("Error finding client by email", error);
+    response.status(500).json({ error: "No se pudo buscar el cliente." });
+  }
+});
+
+// Crear/actualizar cliente por email (upsert).
+app.post("/api/commercial/clients", async (request, response) => {
+  try {
+    const body = (request.body ?? {}) as {
+      email?: string;
+      firstName?: string;
+      lastName?: string;
+      clientType?: "new" | "existing";
+    };
+    if (!body.email?.trim()) {
+      response.status(400).json({ error: "El email es obligatorio." });
+      return;
+    }
+    const client = await upsertClientFromIntakeDb({
+      email: body.email.trim(),
+      firstName: (body.firstName ?? "").trim(),
+      lastName: (body.lastName ?? "").trim(),
+      clientType: body.clientType === "existing" ? "existing" : "new",
+    });
+    response.json(client);
+  } catch (error) {
+    console.error("Error upserting client", error);
+    response.status(500).json({ error: "No se pudo guardar el cliente." });
+  }
+});
+
+// Solicitudes previas de un cliente (oportunidades candidatas).
+app.get("/api/commercial/clients/:id/trip-requests", async (request, response) => {
+  try {
+    const requests = await getClientTripRequestsDb(String(request.params.id));
+    response.json({ requests });
+  } catch (error) {
+    console.error("Error listing client trip requests", error);
+    response.status(500).json({ error: "No se pudieron cargar las solicitudes del cliente." });
+  }
+});
+
+// Guardar una solicitud de viaje normalizada.
+app.post("/api/commercial/trip-requests", async (request, response) => {
+  try {
+    const body = (request.body ?? {}) as { clientId?: string; originalMessage?: string };
+    if (!body.clientId || !body.originalMessage) {
+      response.status(400).json({ error: "Faltan datos de la solicitud (clientId/mensaje)." });
+      return;
+    }
+    const saved = await saveTripRequestDb(request.body as never);
+    response.json(saved);
+  } catch (error) {
+    console.error("Error saving trip request", error);
+    response.status(500).json({ error: "No se pudo guardar la solicitud." });
+  }
+});
+
+// Guardar una propuesta con sus opciones.
+app.post("/api/commercial/proposals", async (request, response) => {
+  try {
+    const body = (request.body ?? {}) as { tripRequestId?: string };
+    if (!body.tripRequestId) {
+      response.status(400).json({ error: "Falta tripRequestId." });
+      return;
+    }
+    const saved = await saveTripProposalDb(request.body as never);
+    response.json(saved);
+  } catch (error) {
+    console.error("Error saving trip proposal", error);
+    response.status(500).json({ error: "No se pudo guardar la propuesta." });
+  }
+});
+
+// Aprobar una propuesta y fijar la opción elegida.
+app.post("/api/commercial/proposals/:id/approve", async (request, response) => {
+  try {
+    const body = (request.body ?? {}) as { approvedOptionNumber?: number };
+    if (!body.approvedOptionNumber) {
+      response.status(400).json({ error: "Falta approvedOptionNumber." });
+      return;
+    }
+    const updated = await approveTripProposalDb(String(request.params.id), body.approvedOptionNumber);
+    if (!updated) {
+      response.status(404).json({ error: "Propuesta no encontrada." });
+      return;
+    }
+    response.json(updated);
+  } catch (error) {
+    console.error("Error approving trip proposal", error);
+    response.status(500).json({ error: "No se pudo aprobar la propuesta." });
   }
 });
 
