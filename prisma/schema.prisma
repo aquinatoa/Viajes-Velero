@@ -494,3 +494,49 @@ model StagingActivityPolicy {
   @@index([policyType])
   @@index([reviewStatus])
 }
+// ----------------------------------------------------------------------------
+// Autenticación y control de acceso (operadores internos).
+// ----------------------------------------------------------------------------
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+model User {
+  id           String      @id @default(cuid())
+  email        String      @unique
+  name         String?
+  passwordHash String
+  passwordSalt String
+  role         UserRole    @default(USER)
+  isActive     Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  tokens       AuthToken[]
+}
+
+model AuthToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  userEmail String?
+  role      String?
+  action    String
+  entity    String?
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+}

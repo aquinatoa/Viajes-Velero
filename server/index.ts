@@ -50,6 +50,19 @@ import {
   upsertClientFromIntakeDb,
 } from "./commercialDb";
 import { saveInventoryDocumentFile } from "./documentStorage";
+import {
+  type AuthedRequest,
+  createUser,
+  ensureAdminFromEnv,
+  listAuditLog,
+  listUsers,
+  login as authLogin,
+  logout as authLogout,
+  requireAuth,
+  requireRole,
+  updateUser,
+  writeAudit,
+} from "./auth";
 import { extractPdfText } from "./pdfTextExtraction";
 import { analyzeDocumentText, AiAnalysisError } from "./aiDocumentAnalysis";
 
@@ -70,6 +83,14 @@ app.use(
 );
 
 app.use(express.json());
+
+// ── Control de acceso por rol (RBAC). El backend es la fuente de verdad ──────
+// /api/auth/* y /api/health quedan públicos (login). Todo lo demás exige sesión;
+// el módulo documental (/api/inventory) es solo para ADMIN.
+app.use("/api/inventory", requireAuth, requireRole("ADMIN"));
+app.use("/api/commercial", requireAuth);
+app.use("/api/search", requireAuth);
+app.use("/api/crm", requireAuth);
 
 function crmErrorResponse(error: unknown, response: express.Response, fallback: string) {
   if (error instanceof ZohoReauthRequiredError) {
@@ -171,6 +192,12 @@ app.post("/api/crm/opportunities/new", async (request, response) => {
     };
 
     const result = await createZohoOpportunity(payload);
+    await writeAudit({
+      user: (request as AuthedRequest).user,
+      action: "CRM_OPPORTUNITY_CREATE",
+      entity: "crm",
+      detail: payload.contact?.email ?? payload.opportunity?.opportunity_name ?? null,
+    });
     response.json(result);
   } catch (error) {
     crmErrorResponse(error, response, "No se pudo crear el trato en Zoho.");
@@ -853,6 +880,12 @@ app.post("/api/inventory/documents/:id/publish-approved", async (request, respon
       });
     }
 
+    await writeAudit({
+      user: (request as AuthedRequest).user,
+      action: "INVENTORY_PUBLISH",
+      entity: "document",
+      detail: `${document.controlName}: ${result.accommodations} aloj., ${result.activities} act.`,
+    });
     response.json(result);
   } catch (error) {
     if (error instanceof PublishValidationError) {
@@ -922,6 +955,12 @@ app.post("/api/inventory/documents/:id/unpublish", async (request, response) => 
       message: `Retirada del inventario operativo: ${result.accommodationsRemoved} alojamiento(s), ${result.accommodationRatesRemoved} tarifa(s) de alojamiento, ${result.activitiesRemoved} actividad(es) y ${result.activityRatesRemoved} tarifa(s) de actividad. Los candidatos staging se conservan.`,
     });
 
+    await writeAudit({
+      user: (request as AuthedRequest).user,
+      action: "INVENTORY_UNPUBLISH",
+      entity: "document",
+      detail: document.controlName,
+    });
     response.json(result);
   } catch (error) {
     console.error("Error unpublishing inventory document", error);
@@ -964,6 +1003,12 @@ app.delete("/api/inventory/documents/:id", async (request, response) => {
     }
 
     const result = await deleteInventoryDocument(documentId);
+    await writeAudit({
+      user: (request as AuthedRequest).user,
+      action: "INVENTORY_DELETE_DOCUMENT",
+      entity: "document",
+      detail: document.controlName,
+    });
     response.json(result);
   } catch (error) {
     if (error instanceof DeleteDocumentValidationError) {
@@ -1125,6 +1170,139 @@ app.post("/api/commercial/proposals/:id/approve", async (request, response) => {
   }
 });
 
-app.listen(port, () => {
+// ── Autenticación ────────────────────────────────────────────────────────────
+
+app.post("/api/auth/login", async (request, response) => {
+  try {
+    const body = (request.body ?? {}) as { email?: string; password?: string };
+    if (!body.email || !body.password) {
+      response.status(400).json({ error: "Email y contraseña son obligatorios." });
+      return;
+    }
+    const result = await authLogin(body.email, body.password);
+    if (!result) {
+      response.status(401).json({ error: "Credenciales no válidas." });
+      return;
+    }
+    await writeAudit({ user: result.user, action: "LOGIN", entity: "auth" });
+    response.json(result);
+  } catch (error) {
+    console.error("Error en login", error);
+    response.status(500).json({ error: "No se pudo iniciar sesión." });
+  }
+});
+
+app.post("/api/auth/logout", requireAuth, async (request, response) => {
+  const req = request as AuthedRequest;
+  try {
+    if (req.authToken) await authLogout(req.authToken);
+    await writeAudit({ user: req.user, action: "LOGOUT", entity: "auth" });
+    response.json({ ok: true });
+  } catch (error) {
+    console.error("Error en logout", error);
+    response.status(500).json({ error: "No se pudo cerrar sesión." });
+  }
+});
+
+app.get("/api/auth/me", requireAuth, (request, response) => {
+  response.json({ user: (request as AuthedRequest).user });
+});
+
+// Gestión de usuarios (solo ADMIN).
+app.get("/api/auth/users", requireAuth, requireRole("ADMIN"), async (_request, response) => {
+  try {
+    response.json({ users: await listUsers() });
+  } catch (error) {
+    console.error("Error listando usuarios", error);
+    response.status(500).json({ error: "No se pudieron cargar los usuarios." });
+  }
+});
+
+app.post("/api/auth/users", requireAuth, requireRole("ADMIN"), async (request, response) => {
+  const req = request as AuthedRequest;
+  try {
+    const body = (request.body ?? {}) as {
+      email?: string;
+      name?: string;
+      password?: string;
+      role?: "ADMIN" | "USER";
+    };
+    if (!body.email?.trim() || !body.password) {
+      response.status(400).json({ error: "Email y contraseña son obligatorios." });
+      return;
+    }
+    if (body.password.length < 8) {
+      response.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres." });
+      return;
+    }
+    const role = body.role === "ADMIN" ? "ADMIN" : "USER";
+    const user = await createUser({
+      email: body.email,
+      name: body.name ?? null,
+      password: body.password,
+      role,
+    });
+    await writeAudit({
+      user: req.user,
+      action: "USER_CREATE",
+      entity: "user",
+      detail: `${user.email} (${role})`,
+    });
+    response.json(user);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Unique constraint")) {
+      response.status(409).json({ error: "Ya existe un usuario con ese email." });
+      return;
+    }
+    console.error("Error creando usuario", error);
+    response.status(500).json({ error: "No se pudo crear el usuario." });
+  }
+});
+
+app.patch("/api/auth/users/:id", requireAuth, requireRole("ADMIN"), async (request, response) => {
+  const req = request as AuthedRequest;
+  try {
+    const id = String(request.params.id);
+    const body = (request.body ?? {}) as {
+      name?: string;
+      role?: "ADMIN" | "USER";
+      isActive?: boolean;
+      password?: string;
+    };
+    // Evitar que el admin se desactive o se quite el rol a sí mismo (lockout).
+    if (id === req.user?.id && (body.isActive === false || body.role === "USER")) {
+      response.status(400).json({ error: "No puedes quitarte el acceso de administrador a ti mismo." });
+      return;
+    }
+    if (body.password && body.password.length < 8) {
+      response.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres." });
+      return;
+    }
+    const user = await updateUser(id, body);
+    if (!user) {
+      response.status(404).json({ error: "Usuario no encontrado." });
+      return;
+    }
+    await writeAudit({ user: req.user, action: "USER_UPDATE", entity: "user", detail: user.email });
+    response.json(user);
+  } catch (error) {
+    console.error("Error actualizando usuario", error);
+    response.status(500).json({ error: "No se pudo actualizar el usuario." });
+  }
+});
+
+// Registro de auditoría (solo ADMIN).
+app.get("/api/audit", requireAuth, requireRole("ADMIN"), async (request, response) => {
+  try {
+    const limit = Number(request.query.limit ?? 200);
+    response.json({ entries: await listAuditLog(Number.isFinite(limit) ? limit : 200) });
+  } catch (error) {
+    console.error("Error listando auditoría", error);
+    response.status(500).json({ error: "No se pudo cargar la auditoría." });
+  }
+});
+
+app.listen(port, async () => {
+  await ensureAdminFromEnv();
   console.log(`Viajes Velero API escuchando en http://localhost:${port}`);
 });

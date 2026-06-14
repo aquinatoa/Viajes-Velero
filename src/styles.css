@@ -1577,3 +1577,90 @@ tr.is-selected {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ── Login ──────────────────────────────────────────────────────────────── */
+.login-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(60% 60% at 50% 0%, rgba(12, 58, 76, 0.12), transparent 70%),
+    var(--bg);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  display: grid;
+  gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  box-shadow: var(--shadow);
+}
+
+.login-brand {
+  display: grid;
+  gap: 4px;
+}
+
+.login-brand h1 {
+  margin: 0;
+  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.login-brand p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.login-card .eyebrow {
+  background: var(--brand-050);
+  color: var(--brand);
+  align-self: start;
+}
+
+.login-card .primary {
+  margin-top: 4px;
+}
+
+/* ── Pie del sidebar (usuario + salir) ──────────────────────────────────── */
+.sidebar__footer {
+  margin-top: auto;
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 16px;
+}
+
+.sidebar__user {
+  display: grid;
+  gap: 2px;
+}
+
+.sidebar__user strong {
+  font-size: 0.92rem;
+  word-break: break-word;
+}
+
+.sidebar__user span {
+  font-size: 0.78rem;
+  color: rgba(234, 242, 244, 0.6);
+}
+
+.sidebar__logout {
+  background: rgba(255, 255, 255, 0.08);
+  color: #eaf2f4;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.sidebar__logout:hover {
+  background: rgba(255, 255, 255, 0.14);
+}

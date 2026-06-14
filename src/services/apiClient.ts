@@ -33,12 +33,41 @@ export class ApiAuthError extends Error {
   }
 }
 
+// ── Token de sesión ───────────────────────────────────────────────────────────
+const TOKEN_KEY = "velero_auth_token";
+let authToken: string | null =
+  typeof localStorage !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+
+export function setAuthToken(token: string | null) {
+  authToken = token;
+  if (typeof localStorage === "undefined") return;
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
+export function getAuthToken(): string | null {
+  return authToken;
+}
+
+function authHeaders(base: Record<string, string> = {}): Record<string, string> {
+  return authToken ? { ...base, Authorization: `Bearer ${authToken}` } : base;
+}
+
 async function parseErrorResponse(response: Response, fallbackError: string) {
   const payload = (await response.json().catch(() => null)) as {
     error?: string;
     code?: string;
     authUrl?: string;
   } | null;
+
+  // Sesión inválida/expirada: limpiar token y avisar a la app para volver al login.
+  if (response.status === 401) {
+    setAuthToken(null);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("velero:unauthenticated"));
+    }
+    throw new ApiAuthError(payload?.error ?? "Sesión expirada.", "unauthenticated");
+  }
 
   if (payload?.code === "zoho_reauth_required") {
     throw new ApiAuthError(payload.error ?? fallbackError, payload.code, payload.authUrl);
@@ -48,7 +77,7 @@ async function parseErrorResponse(response: Response, fallbackError: string) {
 }
 
 async function getJson<T>(path: string, fallbackError: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`);
+  const response = await fetch(`${API_BASE_URL}${path}`, { headers: authHeaders() });
 
   if (!response.ok) {
     await parseErrorResponse(response, fallbackError);
@@ -64,9 +93,7 @@ async function postJson<T>(
 ): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(payload),
   });
 
@@ -84,6 +111,7 @@ async function postFormData<T>(
 ): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
+    headers: authHeaders(),
     body: payload,
   });
 
@@ -101,9 +129,7 @@ async function patchJson<T>(
 ): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(payload),
   });
 
@@ -115,13 +141,90 @@ async function patchJson<T>(
 }
 
 async function deleteJson<T>(path: string, fallbackError: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, { method: "DELETE" });
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
 
   if (!response.ok) {
     await parseErrorResponse(response, fallbackError);
   }
 
   return response.json() as Promise<T>;
+}
+
+// ── Auth API ──────────────────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string | null;
+  role: "ADMIN" | "USER";
+}
+
+export interface ManagedUser extends AuthUser {
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  userEmail: string | null;
+  role: string | null;
+  action: string;
+  entity: string | null;
+  detail: string | null;
+  createdAt: string;
+}
+
+export async function loginApi(email: string, password: string): Promise<{ token: string; user: AuthUser }> {
+  const result = await postJson<{ token: string; user: AuthUser }>(
+    "/api/auth/login",
+    { email, password },
+    "No se pudo iniciar sesión.",
+  );
+  setAuthToken(result.token);
+  return result;
+}
+
+export async function logoutApi(): Promise<void> {
+  try {
+    await postJson("/api/auth/logout", {}, "No se pudo cerrar sesión.");
+  } finally {
+    setAuthToken(null);
+  }
+}
+
+export function meApi() {
+  return getJson<{ user: AuthUser }>("/api/auth/me", "No se pudo verificar la sesión.");
+}
+
+export function listAuthUsersApi() {
+  return getJson<{ users: ManagedUser[] }>("/api/auth/users", "No se pudieron cargar los usuarios.");
+}
+
+export function createAuthUserApi(input: {
+  email: string;
+  name?: string;
+  password: string;
+  role: "ADMIN" | "USER";
+}) {
+  return postJson<ManagedUser>("/api/auth/users", input, "No se pudo crear el usuario.");
+}
+
+export function updateAuthUserApi(
+  id: string,
+  patch: { name?: string; role?: "ADMIN" | "USER"; isActive?: boolean; password?: string },
+) {
+  return patchJson<ManagedUser>(
+    `/api/auth/users/${encodeURIComponent(id)}`,
+    patch,
+    "No se pudo actualizar el usuario.",
+  );
+}
+
+export function auditLogApi(limit = 200) {
+  return getJson<{ entries: AuditEntry[] }>(`/api/audit?limit=${limit}`, "No se pudo cargar la auditoría.");
 }
 
 export function searchAccommodationsApi(filters: SearchFilters) {

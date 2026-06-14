@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { InputField, TextAreaField } from "./components/Field";
 import { SectionCard } from "./components/SectionCard";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar, type Page } from "./components/Sidebar";
 import { StatusPill } from "./components/StatusPill";
 import { InventoryDocumentsPanel } from "./components/inventory/InventoryDocumentsPanel";
+import { LoginPage } from "./components/LoginPage";
+import { UsersPanel } from "./components/admin/UsersPanel";
+import { AuditPanel } from "./components/admin/AuditPanel";
 import type {
   Client,
   CrmPayload,
@@ -37,8 +40,12 @@ import {
   searchAccommodationsApi,
   searchActivitiesApi,
 } from "./services/apiClient";
-
-type Page = "new" | "existing" | "inventory";
+import {
+  type AuthUser,
+  getAuthToken,
+  logoutApi,
+  meApi,
+} from "./services/apiClient";
 
 const initialRequestForm: ParseTripRequestInput = {
   clientType: "new",
@@ -82,6 +89,44 @@ export function App() {
 
   const [currentPage, setCurrentPage] = useState<Page>("new");
   const [newStep, setNewStep] = useState(1);
+
+  // Sesión / autenticación.
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function check() {
+      if (!getAuthToken()) {
+        setAuthChecking(false);
+        return;
+      }
+      try {
+        const { user } = await meApi();
+        if (!cancelled) setCurrentUser(user);
+      } catch {
+        if (!cancelled) setCurrentUser(null);
+      } finally {
+        if (!cancelled) setAuthChecking(false);
+      }
+    }
+    void check();
+    const onUnauth = () => setCurrentUser(null);
+    window.addEventListener("velero:unauthenticated", onUnauth);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("velero:unauthenticated", onUnauth);
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await logoutApi();
+    } finally {
+      setCurrentUser(null);
+      setCurrentPage("new");
+    }
+  };
 
   const [requestForm, setRequestForm] = useState<ParseTripRequestInput>(initialRequestForm);
   const [client, setClient] = useState<Client | null>(null);
@@ -195,7 +240,7 @@ export function App() {
     setNewStep(1);
   };
 
-  const handleNavigate = (page: "new" | "existing" | "inventory") => {
+  const handleNavigate = (page: Page) => {
     setCurrentPage(page);
     setUiError("");
     setUiMessage("");
@@ -538,10 +583,35 @@ export function App() {
   }
 
 
+  if (authChecking) {
+    return (
+      <div className="login-screen">
+        <p className="helper-text">Cargando…</p>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <LoginPage
+        onLoggedIn={(user) => {
+          setCurrentUser(user);
+          setCurrentPage("new");
+        }}
+      />
+    );
+  }
+
   return (
     <div className="app-shell">
-      <Sidebar currentPage={currentPage} onNavigate={handleNavigate} />
+      <Sidebar
+        currentPage={currentPage}
+        onNavigate={handleNavigate}
+        user={currentUser}
+        onLogout={handleLogout}
+      />
       <main className="main-content">
+        {currentPage === "new" || currentPage === "existing" || currentPage === "inventory" ? (
         <header className="hero">
           <div>
             <span className="eyebrow">
@@ -575,6 +645,7 @@ export function App() {
             ) : null}
           </div>
         </header>
+        ) : null}
 
         {renderAlerts()}
 
@@ -1010,6 +1081,18 @@ export function App() {
         {currentPage === "inventory" ? (
           <div className="content-grid">
             <InventoryDocumentsPanel />
+          </div>
+        ) : null}
+
+        {currentPage === "users" ? (
+          <div className="content-grid">
+            <UsersPanel currentUser={currentUser} />
+          </div>
+        ) : null}
+
+        {currentPage === "audit" ? (
+          <div className="content-grid">
+            <AuditPanel />
           </div>
         ) : null}
       </main>
