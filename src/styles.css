@@ -1,10 +1,9 @@
 :root {
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
   color: #13232f;
-  background:
-    radial-gradient(circle at top left, rgba(255, 221, 166, 0.75), transparent 26%),
-    radial-gradient(circle at right, rgba(162, 214, 255, 0.35), transparent 22%),
-    linear-gradient(160deg, #f7efe5 0%, #eef5f8 52%, #d9edf7 100%);
+  /* Off-white neutro con un tinte mínimo hacia el azul-petróleo de la marca
+     (el del sidebar). Evita la banda cálida "crema/arena" genérica. */
+  background-color: #eef2f5;
   line-height: 1.5;
   font-weight: 400;
   font-synthesis: none;
@@ -32,6 +31,42 @@ select {
 
 button {
   cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    filter 0.15s ease;
+}
+
+/* Accesibilidad: anillo de foco visible y consistente para teclado. */
+:focus-visible {
+  outline: 2px solid #127452;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Contraste de placeholders (evita el gris claro por defecto < 4.5:1). */
+::placeholder {
+  color: #5a6a72;
+  opacity: 1;
+}
+
+/* Las tablas anchas hacen scroll horizontal en vez de desbordar la página. */
+.table-wrap {
+  overflow-x: auto;
+}
+
+/* Respeta la preferencia de movimiento reducido. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 .app-shell {
@@ -194,14 +229,13 @@ button {
 }
 
 .section-card {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(19, 35, 47, 0.08);
-  backdrop-filter: blur(16px);
-  border-radius: 24px;
+  background: #ffffff;
+  border: 1px solid rgba(19, 35, 47, 0.1);
+  border-radius: 16px;
   padding: 24px;
   display: grid;
   gap: 20px;
-  box-shadow: 0 24px 50px rgba(41, 69, 88, 0.08);
+  box-shadow: 0 1px 2px rgba(16, 40, 54, 0.05), 0 4px 10px rgba(16, 40, 54, 0.04);
 }
 
 .section-card__header {
@@ -590,8 +624,10 @@ tr.is-selected {
 .staging-group {
   display: grid;
   gap: 12px;
-  border-left: 3px solid rgba(41, 98, 158, 0.25);
-  padding-left: 14px;
+  border: 1px solid rgba(19, 35, 47, 0.08);
+  border-radius: 12px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .staging-card {
@@ -1288,4 +1324,72 @@ tr.is-selected {
 .staging-badge--published {
   color: #127452;
   background: rgba(24, 158, 109, 0.16);
+}
+
+/* Responsive: en pantallas pequeñas el sidebar pasa arriba y deja de ser fijo,
+   y el contenido ocupa todo el ancho. Las tablas anchas ya hacen scroll
+   horizontal vía .table-wrap. */
+@media (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+  }
+
+  .sidebar .brand-block {
+    flex: 1 1 100%;
+  }
+
+  .steps {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(160px, 1fr);
+    overflow-x: auto;
+    width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .steps {
+    grid-auto-flow: row;
+  }
+}
+
+/* Error boundary: pantalla de fallo controlado en vez de página en blanco. */
+.error-boundary {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.error-boundary__box {
+  max-width: 560px;
+  display: grid;
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid rgba(19, 35, 47, 0.1);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 1px 2px rgba(16, 40, 54, 0.05), 0 4px 10px rgba(16, 40, 54, 0.04);
+}
+
+.error-boundary__box h2 {
+  margin: 0;
+}
+
+.error-boundary__detail {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #8a2c2c;
+  background: rgba(205, 73, 73, 0.08);
+  border-radius: 8px;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
