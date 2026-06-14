@@ -8,7 +8,14 @@
 > muchos alojamientos. La importación masiva por Excel se retiró del app (queda como script CLI).
 > Trabajo reciente commiteado en la rama `feat/documental-review-workspace` y **subido a GitHub**:
 > remoto `origin` = `https://github.com/aquinatoa/Viajes-Velero` (ramas `main` y
-> `feat/documental-review-workspace` empujadas). Commit clave de la última sesión: `33dd035`.
+> `feat/documental-review-workspace` empujadas). Commits clave (más reciente arriba):
+> `d58dbcc` pulido de frontend · `f6b9ef6` Opción B 2/2 (frontend comercial) ·
+> `d3497ee` Opción B 1/2 (backend comercial) · `33dd035` ampliación del módulo documental.
+>
+> El flujo comercial (Nuevo/Existente) ya **persiste en la BD real** (no mock); falta verificarlo
+> end-to-end con Zoho + navegador (ver "Opción B"). El frontend recibió un pase de pulido visual,
+> accesibilidad y responsive (ver "Frontend"). Pendiente estructural: extraer el workspace del
+> documento (#11).
 
 ## Goal we are working toward
 
@@ -225,6 +232,25 @@ permitido y retirada granular.
   Renombrado el id de página `"mcp"` → `"inventory"` en App.tsx y Sidebar.tsx (NO confundir con
   `services/mcpTools`, que SÍ se usa: alimenta los flujos comerciales vía `mockData`/`searchService`/
   `mockDb` — NO son dead code).
+
+## Frontend: auditoría + pulido (commit `d58dbcc`)
+
+Se auditó el frontend con la lente de la skill `impeccable` (+ `emil-design-eng`,
+`redesign-existing-projects`) y se aplicó un pase de pulido **sin tocar funcionalidad ni flujos**:
+
+- **Visual (P0)** en `src/styles.css`: `.section-card` sin `backdrop-filter` (glassmorphism), radio
+  24→16px y una sola elevación (borde + sombra suave); `.staging-group` sin borde lateral de color
+  (side-stripe); fondo del `:root` cambiado del degradado crema/arena a off-white neutro `#eef2f5`.
+- **Accesibilidad/responsive (P1)**: `:focus-visible` global (anillo de foco), `::placeholder` con
+  contraste, `.table-wrap { overflow-x: auto }` (las tablas anchas ya no desbordan), media queries
+  que **colapsan el sidebar < 900px**.
+- **Microinteracciones (P2)**: transiciones en botones + bloque `prefers-reduced-motion`.
+- **Error boundary (#12)**: `src/components/ErrorBoundary.tsx` envuelve `<App/>` en `main.tsx` →
+  fallo de render controlado en vez de pantalla en blanco.
+
+Pendientes del informe NO aplicados: #11 (extraer workspace, ver abajo). Verificación visual del
+pulido: pendiente de que el usuario abra la app (`npm run dev`); no se pudo hacer captura desde CLI.
+Mejoras opcionales futuras: variar ritmo de espaciado, y revisar contraste real de textos `--empty`.
 
 ## Pendiente clave: extraer el workspace del documento (DIFERIDO a propósito)
 
