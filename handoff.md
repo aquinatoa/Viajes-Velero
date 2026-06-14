@@ -6,7 +6,9 @@
 > Estado: el módulo documental (importar tarifas desde PDF con IA, revisar y publicar) está
 > completo y operativo, con una experiencia de uso por pestañas y tablas pensada para gestionar
 > muchos alojamientos. La importación masiva por Excel se retiró del app (queda como script CLI).
-> Trabajo reciente commiteado en la rama `feat/documental-review-workspace` (no hay remoto git).
+> Trabajo reciente commiteado en la rama `feat/documental-review-workspace` y **subido a GitHub**:
+> remoto `origin` = `https://github.com/aquinatoa/Viajes-Velero` (ramas `main` y
+> `feat/documental-review-workspace` empujadas). Commit clave de la última sesión: `33dd035`.
 
 ## Goal we are working toward
 
@@ -234,17 +236,51 @@ capacidad nueva, de alto riesgo de regresión, y su corrección NO la cubren los
 backend, no el cableado React) → hay que verificarlo pestaña a pestaña con la app abierta. Hacerlo
 como tarea propia.
 
-## Próximos pasos sugeridos (no iniciados)
+## PRÓXIMA GRAN TAREA (decidida): migrar el flujo comercial a BD real — "Opción B"
+
+**Problema (hallazgo crítico de la revisión técnica):** el flujo comercial (páginas *Nuevo
+registro* / *Existente*) **mezcla fuentes de datos**:
+- La búsqueda de alojamientos/actividades usa la **BD real** (`searchAccommodationsApi` →
+  `server/searchDb.ts` → Prisma).
+- Pero el armado de la propuesta y la persistencia usan **datos mock en memoria**:
+  - `src/services/proposalService.ts` calcula precios con `findAccommodationRate`/`findActivityRate`
+    desde `src/services/searchService.ts` → `src/data/mockData.ts`.
+  - `src/services/requestService.ts` y `src/services/crmService.ts` guardan cliente/solicitud/
+    propuesta en `src/data/mockDb.ts` (memoria → **se pierde al refrescar**).
+- Consecuencia: como los `id` reales de BD no existen en el mock, una propuesta puede salir **sin
+  precios o incorrectos**.
+
+**Decisión del usuario: Opción B — migrar a BD real.** Plan sugerido (no iniciado):
+1. **Backend**: endpoints para clientes, solicitudes y propuestas (CRUD + lectura de tarifa por
+   `accommodationId`/`activityId` desde la BD), siguiendo el patrón de `server/index.ts` +
+   `documentImportDb.ts`. Persistir en Prisma (ya existen modelos `Client`, `TripRequest`,
+   `TripProposal`, `ProposalAccommodationOption`, `ProposalActivityOption`).
+2. **apiClient**: funciones nuevas (`saveTripRequestApi`, `buildProposalApi`/cálculo en server,
+   `findRateApi`, etc.).
+3. **Frontend**: cambiar `App.tsx` y los `services/*` para usar `apiClient` en vez de
+   `mockDb`/`mockData`/`searchService`. El precio de cada opción debe venir de la **misma tarifa**
+   que devolvió la búsqueda (pasar la `rate` del match a la propuesta, no re-buscarla en el mock).
+4. **Limpieza**: una vez migrado, `mockDb`, `mockData`, `searchService` y partes de `mcpTools`
+   quedarían sin uso → eliminar (¡verificar imports antes!).
+5. **Tests**: extender `tests/` con el flujo comercial (crear solicitud → propuesta con precio real
+   → persistencia).
+- **Nota**: la regla "No tocar los flujos comerciales" de abajo **queda anulada** por esta decisión
+  explícita: ahora SÍ se van a tocar para migrarlos.
+
+## Otros próximos pasos sugeridos (no iniciados)
 
 - **Extraer el workspace del documento** (ver arriba) — el ítem de estructura pendiente.
 - Ampliar `tests/documentFlow.test.ts` con el flujo de ACTIVIDADES (hoy cubre alojamientos).
-- Revisar/validar end-to-end los flujos comerciales (Nuevo/Existente + CRM Zoho), no tocados aquí.
 - Aviso visible en UI cuando el análisis IA corre en modo mock (sin `ANTHROPIC_API_KEY`).
+- Seguridad: aislar/mitigar `xlsx` (CVEs; solo se usa en el CLI `prisma/importRates.ts`); validar
+  payloads de la API con `zod`; genericizar `.env.example` (filtra una ruta real con nombre de
+  usuario). Detalle completo en la revisión técnica de la sesión.
 
 ## Reglas y restricciones
 
 - No borrar `prisma/dev.db` ni `storage/`.
-- No tocar los flujos comerciales (Nuevo/Existente, CRM/tratos) salvo petición explícita.
+- Flujos comerciales (Nuevo/Existente, CRM/tratos): el usuario aprobó migrarlos a BD real
+  ("Opción B", ver sección "PRÓXIMA GRAN TAREA"). Antes de esa decisión la norma era no tocarlos.
 - No ejecutar `npm audit fix` ni `npm audit fix --force`.
 - No hacer commit automáticamente (solo cuando el usuario lo pide). No imprimir claves de `.env`.
 - Mantener español neutro/latino en la UI. Usar "trato(s)" en vez de "oportunidad(es)" en el CRM.
@@ -267,8 +303,26 @@ npm.cmd run prisma:import-rates   # (CLI) resembrar base desde Excel, si hiciera
 
 Notas de entorno:
 
+- Remoto git: `origin` = `https://github.com/aquinatoa/Viajes-Velero`. Ramas `main` y
+  `feat/documental-review-workspace` ya empujadas. Trabajar en la rama de feature y, al terminar un
+  bloque, `git push`.
 - En este equipo `npm install` puede requerir `NODE_OPTIONS=--use-system-ca` por interceptación
-  TLS corporativa (sin desactivar `strict-ssl`).
+  TLS corporativa (sin desactivar `strict-ssl`). **`bun` NO respeta ese flag**: usa
+  `NODE_EXTRA_CA_CERTS=/c/Users/User/corp-ca-bundle.pem` (bundle de las CA raíz de Windows que
+  exporté para que `bun install` funcione tras el proxy TLS).
 - Si `prisma:generate` falla por DLL bloqueada (`EPERM`), detén el proceso node de la API antes.
-- No hay remoto git configurado: los commits quedan en local en la rama
-  `feat/documental-review-workspace`.
+
+## Entorno de skills de Claude Code (instaladas esta sesión, fuera del repo)
+
+En `~/.claude/skills/` (NO versionado; `.claude/` está en `.gitignore`):
+
+- **gstack oficial** (`garrytan/gstack`, de Garry Tan, MIT) — skills `review`, `qa`, `investigate`,
+  `careful`, `guard`, `devex-review`, `plan-*`, etc. Se instaló con `./setup` (requiere `bun`).
+  Binario `browse.exe` compilado, pero la descarga de **Chromium (Playwright) quedó bloqueada por el
+  proxy corporativo**, así que `/browse` y el QA con navegador real no funcionan aún (pendiente:
+  `playwright install chromium` apuntando a la CA). OJO: el repo `greencm/gstuck` que se probó
+  primero NO es el oficial (es un fork de terceros "telemetry-removed"); se eliminó.
+- **Skills de diseño** (vía `npx skills add … --global`): `emil-design-eng` (emilkowalski/skill),
+  `impeccable` (pbakaus/impeccable) y el pack `leonxlnx/taste-skill` (13 skills:
+  `design-taste-frontend`, `minimalist-ui`, `high-end-visual-design`, `gpt-taste`, `brandkit`…).
+- Las skills se enumeran **al arrancar** Claude Code: hay que **reiniciar** para invocarlas.
