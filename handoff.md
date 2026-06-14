@@ -405,3 +405,15 @@ En `~/.claude/skills/` (NO versionado; `.claude/` está en `.gitignore`):
   de consumidor). `impeccable`/`emil-design-eng`/`redesign-existing-projects` son las más relevantes
   para mejorar este panel. `review`/`qa` de gstack, para revisión de código.
 - Las skills se enumeran **al arrancar** Claude Code: tras instalar más, **reiniciar** para usarlas.
+
+## Validación visual del frontend (capturas automáticas)
+
+Sí se puede validar el frontend por capturas **sin descargar Chromium** (que el proxy bloquea):
+usar el **Edge del sistema** vía Playwright (instalado en `~/.claude/skills/gstack/node_modules`).
+Patrón usado (commit de validación visual): arrancar `npm run dev`, y desde `~/.claude/skills/gstack`
+ejecutar un script node ESM con
+`chromium.launch({ channel: "msedge", headless: true })` → `page.goto("http://localhost:5173")`
+→ `page.screenshot(...)` guardando los PNG en la raíz del repo, leerlos y borrarlos. Sirve para
+verificar layout/responsive (probado a 1440px y 390px). No hace falta permiso extra: solo arrancar
+los servidores y ejecutar Edge headless. (Así se cazó y corrigió una regresión de `white-space` que
+desbordaba el sidebar.)
