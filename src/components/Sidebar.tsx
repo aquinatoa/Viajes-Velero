@@ -1,5 +1,5 @@
 interface SidebarProps {
-  currentPage: "new" | "existing" | "mcp" | "inventory";
+  currentPage: "new" | "existing" | "mcp";
   onNavigate: (page: "new" | "existing" | "mcp") => void;
 }
 
@@ -16,8 +16,8 @@ const pages = [
   },
   {
     id: "mcp" as const,
-    label: "Datos y MCP",
-    description: "Importación, catálogo y preparación de fuentes"
+    label: "Inventario documental",
+    description: "Importar tarifas desde documentos con IA, revisar y publicar"
   }
 ];
 
@@ -34,7 +34,7 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
         {pages.map((page) => (
           <button
             key={page.id}
-            className={`steps__item ${currentPage === page.id || (currentPage === "inventory" && page.id === "mcp") ? "steps__item--active" : ""}`}
+            className={`steps__item ${currentPage === page.id ? "steps__item--active" : ""}`}
             onClick={() => onNavigate(page.id)}
           >
             <strong>{page.label}</strong>

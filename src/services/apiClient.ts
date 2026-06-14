@@ -109,25 +109,6 @@ async function patchJson<T>(
   return response.json() as Promise<T>;
 }
 
-export function fetchInventorySummaryApi() {
-  return getJson<any>("/api/data/summary", "No se pudo cargar el resumen de inventario.");
-}
-
-export function fetchImportedCatalogApi() {
-  return getJson<any>("/api/data/catalog", "No se pudo cargar el catálogo importado.");
-}
-
-export function importInventoryApi(payload: {
-  accommodationPath?: string;
-  activityPath?: string;
-}) {
-  return postJson<any>(
-    "/api/data/import",
-    payload,
-    "No se pudo importar la base de datos.",
-  );
-}
-
 export function searchAccommodationsApi(filters: SearchFilters) {
   return postJson<any>(
     "/api/search/accommodations",

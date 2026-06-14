@@ -32,16 +32,13 @@ import {
   approveZohoOpportunityApi,
   createZohoOpportunityApi,
   exchangeZohoAuthCodeApi,
-  fetchImportedCatalogApi,
-  fetchInventorySummaryApi,
   fetchZohoAuthUrlApi,
-  importInventoryApi,
   searchZohoOpportunitiesApi,
   searchAccommodationsApi,
   searchActivitiesApi,
 } from "./services/apiClient";
 
-type Page = "new" | "existing" | "mcp" | "inventory";
+type Page = "new" | "existing" | "mcp";
 
 const initialRequestForm: ParseTripRequestInput = {
   clientType: "new",
@@ -82,7 +79,6 @@ export function App() {
   const reviewSectionRef = useRef<HTMLDivElement | null>(null);
   const proposalSectionRef = useRef<HTMLDivElement | null>(null);
   const crmSectionRef = useRef<HTMLDivElement | null>(null);
-  const dataSectionRef = useRef<HTMLDivElement | null>(null);
 
   const [currentPage, setCurrentPage] = useState<Page>("new");
   const [newStep, setNewStep] = useState(1);
@@ -118,83 +114,12 @@ export function App() {
   const [selectedExistingOption, setSelectedExistingOption] = useState<number | null>(null);
   const [existingApprovalPayload, setExistingApprovalPayload] = useState<Record<string, unknown> | null>(null);
 
-  const [selectedAccommodationFile, setSelectedAccommodationFile] = useState("OK TARIFAS Costes.xlsx");
-  const [selectedActivityFile, setSelectedActivityFile] = useState("TARIFAS GRUPOS 2026.xlsx");
-  const [lastImportSummary, setLastImportSummary] = useState<{
-    accommodationRates: number;
-    activityRates: number;
-    accommodations: number;
-    activities: number;
-    loadedFrom: string;
-  } | null>(null);
-  const [isImportingInventory, setIsImportingInventory] = useState(false);
-  const [inventoryCatalog, setInventoryCatalog] = useState<{
-    accommodations: Array<{
-      id: string;
-      accommodationName: string;
-      locality: string;
-      categoryType: string;
-      accommodationType: string;
-      observations: string;
-      conditionsText: string;
-      freePolicy: string;
-      sourceFile: string;
-      rates: Array<{
-        id: string;
-        year: number;
-        seasonName: string;
-        dateFrom: string;
-        dateTo: string;
-        minNights: number | null;
-        boardType: string;
-        tariffUnit: string;
-        pvpAmount: number;
-        netSaleAmount: number;
-        netAzulmarinoAmount: number;
-        sourceSheet: string;
-      }>;
-    }>;
-    activities: Array<{
-      id: string;
-      activityName: string;
-      supplierName: string;
-      locationMain: string;
-      durationText: string;
-      descriptionText: string;
-      sourceFile: string;
-      rates: Array<{
-        id: string;
-        year: number;
-        ageLabel: string;
-        ageMin: number | null;
-        ageMax: number | null;
-        salePvpAmount: number;
-        costNetAmount: number;
-        commissionPercent: number;
-        durationText: string;
-        sourceSheet: string;
-      }>;
-    }>;
-  } | null>(null);
-  const [inventoryFilter, setInventoryFilter] = useState("");
-
   const [uiMessage, setUiMessage] = useState("");
   const [uiError, setUiError] = useState("");
   const [isProcessingZohoCallback, setIsProcessingZohoCallback] = useState(isZohoCallback);
   const [zohoCallbackMessage, setZohoCallbackMessage] = useState(
     isZohoCallback ? "Validando la autenticación de Zoho..." : "",
   );
-
-  useEffect(() => {
-    fetchInventorySummaryApi()
-      .then((summary) => {
-        setLastImportSummary({
-          ...summary,
-          loadedFrom: "SQLite + Prisma",
-        });
-      })
-      .catch(() => undefined);
-  }, []);
 
   useEffect(() => {
     if (!isZohoCallback) {
@@ -567,43 +492,6 @@ export function App() {
     }
   };
 
-  const handleImportInventory = async () => {
-    try {
-      setIsImportingInventory(true);
-      const result = await importInventoryApi({
-        accommodationPath: selectedAccommodationFile || undefined,
-        activityPath: selectedActivityFile || undefined,
-      });
-
-      setLastImportSummary({
-        accommodations: result.accommodations,
-        accommodationRates: result.accommodationRates,
-        activities: result.activities,
-        activityRates: result.activityRates,
-        loadedFrom: `${result.accommodationSource} | ${result.activitySource}`,
-      });
-      setUiError("");
-      setUiMessage("Importación completada y base de datos actualizada desde los Excel reales.");
-      requestAnimationFrame(() => scrollToSection(dataSectionRef.current));
-    } catch (error) {
-      await handleApiError(error, "No se pudo actualizar el estado de datos.");
-    } finally {
-      setIsImportingInventory(false);
-    }
-  };
-
-  const openInventoryExplorer = async () => {
-    try {
-      const catalog = await fetchImportedCatalogApi();
-      setInventoryCatalog(catalog);
-      setCurrentPage("inventory");
-      setUiError("");
-      setUiMessage("Explorador de inventario cargado desde la base importada.");
-    } catch (error) {
-      await handleApiError(error, "No se pudo abrir el explorador de inventario.");
-    }
-  };
-
   const renderAlerts = () => (
     <>
       {uiError ? <div className="alert alert--error">{uiError}</div> : null}
@@ -649,115 +537,6 @@ export function App() {
     );
   }
 
-  if (currentPage === "inventory") {
-    const filter = inventoryFilter.toLowerCase().trim();
-    const filteredAccommodations =
-      inventoryCatalog?.accommodations.filter((item) =>
-        `${item.accommodationName} ${item.locality} ${item.categoryType}`.toLowerCase().includes(filter),
-      ) ?? [];
-    const filteredActivities =
-      inventoryCatalog?.activities.filter((item) =>
-        `${item.activityName} ${item.supplierName} ${item.locationMain}`.toLowerCase().includes(filter),
-      ) ?? [];
-
-    return (
-      <div className="app-shell">
-        <Sidebar currentPage={currentPage} onNavigate={handleNavigate} />
-        <main className="main-content">
-          <header className="hero">
-            <div>
-              <span className="eyebrow">Explorador MCP</span>
-              <h2>Inventario importado</h2>
-              <p>Vista operativa completa del inventario que alimentará el MCP.</p>
-            </div>
-            <div className="hero__meta">
-              <button className="button button--primary" onClick={() => setCurrentPage("mcp")}>
-                Volver a Datos y MCP
-              </button>
-            </div>
-          </header>
-          {renderAlerts()}
-          <SectionCard
-            title="Catálogo importado"
-            subtitle="Consulta alojamientos, tarifas, actividades y segmentos de precio ya disponibles en SQLite."
-          >
-            <div className="status-grid">
-              <div className="info-panel">
-                <strong>Alojamientos visibles</strong>
-                <p>{filteredAccommodations.length}</p>
-              </div>
-              <div className="info-panel">
-                <strong>Actividades visibles</strong>
-                <p>{filteredActivities.length}</p>
-              </div>
-            </div>
-            <InputField
-              label="Filtrar inventario"
-              value={inventoryFilter}
-              onChange={(event) => setInventoryFilter(event.target.value)}
-              placeholder="Buscar por nombre, localidad, proveedor o actividad"
-            />
-            <div className="inventory-columns">
-              <div className="inventory-panel">
-                <h3>Alojamientos importados</h3>
-                <div className="inventory-table">
-                  {filteredAccommodations.map((item) => (
-                    <article key={item.id} className="inventory-card">
-                      <div className="inventory-card__header">
-                        <strong>{item.accommodationName}</strong>
-                        <span>{item.locality || "Sin localidad"}</span>
-                      </div>
-                      <p>
-                        {item.categoryType || "Sin categoría"} · {item.accommodationType || "Sin tipo"}
-                      </p>
-                      <p>{item.observations || "Sin observaciones"}</p>
-                      <p className="helper-inline">Tarifas importadas: {item.rates.length}</p>
-                      <div className="inventory-rate-list">
-                        {item.rates.slice(0, 6).map((rate) => (
-                          <div key={rate.id} className="inventory-rate-row">
-                            <span>{rate.boardType || "Sin régimen"}</span>
-                            <span>{rate.seasonName || "Sin temporada"}</span>
-                            <span>{rate.pvpAmount} EUR</span>
-                          </div>
-                        ))}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
-              <div className="inventory-panel">
-                <h3>Actividades importadas</h3>
-                <div className="inventory-table">
-                  {filteredActivities.map((item) => (
-                    <article key={item.id} className="inventory-card">
-                      <div className="inventory-card__header">
-                        <strong>{item.activityName}</strong>
-                        <span>{item.locationMain || "Sin ubicación"}</span>
-                      </div>
-                      <p>
-                        {item.supplierName || "Sin proveedor"} · {item.durationText || "Sin duración"}
-                      </p>
-                      <p>{item.descriptionText || "Sin descripción"}</p>
-                      <p className="helper-inline">Tarifas importadas: {item.rates.length}</p>
-                      <div className="inventory-rate-list">
-                        {item.rates.slice(0, 6).map((rate) => (
-                          <div key={rate.id} className="inventory-rate-row">
-                            <span>{rate.ageLabel || "Sin edad"}</span>
-                            <span>{rate.salePvpAmount} EUR</span>
-                            <span>{rate.commissionPercent}%</span>
-                          </div>
-                        ))}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </SectionCard>
-        </main>
-      </div>
-    );
-  }
 
   return (
     <div className="app-shell">
@@ -770,21 +549,21 @@ export function App() {
                 ? `Flujo Nuevo · Paso ${newStep}: ${newFlowStepText(newStep)}`
                 : currentPage === "existing"
                   ? "Flujo Existente"
-                  : "Gestión de Datos"}
+                  : "Inventario documental"}
             </span>
             <h2>
               {currentPage === "new"
                 ? "Alta de nueva oportunidad"
                 : currentPage === "existing"
                   ? "Actualización de oportunidad existente"
-                  : "Datos y MCP"}
+                  : "Inventario documental"}
             </h2>
             <p>
               {currentPage === "new"
                 ? "Nueva solicitud hasta crear una sola oportunidad CRM con hasta 3 opciones."
                 : currentPage === "existing"
                   ? "Busca una oportunidad ya creada y marca la opción aprobada para actualizar CRM."
-                  : "Importación real, trazabilidad y exploración del inventario que alimentará el MCP."}
+                  : "Importa tarifas desde documentos de proveedores con IA, revísalas y publícalas al inventario operativo."}
             </p>
           </div>
           <div className="hero__meta">
@@ -1216,68 +995,7 @@ export function App() {
         ) : null}
 
         {currentPage === "mcp" ? (
-          <div ref={dataSectionRef} className="content-grid">
-            <SectionCard
-              title="Datos y MCP"
-              subtitle="La gestión de fuentes va en una página separada para no mezclarla con la operativa comercial."
-              action={
-                <button
-                  className="button button--primary"
-                  onClick={handleImportInventory}
-                  disabled={isImportingInventory}
-                >
-                  {isImportingInventory ? "Importando..." : "Importar base inicial"}
-                </button>
-              }
-            >
-              <div className="status-grid">
-                <div className="info-panel">
-                  <strong>Origen actual del inventario</strong>
-                  <p>SQLite + Prisma con importación desde Excel real.</p>
-                </div>
-                <div className="info-panel">
-                  <strong>Uso MCP</strong>
-                  <p>Esta página centraliza carga, catálogo y futura exposición de herramientas MCP.</p>
-                </div>
-              </div>
-
-              <div className="form-grid">
-                <InputField
-                  label="Fichero de alojamientos / tarifas"
-                  value={selectedAccommodationFile}
-                  onChange={(event) => setSelectedAccommodationFile(event.target.value)}
-                  placeholder="OK TARIFAS Costes.xlsx"
-                />
-                <InputField
-                  label="Fichero de actividades / tarifas"
-                  value={selectedActivityFile}
-                  onChange={(event) => setSelectedActivityFile(event.target.value)}
-                  placeholder="TARIFAS GRUPOS 2026.xlsx"
-                />
-              </div>
-
-              <div className="action-row">
-                <button className="button" onClick={openInventoryExplorer}>
-                  Ver todo lo importado
-                </button>
-              </div>
-
-              <div className="review-block crm-block">
-                <h3>Resumen de datos</h3>
-                {lastImportSummary ? (
-                  <ul className="flat-list">
-                    <li>Alojamientos detectados: {lastImportSummary.accommodations}</li>
-                    <li>Tarifas de alojamiento detectadas: {lastImportSummary.accommodationRates}</li>
-                    <li>Actividades detectadas: {lastImportSummary.activities}</li>
-                    <li>Tarifas de actividades detectadas: {lastImportSummary.activityRates}</li>
-                    <li>Fuentes cargadas: {lastImportSummary.loadedFrom}</li>
-                  </ul>
-                ) : (
-                  <p>Todavía no se ha podido leer el resumen del inventario.</p>
-                )}
-              </div>
-            </SectionCard>
-
+          <div className="content-grid">
             <InventoryDocumentsPanel />
           </div>
         ) : null}

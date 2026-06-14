@@ -3,7 +3,6 @@ import express from "express";
 import cors from "cors";
 import multer from "multer";
 import type { SearchFilters } from "../src/domain/types";
-import { importRatesFromExcel } from "../prisma/importRates";
 import {
   approveZohoOpportunityOption,
   createZohoOpportunity,
@@ -13,12 +12,7 @@ import {
   searchZohoOpportunitiesByEmail,
   ZohoReauthRequiredError,
 } from "./zoho";
-import {
-  getImportedCatalogDb,
-  getInventorySummaryDb,
-  searchAccommodationsDb,
-  searchActivitiesDb,
-} from "./searchDb";
+import { searchAccommodationsDb, searchActivitiesDb } from "./searchDb";
 import {
   addInventoryDocumentExtraction,
   addInventoryDocumentIssue,
@@ -109,48 +103,6 @@ app.post("/api/crm/auth/exchange", async (request, response) => {
     });
   } catch (error) {
     crmErrorResponse(error, response, "No se pudo intercambiar el código de Zoho.");
-  }
-});
-
-app.get("/api/data/summary", async (_request, response) => {
-  try {
-    const summary = await getInventorySummaryDb();
-    response.json(summary);
-  } catch (error) {
-    response.status(500).json({
-      error: error instanceof Error ? error.message : "No se pudo leer el resumen de inventario.",
-    });
-  }
-});
-
-app.get("/api/data/catalog", async (_request, response) => {
-  try {
-    const catalog = await getImportedCatalogDb();
-    response.json(catalog);
-  } catch (error) {
-    response.status(500).json({
-      error: error instanceof Error ? error.message : "No se pudo leer el catálogo importado.",
-    });
-  }
-});
-
-app.post("/api/data/import", async (request, response) => {
-  try {
-    const payload = request.body as {
-      accommodationPath?: string;
-      activityPath?: string;
-    };
-
-    const result = await importRatesFromExcel({
-      accommodationPath: payload.accommodationPath,
-      activityPath: payload.activityPath,
-    });
-
-    response.json(result);
-  } catch (error) {
-    response.status(500).json({
-      error: error instanceof Error ? error.message : "No se pudo importar la base de datos.",
-    });
   }
 });
 
