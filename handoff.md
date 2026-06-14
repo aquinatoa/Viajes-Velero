@@ -403,13 +403,31 @@ análisis IA solo detecta la actividad, no sus tarifas) → aprobar en lote (omi
 operativa con origen (`searchActivitiesDb`, con `ageRangeText` para puntuar ≥50) → idempotencia →
 catálogo global → retirada granular de tarifa y de actividad completa. Total **21 → 31 tests**.
 
+## Endurecimiento de seguridad — PARCIAL (SIN commitear, build OK, 31/31 tests, verificado en runtime)
+
+- **`.env.example` genérico**: se quitaron las rutas reales con nombre de usuario
+  (`/Users/anthony/...`) de `ACCOMMODATION_RATES_XLSX`/`ACTIVITY_RATES_XLSX`; ahora son placeholders.
+- **Validación con `zod`** (ya era dependencia): nuevo `server/validation.ts` con `parseBody(schema,
+  req, res)` (responde 400 con mensaje legible y devuelve null) + esquemas `loginSchema`,
+  `createUserSchema` (valida formato de email), `updateUserSchema`. Cableado en los 3 endpoints de
+  **auth** (`/api/auth/login`, `POST/PATCH /api/auth/users`). Verificado vía API: email inválido y
+  contraseña corta → 400; login vacío → 400; credenciales malas → 401. Login deliberadamente laxo
+  (solo no vacío) para no bloquear credenciales existentes. Los esquemas descartan claves
+  desconocidas (no rompen clientes con campos extra). **Pendiente**: extender `zod` a los endpoints
+  comerciales (`trip-requests`/`proposals` pasan `request.body as never` sin validar) y de inventario
+  — se dejó fuera a propósito para no interferir con la verificación end-to-end del flujo comercial
+  con Zoho (riesgo de rechazar payloads válidos antes de validarlos). Hacerlo tras esa verificación.
+- **`xlsx` (CVEs)**: confirmado que la **librería** `xlsx` solo se usa en el CLI
+  `prisma/importRates.ts` (las referencias en `InventoryDocumentsPanel.tsx` son solo el atributo
+  `accept=".xlsx"` de un `<input type=file>`, no la librería). Procesa Excel locales de confianza por
+  CLI, fuera de la superficie de ataque del servidor/app. No se cambió la dependencia (regla: no
+  `npm audit fix --force`). Mitigación futura si se quisiera: fijar versión/parchear o migrar a
+  `exceljs` en el importador.
+
 ## Otros próximos pasos sugeridos (no iniciados)
 
 - **Extraer el workspace del documento** (ver arriba) — el ítem de estructura pendiente.
-- Aviso visible en UI cuando el análisis IA corre en modo mock (sin `ANTHROPIC_API_KEY`).
-- Seguridad: aislar/mitigar `xlsx` (CVEs; solo se usa en el CLI `prisma/importRates.ts`); validar
-  payloads de la API con `zod`; genericizar `.env.example` (filtra una ruta real con nombre de
-  usuario). Detalle completo en la revisión técnica de la sesión.
+- Extender la validación `zod` a los endpoints comerciales y de inventario (ver arriba).
 
 ## Reglas y restricciones
 

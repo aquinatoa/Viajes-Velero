@@ -65,6 +65,7 @@ import {
 } from "./auth";
 import { extractPdfText } from "./pdfTextExtraction";
 import { analyzeDocumentText, AiAnalysisError } from "./aiDocumentAnalysis";
+import { parseBody, loginSchema, createUserSchema, updateUserSchema } from "./validation";
 
 const app = express();
 const port = 8787;
@@ -1186,11 +1187,8 @@ app.post("/api/commercial/proposals/:id/approve", async (request, response) => {
 
 app.post("/api/auth/login", async (request, response) => {
   try {
-    const body = (request.body ?? {}) as { email?: string; password?: string };
-    if (!body.email || !body.password) {
-      response.status(400).json({ error: "Email y contraseña son obligatorios." });
-      return;
-    }
+    const body = parseBody(loginSchema, request, response);
+    if (!body) return;
     const result = await authLogin(body.email, body.password);
     if (!result) {
       response.status(401).json({ error: "Credenciales no válidas." });
@@ -1233,20 +1231,8 @@ app.get("/api/auth/users", requireAuth, requireRole("ADMIN"), async (_request, r
 app.post("/api/auth/users", requireAuth, requireRole("ADMIN"), async (request, response) => {
   const req = request as AuthedRequest;
   try {
-    const body = (request.body ?? {}) as {
-      email?: string;
-      name?: string;
-      password?: string;
-      role?: "ADMIN" | "USER";
-    };
-    if (!body.email?.trim() || !body.password) {
-      response.status(400).json({ error: "Email y contraseña son obligatorios." });
-      return;
-    }
-    if (body.password.length < 8) {
-      response.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres." });
-      return;
-    }
+    const body = parseBody(createUserSchema, request, response);
+    if (!body) return;
     const role = body.role === "ADMIN" ? "ADMIN" : "USER";
     const user = await createUser({
       email: body.email,
@@ -1275,19 +1261,11 @@ app.patch("/api/auth/users/:id", requireAuth, requireRole("ADMIN"), async (reque
   const req = request as AuthedRequest;
   try {
     const id = String(request.params.id);
-    const body = (request.body ?? {}) as {
-      name?: string;
-      role?: "ADMIN" | "USER";
-      isActive?: boolean;
-      password?: string;
-    };
+    const body = parseBody(updateUserSchema, request, response);
+    if (!body) return;
     // Evitar que el admin se desactive o se quite el rol a sí mismo (lockout).
     if (id === req.user?.id && (body.isActive === false || body.role === "USER")) {
       response.status(400).json({ error: "No puedes quitarte el acceso de administrador a ti mismo." });
-      return;
-    }
-    if (body.password && body.password.length < 8) {
-      response.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres." });
       return;
     }
     const user = await updateUser(id, body);
