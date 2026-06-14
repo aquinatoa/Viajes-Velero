@@ -322,7 +322,27 @@ En `~/.claude/skills/` (NO versionado; `.claude/` está en `.gitignore`):
   proxy corporativo**, así que `/browse` y el QA con navegador real no funcionan aún (pendiente:
   `playwright install chromium` apuntando a la CA). OJO: el repo `greencm/gstuck` que se probó
   primero NO es el oficial (es un fork de terceros "telemetry-removed"); se eliminó.
-- **Skills de diseño** (vía `npx skills add … --global`): `emil-design-eng` (emilkowalski/skill),
-  `impeccable` (pbakaus/impeccable) y el pack `leonxlnx/taste-skill` (13 skills:
-  `design-taste-frontend`, `minimalist-ui`, `high-end-visual-design`, `gpt-taste`, `brandkit`…).
-- Las skills se enumeran **al arrancar** Claude Code: hay que **reiniciar** para invocarlas.
+- **Skills de diseño** (vía `npx skills add … --global`). Inventario completo instalado y ya
+  cargado (verificado tras reiniciar Claude Code):
+  - `emil-design-eng` — filosofía de Emil Kowalski: pulido de UI, componentes, animación, detalles.
+  - `impeccable` — diseñar/rediseñar/criticar/auditar/pulir UI; vocabulario de diseño (Paul Bakaus).
+  - `design-taste-frontend` (v2) — frontend "anti-slop" para landings/portfolios/rediseños.
+  - `design-taste-frontend-v1` — versión v1 original (compatibilidad).
+  - `high-end-visual-design` — diseño tipo agencia premium (fuentes, espaciado, sombras, cards).
+  - `minimalist-ui` — interfaces editoriales minimalistas (monocromo cálido, bento plano).
+  - `industrial-brutalist-ui` — UI brutalista/terminal para dashboards densos.
+  - `gpt-taste` — UX/UI + motion GSAP avanzado (AIDA, bento, scrolltriggers).
+  - `brandkit` — generación de imágenes de brand-kit / identidad.
+  - `imagegen-frontend-web` — imágenes de referencia de diseño web (1 por sección).
+  - `imagegen-frontend-mobile` — conceptos de pantallas de app móvil (solo imágenes).
+  - `image-to-code` — generar diseño en imagen y luego implementarlo (Codex).
+  - `stitch-design-taste` — genera `DESIGN.md` para Google Stitch.
+  - `redesign-existing-projects` — auditar y elevar webs/apps existentes sin romperlas.
+  - `full-output-enforcement` — evita truncado del LLM; fuerza salida completa.
+- **gstack** — expuesta como skill `gstack` (navegador headless para QA/dogfood; Chromium PENDIENTE
+  por el proxy). Sus sub-skills (`review`, `qa`, `investigate`, `careful`, `guard`, `devex-review`,
+  `plan-*`, `ship`…) viven en `~/.claude/skills/gstack/`.
+- **Encaje**: las de diseño elevan el acabado visual; útiles si se pule la UI (hoy es funcional, no
+  de consumidor). `impeccable`/`emil-design-eng`/`redesign-existing-projects` son las más relevantes
+  para mejorar este panel. `review`/`qa` de gstack, para revisión de código.
+- Las skills se enumeran **al arrancar** Claude Code: tras instalar más, **reiniciar** para usarlas.
