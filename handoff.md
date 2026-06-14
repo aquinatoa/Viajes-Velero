@@ -9,13 +9,19 @@
 > Trabajo reciente commiteado en la rama `feat/documental-review-workspace` y **subido a GitHub**:
 > remoto `origin` = `https://github.com/aquinatoa/Viajes-Velero` (ramas `main` y
 > `feat/documental-review-workspace` empujadas). Commits clave (más reciente arriba):
+> `8b5c3da` validación visual + fix · `2815cc1` pase de craft (tokens/botones/tipografía) ·
 > `d58dbcc` pulido de frontend · `f6b9ef6` Opción B 2/2 (frontend comercial) ·
 > `d3497ee` Opción B 1/2 (backend comercial) · `33dd035` ampliación del módulo documental.
 >
 > El flujo comercial (Nuevo/Existente) ya **persiste en la BD real** (no mock); falta verificarlo
-> end-to-end con Zoho + navegador (ver "Opción B"). El frontend recibió un pase de pulido visual,
-> accesibilidad y responsive (ver "Frontend"). Pendiente estructural: extraer el workspace del
-> documento (#11).
+> end-to-end con Zoho + navegador (ver "Opción B"). El frontend recibió dos pases (pulido + craft),
+> validados por captura con Edge headless (ver "Frontend" y "Validación visual"). Pendiente
+> estructural: extraer el workspace del documento (#11).
+>
+> **EN CURSO (decidido por el usuario): rediseño visual completo** del frontend, manteniendo el
+> objetivo funcional (herramienta operativa interna: documental + comercial). Hasta ahora solo se
+> hizo pulido/craft incremental sobre el estilo existente; ahora se acordó un rediseño de la capa
+> visual (identidad, color, tipografía, layout, componentes). Ver "Rediseño visual (propuesta)".
 
 ## Goal we are working toward
 
@@ -264,6 +270,19 @@ Pendientes del informe NO aplicados: #11 (extraer workspace, ver abajo). **Verif
 ambos pases: pendiente de que el usuario abra la app (`npm run dev`)**; no hay navegador en CLI
 (el Chromium de Playwright/gstack quedó bloqueado por el proxy). Si algún ajuste visual no convence
 (p. ej. el restyle de los `<button>` sin clase), es CSS y se afina rápido.
+
+## Rediseño visual (EN CURSO)
+
+El usuario pidió un **rediseño visual completo** (no solo pulido), manteniendo el objetivo: una
+herramienta **operativa interna** para (1) importar tarifas desde PDFs con IA → revisar → publicar
+al inventario, y (2) el flujo comercial (solicitud → propuesta → CRM Zoho). Restricciones: no
+romper funcionalidad ni flujos; español neutro; densidad de datos alta (tablas, muchos registros).
+
+Estado: **propuesta de dirección presentada en chat** (color/tipografía/layout/identidad); pendiente
+de que el usuario elija la dirección antes de implementar. Cuando se acuerde, documentar aquí la
+decisión (tokens, tema claro/oscuro, sistema de componentes) y aplicar por incrementos verificados
+con captura (Edge headless, ver "Validación visual"). Base de partida ya tiene tokens en `:root`
+(`--brand/--accent/--ink/--muted/--radius/--shadow/--ease-out`) sobre los que apoyar el rediseño.
 
 ## Pendiente clave: extraer el workspace del documento (DIFERIDO a propósito)
 
