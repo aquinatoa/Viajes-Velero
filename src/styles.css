@@ -1,32 +1,52 @@
 :root {
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-  color: #13232f;
-  /* Off-white neutro con un tinte mínimo hacia el azul-petróleo de la marca
-     (el del sidebar). Evita la banda cálida "crema/arena" genérica. */
-  background-color: #eef2f5;
-  line-height: 1.5;
+  color: var(--ink);
+  background-color: var(--bg);
+  line-height: 1.55;
   font-weight: 400;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  /* Sistema de diseño (tokens). Estrategia de color "restrained":
-     neutros + marca azul-petróleo + un acento verde de acción. */
-  --bg: #eef2f5;
-  --surface: #ffffff;
-  --ink: #13232f;
-  --muted: #4c6775;
-  --brand: #083444;
-  --accent: #127452;
-  --border: rgba(19, 35, 47, 0.1);
-  --border-strong: rgba(19, 35, 47, 0.16);
-  --radius: 12px;
-  --radius-lg: 16px;
+  /* ── Sistema de diseño "Consola de operaciones" ──────────────────
+     Neutros slate + marca azul-petróleo + acento verde de acción.
+     Color con significado (estados), no decoración. */
+  --bg: #eef1f4;            /* lienzo, slate muy claro y frío */
+  --surface: #ffffff;       /* tarjetas/superficies */
+  --surface-2: #f5f7f9;     /* zebra/sutil */
+  --ink: #0f1f2a;           /* texto principal (alto contraste) */
+  --ink-2: #2b3f4c;         /* texto secundario fuerte */
+  --muted: #586b77;         /* texto terciario (≥4.5:1 sobre blanco) */
+  --brand: #0c3a4c;         /* azul-petróleo (marca) */
+  --brand-700: #0a3140;
+  --brand-050: #e7eef1;     /* tinte de marca claro */
+  --accent: #127452;        /* verde de acción */
+  --accent-700: #0f5f43;
+
+  /* Estados (texto / fondo tinte) */
+  --ok: #1f7a4d;       --ok-bg: rgba(31, 122, 77, 0.12);
+  --warn: #8a5a12;     --warn-bg: rgba(240, 163, 46, 0.16);
+  --danger: #a32a2a;   --danger-bg: rgba(190, 55, 55, 0.13);
+  --info: #0c5a73;     --info-bg: rgba(12, 90, 115, 0.1);
+
+  --border: rgba(15, 31, 42, 0.1);
+  --border-strong: rgba(15, 31, 42, 0.16);
+  --radius: 10px;
+  --radius-lg: 14px;
   --radius-pill: 999px;
-  --shadow: 0 1px 2px rgba(16, 40, 54, 0.05), 0 4px 10px rgba(16, 40, 54, 0.04);
+  --shadow-sm: 0 1px 2px rgba(12, 30, 42, 0.06);
+  --shadow: 0 1px 2px rgba(12, 30, 42, 0.05), 0 6px 16px rgba(12, 30, 42, 0.06);
   /* Curva ease-out fuerte (Emil Kowalski): arranca rápido, se siente responsiva. */
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* Números alineados en datos (tarifas, conteos, fechas). */
+table,
+.status-tag,
+.published-item__count,
+.rate-table {
+  font-variant-numeric: tabular-nums;
 }
 
 * {
@@ -97,6 +117,52 @@ button:disabled {
 /* Las tablas anchas hacen scroll horizontal en vez de desbordar la página. */
 .table-wrap {
   overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+/* Tabla de datos genérica (lista de documentos, etc.). La tabla de revisión
+   .rate-table tiene su propio estilo y se excluye. */
+table:not(.rate-table) {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+table:not(.rate-table) thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-2);
+  text-align: left;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.045em;
+  color: var(--muted);
+  font-weight: 700;
+  white-space: nowrap;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+table:not(.rate-table) tbody td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  color: var(--ink-2);
+}
+
+table:not(.rate-table) tbody tr:nth-child(even) {
+  background: var(--surface-2);
+}
+
+table:not(.rate-table) tbody tr:hover {
+  background: var(--brand-050);
+}
+
+table:not(.rate-table) tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 /* Respeta la preferencia de movimiento reducido. */
@@ -113,17 +179,18 @@ button:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 264px 1fr;
   min-height: 100vh;
 }
 
 .sidebar {
-  padding: 32px 24px;
-  background: rgba(8, 52, 68, 0.93);
-  color: #f7fbfc;
+  padding: 24px 18px;
+  background: var(--brand);
+  color: #eaf2f4;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 28px;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .brand-block h1,
@@ -177,29 +244,39 @@ button:disabled {
 }
 
 .steps__item {
-  padding: 12px 14px;
-  border-radius: 16px;
-  color: rgba(247, 251, 252, 0.7);
-  background: rgba(255, 255, 255, 0.05);
-  border: 0;
+  padding: 11px 13px;
+  border-radius: 10px;
+  color: rgba(234, 242, 244, 0.66);
+  background: transparent;
+  border: 1px solid transparent;
   text-align: left;
   display: grid;
-  gap: 4px;
+  gap: 3px;
   width: 100%;
+  font-weight: 600;
   /* El menú lleva descripciones largas: deben envolver (anula el nowrap base). */
   white-space: normal;
 }
 
-.steps__item--active {
-  color: #083444;
-  background: #f2c17d;
+.steps__item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f4f9fa;
+}
+
+.steps__item--active,
+.steps__item--active:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.14);
   font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .steps__item span {
-  font-size: 13px;
+  font-size: 12.5px;
   color: inherit;
-  opacity: 0.86;
+  opacity: 0.78;
+  font-weight: 500;
 }
 
 .main-content {
@@ -230,17 +307,18 @@ button:disabled {
 }
 
 .status-pill--neutral {
-  background: rgba(19, 35, 47, 0.08);
+  background: var(--brand-050);
+  color: var(--ink-2);
 }
 
 .status-pill--success {
-  background: rgba(24, 158, 109, 0.15);
-  color: #127452;
+  background: var(--ok-bg);
+  color: var(--ok);
 }
 
 .status-pill--warning {
-  background: rgba(240, 163, 46, 0.18);
-  color: #905707;
+  background: var(--warn-bg);
+  color: var(--warn);
 }
 
 .content-grid {
@@ -269,29 +347,32 @@ button:disabled {
 }
 
 .alert {
-  border-radius: 18px;
-  padding: 14px 16px;
+  border-radius: var(--radius);
+  padding: 13px 16px;
   font-weight: 600;
+  border: 1px solid transparent;
 }
 
 .alert--success {
-  background: rgba(24, 158, 109, 0.14);
-  color: #127452;
+  background: var(--ok-bg);
+  color: var(--ok);
+  border-color: rgba(31, 122, 77, 0.22);
 }
 
 .alert--error {
-  background: rgba(190, 55, 55, 0.14);
-  color: #8d2222;
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-color: rgba(163, 42, 42, 0.22);
 }
 
 .section-card {
-  background: #ffffff;
-  border: 1px solid rgba(19, 35, 47, 0.1);
-  border-radius: 16px;
-  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 22px 24px;
   display: grid;
-  gap: 20px;
-  box-shadow: 0 1px 2px rgba(16, 40, 54, 0.05), 0 4px 10px rgba(16, 40, 54, 0.04);
+  gap: 18px;
+  box-shadow: var(--shadow-sm);
 }
 
 .section-card__header {
@@ -1000,28 +1081,41 @@ tr.is-selected {
 }
 
 .status-tag {
-  display: inline-block;
-  font-size: 0.74rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.73rem;
   font-weight: 700;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 2px 10px;
-  background: rgba(216, 231, 238, 0.7);
-  color: #28404d;
+  background: var(--brand-050);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* Punto de estado para lectura rápida en tablas densas. */
+.status-tag::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.8;
 }
 
 .status-tag--approved {
-  background: rgba(46, 160, 110, 0.16);
-  color: #1f6b48;
+  background: var(--ok-bg);
+  color: var(--ok);
 }
 
 .status-tag--rejected {
-  background: rgba(205, 73, 73, 0.14);
-  color: #8a2c2c;
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 .status-tag--needs_changes {
-  background: rgba(240, 163, 46, 0.16);
-  color: #8a5a12;
+  background: var(--warn-bg);
+  color: var(--warn);
 }
 
 /* Variante clicable: el tag "N pendiente(s)" abre la pestaña Pendientes. */
