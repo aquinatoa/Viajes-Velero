@@ -250,22 +250,38 @@ registro* / *Existente*) **mezcla fuentes de datos**:
 - Consecuencia: como los `id` reales de BD no existen en el mock, una propuesta puede salir **sin
   precios o incorrectos**.
 
-**Decisión del usuario: Opción B — migrar a BD real.** Plan sugerido (no iniciado):
-1. **Backend**: endpoints para clientes, solicitudes y propuestas (CRUD + lectura de tarifa por
-   `accommodationId`/`activityId` desde la BD), siguiendo el patrón de `server/index.ts` +
-   `documentImportDb.ts`. Persistir en Prisma (ya existen modelos `Client`, `TripRequest`,
-   `TripProposal`, `ProposalAccommodationOption`, `ProposalActivityOption`).
-2. **apiClient**: funciones nuevas (`saveTripRequestApi`, `buildProposalApi`/cálculo en server,
-   `findRateApi`, etc.).
-3. **Frontend**: cambiar `App.tsx` y los `services/*` para usar `apiClient` en vez de
-   `mockDb`/`mockData`/`searchService`. El precio de cada opción debe venir de la **misma tarifa**
-   que devolvió la búsqueda (pasar la `rate` del match a la propuesta, no re-buscarla en el mock).
-4. **Limpieza**: una vez migrado, `mockDb`, `mockData`, `searchService` y partes de `mcpTools`
-   quedarían sin uso → eliminar (¡verificar imports antes!).
-5. **Tests**: extender `tests/` con el flujo comercial (crear solicitud → propuesta con precio real
-   → persistencia).
-- **Nota**: la regla "No tocar los flujos comerciales" de abajo **queda anulada** por esta decisión
-  explícita: ahora SÍ se van a tocar para migrarlos.
+**Decisión del usuario: Opción B — migrar a BD real.** Progreso por incrementos:
+
+**✅ Incremento 1 (HECHO, commit `d3497ee`, verificado en runtime): backend de persistencia.**
+- `server/commercialDb.ts`: `upsertClientFromIntakeDb`, `findClientByEmailDb`, `saveTripRequestDb`,
+  `saveTripProposalDb` (con opciones; `accommodationId`/`activityId` son FK reales del inventario),
+  `approveTripProposalDb` (atómico), `getClientTripRequestsDb`.
+- Endpoints `/api/commercial/*`: `GET/POST clients`, `GET clients/:id/trip-requests`,
+  `POST trip-requests`, `POST proposals`, `POST proposals/:id/approve`.
+- apiClient: `findClientByEmailApi`, `upsertClientApi`, `saveTripRequestApi`, `saveTripProposalApi`,
+  `approveTripProposalApi`, `getClientTripRequestsApi`.
+- Esquema Prisma: enums `RequestStatus`/`ProposalStatus` alineados con el dominio; +`summaryText`,
+  +`accommodationNameSnapshot`, +`priceBreakdownText` (push aditivo; las tablas estaban vacías).
+
+**⏳ Incremento 2 (PENDIENTE): recablear el frontend al backend.** Es la parte delicada (ruta del
+CRM, NO testeable desde CLI: requiere Zoho + navegador → verificar con la app abierta). Plan:
+1. `src/services/requestService.ts`: `upsertClientFromRequest` → `upsertClientApi` (async);
+   `saveNormalizedTripRequest` → `saveTripRequestApi` (async). El check de cliente existente en
+   `parseTripRequest`/`validateTripRequest` (avisos) usaba clientes mock → quitarlo o resolverlo vía
+   `findClientByEmailApi` (async) en el handler.
+2. `src/services/proposalService.ts`: en `buildProposal`, usar `selected.rate` directamente (quitar
+   `findAccommodationRate`/`findActivityRate` mock); persistir vía `saveTripProposalApi`. `approveProposal`
+   → `approveTripProposalApi`. Hacer estas funciones async.
+3. `findCandidateOpportunities` (en requestService): hoy fabrica oportunidades FALSAS hardcodeadas.
+   Sustituir por datos reales (`getClientTripRequestsApi`: si hay solicitudes previas → sugerir; si
+   no → `create_new`) o dejar `create_new` por defecto.
+4. `src/App.tsx`: los handlers `handleParse`/`handleSearch`/`handleBuildProposal`/aprobar pasan a
+   `await` las versiones async. Verificar el flujo Nuevo y Existente.
+5. **Limpieza**: tras migrar, `mockDb`, `mockData`, `searchService` quedan sin uso → eliminar
+   (verificar imports; `mcpTools` re-exporta de ellos, ajustar). 
+6. **Tests**: añadir `tests/commercialFlow.test.ts` (temp DB: crear Accommodation → cliente →
+   solicitud → propuesta con FK real → aprobar).
+- **Nota**: la regla "No tocar los flujos comerciales" **queda anulada** por esta decisión.
 
 ## Otros próximos pasos sugeridos (no iniciados)
 
