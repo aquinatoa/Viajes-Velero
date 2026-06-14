@@ -53,6 +53,7 @@ select {
 button {
   cursor: pointer;
   font-weight: 600;
+  white-space: nowrap;
   color: var(--brand);
   background: #e7eef2;
   border: 1px solid var(--border);
@@ -185,6 +186,8 @@ button:disabled {
   display: grid;
   gap: 4px;
   width: 100%;
+  /* El menú lleva descripciones largas: deben envolver (anula el nowrap base). */
+  white-space: normal;
 }
 
 .steps__item--active {
