@@ -80,6 +80,8 @@ async function main() {
   // 3) Importar la lógica del flujo (ya con DATABASE_URL apuntando a la BD temporal).
   const db = await import("../server/documentImportDb.ts");
   const search = await import("../server/searchDb.ts");
+  const commercial = await import("../server/commercialDb.ts");
+  const { PrismaClient } = await import("@prisma/client");
 
   console.log("\nFlujo documental:");
 
@@ -348,6 +350,97 @@ async function main() {
       "el documento borrado no debe aparecer en la lista",
     );
   });
+
+  console.log("\nFlujo comercial (persistencia real en BD):");
+
+  // Necesita un Accommodation real (FK de las opciones de propuesta).
+  const prisma = new PrismaClient();
+  const acc = await prisma.accommodation.create({
+    data: { accommodationName: "Hotel Comercial Test", locality: "Salou" },
+  });
+
+  let commercialClientId = "";
+  let commercialProposalId = "";
+
+  await test("upsert de cliente por email", async () => {
+    const client = await commercial.upsertClientFromIntakeDb({
+      email: "comercial@example.com",
+      firstName: "Ana",
+      lastName: "García",
+      clientType: "new",
+    });
+    assert.ok(client.id);
+    assert.equal(client.email, "comercial@example.com");
+    assert.equal(client.fullName, "Ana García");
+    commercialClientId = client.id;
+
+    // Idempotencia por email: segundo upsert marca recurrente, no duplica.
+    const again = await commercial.upsertClientFromIntakeDb({
+      email: "comercial@example.com",
+      firstName: "Ana",
+      lastName: "García",
+      clientType: "new",
+    });
+    assert.equal(again.id, client.id, "no debe duplicar el cliente");
+    assert.equal(again.isReturningCustomer, true);
+  });
+
+  await test("guarda una solicitud de viaje", async () => {
+    const req = await commercial.saveTripRequestDb({
+      clientId: commercialClientId,
+      originalMessage: "Grupo escolar Salou 42 pax",
+      destinationText: "Salou",
+      dateFrom: "2026-07-01",
+      dateTo: "2026-07-05",
+      participants: 42,
+      teachers: 4,
+      requestStatus: "READY_FOR_SEARCH",
+    });
+    assert.ok(req.id);
+    assert.equal(req.destinationText, "Salou");
+    assert.equal(req.requestStatus, "READY_FOR_SEARCH");
+
+    // El historial del cliente ya devuelve esta solicitud (oportunidades candidatas).
+    const history = await commercial.getClientTripRequestsDb(commercialClientId);
+    assert.equal(history.length, 1);
+  });
+
+  await test("guarda una propuesta con opción de alojamiento (FK real)", async () => {
+    const req = await commercial.saveTripRequestDb({
+      clientId: commercialClientId,
+      originalMessage: "segunda",
+      requestStatus: "READY_FOR_SEARCH",
+    });
+    const proposal = await commercial.saveTripProposalDb({
+      tripRequestId: req.id,
+      versionNumber: 1,
+      proposalStatus: "READY_FOR_APPROVAL",
+      summaryText: "1 opción",
+      accommodationOptions: [
+        {
+          optionNumber: 1,
+          accommodationId: acc.id,
+          accommodationNameSnapshot: "Hotel Comercial Test",
+          totalPvpText: "5.000,00 €",
+        },
+      ],
+      activityOptions: [],
+    });
+    assert.ok(proposal.id);
+    assert.equal(proposal.accommodationOptions.length, 1);
+    assert.equal(proposal.accommodationOptions[0].accommodationNameSnapshot, "Hotel Comercial Test");
+    commercialProposalId = proposal.id;
+  });
+
+  await test("aprueba la propuesta y fija la opción elegida", async () => {
+    const approved = await commercial.approveTripProposalDb(commercialProposalId, 1);
+    assert.ok(approved);
+    assert.equal(approved!.proposalStatus, "APPROVED");
+    assert.equal(approved!.approvedOptionNumber, 1);
+    assert.equal(approved!.accommodationOptions[0].isSelected, true);
+  });
+
+  await prisma.$disconnect();
 
   // --- resumen -----------------------------------------------------------------
   console.log(`\n${passed} prueba(s) OK, ${failures.length} fallo(s).`);

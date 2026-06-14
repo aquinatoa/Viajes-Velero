@@ -201,9 +201,8 @@ export function App() {
     setUiMessage("");
   };
 
-  const handleParseRequest = () => {
+  const handleParseRequest = async () => {
     try {
-      const nextClient = upsertClientFromRequest(requestForm);
       const parsed = parseTripRequest(requestForm);
       const nextValidation = validateTripRequest({
         clientType: requestForm.clientType,
@@ -212,7 +211,8 @@ export function App() {
         lastName: requestForm.lastName,
         normalized: parsed.normalized,
       });
-      const opportunities = findCandidateOpportunities(nextClient, parsed.normalized);
+      const nextClient = await upsertClientFromRequest(requestForm);
+      const opportunities = await findCandidateOpportunities(nextClient, parsed.normalized);
 
       setClient(nextClient);
       setParseResult(parsed);
@@ -294,7 +294,7 @@ export function App() {
     }
 
     try {
-      const savedRequest = saveNormalizedTripRequest(client.id, requestForm, {
+      const savedRequest = await saveNormalizedTripRequest(client.id, requestForm, {
         ...parseResult,
         requestStatus: "READY_FOR_SEARCH",
       });
@@ -378,7 +378,7 @@ export function App() {
     });
   };
 
-  const handleBuildProposal = () => {
+  const handleBuildProposal = async () => {
     if (!savedTripRequest || !parseResult || !accommodationSearch || !activitySearch) {
       setUiMessage("");
       setUiError("Completa la validación y la búsqueda antes de construir la propuesta.");
@@ -386,7 +386,7 @@ export function App() {
     }
 
     try {
-      const nextProposal = buildProposal({
+      const nextProposal = await buildProposal({
         tripRequestId: savedTripRequest.id,
         normalized: parseResult.normalized,
         accommodationMatches: accommodationSearch.matches,

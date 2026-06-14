@@ -263,25 +263,29 @@ registro* / *Existente*) **mezcla fuentes de datos**:
 - Esquema Prisma: enums `RequestStatus`/`ProposalStatus` alineados con el dominio; +`summaryText`,
   +`accommodationNameSnapshot`, +`priceBreakdownText` (push aditivo; las tablas estaban vacías).
 
-**⏳ Incremento 2 (PENDIENTE): recablear el frontend al backend.** Es la parte delicada (ruta del
-CRM, NO testeable desde CLI: requiere Zoho + navegador → verificar con la app abierta). Plan:
-1. `src/services/requestService.ts`: `upsertClientFromRequest` → `upsertClientApi` (async);
-   `saveNormalizedTripRequest` → `saveTripRequestApi` (async). El check de cliente existente en
-   `parseTripRequest`/`validateTripRequest` (avisos) usaba clientes mock → quitarlo o resolverlo vía
-   `findClientByEmailApi` (async) en el handler.
-2. `src/services/proposalService.ts`: en `buildProposal`, usar `selected.rate` directamente (quitar
-   `findAccommodationRate`/`findActivityRate` mock); persistir vía `saveTripProposalApi`. `approveProposal`
-   → `approveTripProposalApi`. Hacer estas funciones async.
-3. `findCandidateOpportunities` (en requestService): hoy fabrica oportunidades FALSAS hardcodeadas.
-   Sustituir por datos reales (`getClientTripRequestsApi`: si hay solicitudes previas → sugerir; si
-   no → `create_new`) o dejar `create_new` por defecto.
-4. `src/App.tsx`: los handlers `handleParse`/`handleSearch`/`handleBuildProposal`/aprobar pasan a
-   `await` las versiones async. Verificar el flujo Nuevo y Existente.
-5. **Limpieza**: tras migrar, `mockDb`, `mockData`, `searchService` quedan sin uso → eliminar
-   (verificar imports; `mcpTools` re-exporta de ellos, ajustar). 
-6. **Tests**: añadir `tests/commercialFlow.test.ts` (temp DB: crear Accommodation → cliente →
-   solicitud → propuesta con FK real → aprobar).
-- **Nota**: la regla "No tocar los flujos comerciales" **queda anulada** por esta decisión.
+**✅ Incremento 2 (HECHO): frontend recableado al backend; mocks eliminados.**
+- `src/services/requestService.ts`: `upsertClientFromRequest` → `upsertClientApi` (async);
+  `saveNormalizedTripRequest` → `saveTripRequestApi` (async); se quitó el check de cliente mock de
+  `parseTripRequest`/`validateTripRequest`. `findCandidateOpportunities` ahora usa datos REALES
+  (`getClientTripRequestsApi`: solicitudes previas del cliente → `ask_user`; si no → `create_new`).
+- `src/services/proposalService.ts`: `buildProposal` usa la **tarifa real** del match
+  (`rate.pvpAmount || rate.netSaleAmount`) y persiste con `saveTripProposalApi` (async);
+  `approveProposal` → `approveTripProposalApi`.
+- `src/services/crmService.ts`: sin mockDb; `logCrmSyncAttempt` ya no persiste (log local);
+  eliminadas `saveOpportunityToCrmMock`/`searchExistingOpportunities`/
+  `prepareExistingOpportunityApprovalPayload` (muertas). `prepareNewOpportunityPayload`/
+  `prepareCrmPayload` siguen (puras).
+- `src/App.tsx`: `handleParseRequest` y `handleBuildProposal` ahora `async` con `await`.
+- **Eliminados** `src/data/mockData.ts`, `src/data/mockDb.ts`, `src/services/searchService.ts`
+  (dead tras migrar). `mcpTools.ts` ajustado.
+- **Tests**: `tests/documentFlow.test.ts` añade el flujo comercial (crea Accommodation → upsert
+  cliente → solicitud → propuesta con FK real → aprobar). Total **21/21**.
+
+**PENDIENTE de verificación del usuario (NO testeable desde CLI):** abrir la app y validar end-to-end
+los flujos **Nuevo** (parse → buscar → propuesta con precio real → enviar a Zoho CRM) y **Existente**
+(buscar oportunidad en Zoho → aprobar). Requiere login de Zoho. Si algo falla, mirar la consola del
+navegador y el log de la API. El envío a Zoho (`createZohoOpportunityApi`/`approveZohoOpportunityApi`)
+NO se tocó; sigue igual.
 
 ## Otros próximos pasos sugeridos (no iniciados)
 

@@ -1,19 +1,9 @@
 import type {
   Client,
-  CrmOpportunityRecord,
   CrmPayload,
   CrmSyncLog,
-  FindCandidateOpportunitiesResult,
-  NormalizedRequestDraft,
-  PrepareCrmPayloadInput,
-  TripProposal
+  PrepareCrmPayloadInput
 } from "../domain/types";
-import {
-  findClientByEmail,
-  findCrmOpportunitiesByEmail,
-  saveCrmOpportunity,
-  saveCrmSyncLog
-} from "../data/mockDb";
 import { createId } from "./utils";
 
 function buildCommonContact(client: Client) {
@@ -135,77 +125,17 @@ export const prepareNewOpportunityPayload = ({
   };
 };
 
-export const saveOpportunityToCrmMock = (
-  client: Client,
-  request: NormalizedRequestDraft,
-  proposal: TripProposal,
-  payload: CrmPayload
-) => {
-  const record: CrmOpportunityRecord = {
-    id: createId("crm_opp"),
-    clientEmail: client.email,
-    clientName: client.fullName,
-    opportunityName:
-      `${request.destinationText || "Destino pendiente"} ${request.dateFrom || ""}`.trim() ||
-      "Oportunidad sin nombre",
-    destination: request.destinationText,
-    status: "sent",
-    proposalId: proposal.id,
-    proposalOptions: proposal.accommodationOptions.map((option) => ({
-      optionNumber: option.optionNumber,
-      accommodationName: option.accommodationNameSnapshot,
-      totalPvpText: option.totalPvpText,
-      boardType: option.boardType
-    })),
-    payload: payload as unknown as Record<string, unknown>
-  };
-
-  return saveCrmOpportunity(record);
-};
-
-export const searchExistingOpportunities = (email: string) => {
-  const client = findClientByEmail(email);
-  return {
-    client,
-    opportunities: findCrmOpportunitiesByEmail(email)
-  };
-};
-
-export const prepareExistingOpportunityApprovalPayload = (
-  opportunity: CrmOpportunityRecord,
-  approvedOptionNumber: number
-) => {
-  const selectedOption = opportunity.proposalOptions.find(
-    (option) => option.optionNumber === approvedOptionNumber
-  );
-
-  if (!selectedOption) {
-    throw new Error("La opción seleccionada no existe en la oportunidad.");
-  }
-
-  const updatedOpportunity = {
-    ...opportunity,
-    status: "approved" as const,
-    approvedOptionNumber
-  };
-
-  saveCrmOpportunity(updatedOpportunity);
-
-  return {
-    opportunity_id: opportunity.id,
-    action: "update_existing_opportunity",
-    approved_option: selectedOption,
-    client_email: opportunity.clientEmail
-  };
-};
-
+/**
+ * Registro local del intento de sincronización con CRM (solo en memoria de la
+ * sesión; el envío real lo hace Zoho vía apiClient). No se persiste.
+ */
 export const logCrmSyncAttempt = (payload: CrmPayload | Record<string, unknown>): CrmSyncLog => {
-  return saveCrmSyncLog({
+  return {
     id: createId("crm"),
     entityType: "trip_proposal",
     actionType: "prepare_payload",
     requestPayload: payload as Record<string, unknown>,
     responsePayload: { queued: true },
     syncStatus: "PENDING"
-  });
+  };
 };

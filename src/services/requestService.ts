@@ -11,8 +11,11 @@ import type {
   ValidateTripRequestResult,
   WarningItem
 } from "../domain/types";
-import { findClientByEmail, saveClient, saveTripRequest } from "../data/mockDb";
-import { createId } from "./utils";
+import {
+  getClientTripRequestsApi,
+  saveTripRequestApi,
+  upsertClientApi,
+} from "./apiClient";
 
 const intakeSchema = z.object({
   clientType: z.enum(["new", "existing"]),
@@ -199,7 +202,7 @@ function buildMissingFields(normalized: NormalizedRequestDraft): MissingField[] 
   return missing;
 }
 
-function buildWarnings(input: ParseTripRequestInput, normalized: NormalizedRequestDraft): WarningItem[] {
+function buildWarnings(normalized: NormalizedRequestDraft): WarningItem[] {
   const warnings: WarningItem[] = [];
   const parsedDates = normalized.dateFrom && normalized.dateTo;
 
@@ -225,13 +228,6 @@ function buildWarnings(input: ParseTripRequestInput, normalized: NormalizedReque
         message: "La fecha fin no es posterior a la fecha inicio."
       });
     }
-  }
-
-  if (input.clientType === "existing" && !findClientByEmail(input.email)) {
-    warnings.push({
-      code: "existing_client_not_found",
-      message: "El cliente se marcó como existente, pero no hay coincidencia previa por email."
-    });
   }
 
   return warnings;
@@ -260,7 +256,7 @@ export const parseTripRequest = (input: ParseTripRequestInput): ParseTripRequest
   normalized.requirementsText = extractRequirements(input.rawTripRequestText);
 
   const missingFields = buildMissingFields(normalized);
-  const warnings = buildWarnings(input, normalized);
+  const warnings = buildWarnings(normalized);
 
   return {
     normalized,
@@ -314,15 +310,6 @@ export const validateTripRequest = (
         severity: "error"
       });
     }
-  }
-
-  if (input.clientType === "existing" && !findClientByEmail(input.email)) {
-    issues.push({
-      field: "email",
-      label: "Cliente existente",
-      message: "No se encontró un cliente existente con ese email. Revisa el dato o márcalo como nuevo.",
-      severity: "error"
-    });
   }
 
   if (!input.normalized.destinationText.trim()) {
@@ -404,26 +391,12 @@ export const validateTripRequest = (
   };
 };
 
-export const upsertClientFromRequest = (input: ParseTripRequestInput): Client => {
-  const existing = findClientByEmail(input.email);
-
-  if (existing) {
-    return saveClient({
-      ...existing,
-      firstName: input.firstName || existing.firstName,
-      lastName: input.lastName || existing.lastName,
-      fullName: `${input.firstName || existing.firstName} ${input.lastName || existing.lastName}`,
-      isReturningCustomer: true
-    });
-  }
-
-  return saveClient({
-    id: createId("client"),
+export const upsertClientFromRequest = (input: ParseTripRequestInput): Promise<Client> => {
+  return upsertClientApi({
     email: input.email,
     firstName: input.firstName,
     lastName: input.lastName,
-    fullName: `${input.firstName} ${input.lastName}`.trim(),
-    isReturningCustomer: input.clientType === "existing"
+    clientType: input.clientType,
   });
 };
 
@@ -431,73 +404,65 @@ export const saveNormalizedTripRequest = (
   clientId: string,
   source: ParseTripRequestInput,
   parseResult: ParseTripRequestResult
-): TripRequest => {
-  return saveTripRequest({
-    id: createId("request"),
+): Promise<TripRequest> => {
+  return saveTripRequestApi({
     clientId,
-    opportunityName: source.opportunityName,
+    opportunityName: source.opportunityName ?? null,
     originalMessage: source.rawTripRequestText,
     requestStatus: parseResult.requestStatus,
-    missingFields: parseResult.missingFields,
-    warnings: parseResult.warnings,
-    ...parseResult.normalized
+    ...parseResult.normalized,
   });
 };
 
-export const findCandidateOpportunities = (
+/**
+ * Oportunidades candidatas basadas en datos REALES: las solicitudes previas del
+ * mismo cliente en la BD. Si no hay ninguna, se recomienda crear una nueva.
+ */
+export const findCandidateOpportunities = async (
   client: Client,
   request: NormalizedRequestDraft
-): FindCandidateOpportunitiesResult => {
-  const opportunities = [];
+): Promise<FindCandidateOpportunitiesResult> => {
+  let priorRequests: {
+    id: string;
+    opportunityName: string | null;
+    destinationText: string | null;
+    createdAt: string;
+  }[] = [];
 
-  if (client.isReturningCustomer) {
-    opportunities.push(
-      {
-        id: "opp_open_2026_valencia",
-        name: `Grupo escolar ${request.destinationText || "pendiente"} 2026`,
-        reason: "Mismo contacto y destino similar en una oportunidad abierta reciente.",
-        score: 92,
-        status: "open" as const
-      },
-      {
-        id: "opp_won_2025_spring",
-        name: "Viaje escolar primavera 2025",
-        reason: "Referencia útil para comparar, pero ya está cerrada como ganada.",
-        score: 61,
-        status: "won" as const
-      }
-    );
+  try {
+    priorRequests = (await getClientTripRequestsApi(client.id)).requests;
+  } catch {
+    // Si falla la consulta, se trata como cliente sin historial (crear nueva).
   }
 
-  if (!client.isReturningCustomer && request.destinationText) {
-    opportunities.push({
-      id: "opp_review_destination_only",
-      name: `Nueva oportunidad ${request.destinationText}`,
-      reason: "Solo hay coincidencia por destino; no hay suficiente contexto para actualizar algo existente.",
-      score: 34,
-      status: "open" as const
-    });
-  }
-
-  if (client.isReturningCustomer && opportunities[0]?.status === "open") {
+  if (priorRequests.length === 0) {
     return {
-      recommendation: "update_existing",
-      opportunities,
-      rationale: "Existe una oportunidad abierta razonablemente compatible con este contacto."
+      recommendation: "create_new",
+      opportunities: [],
+      rationale: "El cliente no tiene solicitudes previas: se crea una oportunidad nueva.",
     };
   }
 
-  if (opportunities.length > 0) {
+  const opportunities = priorRequests.slice(0, 5).map((prior) => {
+    const sameDestination =
+      !!prior.destinationText &&
+      !!request.destinationText &&
+      prior.destinationText.toLowerCase() === request.destinationText.toLowerCase();
     return {
-      recommendation: "ask_user",
-      opportunities,
-      rationale: "Hay coincidencias parciales, pero conviene que operaciones confirme si se actualiza o se crea una nueva."
+      id: prior.id,
+      name: prior.opportunityName || `Solicitud previa ${prior.destinationText ?? ""}`.trim(),
+      reason: sameDestination
+        ? `Solicitud previa del mismo cliente al mismo destino (${prior.destinationText}).`
+        : "Solicitud previa del mismo cliente.",
+      score: sameDestination ? 80 : 50,
+      status: "open" as const,
     };
-  }
+  });
 
   return {
-    recommendation: "create_new",
-    opportunities: [],
-    rationale: "No se encontraron oportunidades candidatas suficientemente fiables."
+    recommendation: "ask_user",
+    opportunities,
+    rationale:
+      "El cliente tiene solicitudes previas. Confirma si actualizar una oportunidad existente o crear una nueva.",
   };
 };
