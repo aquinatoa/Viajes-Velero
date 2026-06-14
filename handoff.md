@@ -393,10 +393,19 @@ los flujos **Nuevo** (parse → buscar → propuesta con precio real → enviar 
 navegador y el log de la API. El envío a Zoho (`createZohoOpportunityApi`/`approveZohoOpportunityApi`)
 NO se tocó; sigue igual.
 
+## Cobertura de tests del flujo de ACTIVIDADES — HECHO (SIN commitear, build OK, 31/31 tests)
+
+`tests/documentFlow.test.ts` añade una sección "Flujo documental de ACTIVIDADES" que espeja la de
+alojamientos: crear documento (`targetType: "ACTIVITY"`) → staging de actividad vía análisis mock
+(`detectedActivities`) → **sembrar tarifas/políticas de actividad directamente con Prisma** (el
+análisis IA solo detecta la actividad, no sus tarifas) → aprobar en lote (omite la tarifa sin
+`salePvpAmount`) → dry-run + publicar → trazabilidad (`getPublishedInventoryByDocument`) → búsqueda
+operativa con origen (`searchActivitiesDb`, con `ageRangeText` para puntuar ≥50) → idempotencia →
+catálogo global → retirada granular de tarifa y de actividad completa. Total **21 → 31 tests**.
+
 ## Otros próximos pasos sugeridos (no iniciados)
 
 - **Extraer el workspace del documento** (ver arriba) — el ítem de estructura pendiente.
-- Ampliar `tests/documentFlow.test.ts` con el flujo de ACTIVIDADES (hoy cubre alojamientos).
 - Aviso visible en UI cuando el análisis IA corre en modo mock (sin `ANTHROPIC_API_KEY`).
 - Seguridad: aislar/mitigar `xlsx` (CVEs; solo se usa en el CLI `prisma/importRates.ts`); validar
   payloads de la API con `zod`; genericizar `.env.example` (filtra una ruta real con nombre de

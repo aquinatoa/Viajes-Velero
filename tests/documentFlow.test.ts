@@ -351,6 +351,223 @@ async function main() {
     );
   });
 
+  console.log("\nFlujo documental de ACTIVIDADES:");
+
+  // El análisis IA solo detecta la actividad (nombre, proveedor, ubicación…); sus
+  // tarifas y políticas no salen del análisis, así que se siembran directamente
+  // en staging vía Prisma para ejercitar el resto de la cadena (aprobar → publicar
+  // → trazar → buscar → retirar) igual que con alojamientos.
+  const activityPrisma = new PrismaClient();
+
+  const ACTIVITY_DOC_NAME = "Excursiones Salou 2026";
+
+  const activityDocument = await db.createInventoryDocument({
+    targetType: "ACTIVITY",
+    controlName: ACTIVITY_DOC_NAME,
+    controlLocation: LOCALITY,
+    controlYear: CONTROL_YEAR,
+  });
+
+  const activityAnalysis = {
+    mode: "mock" as const,
+    documentSummary: "Documento de actividades de prueba",
+    detectedAccommodation: null,
+    detectedActivities: [
+      {
+        activityName: "PortAventura día completo",
+        supplierName: "PortAventura World",
+        locationMain: LOCALITY,
+        activityType: "Parque temático",
+        durationText: "1 día",
+        descriptionText: "Entrada de día completo al parque.",
+      },
+    ],
+    candidateRates: [],
+    candidateSupplements: [],
+    candidatePolicies: [],
+    candidateBlackoutDates: [],
+    warnings: [],
+    confidence: 0.9,
+  };
+
+  const activityCreated = await db.createInventoryDocumentStaging(
+    activityDocument.id,
+    activityAnalysis,
+    { targetType: "ACTIVITY", controlName: ACTIVITY_DOC_NAME },
+  );
+  await test("crea candidatos staging de actividad (1 actividad, sin alojamiento)", () => {
+    assert.equal(activityCreated.activities, 1);
+    assert.equal(activityCreated.accommodations, 0);
+  });
+
+  // Localizar la actividad staging recién creada y sembrarle tarifas + política.
+  const activityDetail = await db.getInventoryDocumentDetail(activityDocument.id);
+  assert.ok(activityDetail, "el detalle del documento de actividad debe existir");
+  const stagingActivity = activityDetail!.stagingActivities[0];
+  assert.ok(stagingActivity, "debe haber una actividad staging");
+  const stagingActivityId = stagingActivity.id;
+
+  // Tarifa publicable (con precio, moneda, edad), tarifa sin precio (debe omitirse).
+  const seededRateWithPrice = await activityPrisma.stagingActivityRate.create({
+    data: {
+      stagingActivityId,
+      year: CONTROL_YEAR,
+      currency: "EUR",
+      salePvpAmount: 45,
+      ageLabel: "8-17 años",
+      ageMin: 8,
+      ageMax: 17,
+      reviewStatus: "PENDING",
+    },
+  });
+  const seededRateNoPrice = await activityPrisma.stagingActivityRate.create({
+    data: {
+      stagingActivityId,
+      year: CONTROL_YEAR,
+      currency: "EUR",
+      ageLabel: "Adulto",
+      reviewStatus: "PENDING",
+    },
+  });
+  const seededActivityPolicy = await activityPrisma.stagingActivityPolicy.create({
+    data: {
+      stagingActivityId,
+      policyType: "CANCELLATION",
+      policyText: "Cancelación gratuita hasta 7 días antes.",
+      reviewStatus: "PENDING",
+    },
+  });
+
+  // --- aprobar en lote (la actividad, la tarifa con precio y la política) -------
+  await test("aprueba actividad + tarifa con precio + política; omite la tarifa sin precio", async () => {
+    const actResult = await db.bulkUpdateStagingReview("activities", [stagingActivityId], "APPROVED");
+    assert.equal(actResult.updated, 1);
+
+    const rateResult = await db.bulkUpdateStagingReview(
+      "activity-rates",
+      [seededRateWithPrice.id, seededRateNoPrice.id],
+      "APPROVED",
+    );
+    assert.equal(rateResult.updated, 1, "solo la tarifa de actividad con precio debe aprobarse");
+    assert.equal(rateResult.skipped.length, 1, "la tarifa de actividad sin precio debe omitirse");
+
+    const policyResult = await db.bulkUpdateStagingReview(
+      "activity-policies",
+      [seededActivityPolicy.id],
+      "APPROVED",
+    );
+    assert.equal(policyResult.updated, 1);
+  });
+
+  const activityPublishContext = { controlLocation: LOCALITY, controlYear: CONTROL_YEAR };
+
+  // --- dry-run de publicación de actividad ------------------------------------
+  await test("el dry-run de publicación de actividad refleja lo aprobado sin escribir", async () => {
+    const dryRun = await db.dryRunPublishApprovedInventoryDocument(
+      activityDocument.id,
+      activityPublishContext,
+    );
+    assert.equal(dryRun.hasPublishableCandidates, true);
+    assert.equal(dryRun.activitiesToPublish, 1);
+    assert.equal(dryRun.activityRatesToPublish, 1);
+    assert.equal(dryRun.wouldReplaceExisting, false);
+
+    const live = await db.getPublishedInventoryByDocument(activityDocument.id);
+    assert.equal(live.activityCount, 0, "el dry-run no debe escribir actividades");
+  });
+
+  // --- publicar actividad ------------------------------------------------------
+  await test("publica solo la actividad aprobada al inventario operativo", async () => {
+    const result = await db.publishApprovedInventoryDocument(
+      activityDocument.id,
+      activityPublishContext,
+    );
+    assert.equal(result.activities, 1);
+    assert.equal(result.activityRates, 1);
+  });
+
+  // --- trazabilidad de la actividad publicada ---------------------------------
+  await test("la trazabilidad lista la actividad publicada con su staging de origen", async () => {
+    const live = await db.getPublishedInventoryByDocument(activityDocument.id);
+    assert.equal(live.activityCount, 1);
+    assert.equal(live.activityRateCount, 1);
+    const publishedActivity = live.activities[0];
+    assert.equal(publishedActivity.sourceStagingId, stagingActivityId);
+    assert.equal(publishedActivity.rates[0]?.sourceStagingId, seededRateWithPrice.id);
+  });
+
+  // --- trazabilidad en la búsqueda operativa de actividades -------------------
+  await test("la búsqueda operativa de actividades muestra el documento de origen", async () => {
+    const result = await search.searchActivitiesDb({
+      destinationText: LOCALITY,
+      dateFrom: "2026-07-10",
+      dateTo: "2026-07-17",
+      ageRangeText: "10-14",
+    });
+    assert.equal(result.status, "ok", "debe encontrar la actividad publicada");
+    const match = result.matches.find(
+      (item) => item.activity.sourceDocumentId === activityDocument.id,
+    );
+    assert.ok(match, "el resultado debe referenciar el documento de origen");
+    assert.equal(match!.activity.sourceDocumentName, ACTIVITY_DOC_NAME);
+  });
+
+  // --- idempotencia de la publicación de actividad ----------------------------
+  await test("republicar la actividad es idempotente (no duplica)", async () => {
+    const dryRun = await db.dryRunPublishApprovedInventoryDocument(
+      activityDocument.id,
+      activityPublishContext,
+    );
+    assert.equal(dryRun.wouldReplaceExisting, true, "debe detectar publicación previa");
+
+    await db.publishApprovedInventoryDocument(activityDocument.id, activityPublishContext);
+    const live = await db.getPublishedInventoryByDocument(activityDocument.id);
+    assert.equal(live.activityCount, 1, "no debe duplicar la actividad");
+    assert.equal(live.activityRateCount, 1, "no debe duplicar la tarifa de actividad");
+  });
+
+  // --- el catálogo global incluye la actividad --------------------------------
+  await test("el catálogo global incluye la actividad con su documento de origen", async () => {
+    const catalog = await db.getPublishedInventoryCatalog();
+    const entry = catalog.activities.find(
+      (item) => item.sourceDocumentId === activityDocument.id,
+    );
+    assert.ok(entry, "la actividad publicada debe aparecer en el catálogo");
+    assert.equal(entry!.sourceDocumentName, ACTIVITY_DOC_NAME);
+    assert.equal(entry!.rates.length, 1);
+  });
+
+  // --- retirada granular de una tarifa de actividad ---------------------------
+  await test("retira una sola tarifa de actividad publicada", async () => {
+    const before = await db.getPublishedInventoryByDocument(activityDocument.id);
+    const rateId = before.activities[0]?.rates[0]?.id;
+    assert.ok(rateId, "debe existir una tarifa de actividad publicada");
+
+    const result = await db.unpublishPublishedItem("activity-rate", rateId!);
+    assert.ok(result);
+    assert.equal(result!.removedActivityRates, 1);
+
+    const after = await db.getPublishedInventoryByDocument(activityDocument.id);
+    assert.equal(after.activityCount, 1, "la actividad debe seguir publicada");
+    assert.equal(after.activityRateCount, 0, "su tarifa debe haberse retirado");
+  });
+
+  // --- retirada granular de la actividad completa -----------------------------
+  await test("retira una actividad publicada completa", async () => {
+    const before = await db.getPublishedInventoryByDocument(activityDocument.id);
+    const activityId = before.activities[0]?.id;
+    assert.ok(activityId, "debe existir una actividad publicada");
+
+    const result = await db.unpublishPublishedItem("activity", activityId!);
+    assert.ok(result);
+    assert.equal(result!.removedActivities, 1);
+
+    const after = await db.getPublishedInventoryByDocument(activityDocument.id);
+    assert.equal(after.activityCount, 0, "ya no debe quedar actividad publicada");
+  });
+
+  await activityPrisma.$disconnect();
+
   console.log("\nFlujo comercial (persistencia real en BD):");
 
   // Necesita un Accommodation real (FK de las opciones de propuesta).
