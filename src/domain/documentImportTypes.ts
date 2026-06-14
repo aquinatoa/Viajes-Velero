@@ -379,6 +379,8 @@ export interface CreateStagingResult {
   blackoutDates: number;
   activities: number;
   warnings: string[];
+  /** Modo del análisis IA que originó estos candidatos ("mock" si no hay clave). */
+  aiMode: AiAnalysisMode;
 }
 
 export type StagingEntityKey =

@@ -639,6 +639,18 @@ app.post("/api/inventory/documents/:id/create-staging", async (request, response
       });
     }
 
+    // Si el análisis corrió en modo mock (sin clave de IA real), dejarlo visible
+    // como incidencia: los candidatos son de ejemplo, no del documento.
+    if (analysis.mode === "mock") {
+      await addInventoryDocumentIssue({
+        sourceDocumentId: documentId,
+        severity: "WARNING",
+        issueType: "AI_MOCK_MODE",
+        message:
+          "El análisis IA corrió en modo MOCK (no se usó IA real): falta configurar la clave del proveedor (p. ej. ANTHROPIC_API_KEY). Los candidatos generados son de ejemplo y no reflejan el documento.",
+      });
+    }
+
     // Reconciliar el estado del documento: al existir candidatos revisables y
     // texto extraído (TEXT/OCR), el documento debe quedar como pendiente de
     // revisión y con la extracción marcada como completada. No se publica nada.
@@ -646,7 +658,7 @@ app.post("/api/inventory/documents/:id/create-staging", async (request, response
       await updateInventoryDocumentStatus(documentId, "PENDING_REVIEW", "EXTRACTED");
     }
 
-    response.json(result);
+    response.json({ ...result, aiMode: analysis.mode });
   } catch (error) {
     if (error instanceof AiAnalysisError) {
       response.status(502).json({ error: error.message });

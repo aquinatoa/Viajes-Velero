@@ -994,8 +994,12 @@ export function InventoryDocumentsPanel() {
 
     try {
       const result = await createInventoryDocumentStagingApi(selectedDocumentId);
+      const mockNote =
+        result.aiMode === "mock"
+          ? " ⚠ Análisis en modo MOCK (sin IA real): los candidatos son de ejemplo; configura la clave del proveedor (p. ej. ANTHROPIC_API_KEY) y regenera."
+          : "";
       setFeedbackMessage(
-        `Candidatos revisables creados: ${result.accommodations} alojamiento(s), ${result.rates} tarifa(s), ${result.adjustments} suplemento(s), ${result.policies} política(s), ${result.blackoutDates} fecha(s) especial(es) y ${result.activities} actividad(es).`,
+        `Candidatos revisables creados: ${result.accommodations} alojamiento(s), ${result.rates} tarifa(s), ${result.adjustments} suplemento(s), ${result.policies} política(s), ${result.blackoutDates} fecha(s) especial(es) y ${result.activities} actividad(es).${mockNote}`,
       );
       await refreshDetail(selectedDocumentId);
     } catch (error) {
@@ -2808,6 +2812,15 @@ export function InventoryDocumentsPanel() {
                       </p>
                     </div>
                   </div>
+
+                  {aiResult.mode === "mock" ? (
+                    <div className="alert alert--warning" role="status">
+                      Análisis en modo MOCK: no se usó IA real (falta configurar la clave del
+                      proveedor, p. ej. <code>ANTHROPIC_API_KEY</code>). Los candidatos son de
+                      ejemplo y no reflejan el contenido del documento. Configura la clave en el{" "}
+                      <code>.env</code> y vuelve a analizar para extraer datos reales.
+                    </div>
+                  ) : null}
 
                   <div className="field">
                     <span>Resumen</span>
