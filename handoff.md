@@ -271,18 +271,29 @@ ambos pases: pendiente de que el usuario abra la app (`npm run dev`)**; no hay n
 (el Chromium de Playwright/gstack quedó bloqueado por el proxy). Si algún ajuste visual no convence
 (p. ej. el restyle de los `<button>` sin clase), es CSS y se afina rápido.
 
-## Rediseño visual (EN CURSO)
+## Rediseño visual — "Consola de operaciones" (HECHO, commit posterior a `8b5c3da`)
 
-El usuario pidió un **rediseño visual completo** (no solo pulido), manteniendo el objetivo: una
-herramienta **operativa interna** para (1) importar tarifas desde PDFs con IA → revisar → publicar
-al inventario, y (2) el flujo comercial (solicitud → propuesta → CRM Zoho). Restricciones: no
-romper funcionalidad ni flujos; español neutro; densidad de datos alta (tablas, muchos registros).
+El usuario eligió la **Dirección A: Consola de operaciones** (claro, denso, profesional) entre 3
+propuestas. Objetivo intacto (herramienta operativa interna: documental + comercial). Solo CSS
+(`src/styles.css`); funcionalidad y flujos sin tocar. Validado por captura (Edge headless).
 
-Estado: **propuesta de dirección presentada en chat** (color/tipografía/layout/identidad); pendiente
-de que el usuario elija la dirección antes de implementar. Cuando se acuerde, documentar aquí la
-decisión (tokens, tema claro/oscuro, sistema de componentes) y aplicar por incrementos verificados
-con captura (Edge headless, ver "Validación visual"). Base de partida ya tiene tokens en `:root`
-(`--brand/--accent/--ink/--muted/--radius/--shadow/--ease-out`) sobre los que apoyar el rediseño.
+Qué se hizo:
+- **Tokens ampliados** en `:root`: paleta slate (`--bg/--surface/--surface-2/--ink/--ink-2/--muted`),
+  marca (`--brand/--brand-700/--brand-050`), acento (`--accent`), y **estados** con tinte de fondo
+  (`--ok/--warn/--danger/--info` + `*-bg`); radios (10/14), sombras (`--shadow-sm/--shadow`),
+  `font-variant-numeric: tabular-nums` en datos.
+- **Sidebar**: 264px, fondo de marca, ítem activo con barra de acento verde (`box-shadow: inset 3px`)
+  — se eliminó el sand cálido `#f2c17d`; estados hover.
+- **Tablas densas** (`table:not(.rate-table)`): contenedor `.table-wrap` con borde/radio; `thead th`
+  sticky en mayúsculas + muted; zebra (`tr:nth-child(even)`); hover de fila. `.rate-table` conserva
+  su estilo propio.
+- **status-tag** con punto de estado (`::before`) para lectura rápida; `status-pill`/`alert`
+  tokenizados a estados.
+- **Cards** más planas (`--radius-lg`, `--shadow-sm`).
+
+Próximos refinamientos visuales posibles (no hechos): escala tipográfica más marcada en titulares
+de sección; estilizar el texto de la columna "Estado" como pill; revisar densidad de la
+`.rate-table` para alinearla al nuevo sistema; modo oscuro como variante (Dirección C) si se quisiera.
 
 ## Pendiente clave: extraer el workspace del documento (DIFERIDO a propósito)
 
