@@ -10,6 +10,23 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Sistema de diseño (tokens). Estrategia de color "restrained":
+     neutros + marca azul-petróleo + un acento verde de acción. */
+  --bg: #eef2f5;
+  --surface: #ffffff;
+  --ink: #13232f;
+  --muted: #4c6775;
+  --brand: #083444;
+  --accent: #127452;
+  --border: rgba(19, 35, 47, 0.1);
+  --border-strong: rgba(19, 35, 47, 0.16);
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  --shadow: 0 1px 2px rgba(16, 40, 54, 0.05), 0 4px 10px rgba(16, 40, 54, 0.04);
+  /* Curva ease-out fuerte (Emil Kowalski): arranca rápido, se siente responsiva. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 * {
@@ -29,14 +46,38 @@ select {
   font: inherit;
 }
 
+/* Botón base (secundario): unifica los muchos <button> sin clase que antes
+   usaban el estilo gris por defecto del navegador. Las clases específicas
+   (.primary, .button--primary, .link-action, .ws-tab, .steps__item, etc.)
+   tienen mayor especificidad y conservan su aspecto. */
 button {
   cursor: pointer;
+  font-weight: 600;
+  color: var(--brand);
+  background: #e7eef2;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 14px;
   transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.15s ease,
-    filter 0.15s ease;
+    background-color 0.16s var(--ease-out),
+    border-color 0.16s var(--ease-out),
+    color 0.16s var(--ease-out),
+    transform 0.12s var(--ease-out),
+    filter 0.16s var(--ease-out);
+}
+
+button:hover {
+  background: #dbe6ec;
+}
+
+/* Feedback de pulsación (Emil): el botón "responde" al click. */
+button:active {
+  transform: scale(0.97);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* Accesibilidad: anillo de foco visible y consistente para teclado. */
@@ -90,6 +131,18 @@ button {
 .proposal-layout h3 {
   font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
   margin: 0;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+/* Prosa legible: limita el ancho de línea y reduce huérfanas. */
+.section-card__header p,
+.helper-text,
+.info-panel p,
+.review-block p,
+.empty-state p {
+  max-width: 72ch;
+  text-wrap: pretty;
 }
 
 .brand-block p,
@@ -297,11 +350,21 @@ button {
 .field textarea,
 .field select {
   width: 100%;
-  border: 1px solid rgba(19, 35, 47, 0.15);
-  background: rgba(255, 255, 255, 0.88);
-  border-radius: 14px;
+  border: 1px solid var(--border-strong);
+  background: #ffffff;
+  border-radius: var(--radius);
   padding: 12px 14px;
-  color: #13232f;
+  color: var(--ink);
+  transition: border-color 0.16s var(--ease-out), box-shadow 0.16s var(--ease-out);
+}
+
+.field input:focus,
+.field textarea:focus,
+.field select:focus,
+.doc-search:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(18, 116, 82, 0.15);
 }
 
 .field textarea {
@@ -324,9 +387,31 @@ button {
   cursor: not-allowed;
 }
 
-.button--primary {
-  background: #083444;
+.button--primary,
+.primary {
+  background: var(--brand);
   color: #f7fbfc;
+  border: 1px solid var(--brand);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-weight: 700;
+}
+
+.button--primary:hover,
+.primary:hover {
+  background: #0a3f53;
+}
+
+/* Contenedor de apilado (faltaba): grupos de botones/acciones. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.stack.compact {
+  gap: 8px;
 }
 
 .action-row {
@@ -537,6 +622,8 @@ button {
 
 .actions-row {
   display: flex;
+  flex-direction: row;
+  align-items: center;
   flex-wrap: wrap;
   gap: 10px;
 }
