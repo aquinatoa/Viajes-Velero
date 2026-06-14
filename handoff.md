@@ -9,9 +9,9 @@
 > Trabajo reciente commiteado en la rama `feat/documental-review-workspace` y **subido a GitHub**:
 > remoto `origin` = `https://github.com/aquinatoa/Viajes-Velero` (ramas `main` y
 > `feat/documental-review-workspace` empujadas). Commits clave (más reciente arriba):
-> `8b5c3da` validación visual + fix · `2815cc1` pase de craft (tokens/botones/tipografía) ·
-> `d58dbcc` pulido de frontend · `f6b9ef6` Opción B 2/2 (frontend comercial) ·
-> `d3497ee` Opción B 1/2 (backend comercial) · `33dd035` ampliación del módulo documental.
+> `bd3f909` autenticación/roles/auditoría · rediseño visual "Consola de operaciones" ·
+> Opción B (flujo comercial a BD real) · pulido+craft de frontend · `33dd035` módulo documental.
+> (Historial completo en `git log`.)
 >
 > El flujo comercial (Nuevo/Existente) ya **persiste en la BD real** (no mock); falta verificarlo
 > end-to-end con Zoho + navegador (ver "Opción B"). El frontend recibió dos pases (pulido + craft),
@@ -88,14 +88,20 @@ El flujo nunca publica automáticamente. La revisión humana es obligatoria.
 
 ## Navegación del app
 
-Sidebar con 3 páginas (`src/components/Sidebar.tsx`, `src/App.tsx`):
+La app exige **login** (ver "Autenticación y roles"). Tras entrar, `App.tsx` muestra el shell con
+sidebar (`src/components/Sidebar.tsx`). Las páginas (`Page` se exporta desde `Sidebar.tsx`) se
+**gatean por rol**:
 
-- **Nuevo registro** y **Existente**: flujos comerciales (solicitud → propuesta → CRM Zoho). No
-  tocados en este trabajo. Usan `/api/search/accommodations` y `/api/search/activities`.
-- **Inventario documental** (id de página `"inventory"`, antes `"mcp"`): renderiza solo
-  `<InventoryDocumentsPanel />`. Tiene un toggle interno "Documentos" / "Catálogo publicado".
-  El bloque de importación masiva por Excel y el explorador "Ver todo lo importado" se eliminaron
-  del app (ver "Cambios recientes").
+- **Nuevo registro** y **Existente** (ambos roles): flujos comerciales (solicitud → propuesta →
+  CRM Zoho). Ya **persisten en BD real** (ver "Opción B"). Usan `/api/commercial/*`,
+  `/api/search/*`, `/api/crm/*`.
+- **Inventario documental** (solo ADMIN; id `"inventory"`, antes `"mcp"`): `<InventoryDocumentsPanel />`
+  con toggle interno "Documentos" / "Catálogo publicado".
+- **Usuarios y permisos** y **Auditoría** (solo ADMIN): `components/admin/UsersPanel.tsx` y
+  `AuditPanel.tsx`.
+
+El **Usuario** (rol USER) solo ve *Nuevo registro* y *Existente*. El pie del sidebar muestra el
+usuario y "Cerrar sesión".
 
 ## Modelo de datos (Prisma, `prisma/schema.prisma`)
 
@@ -415,7 +421,7 @@ git status
 npm.cmd run build                 # tsc -b && vite build
 npm.cmd run test                  # pruebas del flujo documental (BD SQLite temporal)
 taskkill /F /IM node.exe          # liberar :8787 / DLL de Prisma
-npm.cmd run dev                   # API :8787 + Vite :5173
+npm.cmd run dev                   # API :8787 + Vite :5173 (la app PIDE LOGIN; admin desde .env)
 npm.cmd run prisma:push           # db push aditivo (no reset)
 npm.cmd run prisma:generate       # con la API detenida si da EPERM
 npm.cmd run prisma:import-rates   # (CLI) resembrar base desde Excel, si hiciera falta
