@@ -18,10 +18,41 @@
 > validados por captura con Edge headless (ver "Frontend" y "Validación visual"). Pendiente
 > estructural: extraer el workspace del documento (#11).
 >
-> **EN CURSO (decidido por el usuario): rediseño visual completo** del frontend, manteniendo el
-> objetivo funcional (herramienta operativa interna: documental + comercial). Hasta ahora solo se
-> hizo pulido/craft incremental sobre el estilo existente; ahora se acordó un rediseño de la capa
-> visual (identidad, color, tipografía, layout, componentes). Ver "Rediseño visual (propuesta)".
+> Rediseño visual aplicado (Dirección A "Consola de operaciones"). **La app ahora requiere LOGIN**
+> con roles (ADMIN/USER) y registra auditoría. Ver "Autenticación y roles".
+
+## Autenticación y roles (RBAC) + auditoría — HECHO
+
+La app exige **login** (operadores internos). Verificado por captura y pruebas de API.
+
+- **Modelos** (Prisma): `User` (email único, passwordHash/Salt, role, isActive), `AuthToken`
+  (sesión, 12h), `AuditLog`. Enum `UserRole { ADMIN USER }`.
+- **`server/auth.ts`**: hash `scrypt` (nativo, sin deps), tokens opacos, middleware
+  `requireAuth`/`requireRole`, `writeAudit`/`listAuditLog`, y `ensureAdminFromEnv()` (crea el admin
+  inicial al arrancar desde `ADMIN_EMAIL`/`ADMIN_PASSWORD` del `.env`; no sobreescribe si ya existe).
+- **Rutas**: `/api/auth/login|logout|me`, `/api/auth/users` (CRUD, ADMIN), `/api/audit` (ADMIN).
+  Guardas por prefijo en `index.ts`: **`/api/inventory` = solo ADMIN**; `/api/commercial`,
+  `/api/search`, `/api/crm` = requieren sesión (ambos roles). `/api/auth/login` y `/api/health`
+  públicos. **El backend es la fuente de verdad del acceso** (la UI solo oculta).
+- **Roles**: **ADMIN** = todo. **USER** = solo el flujo comercial (*Nuevo registro* + *Existente*);
+  sin Inventario/Usuarios/Auditoría (403 en backend + ocultos en sidebar).
+- **Auditoría**: login/logout, crear/editar usuario, publicar/retirar/borrar documento, crear
+  oportunidad CRM. Vista admin en "Auditoría".
+- **Frontend**: `apiClient` envía `Authorization: Bearer`, maneja 401 global (evento
+  `velero:unauthenticated` → vuelve al login). `LoginPage`, estado de sesión en `App.tsx`, gating del
+  sidebar por rol, "Cerrar sesión". Paneles admin: `components/admin/UsersPanel.tsx`,
+  `components/admin/AuditPanel.tsx`.
+
+**Credenciales/setup (IMPORTANTE):**
+- El admin inicial se define en `.env`: `ADMIN_EMAIL` / `ADMIN_PASSWORD` (placeholders en
+  `.env.example`). En el `.env` local de desarrollo se dejó un admin temporal
+  `admin@viajesvelero.com` / `velero-admin-2026` — **CAMBIAR**. También hay un usuario de prueba
+  `ana@viajesvelero.com` / `usuario-2026` (rol USER) creado para validar; bórralo/cámbialo.
+- **Cambiar `ADMIN_PASSWORD` en `.env`** y las contraseñas de prueba antes de uso real.
+- Flujo de dev: al arrancar `npm run dev`, hay que **iniciar sesión** para ver la app.
+
+Pendientes/ideas futuras de auth (no hechas): "cambiar mi contraseña" para el propio usuario;
+expiración/refresh de token más fina; rate-limiting del login; ampliar auditoría a más acciones.
 
 ## Goal we are working toward
 
