@@ -3,13 +3,18 @@ import type {
   CreateSourceDocumentInput,
   BulkReviewResult,
   CreateStagingResult,
+  DeleteDocumentResult,
+  DryRunDeleteDocumentResult,
   DryRunPublishResult,
   DryRunUnpublishResult,
   InventoryDocumentDetail,
   PublishApprovedResult,
+  PublishedInventoryCatalog,
   PublishedInventorySummary,
+  PublishedItemKind,
   SourceDocumentSummary,
   StagingEntityKey,
+  UnpublishItemResult,
   UnpublishResult,
 } from "../domain/documentImportTypes";
 import type { SearchFilters } from "../domain/types";
@@ -101,6 +106,16 @@ async function patchJson<T>(
     },
     body: JSON.stringify(payload),
   });
+
+  if (!response.ok) {
+    await parseErrorResponse(response, fallbackError);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+async function deleteJson<T>(path: string, fallbackError: string): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, { method: "DELETE" });
 
   if (!response.ok) {
     await parseErrorResponse(response, fallbackError);
@@ -301,5 +316,57 @@ export function unpublishInventoryDocumentApi(documentId: string) {
     `/api/inventory/documents/${encodeURIComponent(documentId)}/unpublish`,
     {},
     "No se pudo retirar la publicación del documento.",
+  );
+}
+
+// Editar metadatos del documento (nombre, ubicación, año, categoría, notas).
+export function updateInventoryDocumentApi(
+  documentId: string,
+  patch: Partial<CreateSourceDocumentInput>,
+) {
+  return patchJson<SourceDocumentSummary>(
+    `/api/inventory/documents/${encodeURIComponent(documentId)}`,
+    patch,
+    "No se pudo actualizar el documento.",
+  );
+}
+
+// Quitar el archivo asociado a un documento (corregir una subida equivocada).
+export function removeInventoryDocumentFileApi(documentId: string) {
+  return deleteJson<InventoryDocumentDetail>(
+    `/api/inventory/documents/${encodeURIComponent(documentId)}/file`,
+    "No se pudo quitar el archivo del documento.",
+  );
+}
+
+// Simulación de borrado del documento (dry-run): GET de solo lectura.
+export function dryRunDeleteInventoryDocumentApi(documentId: string) {
+  return getJson<DryRunDeleteDocumentResult>(
+    `/api/inventory/documents/${encodeURIComponent(documentId)}/delete/dry-run`,
+    "No se pudo simular el borrado del documento.",
+  );
+}
+
+// Borrado real del documento (DELETE). Bloqueado si tiene registros publicados.
+export function deleteInventoryDocumentApi(documentId: string) {
+  return deleteJson<DeleteDocumentResult>(
+    `/api/inventory/documents/${encodeURIComponent(documentId)}`,
+    "No se pudo borrar el documento.",
+  );
+}
+
+// Catálogo global del inventario publicado (todos los documentos), solo lectura.
+export function getInventoryCatalogApi() {
+  return getJson<PublishedInventoryCatalog>(
+    "/api/inventory/catalog",
+    "No se pudo obtener el catálogo del inventario.",
+  );
+}
+
+// Retirada granular: DELETE de un registro publicado concreto (o una tarifa).
+export function unpublishPublishedItemApi(kind: PublishedItemKind, id: string) {
+  return deleteJson<UnpublishItemResult>(
+    `/api/inventory/published/${kind}/${encodeURIComponent(id)}`,
+    "No se pudo retirar el registro del inventario.",
   );
 }

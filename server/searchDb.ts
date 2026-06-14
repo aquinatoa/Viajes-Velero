@@ -12,6 +12,27 @@ import type {
 
 const prisma = new PrismaClient();
 
+/**
+ * Carga, en una sola consulta, los nombres de control de los documentos de
+ * origen referenciados por un conjunto de registros operativos. Devuelve un
+ * mapa id → controlName para resolver la trazabilidad sin N+1.
+ */
+async function loadSourceDocumentNames(
+  ids: (string | null | undefined)[]
+): Promise<Map<string, string>> {
+  const uniqueIds = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+  if (uniqueIds.length === 0) {
+    return new Map();
+  }
+
+  const documents = await prisma.sourceDocument.findMany({
+    where: { id: { in: uniqueIds } },
+    select: { id: true, controlName: true }
+  });
+
+  return new Map(documents.map((document) => [document.id, document.controlName]));
+}
+
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
@@ -181,6 +202,10 @@ export async function searchAccommodationsDb(
     }
   });
 
+  const documentNames = await loadSourceDocumentNames(
+    accommodations.map((accommodation) => accommodation.sourceDocumentId)
+  );
+
   const matches: AccommodationSearchMatch[] = accommodations
     .flatMap((accommodation) =>
       accommodation.rates.map((rate) => {
@@ -195,7 +220,11 @@ export async function searchAccommodationsDb(
             observations: accommodation.observations ?? "",
             conditionsText: accommodation.conditionsText ?? "",
             freePolicy: accommodation.freePolicy ?? "",
-            sourceFile: accommodation.sourceFile ?? ""
+            sourceFile: accommodation.sourceFile ?? "",
+            sourceDocumentId: accommodation.sourceDocumentId ?? "",
+            sourceDocumentName: accommodation.sourceDocumentId
+              ? documentNames.get(accommodation.sourceDocumentId) ?? ""
+              : ""
           },
           rate: {
             id: rate.id,
@@ -264,6 +293,10 @@ export async function searchActivitiesDb(
     }
   });
 
+  const documentNames = await loadSourceDocumentNames(
+    activities.map((activity) => activity.sourceDocumentId)
+  );
+
   const matches: ActivitySearchMatch[] = activities
     .flatMap((activity) =>
       activity.rates.map((rate) => {
@@ -276,7 +309,11 @@ export async function searchActivitiesDb(
             locationMain: activity.locationMain ?? "",
             durationText: activity.durationText ?? "",
             descriptionText: activity.descriptionText ?? "",
-            sourceFile: activity.sourceFile ?? ""
+            sourceFile: activity.sourceFile ?? "",
+            sourceDocumentId: activity.sourceDocumentId ?? "",
+            sourceDocumentName: activity.sourceDocumentId
+              ? documentNames.get(activity.sourceDocumentId) ?? ""
+              : ""
           },
           rate: {
             id: rate.id,
@@ -315,91 +352,5 @@ export async function searchActivitiesDb(
         : warnings,
     missingFields,
     status: matches.length > 0 ? "ok" : "no_matches"
-  };
-}
-
-export async function getInventorySummaryDb() {
-  const [accommodations, accommodationRates, activities, activityRates] = await Promise.all([
-    prisma.accommodation.count(),
-    prisma.accommodationRate.count(),
-    prisma.activity.count(),
-    prisma.activityRate.count()
-  ]);
-
-  return {
-    accommodations,
-    accommodationRates,
-    activities,
-    activityRates
-  };
-}
-
-export async function getImportedCatalogDb() {
-  const [accommodations, activities] = await Promise.all([
-    prisma.accommodation.findMany({
-      include: {
-        rates: {
-          orderBy: [{ year: "asc" }, { seasonName: "asc" }]
-        }
-      },
-      orderBy: [{ locality: "asc" }, { accommodationName: "asc" }]
-    }),
-    prisma.activity.findMany({
-      include: {
-        rates: {
-          orderBy: [{ year: "asc" }, { ageMin: "asc" }]
-        }
-      },
-      orderBy: [{ locationMain: "asc" }, { activityName: "asc" }]
-    })
-  ]);
-
-  return {
-    accommodations: accommodations.map((accommodation) => ({
-      id: accommodation.id,
-      accommodationName: accommodation.accommodationName,
-      locality: accommodation.locality,
-      categoryType: accommodation.categoryType ?? "",
-      accommodationType: accommodation.accommodationType ?? "",
-      observations: accommodation.observations ?? "",
-      conditionsText: accommodation.conditionsText ?? "",
-      freePolicy: accommodation.freePolicy ?? "",
-      sourceFile: accommodation.sourceFile ?? "",
-      rates: accommodation.rates.map((rate) => ({
-        id: rate.id,
-        year: rate.year,
-        seasonName: rate.seasonName ?? "",
-        dateFrom: rate.dateFrom ? rate.dateFrom.toISOString().slice(0, 10) : "",
-        dateTo: rate.dateTo ? rate.dateTo.toISOString().slice(0, 10) : "",
-        minNights: rate.minNights ?? null,
-        boardType: rate.boardType ?? "",
-        tariffUnit: rate.tariffUnit ?? "",
-        pvpAmount: Number(rate.pvpAmount ?? 0),
-        netSaleAmount: Number(rate.netSaleAmount ?? 0),
-        netAzulmarinoAmount: Number(rate.netAzulmarinoAmount ?? 0),
-        sourceSheet: rate.sourceSheet ?? ""
-      }))
-    })),
-    activities: activities.map((activity) => ({
-      id: activity.id,
-      activityName: activity.activityName,
-      supplierName: activity.supplierName ?? "",
-      locationMain: activity.locationMain ?? "",
-      durationText: activity.durationText ?? "",
-      descriptionText: activity.descriptionText ?? "",
-      sourceFile: activity.sourceFile ?? "",
-      rates: activity.rates.map((rate) => ({
-        id: rate.id,
-        year: rate.year,
-        ageLabel: rate.ageLabel ?? "",
-        ageMin: rate.ageMin,
-        ageMax: rate.ageMax,
-        salePvpAmount: Number(rate.salePvpAmount ?? 0),
-        costNetAmount: Number(rate.costNetAmount ?? 0),
-        commissionPercent: Number(rate.commissionPercent ?? 0),
-        durationText: rate.durationText ?? "",
-        sourceSheet: rate.sourceSheet ?? ""
-      }))
-    }))
   };
 }

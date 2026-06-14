@@ -134,6 +134,9 @@ export interface Accommodation {
   conditionsText: string;
   freePolicy: string;
   sourceFile: string;
+  /** Trazabilidad: documento del que se publicó este alojamiento (si aplica). */
+  sourceDocumentId?: string;
+  sourceDocumentName?: string;
 }
 
 export interface AccommodationRate {
@@ -162,6 +165,9 @@ export interface Activity {
   durationText: string;
   descriptionText: string;
   sourceFile: string;
+  /** Trazabilidad: documento del que se publicó esta actividad (si aplica). */
+  sourceDocumentId?: string;
+  sourceDocumentName?: string;
 }
 
 export interface ActivityRate {

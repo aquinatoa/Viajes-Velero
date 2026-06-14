@@ -9,6 +9,8 @@ dist/
 *.tsbuildinfo
 
 prisma/dev.db
+prisma/test-flow.db*
 rae-zoho-migration/
 storage/
 .claude/
+.gstack/

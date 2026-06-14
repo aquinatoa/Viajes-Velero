@@ -38,7 +38,7 @@ import {
   searchActivitiesApi,
 } from "./services/apiClient";
 
-type Page = "new" | "existing" | "mcp";
+type Page = "new" | "existing" | "inventory";
 
 const initialRequestForm: ParseTripRequestInput = {
   clientType: "new",
@@ -195,7 +195,7 @@ export function App() {
     setNewStep(1);
   };
 
-  const handleNavigate = (page: "new" | "existing" | "mcp") => {
+  const handleNavigate = (page: "new" | "existing" | "inventory") => {
     setCurrentPage(page);
     setUiError("");
     setUiMessage("");
@@ -811,6 +811,14 @@ export function App() {
                             <span>
                               {match.accommodation.locality} • {match.accommodation.categoryType} • {match.rate.boardType}
                             </span>
+                            {match.accommodation.sourceDocumentName ? (
+                              <span
+                                className="origin-tag"
+                                title="Publicado desde un documento de tarifas"
+                              >
+                                Origen: {match.accommodation.sourceDocumentName}
+                              </span>
+                            ) : null}
                             <small>Score {match.score} · {match.matchReasons.join(" ")}</small>
                           </button>
                         );
@@ -839,6 +847,11 @@ export function App() {
                                 key={`${optionNumber}-${match.activity.id}`}
                                 className={`chip ${active ? "chip--active" : ""}`}
                                 onClick={() => toggleActivityForOption(optionNumber, match.activity.id)}
+                                title={
+                                  match.activity.sourceDocumentName
+                                    ? `Origen: ${match.activity.sourceDocumentName}`
+                                    : undefined
+                                }
                               >
                                 {match.activity.activityName}
                               </button>
@@ -994,7 +1007,7 @@ export function App() {
           </div>
         ) : null}
 
-        {currentPage === "mcp" ? (
+        {currentPage === "inventory" ? (
           <div className="content-grid">
             <InventoryDocumentsPanel />
           </div>

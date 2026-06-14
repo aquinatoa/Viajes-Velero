@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   AiDocumentAnalysisResult,
   CreateSourceDocumentInput,
   DocumentExtraction,
+  DryRunDeleteDocumentResult,
   DryRunPublishResult,
   DryRunUnpublishResult,
   ImportIssue,
@@ -10,6 +11,7 @@ import type {
   InventoryTargetType,
   PublishApprovedResult,
   PublishedInventorySummary,
+  PublishedItemKind,
   SourceDocumentSummary,
   StagingEntityKey,
   StagingReviewStatus,
@@ -21,17 +23,45 @@ import {
   bulkUpdateInventoryStagingApi,
   createInventoryDocumentApi,
   createInventoryDocumentStagingApi,
+  deleteInventoryDocumentApi,
+  dryRunDeleteInventoryDocumentApi,
   dryRunPublishApprovedInventoryDocumentApi,
   dryRunUnpublishInventoryDocumentApi,
   getInventoryDocumentApi,
   getPublishedInventoryByDocumentApi,
   listInventoryDocumentsApi,
-  patchInventoryStagingApi,
   publishApprovedInventoryDocumentApi,
   regenerateInventoryDocumentStagingApi,
+  removeInventoryDocumentFileApi,
   unpublishInventoryDocumentApi,
+  unpublishPublishedItemApi,
+  updateInventoryDocumentApi,
   uploadInventoryDocumentFileApi,
 } from "../../services/apiClient";
+import { InventoryCatalogView } from "./InventoryCatalogView";
+import {
+  formatAmount,
+  getErrorMessage,
+  stagingReviewStatusLabels,
+} from "./inventoryFormatting";
+import {
+  accommodationAdjustmentFields,
+  accommodationBlackoutFields,
+  accommodationFields,
+  accommodationPolicyFields,
+  accommodationRateColumns,
+  accommodationRateFields,
+  activityFields,
+  activityPolicyFields,
+  activityRateColumns,
+  activityRateFields,
+  adjustmentColumns,
+  blackoutColumns,
+  policyColumns,
+  RateReviewTable,
+  StagingEditableCard,
+  type CandidateItem,
+} from "./RateReviewTable";
 
 const targetTypeLabels: Record<InventoryTargetType, string> = {
   ACCOMMODATION: "Alojamiento",
@@ -117,27 +147,6 @@ function formatFileSize(bytes?: number | null) {
   return `${(kilobytes / 1024).toFixed(2)} MB`;
 }
 
-function getErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
-}
-
-const currencySymbols: Record<string, string> = {
-  EUR: "€",
-  USD: "$",
-  GBP: "£",
-};
-
-/** Formatea un importe con dos decimales en formato español y su moneda. */
-function formatAmount(amount: number, currency?: string | null): string {
-  const formatted = new Intl.NumberFormat("es-ES", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
-  const code = (currency ?? "EUR").trim().toUpperCase() || "EUR";
-  const symbol = currencySymbols[code];
-  return symbol ? `${formatted} ${symbol}` : `${formatted} ${code}`;
-}
-
 interface AnnotatedExtraction {
   extraction: DocumentExtraction;
   isCurrentText: boolean;
@@ -167,20 +176,6 @@ function annotateExtractions(extractions: DocumentExtraction[]): AnnotatedExtrac
     };
   });
 }
-
-const stagingReviewStatusLabels: Record<string, string> = {
-  PENDING: "Pendiente",
-  APPROVED: "Aprobado",
-  REJECTED: "Rechazado",
-  NEEDS_CHANGES: "Requiere cambios",
-};
-
-const stagingReviewStatusOptions: { value: StagingReviewStatus; label: string }[] = [
-  { value: "PENDING", label: "Pendiente" },
-  { value: "APPROVED", label: "Aprobado" },
-  { value: "REJECTED", label: "Rechazado" },
-  { value: "NEEDS_CHANGES", label: "Requiere cambios" },
-];
 
 const reviewStatusOrder: StagingReviewStatus[] = [
   "PENDING",
@@ -628,617 +623,6 @@ function QualityControlPanel(props: QualityControlPanelProps) {
   );
 }
 
-type StagingFieldType = "text" | "number" | "date";
-
-interface StagingFieldDef {
-  key: string;
-  label: string;
-  type: StagingFieldType;
-}
-
-const accommodationFields: StagingFieldDef[] = [
-  { key: "accommodationName", label: "Nombre", type: "text" },
-  { key: "locality", label: "Localidad", type: "text" },
-  { key: "province", label: "Provincia", type: "text" },
-  { key: "categoryType", label: "Categoría", type: "text" },
-  { key: "accommodationType", label: "Tipo", type: "text" },
-  { key: "providerName", label: "Proveedor", type: "text" },
-];
-
-const accommodationRateFields: StagingFieldDef[] = [
-  { key: "seasonName", label: "Temporada", type: "text" },
-  { key: "year", label: "Año", type: "number" },
-  { key: "dateFrom", label: "Fecha inicio", type: "date" },
-  { key: "dateTo", label: "Fecha fin", type: "date" },
-  { key: "boardType", label: "Régimen", type: "text" },
-  { key: "minNights", label: "Noches mínimas", type: "number" },
-  { key: "occupancyLabel", label: "Ocupación", type: "text" },
-  { key: "pvpAmount", label: "Precio PVP", type: "number" },
-  { key: "netAmount", label: "Precio neto", type: "number" },
-  { key: "costAmount", label: "Coste", type: "number" },
-  { key: "currency", label: "Moneda", type: "text" },
-];
-
-const accommodationAdjustmentFields: StagingFieldDef[] = [
-  { key: "adjustmentType", label: "Tipo", type: "text" },
-  { key: "concept", label: "Concepto", type: "text" },
-  { key: "amountType", label: "Tipo de importe", type: "text" },
-  { key: "amount", label: "Importe", type: "number" },
-  { key: "appliesPer", label: "Aplica por", type: "text" },
-  { key: "conditionText", label: "Condición", type: "text" },
-];
-
-const accommodationPolicyFields: StagingFieldDef[] = [
-  { key: "policyType", label: "Tipo", type: "text" },
-  { key: "policyText", label: "Texto", type: "text" },
-];
-
-const accommodationBlackoutFields: StagingFieldDef[] = [
-  { key: "dateFrom", label: "Fecha inicio", type: "date" },
-  { key: "dateTo", label: "Fecha fin", type: "date" },
-  { key: "availabilityStatus", label: "Disponibilidad", type: "text" },
-  { key: "reason", label: "Motivo", type: "text" },
-];
-
-const activityFields: StagingFieldDef[] = [
-  { key: "activityName", label: "Nombre", type: "text" },
-  { key: "supplierName", label: "Proveedor", type: "text" },
-  { key: "locationMain", label: "Ubicación", type: "text" },
-  { key: "activityType", label: "Tipo", type: "text" },
-  { key: "durationText", label: "Duración", type: "text" },
-  { key: "descriptionText", label: "Descripción", type: "text" },
-];
-
-const activityRateFields: StagingFieldDef[] = [
-  { key: "seasonName", label: "Temporada", type: "text" },
-  { key: "year", label: "Año", type: "number" },
-  { key: "dateFrom", label: "Fecha inicio", type: "date" },
-  { key: "dateTo", label: "Fecha fin", type: "date" },
-  { key: "ageLabel", label: "Edad", type: "text" },
-  { key: "salePvpAmount", label: "Precio PVP", type: "number" },
-  { key: "costNetAmount", label: "Coste neto", type: "number" },
-  { key: "currency", label: "Moneda", type: "text" },
-];
-
-const activityPolicyFields: StagingFieldDef[] = [
-  { key: "policyType", label: "Tipo", type: "text" },
-  { key: "policyText", label: "Texto", type: "text" },
-];
-
-interface StagingEditableCardProps {
-  entity: StagingEntityKey;
-  id: string;
-  title: string;
-  fields: StagingFieldDef[];
-  values: object;
-  reviewStatus: string;
-  rawText?: string | null;
-  structuredJson?: unknown;
-  summary?: React.ReactNode;
-  /** Si true, la tarjeta se muestra plegada (resumen en una línea, editar al expandir). */
-  collapsible?: boolean;
-  onSaved: () => Promise<void> | void;
-}
-
-function StagingEditableCard(props: StagingEditableCardProps) {
-  const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => {
-    const sourceValues = props.values as Record<string, unknown>;
-    const initial: Record<string, string> = {};
-    for (const field of props.fields) {
-      const value = sourceValues[field.key];
-      if (value === null || value === undefined) {
-        initial[field.key] = "";
-      } else if (field.type === "date") {
-        initial[field.key] = String(value).slice(0, 10);
-      } else {
-        initial[field.key] = String(value);
-      }
-    }
-    return initial;
-  });
-  const [status, setStatus] = useState<string>(props.reviewStatus || "PENDING");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-
-  // Re-sincroniza el estado mostrado cuando cambia desde fuera (acciones en
-  // lote, regeneración, refresco): la tarjeta se reutiliza por su key y el
-  // useState inicial no se vuelve a ejecutar.
-  useEffect(() => {
-    setStatus(props.reviewStatus || "PENDING");
-    setSaved(false);
-  }, [props.reviewStatus]);
-
-  async function handleSave() {
-    setError(null);
-    setSaved(false);
-
-    for (const field of props.fields) {
-      const raw = fieldValues[field.key] ?? "";
-      if (field.type === "number" && raw.trim() !== "" && !Number.isFinite(Number(raw))) {
-        setError(`El campo ${field.label} debe ser numérico.`);
-        return;
-      }
-    }
-
-    setSaving(true);
-    try {
-      const patch: Record<string, unknown> = { reviewStatus: status };
-      for (const field of props.fields) {
-        const raw = (fieldValues[field.key] ?? "").trim();
-        if (field.type === "number") {
-          patch[field.key] = raw === "" ? null : Number(raw);
-        } else if (field.type === "date") {
-          patch[field.key] = raw === "" ? null : raw;
-        } else {
-          patch[field.key] = raw;
-        }
-      }
-
-      await patchInventoryStagingApi(props.entity, props.id, patch);
-      setSaved(true);
-      await props.onSaved();
-    } catch (saveError) {
-      setError(getErrorMessage(saveError, "No se pudo guardar el candidato."));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const statusLabel = stagingReviewStatusLabels[status] ?? status;
-  const statusClass = `staging-card__status staging-card__status--${status.toLowerCase()}`;
-
-  const editableBody = (
-    <>
-      <div className="grid two">
-        {props.fields.map((field) => (
-          <label className="field" key={field.key}>
-            <span>{field.label}</span>
-            <input
-              type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
-              value={fieldValues[field.key] ?? ""}
-              onChange={(event) =>
-                setFieldValues((current) => ({
-                  ...current,
-                  [field.key]: event.target.value,
-                }))
-              }
-            />
-          </label>
-        ))}
-
-        <label className="field">
-          <span>Estado de revisión</span>
-          <select value={status} onChange={(event) => setStatus(event.target.value)}>
-            {stagingReviewStatusOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      {props.rawText ? (
-        <>
-          <span className="ai-result__label">Texto de origen</span>
-          <pre className="extraction-text">{props.rawText}</pre>
-        </>
-      ) : null}
-
-      {props.structuredJson ? (
-        <>
-          <span className="ai-result__label">Datos estructurados</span>
-          <pre className="extraction-text">{JSON.stringify(props.structuredJson, null, 2)}</pre>
-        </>
-      ) : null}
-
-      {error ? (
-        <div className="alert alert--error" role="alert">
-          {error}
-        </div>
-      ) : null}
-
-      {saved ? <small>Cambios guardados.</small> : null}
-
-      <button type="button" disabled={saving} onClick={() => void handleSave()}>
-        {saving ? "Guardando..." : "Guardar candidato"}
-      </button>
-    </>
-  );
-
-  if (props.collapsible) {
-    return (
-      <details className="staging-card staging-card--collapsible">
-        <summary className="staging-card__summary-row">
-          <span className="staging-card__title">{props.title}</span>
-          {props.summary ? (
-            <span className="staging-card__summary-inline">{props.summary}</span>
-          ) : null}
-          <span className={statusClass}>{statusLabel}</span>
-        </summary>
-        <div className="staging-card__body">{editableBody}</div>
-      </details>
-    );
-  }
-
-  return (
-    <div className="staging-card">
-      <div className="staging-card__head">
-        <strong>{props.title}</strong>
-        <span className={statusClass}>{statusLabel}</span>
-      </div>
-
-      {props.summary ? <div className="staging-card__summary">{props.summary}</div> : null}
-
-      {editableBody}
-    </div>
-  );
-}
-
-interface RateLike {
-  id: string;
-  reviewStatus: string;
-  year?: number | null;
-  seasonName?: string | null;
-  dateFrom?: string | null;
-  dateTo?: string | null;
-  boardType?: string | null;
-  occupancyLabel?: string | null;
-  minNights?: number | null;
-  ageLabel?: string | null;
-  currency?: string | null;
-  pvpAmount?: number | null;
-  netAmount?: number | null;
-  costAmount?: number | null;
-  salePvpAmount?: number | null;
-  costNetAmount?: number | null;
-  rawText?: string | null;
-}
-
-/** Periodo legible de una tarifa: rango de fechas o temporada. */
-function formatRatePeriod(rate: RateLike): string {
-  const fmt = (value?: string | null) => {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
-    return date.toLocaleDateString("es-ES", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "2-digit",
-    });
-  };
-  const from = fmt(rate.dateFrom);
-  const to = fmt(rate.dateTo);
-  if (from && to) return `${from} → ${to}`;
-  if (from) return `desde ${from}`;
-  if (rate.seasonName) return rate.seasonName;
-  return "—";
-}
-
-/** Precio principal compacto de una tarifa, con su tipo. */
-function compactPrice(
-  rate: RateLike,
-  kind: "accommodation" | "activity",
-): { amount: number | null; label: string } {
-  if (kind === "accommodation") {
-    if (rate.pvpAmount != null) return { amount: Number(rate.pvpAmount), label: "PVP" };
-    if (rate.netAmount != null) return { amount: Number(rate.netAmount), label: "neto" };
-    if (rate.costAmount != null) return { amount: Number(rate.costAmount), label: "coste" };
-    return { amount: null, label: "" };
-  }
-  if (rate.salePvpAmount != null) return { amount: Number(rate.salePvpAmount), label: "PVP" };
-  if (rate.costNetAmount != null) return { amount: Number(rate.costNetAmount), label: "coste" };
-  return { amount: null, label: "" };
-}
-
-type CandidateItem = {
-  id: string;
-  reviewStatus: string;
-  rawText?: string | null;
-  structuredJson?: unknown;
-} & Record<string, unknown>;
-
-interface CandidateColumn {
-  header: string;
-  render: (item: CandidateItem) => React.ReactNode;
-}
-
-/** Celda de texto segura: muestra "—" si el valor está vacío. */
-function cell(value: unknown): string {
-  return value === null || value === undefined || value === "" ? "—" : String(value);
-}
-
-/** Celda de precio: importe principal con su tipo (PVP/neto/coste). */
-function renderPriceCell(rate: RateLike, kind: "accommodation" | "activity"): React.ReactNode {
-  const price = compactPrice(rate, kind);
-  if (price.amount == null) {
-    return <span className="rate-table__empty">sin precio</span>;
-  }
-  return (
-    <>
-      <strong>{formatAmount(price.amount, rate.currency)}</strong>{" "}
-      <span className="rate-table__pricetype">{price.label}</span>
-    </>
-  );
-}
-
-interface RateReviewTableProps {
-  entity: StagingEntityKey;
-  parentEntity: StagingEntityKey;
-  parentId: string;
-  /** Candidatos ya filtrados por la pestaña activa. */
-  rates: CandidateItem[];
-  columns: CandidateColumn[];
-  itemLabel: string;
-  editorTitle: string;
-  fields: StagingFieldDef[];
-  busy: boolean;
-  onBulkReview: (
-    entity: StagingEntityKey,
-    ids: string[],
-    reviewStatus: string,
-    label: string,
-  ) => void;
-  onApprove: (
-    entity: StagingEntityKey,
-    parentEntity: StagingEntityKey,
-    parentId: string,
-    ids: string[],
-    label: string,
-  ) => void;
-  onSaved: () => Promise<void> | void;
-}
-
-/**
- * Tabla de revisión de candidatos (tarifas, suplementos, políticas, fechas):
- * lectura compacta por columnas configurables, selección múltiple, aprobación
- * de un clic por fila y acciones en lote. Pensada para revisar muchos
- * candidatos con poco esfuerzo.
- */
-function RateReviewTable(props: RateReviewTableProps) {
-  const { rates, entity, parentEntity, parentId, busy, columns } = props;
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const visibleIds = rates.map((rate) => rate.id);
-  const selectedVisible = visibleIds.filter((id) => selected.has(id));
-  const allSelected = rates.length > 0 && selectedVisible.length === rates.length;
-
-  // Limpia la selección si cambian las tarifas (refresco / cambio de pestaña).
-  useEffect(() => {
-    setSelected((current) => {
-      const next = new Set<string>();
-      for (const id of visibleIds) {
-        if (current.has(id)) next.add(id);
-      }
-      return next.size === current.size ? current : next;
-    });
-    setExpandedId((current) => (current && visibleIds.includes(current) ? current : null));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleIds.join(",")]);
-
-  if (rates.length === 0) {
-    return null;
-  }
-
-  const toggleAll = () => setSelected(() => (allSelected ? new Set() : new Set(visibleIds)));
-  const toggleOne = (id: string) =>
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const approveRates = (list: CandidateItem[]) =>
-    props.onApprove(
-      entity,
-      parentEntity,
-      parentId,
-      list.map((item) => item.id),
-      props.itemLabel,
-    );
-
-  return (
-    <div className="rate-table-wrap">
-      <div className="rate-table__bar">
-        <span className="rate-table__count">
-          {rates.length} {props.itemLabel}
-        </span>
-        <div className="rate-table__bar-actions">
-          {selectedVisible.length > 0 ? (
-            <>
-              <strong>{selectedVisible.length} seleccionada(s):</strong>
-              <button
-                type="button"
-                className="primary"
-                disabled={busy}
-                onClick={() => approveRates(rates.filter((rate) => selected.has(rate.id)))}
-              >
-                Aprobar
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  props.onBulkReview(entity, selectedVisible, "REJECTED", "Rechazar seleccionadas")
-                }
-              >
-                Rechazar
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  props.onBulkReview(entity, selectedVisible, "PENDING", "Pasar a pendientes")
-                }
-              >
-                A pendientes
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="primary"
-                disabled={busy}
-                onClick={() => approveRates(rates)}
-              >
-                Aprobar todas
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  props.onBulkReview(entity, visibleIds, "REJECTED", "Rechazar todas")
-                }
-              >
-                Rechazar todas
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="table-wrap">
-        <table className="rate-table">
-          <thead>
-            <tr>
-              <th className="rate-table__check">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleAll}
-                  aria-label="Seleccionar todas"
-                />
-              </th>
-              {columns.map((column) => (
-                <th key={column.header}>{column.header}</th>
-              ))}
-              <th>Estado</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rates.map((rate) => {
-              const status = String(rate.reviewStatus);
-              const isExpanded = expandedId === rate.id;
-              return (
-                <Fragment key={rate.id}>
-                  <tr className={selected.has(rate.id) ? "is-selected" : undefined}>
-                    <td className="rate-table__check">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(rate.id)}
-                        onChange={() => toggleOne(rate.id)}
-                        aria-label="Seleccionar tarifa"
-                      />
-                    </td>
-                    {columns.map((column) => (
-                      <td key={column.header}>{column.render(rate)}</td>
-                    ))}
-                    <td>
-                      <span className={`status-tag status-tag--${status.toLowerCase()}`}>
-                        {stagingReviewStatusLabels[status] ?? status}
-                      </span>
-                    </td>
-                    <td className="rate-table__actions">
-                      {status !== "APPROVED" ? (
-                        <button
-                          type="button"
-                          className="link-action link-action--approve"
-                          disabled={busy}
-                          onClick={() => approveRates([rate])}
-                        >
-                          Aprobar
-                        </button>
-                      ) : null}
-                      {status !== "REJECTED" ? (
-                        <button
-                          type="button"
-                          className="link-action link-action--reject"
-                          disabled={busy}
-                          onClick={() =>
-                            props.onBulkReview(entity, [rate.id], "REJECTED", "Rechazar tarifa")
-                          }
-                        >
-                          Rechazar
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="link-action"
-                        onClick={() => setExpandedId(isExpanded ? null : rate.id)}
-                      >
-                        {isExpanded ? "Cerrar" : "Editar"}
-                      </button>
-                    </td>
-                  </tr>
-                  {isExpanded ? (
-                    <tr className="rate-table__editor">
-                      <td colSpan={columns.length + 3}>
-                        <StagingEditableCard
-                          entity={entity}
-                          id={rate.id}
-                          title={props.editorTitle}
-                          fields={props.fields}
-                          values={rate}
-                          reviewStatus={status}
-                          rawText={rate.rawText}
-                          structuredJson={rate.structuredJson}
-                          onSaved={props.onSaved}
-                        />
-                      </td>
-                    </tr>
-                  ) : null}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-const accommodationRateColumns: CandidateColumn[] = [
-  { header: "Periodo", render: (i) => formatRatePeriod(i as unknown as RateLike) },
-  { header: "Régimen", render: (i) => cell(i.boardType) },
-  { header: "Precio", render: (i) => renderPriceCell(i as unknown as RateLike, "accommodation") },
-  { header: "Año", render: (i) => cell(i.year) },
-];
-
-const activityRateColumns: CandidateColumn[] = [
-  { header: "Periodo", render: (i) => formatRatePeriod(i as unknown as RateLike) },
-  { header: "Edad", render: (i) => cell(i.ageLabel) },
-  { header: "Precio", render: (i) => renderPriceCell(i as unknown as RateLike, "activity") },
-  { header: "Año", render: (i) => cell(i.year) },
-];
-
-const adjustmentColumns: CandidateColumn[] = [
-  { header: "Concepto", render: (i) => cell(i.concept) },
-  {
-    header: "Importe",
-    render: (i) =>
-      i.amount != null ? `${i.amount}${i.amountType ? ` ${String(i.amountType)}` : ""}` : "—",
-  },
-  { header: "Aplica por", render: (i) => cell(i.appliesPer) },
-];
-
-const policyColumns: CandidateColumn[] = [
-  { header: "Tipo", render: (i) => cell(i.policyType) },
-  {
-    header: "Texto",
-    render: (i) => <span className="cell-truncate">{cell(i.policyText)}</span>,
-  },
-];
-
-const blackoutColumns: CandidateColumn[] = [
-  { header: "Fechas", render: (i) => formatRatePeriod(i as unknown as RateLike) },
-  { header: "Disponibilidad", render: (i) => cell(i.availabilityStatus) },
-  { header: "Motivo", render: (i) => cell(i.reason) },
-];
-
 export function InventoryDocumentsPanel() {
   const [documents, setDocuments] = useState<SourceDocumentSummary[]>([]);
   const [documentFilter, setDocumentFilter] = useState("");
@@ -1278,6 +662,32 @@ export function InventoryDocumentsPanel() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
+  // Vista del panel: gestión documental vs. catálogo global publicado.
+  const [panelView, setPanelView] = useState<"documents" | "catalog">("documents");
+
+  // Formulario de registro: plegable y reutilizado para crear o editar.
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
+
+  // Quitar el archivo de un documento (corregir subida equivocada).
+  const [removingFileId, setRemovingFileId] = useState<string | null>(null);
+
+  // Borrado de documento: confirmación con conteos del dry-run.
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    documentId: string;
+    controlName: string;
+    dryRun: DryRunDeleteDocumentResult;
+  } | null>(null);
+  const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
+
+  // Retirada granular de un registro publicado (alojamiento/actividad/tarifa).
+  const [unpublishItemConfirm, setUnpublishItemConfirm] = useState<{
+    kind: PublishedItemKind;
+    id: string;
+    label: string;
+  } | null>(null);
+  const [unpublishItemBusy, setUnpublishItemBusy] = useState(false);
+
   async function loadDocuments() {
     setLoading(true);
     try {
@@ -1300,6 +710,111 @@ export function InventoryDocumentsPanel() {
     return updatedDetail;
   }
 
+  // --- Borrado de documento (bloqueado si tiene publicados) -------------------
+  async function handleRequestDeleteDocument(document: SourceDocumentSummary) {
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setDeleteBusyId(document.id);
+    try {
+      const dryRun = await dryRunDeleteInventoryDocumentApi(document.id);
+      if (dryRun.blockedByPublished) {
+        setErrorMessage(
+          `No se puede borrar "${document.controlName}": tiene ${dryRun.publishedAccommodations} alojamiento(s) y ${dryRun.publishedActivities} actividad(es) publicados. Ábrelo y retíralos primero en la pestaña "Publicados".`,
+        );
+        return;
+      }
+      setDeleteConfirm({ documentId: document.id, controlName: document.controlName, dryRun });
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "No se pudo preparar el borrado del documento."));
+    } finally {
+      setDeleteBusyId(null);
+    }
+  }
+
+  function handleCancelDeleteDocument() {
+    setDeleteConfirm(null);
+  }
+
+  async function handleConfirmDeleteDocument() {
+    if (!deleteConfirm) {
+      return;
+    }
+    const { documentId, controlName } = deleteConfirm;
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setDeleteBusyId(documentId);
+    try {
+      await deleteInventoryDocumentApi(documentId);
+      setDeleteConfirm(null);
+      if (selectedDocumentId === documentId) {
+        handleCloseDetail();
+      }
+      await loadDocuments();
+      setFeedbackMessage(`Documento "${controlName}" borrado (sus candidatos staging se eliminaron).`);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "No se pudo borrar el documento."));
+    } finally {
+      setDeleteBusyId(null);
+    }
+  }
+
+  // --- Retirada granular de un registro publicado ----------------------------
+  function handleRequestUnpublishItem(kind: PublishedItemKind, id: string, label: string) {
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setUnpublishItemConfirm({ kind, id, label });
+  }
+
+  function handleCancelUnpublishItem() {
+    setUnpublishItemConfirm(null);
+  }
+
+  async function handleConfirmUnpublishItem() {
+    if (!unpublishItemConfirm || !selectedDocumentId) {
+      return;
+    }
+    const { kind, id, label } = unpublishItemConfirm;
+    setUnpublishItemBusy(true);
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    try {
+      await unpublishPublishedItemApi(kind, id);
+      setUnpublishItemConfirm(null);
+      // Refrescar la trazabilidad en vivo y el detalle (estado/contadores).
+      const live = await getPublishedInventoryByDocumentApi(selectedDocumentId);
+      setPublishedInventory(live);
+      await refreshDetail(selectedDocumentId);
+      await loadDocuments();
+      setFeedbackMessage(`Se retiró del inventario: ${label}.`);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "No se pudo retirar el registro del inventario."));
+    } finally {
+      setUnpublishItemBusy(false);
+    }
+  }
+
+  // Abre el formulario en modo edición precargado con los datos del documento.
+  function handleEditDocument(document: SourceDocumentSummary) {
+    setEditingDocumentId(document.id);
+    setForm({
+      targetType: document.targetType,
+      controlName: document.controlName,
+      controlLocation: document.controlLocation ?? "",
+      controlYear: document.controlYear ?? null,
+      controlCategory: document.controlCategory ?? "",
+      controlNotes: "",
+    });
+    setFormOpen(true);
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+  }
+
+  function handleCancelEdit() {
+    setEditingDocumentId(null);
+    setForm(initialForm);
+    setFormOpen(false);
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage(null);
@@ -1310,24 +825,60 @@ export function InventoryDocumentsPanel() {
       return;
     }
 
+    const payload = {
+      ...form,
+      controlName: form.controlName.trim(),
+      controlLocation: form.controlLocation?.trim() || undefined,
+      controlCategory: form.controlCategory?.trim() || undefined,
+      controlNotes: form.controlNotes?.trim() || undefined,
+      controlYear: form.controlYear ? Number(form.controlYear) : null,
+    };
+
     setSaving(true);
     try {
-      await createInventoryDocumentApi({
-        ...form,
-        controlName: form.controlName.trim(),
-        controlLocation: form.controlLocation?.trim() || undefined,
-        controlCategory: form.controlCategory?.trim() || undefined,
-        controlNotes: form.controlNotes?.trim() || undefined,
-        controlYear: form.controlYear ? Number(form.controlYear) : null,
-      });
+      if (editingDocumentId) {
+        await updateInventoryDocumentApi(editingDocumentId, payload);
+        setFeedbackMessage("Documento actualizado correctamente.");
+        if (selectedDocumentId === editingDocumentId) {
+          await refreshDetail(editingDocumentId);
+        }
+      } else {
+        await createInventoryDocumentApi(payload);
+        setFeedbackMessage("Documento registrado correctamente.");
+      }
 
       setForm(initialForm);
-      setFeedbackMessage("Documento registrado correctamente.");
+      setEditingDocumentId(null);
+      setFormOpen(false);
       await loadDocuments();
     } catch (error) {
-      setErrorMessage(getErrorMessage(error, "No se pudo crear el documento."));
+      setErrorMessage(
+        getErrorMessage(
+          error,
+          editingDocumentId ? "No se pudo actualizar el documento." : "No se pudo crear el documento.",
+        ),
+      );
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Quita el archivo asociado a un documento (corregir una subida equivocada).
+  async function handleRemoveFile(documentId: string) {
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setRemovingFileId(documentId);
+    try {
+      await removeInventoryDocumentFileApi(documentId);
+      if (selectedDocumentId === documentId) {
+        await refreshDetail(documentId);
+      }
+      await loadDocuments();
+      setFeedbackMessage("Archivo quitado del documento. Puedes subir otro.");
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "No se pudo quitar el archivo del documento."));
+    } finally {
+      setRemovingFileId(null);
     }
   }
 
@@ -1361,7 +912,7 @@ export function InventoryDocumentsPanel() {
     }
   }
 
-  async function handleViewDetail(documentId: string) {
+  async function handleViewDetail(documentId: string, initialTab = "resumen") {
     setSelectedDocumentId(documentId);
     setDetail(null);
     setAiResult(null);
@@ -1372,7 +923,7 @@ export function InventoryDocumentsPanel() {
     setAwaitingUnpublishConfirm(false);
     setUnpublishDryRun(null);
     setUnpublishResult(null);
-    setWorkspaceTab("resumen");
+    setWorkspaceTab(initialTab);
     setAwaitingRegenerateConfirm(false);
     setErrorMessage(null);
     setFeedbackMessage(null);
@@ -1816,7 +1367,7 @@ export function InventoryDocumentsPanel() {
   ];
 
   const documentQuery = documentFilter.trim().toLowerCase();
-  const filteredDocuments = documentQuery
+  const matchedDocuments = documentQuery
     ? documents.filter((document) =>
         [
           document.controlName,
@@ -1828,6 +1379,11 @@ export function InventoryDocumentsPanel() {
           .includes(documentQuery),
       )
     : documents;
+  // Ordena por "más pendientes primero" sin mutar el array de origen; los
+  // documentos sin pendientes mantienen su orden relativo original (sort estable).
+  const filteredDocuments = [...matchedDocuments].sort(
+    (a, b) => (b.pendingReviewCount ?? 0) - (a.pendingReviewCount ?? 0),
+  );
 
   return (
     <section className="section-card">
@@ -1853,6 +1409,44 @@ export function InventoryDocumentsPanel() {
         </div>
       ) : null}
 
+      <nav className="ws-tabs panel-views">
+        <button
+          type="button"
+          className={`ws-tab ${panelView === "documents" ? "ws-tab--active" : ""}`}
+          onClick={() => setPanelView("documents")}
+        >
+          Documentos
+        </button>
+        <button
+          type="button"
+          className={`ws-tab ${panelView === "catalog" ? "ws-tab--active" : ""}`}
+          onClick={() => setPanelView("catalog")}
+        >
+          Catálogo publicado
+        </button>
+      </nav>
+
+      {panelView === "catalog" ? <InventoryCatalogView /> : null}
+
+      {panelView === "documents" ? (
+      <>
+      <div className="section-card__header compact">
+        <div>
+          <h3>{editingDocumentId ? "Editar documento" : "Registrar documento"}</h3>
+          <p>
+            {editingDocumentId
+              ? "Corrige los datos de control de este documento."
+              : "Da de alta un documento fuente para luego subir su PDF y analizarlo."}
+          </p>
+        </div>
+        {!editingDocumentId ? (
+          <button type="button" onClick={() => setFormOpen((open) => !open)}>
+            {formOpen ? "Ocultar formulario" : "＋ Registrar documento"}
+          </button>
+        ) : null}
+      </div>
+
+      {formOpen || editingDocumentId ? (
       <form className="grid two" onSubmit={handleSubmit}>
         <label className="field">
           <span>Tipo de registro</span>
@@ -1943,12 +1537,22 @@ export function InventoryDocumentsPanel() {
           />
         </label>
 
-        <div>
+        <div className="stack compact actions-row">
           <button className="primary" type="submit" disabled={saving}>
-            {saving ? "Guardando..." : "Registrar documento"}
+            {saving
+              ? "Guardando..."
+              : editingDocumentId
+                ? "Guardar cambios"
+                : "Registrar documento"}
           </button>
+          {editingDocumentId ? (
+            <button type="button" disabled={saving} onClick={handleCancelEdit}>
+              Cancelar
+            </button>
+          ) : null}
         </div>
       </form>
+      ) : null}
 
       <div className="section-card__header compact">
         <div>
@@ -1972,6 +1576,54 @@ export function InventoryDocumentsPanel() {
           </button>
         </div>
       </div>
+
+      {deleteConfirm ? (
+        <div className="alert alert--warning confirm-box" role="alertdialog">
+          <p>
+            ¿Borrar el documento <strong>{deleteConfirm.controlName}</strong>? Se eliminarán también
+            sus candidatos staging ({deleteConfirm.dryRun.stagingAccommodations} alojamiento(s) y{" "}
+            {deleteConfirm.dryRun.stagingActivities} actividad(es)). No afecta al inventario
+            operativo ni a datos de Excel. Esta acción no se puede deshacer.
+          </p>
+          <div className="stack compact actions-row">
+            <button
+              type="button"
+              className="primary"
+              disabled={deleteBusyId === deleteConfirm.documentId}
+              onClick={() => void handleConfirmDeleteDocument()}
+            >
+              {deleteBusyId === deleteConfirm.documentId ? "Borrando..." : "Sí, borrar documento"}
+            </button>
+            <button type="button" onClick={handleCancelDeleteDocument}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {!loading && documents.length === 0 ? (
+        <div className="empty-state">
+          <h4>Aún no hay documentos. Así funciona:</h4>
+          <ol className="empty-state__steps">
+            <li>Registra un documento (nombre del hotel/actividad, ubicación y año).</li>
+            <li>Sube su PDF de tarifas y ejecuta el análisis de texto.</li>
+            <li>Analízalo con IA para generar candidatos revisables.</li>
+            <li>Revisa, aprueba o rechaza los candidatos en tablas.</li>
+            <li>Publica los aprobados al inventario operativo (con dry-run y confirmación).</li>
+          </ol>
+          <button
+            type="button"
+            className="primary"
+            onClick={() => {
+              setEditingDocumentId(null);
+              setForm(initialForm);
+              setFormOpen(true);
+            }}
+          >
+            ＋ Registrar el primer documento
+          </button>
+        </div>
+      ) : null}
 
       <div className="table-wrap">
         <table>
@@ -2004,9 +1656,14 @@ export function InventoryDocumentsPanel() {
                   <td>{statusLabels[document.status] ?? document.status}</td>
                   <td>
                     {document.pendingReviewCount && document.pendingReviewCount > 0 ? (
-                      <span className="status-tag status-tag--needs_changes">
+                      <button
+                        type="button"
+                        className="status-tag status-tag--needs_changes status-tag--action"
+                        title="Abrir candidatos pendientes"
+                        onClick={() => void handleViewDetail(document.id, "pendientes")}
+                      >
                         {document.pendingReviewCount} pendiente(s)
-                      </span>
+                      </button>
                     ) : document.candidateCount ? (
                       <span className="status-tag status-tag--approved">Revisado</span>
                     ) : (
@@ -2019,9 +1676,26 @@ export function InventoryDocumentsPanel() {
                   </td>
                   <td>{new Date(document.createdAt).toLocaleDateString()}</td>
                   <td>
-                    <button type="button" onClick={() => void handleViewDetail(document.id)}>
-                      {isSelected ? "Detalle abierto" : "Ver detalle"}
-                    </button>
+                    <div className="stack compact">
+                      <button type="button" onClick={() => void handleViewDetail(document.id)}>
+                        {isSelected ? "Detalle abierto" : "Ver detalle"}
+                      </button>
+                      <button
+                        type="button"
+                        className="link-action"
+                        onClick={() => handleEditDocument(document)}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        className="link-action link-action--reject"
+                        disabled={deleteBusyId === document.id}
+                        onClick={() => void handleRequestDeleteDocument(document)}
+                      >
+                        {deleteBusyId === document.id ? "Comprobando..." : "Eliminar"}
+                      </button>
+                    </div>
                   </td>
                   <td>
                     <div className="file-cell">
@@ -2190,6 +1864,47 @@ export function InventoryDocumentsPanel() {
               ) : (
                 <p>Todavía no se ha subido ningún archivo fuente para este documento.</p>
               )}
+
+              <div className="file-cell">
+                <input
+                  className="file-cell__input"
+                  type="file"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,image/*"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    setSelectedFiles((current) => ({ ...current, [detail.id]: file }));
+                  }}
+                />
+                <div className="stack compact actions-row">
+                  <button
+                    type="button"
+                    disabled={!selectedFiles[detail.id] || uploadingDocumentId === detail.id}
+                    onClick={() => void handleUpload(detail.id)}
+                  >
+                    {uploadingDocumentId === detail.id
+                      ? "Subiendo..."
+                      : detail.originalFileName
+                        ? "Reemplazar archivo"
+                        : "Subir archivo"}
+                  </button>
+                  {detail.originalFileName ? (
+                    <button
+                      type="button"
+                      className="link-action link-action--reject"
+                      disabled={removingFileId === detail.id}
+                      onClick={() => void handleRemoveFile(detail.id)}
+                    >
+                      {removingFileId === detail.id ? "Quitando..." : "Quitar archivo"}
+                    </button>
+                  ) : null}
+                </div>
+                {detail.originalFileName ? (
+                  <small className="file-cell__name">
+                    Reemplazar o quitar el archivo reinicia la extracción de texto (no borra los
+                    candidatos ya creados).
+                  </small>
+                ) : null}
+              </div>
 
               <div className="section-card__header compact">
                 <div>
@@ -2812,6 +2527,29 @@ export function InventoryDocumentsPanel() {
                 </button>
               </div>
 
+              {unpublishItemConfirm ? (
+                <div className="alert alert--warning confirm-box" role="alertdialog">
+                  <p>
+                    ¿Quitar del inventario <strong>{unpublishItemConfirm.label}</strong>? Solo se
+                    elimina este registro; el resto y los candidatos staging se conservan (se puede
+                    volver a publicar).
+                  </p>
+                  <div className="stack compact actions-row">
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={unpublishItemBusy}
+                      onClick={() => void handleConfirmUnpublishItem()}
+                    >
+                      {unpublishItemBusy ? "Quitando..." : "Sí, quitar del inventario"}
+                    </button>
+                    <button type="button" disabled={unpublishItemBusy} onClick={handleCancelUnpublishItem}>
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               {publishedInventory ? (
                 <div className="published-trace">
                   <div className="grid two">
@@ -2854,6 +2592,22 @@ export function InventoryDocumentsPanel() {
                                 {accommodation.rates.length} tarifa(s)
                               </span>
                             </summary>
+                            <div className="published-item__actions">
+                              <button
+                                type="button"
+                                className="link-action link-action--reject"
+                                disabled={unpublishItemBusy}
+                                onClick={() =>
+                                  handleRequestUnpublishItem(
+                                    "accommodation",
+                                    accommodation.id,
+                                    `${accommodation.accommodationName} (alojamiento y sus ${accommodation.rates.length} tarifa(s))`,
+                                  )
+                                }
+                              >
+                                Quitar alojamiento del inventario
+                              </button>
+                            </div>
                             <ul className="detail-list">
                               {accommodation.rates.map((rate) => (
                                 <li key={rate.id}>
@@ -2861,12 +2615,20 @@ export function InventoryDocumentsPanel() {
                                   {rate.pvpAmount != null
                                     ? formatAmount(rate.pvpAmount, rate.currency)
                                     : "sin precio"}
-                                  {rate.sourceStagingId ? (
-                                    <span className="published-item__trace">
-                                      {" "}
-                                      · origen staging {rate.sourceStagingId.slice(0, 8)}…
-                                    </span>
-                                  ) : null}
+                                  <button
+                                    type="button"
+                                    className="link-action link-action--reject published-item__rate-remove"
+                                    disabled={unpublishItemBusy}
+                                    onClick={() =>
+                                      handleRequestUnpublishItem(
+                                        "accommodation-rate",
+                                        rate.id,
+                                        `tarifa ${rate.year} de ${accommodation.accommodationName}`,
+                                      )
+                                    }
+                                  >
+                                    quitar
+                                  </button>
                                 </li>
                               ))}
                             </ul>
@@ -2888,6 +2650,22 @@ export function InventoryDocumentsPanel() {
                                 {activity.rates.length} tarifa(s)
                               </span>
                             </summary>
+                            <div className="published-item__actions">
+                              <button
+                                type="button"
+                                className="link-action link-action--reject"
+                                disabled={unpublishItemBusy}
+                                onClick={() =>
+                                  handleRequestUnpublishItem(
+                                    "activity",
+                                    activity.id,
+                                    `${activity.activityName} (actividad y sus ${activity.rates.length} tarifa(s))`,
+                                  )
+                                }
+                              >
+                                Quitar actividad del inventario
+                              </button>
+                            </div>
                             <ul className="detail-list">
                               {activity.rates.map((rate) => (
                                 <li key={rate.id}>
@@ -2895,6 +2673,20 @@ export function InventoryDocumentsPanel() {
                                   {rate.salePvpAmount != null
                                     ? formatAmount(rate.salePvpAmount, rate.currency)
                                     : "sin precio"}
+                                  <button
+                                    type="button"
+                                    className="link-action link-action--reject published-item__rate-remove"
+                                    disabled={unpublishItemBusy}
+                                    onClick={() =>
+                                      handleRequestUnpublishItem(
+                                        "activity-rate",
+                                        rate.id,
+                                        `tarifa ${rate.year} de ${activity.activityName}`,
+                                      )
+                                    }
+                                  >
+                                    quitar
+                                  </button>
                                 </li>
                               ))}
                             </ul>
@@ -3119,6 +2911,8 @@ export function InventoryDocumentsPanel() {
             </div>
           ) : null}
         </div>
+      ) : null}
+      </>
       ) : null}
     </section>
   );

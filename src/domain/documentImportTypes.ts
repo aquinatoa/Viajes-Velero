@@ -515,3 +515,88 @@ export interface UnpublishResult {
   activitiesRemoved: number;
   activityRatesRemoved: number;
 }
+
+// ----------------------------------------------------------------------------
+// Borrado de un documento registrado (con sus candidatos staging). Bloqueado si
+// el documento tiene registros publicados en el inventario operativo: primero
+// hay que retirarlos.
+// ----------------------------------------------------------------------------
+
+export interface DryRunDeleteDocumentResult {
+  stagingAccommodations: number;
+  stagingActivities: number;
+  stagingTotal: number;
+  publishedAccommodations: number;
+  publishedActivities: number;
+  /** true si hay registros publicados: no se puede borrar hasta retirarlos. */
+  blockedByPublished: boolean;
+}
+
+export interface DeleteDocumentResult {
+  stagingAccommodationsRemoved: number;
+  stagingActivitiesRemoved: number;
+}
+
+// ----------------------------------------------------------------------------
+// Retirada granular: quitar del inventario operativo un registro publicado
+// concreto (un alojamiento/actividad completo o una sola tarifa).
+// ----------------------------------------------------------------------------
+
+export type PublishedItemKind =
+  | "accommodation"
+  | "activity"
+  | "accommodation-rate"
+  | "activity-rate";
+
+export interface UnpublishItemResult {
+  kind: PublishedItemKind;
+  removedAccommodations: number;
+  removedAccommodationRates: number;
+  removedActivities: number;
+  removedActivityRates: number;
+}
+
+// ----------------------------------------------------------------------------
+// Catálogo global del inventario operativo publicado (todos los documentos, e
+// incluso filas heredadas de Excel sin documento). Solo lectura, con el origen
+// documental resuelto para saber a qué hotel/actividad pertenece cada registro.
+// ----------------------------------------------------------------------------
+
+export interface CatalogRate {
+  id: string;
+  year: number;
+  /** Régimen (alojamiento) o tramo de edad (actividad). */
+  label?: string | null;
+  period?: string | null;
+  currency?: string | null;
+  amount?: number | null;
+}
+
+export interface CatalogAccommodation {
+  id: string;
+  accommodationName: string;
+  locality: string;
+  categoryType?: string | null;
+  sourceDocumentId?: string | null;
+  sourceDocumentName?: string | null;
+  rates: CatalogRate[];
+}
+
+export interface CatalogActivity {
+  id: string;
+  activityName: string;
+  supplierName?: string | null;
+  locationMain?: string | null;
+  sourceDocumentId?: string | null;
+  sourceDocumentName?: string | null;
+  rates: CatalogRate[];
+}
+
+export interface PublishedInventoryCatalog {
+  accommodations: CatalogAccommodation[];
+  activities: CatalogActivity[];
+  accommodationCount: number;
+  activityCount: number;
+  accommodationRateCount: number;
+  activityRateCount: number;
+}

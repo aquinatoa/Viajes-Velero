@@ -380,6 +380,17 @@ button {
   color: #4c6775;
 }
 
+/* Etiqueta de trazabilidad: indica de qué documento se publicó el registro. */
+.origin-tag {
+  justify-self: start;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 9px;
+  background: rgba(24, 158, 109, 0.12);
+  color: #146a4a;
+}
+
 .option-activity-block {
   border: 1px solid rgba(19, 35, 47, 0.1);
   border-radius: 18px;
@@ -887,6 +898,19 @@ tr.is-selected {
   color: #8a5a12;
 }
 
+/* Variante clicable: el tag "N pendiente(s)" abre la pestaña Pendientes. */
+.status-tag--action {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: filter 0.12s ease;
+}
+
+.status-tag--action:hover {
+  filter: brightness(0.94);
+  text-decoration: underline;
+}
+
 .link-action {
   border: none;
   background: transparent;
@@ -1203,6 +1227,62 @@ tr.is-selected {
 .published-item__trace {
   color: #8a8f95;
   font-size: 0.8rem;
+}
+
+.published-item__actions {
+  padding: 4px 12px 0;
+}
+
+.published-item__rate-remove {
+  margin-left: 8px;
+  font-size: 0.78rem;
+}
+
+/* Toggle de vista del panel (Documentos / Catálogo). */
+.panel-views {
+  margin-bottom: 4px;
+}
+
+/* Estado inicial guiado cuando no hay documentos. */
+.empty-state {
+  border: 1px dashed rgba(19, 35, 47, 0.2);
+  border-radius: 14px;
+  padding: 20px 24px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.empty-state h4 {
+  margin: 0 0 10px;
+}
+
+.empty-state__steps {
+  margin: 0 0 16px;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+  color: #4c6775;
+}
+
+/* Caja de confirmación destructiva (borrar documento, quitar publicado). */
+.confirm-box p {
+  margin: 0 0 10px;
+}
+
+/* Catálogo global del inventario publicado. */
+.catalog-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.catalog-grid h4 {
+  margin: 0 0 10px;
+}
+
+@media (max-width: 900px) {
+  .catalog-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .staging-badge--published {

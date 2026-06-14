@@ -2,9 +2,14 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import type {
   AiDocumentAnalysisResult,
   BulkReviewResult,
+  DeleteDocumentResult,
+  DryRunDeleteDocumentResult,
   DryRunPublishResult,
   DryRunUnpublishResult,
+  PublishedInventoryCatalog,
   PublishedInventorySummary,
+  PublishedItemKind,
+  UnpublishItemResult,
   UnpublishResult,
 } from "../src/domain/documentImportTypes";
 
@@ -70,6 +75,61 @@ export async function attachInventoryDocumentFile(input: AttachInventoryDocument
       requiresOcr: false,
     },
   });
+}
+
+export interface UpdateInventoryDocumentMetadataInput {
+  targetType?: "ACCOMMODATION" | "ACTIVITY" | "MIXED" | "UNKNOWN";
+  controlName?: string;
+  controlLocation?: string | null;
+  controlYear?: number | null;
+  controlCategory?: string | null;
+  controlNotes?: string | null;
+}
+
+/**
+ * Actualiza los metadatos de control de un documento (nombre, ubicación, año,
+ * categoría, notas, tipo). NO toca el archivo, el staging ni el inventario
+ * operativo. Solo incluye los campos presentes en la entrada.
+ */
+export async function updateInventoryDocumentMetadata(
+  documentId: string,
+  input: UpdateInventoryDocumentMetadataInput,
+) {
+  const data: Record<string, unknown> = {};
+  if (input.targetType !== undefined) data.targetType = input.targetType;
+  if (input.controlName !== undefined) data.controlName = input.controlName.trim();
+  if (input.controlLocation !== undefined) data.controlLocation = input.controlLocation || null;
+  if (input.controlYear !== undefined) data.controlYear = input.controlYear ?? null;
+  if (input.controlCategory !== undefined) data.controlCategory = input.controlCategory || null;
+  if (input.controlNotes !== undefined) data.controlNotes = input.controlNotes || null;
+
+  const updated = await prisma.sourceDocument.update({
+    where: { id: documentId },
+    data,
+  });
+  return decimalsToNumbers(updated);
+}
+
+/**
+ * Quita el archivo asociado a un documento: limpia los campos del fichero y
+ * reinicia el estado de extracción. No borra el archivo físico de storage/ ni
+ * los candidatos staging ya creados. Útil para corregir una subida equivocada.
+ */
+export async function removeInventoryDocumentFile(documentId: string) {
+  const updated = await prisma.sourceDocument.update({
+    where: { id: documentId },
+    data: {
+      originalFileName: null,
+      storedFilePath: null,
+      fileMimeType: null,
+      fileSizeBytes: null,
+      fileHash: null,
+      status: "UPLOADED",
+      extractionStatus: "NOT_STARTED",
+      requiresOcr: false,
+    },
+  });
+  return decimalsToNumbers(updated);
 }
 
 export async function listInventoryDocuments() {
@@ -1363,5 +1423,229 @@ export async function unpublishInventoryDocument(
     accommodationRatesRemoved: published.accommodationRateCount,
     activitiesRemoved: published.activityCount,
     activityRatesRemoved: published.activityRateCount,
+  };
+}
+
+/** Error de validación al borrar un documento (p. ej. tiene publicados vivos). */
+export class DeleteDocumentValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DeleteDocumentValidationError";
+  }
+}
+
+/**
+ * Simulación de borrado de un documento (solo lectura): cuántos candidatos
+ * staging se eliminarían y si está bloqueado por tener registros publicados en
+ * el inventario operativo (en cuyo caso primero hay que retirarlos).
+ */
+export async function dryRunDeleteInventoryDocument(
+  sourceDocumentId: string,
+): Promise<DryRunDeleteDocumentResult> {
+  const staging = await countInventoryDocumentStaging(sourceDocumentId);
+  const published = await getPublishedInventoryByDocument(sourceDocumentId);
+  const blockedByPublished = published.accommodationCount + published.activityCount > 0;
+
+  return {
+    stagingAccommodations: staging.accommodations,
+    stagingActivities: staging.activities,
+    stagingTotal: staging.total,
+    publishedAccommodations: published.accommodationCount,
+    publishedActivities: published.activityCount,
+    blockedByPublished,
+  };
+}
+
+/**
+ * Borra un documento registrado y sus candidatos staging (extracciones,
+ * incidencias y staging caen por onDelete: Cascade). NO toca el inventario
+ * operativo: si el documento tiene registros publicados, lanza un error y exige
+ * retirarlos primero (los Accommodation/Activity referencian el documento por id
+ * suelto, no por FK con cascade, así que nunca se borran sin querer).
+ *
+ * No elimina el archivo físico subido (en storage/): se deja tal cual.
+ */
+export async function deleteInventoryDocument(
+  sourceDocumentId: string,
+): Promise<DeleteDocumentResult> {
+  const published = await getPublishedInventoryByDocument(sourceDocumentId);
+  if (published.accommodationCount + published.activityCount > 0) {
+    throw new DeleteDocumentValidationError(
+      "El documento tiene registros publicados en el inventario. Retíralos primero (pestaña Publicados) y vuelve a intentarlo.",
+    );
+  }
+
+  const staging = await countInventoryDocumentStaging(sourceDocumentId);
+
+  await prisma.sourceDocument.delete({ where: { id: sourceDocumentId } });
+
+  return {
+    stagingAccommodationsRemoved: staging.accommodations,
+    stagingActivitiesRemoved: staging.activities,
+  };
+}
+
+/**
+ * Retirada granular: elimina del inventario operativo UN registro publicado
+ * concreto por su id. Soporta quitar un alojamiento o actividad completo (sus
+ * tarifas caen por onDelete: Cascade) o una sola tarifa. Devuelve null si el id
+ * no existe (la ruta responde 404). Solo borra el registro indicado; el resto
+ * del inventario y los candidatos staging se conservan.
+ */
+export async function unpublishPublishedItem(
+  kind: PublishedItemKind,
+  id: string,
+): Promise<UnpublishItemResult | null> {
+  if (kind === "accommodation") {
+    const existing = await prisma.accommodation.findUnique({
+      where: { id },
+      include: { rates: true },
+    });
+    if (!existing) return null;
+    await prisma.accommodation.delete({ where: { id } });
+    return {
+      kind,
+      removedAccommodations: 1,
+      removedAccommodationRates: existing.rates.length,
+      removedActivities: 0,
+      removedActivityRates: 0,
+    };
+  }
+
+  if (kind === "activity") {
+    const existing = await prisma.activity.findUnique({
+      where: { id },
+      include: { rates: true },
+    });
+    if (!existing) return null;
+    await prisma.activity.delete({ where: { id } });
+    return {
+      kind,
+      removedAccommodations: 0,
+      removedAccommodationRates: 0,
+      removedActivities: 1,
+      removedActivityRates: existing.rates.length,
+    };
+  }
+
+  if (kind === "accommodation-rate") {
+    const existing = await prisma.accommodationRate.findUnique({ where: { id } });
+    if (!existing) return null;
+    await prisma.accommodationRate.delete({ where: { id } });
+    return {
+      kind,
+      removedAccommodations: 0,
+      removedAccommodationRates: 1,
+      removedActivities: 0,
+      removedActivityRates: 0,
+    };
+  }
+
+  // activity-rate
+  const existing = await prisma.activityRate.findUnique({ where: { id } });
+  if (!existing) return null;
+  await prisma.activityRate.delete({ where: { id } });
+  return {
+    kind,
+    removedAccommodations: 0,
+    removedAccommodationRates: 0,
+    removedActivities: 0,
+    removedActivityRates: 1,
+  };
+}
+
+/** Periodo legible de una tarifa operativa (rango de fechas o temporada). */
+function catalogPeriod(rate: {
+  dateFrom: Date | null;
+  dateTo: Date | null;
+  seasonName?: string | null;
+}): string | null {
+  const fmt = (date: Date | null) =>
+    date ? date.toISOString().slice(0, 10) : null;
+  const from = fmt(rate.dateFrom);
+  const to = fmt(rate.dateTo);
+  if (from && to) return `${from} → ${to}`;
+  if (from) return `desde ${from}`;
+  return rate.seasonName ?? null;
+}
+
+/**
+ * Catálogo global del inventario operativo publicado: TODOS los alojamientos y
+ * actividades (incluidas filas heredadas de Excel sin documento), con sus
+ * tarifas y el nombre del documento de origen resuelto. Solo lectura.
+ */
+export async function getPublishedInventoryCatalog(): Promise<PublishedInventoryCatalog> {
+  const [accommodations, activities] = await Promise.all([
+    prisma.accommodation.findMany({
+      include: { rates: { orderBy: [{ year: "asc" }] } },
+      orderBy: [{ locality: "asc" }, { accommodationName: "asc" }],
+    }),
+    prisma.activity.findMany({
+      include: { rates: { orderBy: [{ year: "asc" }] } },
+      orderBy: [{ locationMain: "asc" }, { activityName: "asc" }],
+    }),
+  ]);
+
+  // Resolver nombres de los documentos de origen en una sola consulta.
+  const documentIds = [
+    ...new Set(
+      [...accommodations, ...activities]
+        .map((item) => item.sourceDocumentId)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  const documents = documentIds.length
+    ? await prisma.sourceDocument.findMany({
+        where: { id: { in: documentIds } },
+        select: { id: true, controlName: true },
+      })
+    : [];
+  const documentNames = new Map(documents.map((doc) => [doc.id, doc.controlName]));
+
+  const mappedAccommodations = accommodations.map((accommodation) => ({
+    id: accommodation.id,
+    accommodationName: accommodation.accommodationName,
+    locality: accommodation.locality,
+    categoryType: accommodation.categoryType,
+    sourceDocumentId: accommodation.sourceDocumentId,
+    sourceDocumentName: accommodation.sourceDocumentId
+      ? documentNames.get(accommodation.sourceDocumentId) ?? null
+      : null,
+    rates: accommodation.rates.map((rate) => ({
+      id: rate.id,
+      year: rate.year,
+      label: rate.boardType,
+      period: catalogPeriod(rate),
+      currency: rate.currency,
+      amount: decimalToNumber(rate.pvpAmount) ?? decimalToNumber(rate.netSaleAmount),
+    })),
+  }));
+
+  const mappedActivities = activities.map((activity) => ({
+    id: activity.id,
+    activityName: activity.activityName,
+    supplierName: activity.supplierName,
+    locationMain: activity.locationMain,
+    sourceDocumentId: activity.sourceDocumentId,
+    sourceDocumentName: activity.sourceDocumentId
+      ? documentNames.get(activity.sourceDocumentId) ?? null
+      : null,
+    rates: activity.rates.map((rate) => ({
+      id: rate.id,
+      year: rate.year,
+      label: rate.ageLabel,
+      period: catalogPeriod({ dateFrom: null, dateTo: null }),
+      currency: rate.currency,
+      amount: decimalToNumber(rate.salePvpAmount),
+    })),
+  }));
+
+  return {
+    accommodations: mappedAccommodations,
+    activities: mappedActivities,
+    accommodationCount: mappedAccommodations.length,
+    activityCount: mappedActivities.length,
+    accommodationRateCount: mappedAccommodations.reduce((t, a) => t + a.rates.length, 0),
+    activityRateCount: mappedActivities.reduce((t, a) => t + a.rates.length, 0),
   };
 }

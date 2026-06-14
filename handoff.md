@@ -46,7 +46,8 @@ Sidebar con 3 páginas (`src/components/Sidebar.tsx`, `src/App.tsx`):
 
 - **Nuevo registro** y **Existente**: flujos comerciales (solicitud → propuesta → CRM Zoho). No
   tocados en este trabajo. Usan `/api/search/accommodations` y `/api/search/activities`.
-- **Inventario documental** (antes "Datos y MCP"): renderiza solo `<InventoryDocumentsPanel />`.
+- **Inventario documental** (id de página `"inventory"`, antes `"mcp"`): renderiza solo
+  `<InventoryDocumentsPanel />`. Tiene un toggle interno "Documentos" / "Catálogo publicado".
   El bloque de importación masiva por Excel y el explorador "Ver todo lo importado" se eliminaron
   del app (ver "Cambios recientes").
 
@@ -67,7 +68,8 @@ Documental (todos bajo `/api/inventory`):
 - `POST /documents` crear · `GET /documents` listar (incluye contadores
   `candidateCount`/`pendingReviewCount`/`approvedCount` por documento) · `GET /documents/:id`
   detalle (los `Decimal` de Prisma se serializan a number).
-- `POST /documents/:id/file` subir · `POST /documents/:id/analyze` extraer texto del PDF.
+- `POST /documents/:id/file` subir/reemplazar · `DELETE /documents/:id/file` quitar archivo ·
+  `PATCH /documents/:id` editar metadatos de control · `POST /documents/:id/analyze` extraer texto.
 - `POST /documents/:id/ai-analyze` análisis IA de vista previa (no guarda) ·
   `POST /documents/:id/create-staging` crear candidatos · `POST /documents/:id/regenerate-staging`
   descartar y recrear.
@@ -77,6 +79,11 @@ Documental (todos bajo `/api/inventory`):
   `POST /documents/:id/publish-approved` publicar (idempotente por `sourceDocumentId`).
 - `GET /documents/:id/published` trazabilidad de lo vivo ·
   `GET /documents/:id/unpublish/dry-run` simular retirada · `POST /documents/:id/unpublish` retirar.
+- `GET /documents/:id/delete/dry-run` simular borrado · `DELETE /documents/:id` borrar documento
+  (409 si tiene publicados).
+- `GET /catalog` catálogo global del inventario publicado (con origen documental) ·
+  `DELETE /published/:kind/:id` retirada granular (kind: accommodation | activity |
+  accommodation-rate | activity-rate).
 
 Eliminados: `/documents/:id/approve|reject|publish` (estado a nivel de documento) y
 `/api/data/summary|catalog|import` (importación Excel). Siguen `/api/search/*` y `/api/crm/*`.
@@ -146,13 +153,93 @@ typechquea `server/` (corre con `tsx`) y en runtime el cliente sí los conoce. C
 - El estado de revisión del 4R se ha ido cambiando durante las pruebas (mezcla de pendientes y
   aprobados). No asumir un estado fijo: comprobar en la UI / `GET /documents/:id`.
 
+## Trabajo recién completado (rama `feat/documental-review-workspace`, SIN commitear)
+
+Los cuatro "próximos pasos" anteriores ya están hechos (build OK, 10/10 tests). Pendiente de commit:
+
+- **Columna "Por revisar" accionable + orden**: en `InventoryDocumentsPanel.tsx` la lista se ordena
+  por `pendingReviewCount` desc (copia, sort estable). El tag "N pendiente(s)" es ahora un botón
+  (`status-tag--action`) que abre el detalle en la pestaña Pendientes (`handleViewDetail(id,
+  "pendientes")`; nuevo parámetro opcional `initialTab`).
+- **Trazabilidad en búsqueda operativa**: `Accommodation`/`Activity` (en `src/domain/types.ts`)
+  tienen `sourceDocumentId?`/`sourceDocumentName?` (opcionales). `server/searchDb.ts` los resuelve
+  con `loadSourceDocumentNames` (1 query, sin N+1) en ambas búsquedas. En `App.tsx` se muestra un
+  badge "Origen: <doc>" (`.origin-tag`) en la tarjeta de alojamiento y como `title` en el chip de
+  actividad.
+- **Pruebas automatizadas**: `tests/documentFlow.test.ts` (sin frameworks; corre con `tsx`).
+  `npm run test` ejercita crear → staging → aprobar en lote → dry-run → publicar → trazabilidad
+  (incl. búsqueda) → idempotencia → dry-run retirada → retirar. Usa una BD SQLite TEMPORAL
+  (`prisma/test-flow.db`, gitignored) creada con `prisma db push`; NO toca `dev.db`. En Windows el
+  archivo temporal queda bloqueado al final (EPERM, normal): se borra al inicio de la corrida
+  siguiente. Nuevo script `test` en package.json.
+- **Refactor del panel**: se extrajeron dos módulos en `src/components/inventory/`:
+  `inventoryFormatting.ts` (`getErrorMessage`, `formatAmount`, `stagingReviewStatusLabels/Options`)
+  y `RateReviewTable.tsx` (`RateReviewTable`, `StagingEditableCard`, definiciones de campos y de
+  columnas). El panel bajó de ~3150 a ~2510 líneas.
+
+## Gestión del inventario publicado (SIN commitear, build OK, 16/16 tests)
+
+Tres funciones nuevas pedidas por el usuario (borrar documento, retirada granular, catálogo global):
+
+- **Eliminar documento**: botón "Eliminar" en la columna Acciones de la lista. Hace dry-run
+  (`GET /documents/:id/delete/dry-run`); si el documento tiene registros publicados, **se bloquea**
+  con aviso ("retíralos primero"). Si no, muestra banner de confirmación (conteo de staging que se
+  borra) y borra con `DELETE /documents/:id` (cascade de extracciones/incidencias/staging; NO toca
+  el inventario operativo ni Excel; NO borra el archivo físico de storage/). Backend:
+  `deleteInventoryDocument` / `dryRunDeleteInventoryDocument` / `DeleteDocumentValidationError`.
+- **Retirada granular**: en la pestaña "Publicados", botón "Quitar … del inventario" por
+  alojamiento/actividad y enlace "quitar" por tarifa. Confirmación inline. Backend:
+  `unpublishPublishedItem(kind, id)` con kind ∈ accommodation | activity | accommodation-rate |
+  activity-rate; ruta `DELETE /api/inventory/published/:kind/:id` (404 si no existe). Las tarifas de
+  un alojamiento/actividad caen por cascade; quitar un alojamiento que esté en una propuesta CRM
+  también elimina esa opción de propuesta (mismo comportamiento que la retirada por documento).
+- **Catálogo global**: nuevo toggle de vista en el panel ("Documentos" / "Catálogo publicado"),
+  componente `InventoryCatalogView.tsx`. Lista TODO el inventario operativo (todos los documentos e
+  incluso filas de Excel sin documento), agrupado en Alojamientos/Actividades, con buscador y un
+  badge "Origen: <documento>" (o "importado (Excel)"). Backend: `getPublishedInventoryCatalog`
+  (resuelve nombres de documento en una sola query), ruta `GET /api/inventory/catalog`.
+
+Archivos nuevos: `InventoryCatalogView.tsx`. Tipos en `documentImportTypes.ts`
+(`DryRunDeleteDocumentResult`, `DeleteDocumentResult`, `PublishedItemKind`, `UnpublishItemResult`,
+`Catalog*`, `PublishedInventoryCatalog`). apiClient: `deleteInventoryDocumentApi`,
+`dryRunDeleteInventoryDocumentApi`, `getInventoryCatalogApi`, `unpublishPublishedItemApi` (+ helper
+`deleteJson`). Las pruebas (`npm run test`) ahora cubren también catálogo, borrado bloqueado/
+permitido y retirada granular.
+
+## Edición de registro, archivo y simplificación (SIN commitear, build OK, 17/17 tests)
+
+- **Editar registro**: el formulario de registro se reutiliza para editar (botón "Editar" por fila →
+  precarga y "Guardar cambios"/"Cancelar"). Backend `updateInventoryDocumentMetadata` +
+  `PATCH /api/inventory/documents/:id` (valida nombre no vacío → 400). apiClient
+  `updateInventoryDocumentApi`.
+- **Reemplazar/quitar PDF**: en la pestaña Resumen del detalle, input de archivo con "Reemplazar
+  archivo" + "Quitar archivo". Reemplazar = la subida existente (resetea extracción). Quitar:
+  backend `removeInventoryDocumentFile` + `DELETE /api/inventory/documents/:id/file` (limpia campos
+  del fichero, no borra el físico de storage/ ni el staging). apiClient
+  `removeInventoryDocumentFileApi`.
+- **Simplificar UI**: el formulario de registro es ahora plegable (botón "＋ Registrar documento");
+  estado inicial guiado (`.empty-state`) con los 5 pasos cuando no hay documentos.
+- **Limpieza**: eliminadas `getImportedCatalogDb`/`getInventorySummaryDb` (dead code en searchDb.ts).
+  Renombrado el id de página `"mcp"` → `"inventory"` en App.tsx y Sidebar.tsx (NO confundir con
+  `services/mcpTools`, que SÍ se usa: alimenta los flujos comerciales vía `mockData`/`searchService`/
+  `mockDb` — NO son dead code).
+
+## Pendiente clave: extraer el workspace del documento (DIFERIDO a propósito)
+
+El render del detalle dentro de `InventoryDocumentsPanel.tsx` (~880 líneas, ~25 estados, ~20
+handlers, subida de archivo compartida con la lista) debería extraerse a `DocumentWorkspace.tsx`
+(contrato sugerido: `documentId`, `onChanged` para recargar la lista, `onClose`; que gestione su
+propio estado/errores/archivo). Se dejó sin hacer **a propósito**: es refactor estructural sin
+capacidad nueva, de alto riesgo de regresión, y su corrección NO la cubren los tests (validan el
+backend, no el cableado React) → hay que verificarlo pestaña a pestaña con la app abierta. Hacerlo
+como tarea propia.
+
 ## Próximos pasos sugeridos (no iniciados)
 
-- Hacer la columna "Por revisar" accionable (clic → abre la pestaña Pendientes) y/o ordenar la
-  lista por "más pendientes primero".
-- Pruebas automatizadas del flujo documental (crear/aprobar en lote/dry-run/publicar/retirar).
-- Mostrar la trazabilidad de origen documental también desde la búsqueda operativa.
-- Si `InventoryDocumentsPanel.tsx` crece más, extraer el workspace a su propio archivo.
+- **Extraer el workspace del documento** (ver arriba) — el ítem de estructura pendiente.
+- Ampliar `tests/documentFlow.test.ts` con el flujo de ACTIVIDADES (hoy cubre alojamientos).
+- Revisar/validar end-to-end los flujos comerciales (Nuevo/Existente + CRM Zoho), no tocados aquí.
+- Aviso visible en UI cuando el análisis IA corre en modo mock (sin `ANTHROPIC_API_KEY`).
 
 ## Reglas y restricciones
 
@@ -170,6 +257,7 @@ typechquea `server/` (corre con `tsx`) y en runtime el cliente sí los conoce. C
 cd "C:\Users\User\Documents\Viajes Velero Ops"
 git status
 npm.cmd run build                 # tsc -b && vite build
+npm.cmd run test                  # pruebas del flujo documental (BD SQLite temporal)
 taskkill /F /IM node.exe          # liberar :8787 / DLL de Prisma
 npm.cmd run dev                   # API :8787 + Vite :5173
 npm.cmd run prisma:push           # db push aditivo (no reset)

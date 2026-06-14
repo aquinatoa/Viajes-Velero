@@ -21,16 +21,23 @@ import {
   bulkUpdateStagingReview,
   createInventoryDocument,
   createInventoryDocumentStaging,
+  deleteInventoryDocument,
   deleteInventoryDocumentStaging,
+  DeleteDocumentValidationError,
+  removeInventoryDocumentFile,
+  updateInventoryDocumentMetadata,
+  dryRunDeleteInventoryDocument,
   dryRunPublishApprovedInventoryDocument,
   dryRunUnpublishInventoryDocument,
   getInventoryDocumentDetail,
   getPublishedInventoryByDocument,
+  getPublishedInventoryCatalog,
   listInventoryDocuments,
   publishApprovedInventoryDocument,
   PublishValidationError,
   StagingValidationError,
   unpublishInventoryDocument,
+  unpublishPublishedItem,
   updateInventoryDocumentStatus,
   updateStagingEntity,
 } from "./documentImportDb";
@@ -252,6 +259,59 @@ app.get("/api/inventory/documents/:id", async (request, response) => {
     response.status(500).json({
       error: "No se pudo cargar el detalle del documento de inventario.",
     });
+  }
+});
+
+// Editar metadatos de control del documento (nombre, ubicación, año, etc.).
+// No toca el archivo, el staging ni el inventario operativo.
+app.patch("/api/inventory/documents/:id", async (request, response) => {
+  try {
+    const documentId = String(request.params.id);
+    const existing = await getInventoryDocumentDetail(documentId);
+
+    if (!existing) {
+      response.status(404).json({ error: "Documento no encontrado." });
+      return;
+    }
+
+    const payload = (request.body ?? {}) as {
+      targetType?: "ACCOMMODATION" | "ACTIVITY" | "MIXED" | "UNKNOWN";
+      controlName?: string;
+      controlLocation?: string | null;
+      controlYear?: number | null;
+      controlCategory?: string | null;
+      controlNotes?: string | null;
+    };
+
+    if (payload.controlName !== undefined && !payload.controlName.trim()) {
+      response.status(400).json({ error: "El nombre de control no puede quedar vacío." });
+      return;
+    }
+
+    const updated = await updateInventoryDocumentMetadata(documentId, payload);
+    response.json(updated);
+  } catch (error) {
+    console.error("Error updating inventory document metadata", error);
+    response.status(500).json({ error: "No se pudo actualizar el documento." });
+  }
+});
+
+// Quitar el archivo asociado al documento (corregir una subida equivocada).
+app.delete("/api/inventory/documents/:id/file", async (request, response) => {
+  try {
+    const documentId = String(request.params.id);
+    const existing = await getInventoryDocumentDetail(documentId);
+
+    if (!existing) {
+      response.status(404).json({ error: "Documento no encontrado." });
+      return;
+    }
+
+    const updated = await removeInventoryDocumentFile(documentId);
+    response.json(updated);
+  } catch (error) {
+    console.error("Error removing inventory document file", error);
+    response.status(500).json({ error: "No se pudo quitar el archivo del documento." });
   }
 });
 
@@ -860,6 +920,93 @@ app.post("/api/inventory/documents/:id/unpublish", async (request, response) => 
     response.status(500).json({
       error: "No se pudo retirar la publicación del documento.",
     });
+  }
+});
+
+// Simulación de borrado de un documento (GET, solo lectura): cuántos candidatos
+// staging se quitarían y si está bloqueado por tener registros publicados.
+app.get("/api/inventory/documents/:id/delete/dry-run", async (request, response) => {
+  try {
+    const documentId = String(request.params.id);
+    const document = await getInventoryDocumentDetail(documentId);
+
+    if (!document) {
+      response.status(404).json({ error: "Documento no encontrado." });
+      return;
+    }
+
+    const result = await dryRunDeleteInventoryDocument(documentId);
+    response.json(result);
+  } catch (error) {
+    console.error("Error running delete dry-run on inventory document", error);
+    response.status(500).json({ error: "No se pudo simular el borrado del documento." });
+  }
+});
+
+// Borrado real del documento (DELETE). Bloqueado si tiene registros publicados:
+// primero hay que retirarlos. No toca el inventario operativo ni datos de Excel.
+app.delete("/api/inventory/documents/:id", async (request, response) => {
+  try {
+    const documentId = String(request.params.id);
+    const document = await getInventoryDocumentDetail(documentId);
+
+    if (!document) {
+      response.status(404).json({ error: "Documento no encontrado." });
+      return;
+    }
+
+    const result = await deleteInventoryDocument(documentId);
+    response.json(result);
+  } catch (error) {
+    if (error instanceof DeleteDocumentValidationError) {
+      response.status(409).json({ error: error.message });
+      return;
+    }
+    console.error("Error deleting inventory document", error);
+    response.status(500).json({ error: "No se pudo borrar el documento." });
+  }
+});
+
+// Catálogo global del inventario operativo publicado (todos los documentos, e
+// incluso filas de Excel), con el documento de origen resuelto. Solo lectura.
+app.get("/api/inventory/catalog", async (_request, response) => {
+  try {
+    const result = await getPublishedInventoryCatalog();
+    response.json(result);
+  } catch (error) {
+    console.error("Error fetching published inventory catalog", error);
+    response.status(500).json({ error: "No se pudo obtener el catálogo del inventario." });
+  }
+});
+
+// Retirada granular (DELETE): quita del inventario operativo un registro
+// publicado concreto (alojamiento/actividad completo o una tarifa). El resto del
+// inventario y los candidatos staging se conservan.
+app.delete("/api/inventory/published/:kind/:id", async (request, response) => {
+  try {
+    const kind = String(request.params.kind);
+    const id = String(request.params.id);
+    const validKinds = ["accommodation", "activity", "accommodation-rate", "activity-rate"];
+
+    if (!validKinds.includes(kind)) {
+      response.status(400).json({ error: "Tipo de registro publicado no válido." });
+      return;
+    }
+
+    const result = await unpublishPublishedItem(
+      kind as "accommodation" | "activity" | "accommodation-rate" | "activity-rate",
+      id,
+    );
+
+    if (!result) {
+      response.status(404).json({ error: "El registro publicado no existe o ya fue retirado." });
+      return;
+    }
+
+    response.json(result);
+  } catch (error) {
+    console.error("Error unpublishing single inventory item", error);
+    response.status(500).json({ error: "No se pudo retirar el registro del inventario." });
   }
 });
 

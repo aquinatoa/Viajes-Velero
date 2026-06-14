@@ -1,6 +1,6 @@
 interface SidebarProps {
-  currentPage: "new" | "existing" | "mcp";
-  onNavigate: (page: "new" | "existing" | "mcp") => void;
+  currentPage: "new" | "existing" | "inventory";
+  onNavigate: (page: "new" | "existing" | "inventory") => void;
 }
 
 const pages = [
@@ -15,7 +15,7 @@ const pages = [
     description: "Buscar oportunidad CRM y aprobar una opción"
   },
   {
-    id: "mcp" as const,
+    id: "inventory" as const,
     label: "Inventario documental",
     description: "Importar tarifas desde documentos con IA, revisar y publicar"
   }
