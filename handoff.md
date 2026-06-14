@@ -248,9 +248,22 @@ Se auditó el frontend con la lente de la skill `impeccable` (+ `emil-design-eng
 - **Error boundary (#12)**: `src/components/ErrorBoundary.tsx` envuelve `<App/>` en `main.tsx` →
   fallo de render controlado en vez de pantalla en blanco.
 
-Pendientes del informe NO aplicados: #11 (extraer workspace, ver abajo). Verificación visual del
-pulido: pendiente de que el usuario abra la app (`npm run dev`); no se pudo hacer captura desde CLI.
-Mejoras opcionales futuras: variar ritmo de espaciado, y revisar contraste real de textos `--empty`.
+**Segundo pase de craft (commit `2815cc1`)** — `impeccable` + `emil-design-eng`, corrige bugs reales:
+- **BUG corregido**: `.primary` y `.stack`/`.compact` NO estaban definidos en `styles.css` pese a
+  usarse 21× en el panel (botones primarios sin destacar, grupos de botones sin layout). Definidos.
+- **Tokens de diseño** en `:root` (`--bg/--surface/--ink/--muted/--brand/--accent/--border/--radius*/
+  --shadow/--ease-out`).
+- **Botón base cohesivo** para los `<button>` sin clase (antes gris por defecto del navegador) +
+  `:hover` y `:active { scale(0.97) }` (feedback de pulsación, Emil). Las clases específicas
+  (`.link-action`, `.ws-tab`, `.steps__item`, `.status-tag--action`…) conservan su aspecto.
+- **Tipografía**: `letter-spacing -0.02em` + `text-wrap: balance` en titulares; `max-width: 72ch` +
+  `text-wrap: pretty` en prosa.
+- **Inputs**: foco con borde de acento + anillo. `.actions-row` en fila y centrado.
+
+Pendientes del informe NO aplicados: #11 (extraer workspace, ver abajo). **Verificación visual de
+ambos pases: pendiente de que el usuario abra la app (`npm run dev`)**; no hay navegador en CLI
+(el Chromium de Playwright/gstack quedó bloqueado por el proxy). Si algún ajuste visual no convence
+(p. ej. el restyle de los `<button>` sin clase), es CSS y se afina rápido.
 
 ## Pendiente clave: extraer el workspace del documento (DIFERIDO a propósito)
 
