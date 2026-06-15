@@ -160,8 +160,8 @@ Eliminados: `/documents/:id/approve|reject|publish` (estado a nivel de documento
 
 ## Workspace del documento (UX por pestañas)
 
-`InventoryDocumentsPanel.tsx` (un único componente grande; si crece, extraer a su propio archivo).
-El detalle se organiza en pestañas con contador:
+`DocumentWorkspace.tsx` (extraído de `InventoryDocumentsPanel.tsx`; ver "Extraer el workspace del
+documento — HECHO"). El detalle se organiza en pestañas con contador:
 
 - **Resumen**: archivo fuente, acciones del pipeline (Ejecutar análisis → Analizar con IA → Crear
   candidatos), contadores de staging, control de calidad, banner "aprobado sin publicar",
@@ -332,15 +332,31 @@ Próximos refinamientos visuales posibles (no hechos): escala tipográfica más 
 de sección; estilizar el texto de la columna "Estado" como pill; revisar densidad de la
 `.rate-table` para alinearla al nuevo sistema; modo oscuro como variante (Dirección C) si se quisiera.
 
-## Pendiente clave: extraer el workspace del documento (DIFERIDO a propósito)
+## Extraer el workspace del documento — HECHO (SIN commitear, build OK, 31/31 tests, verificado por capturas)
 
-El render del detalle dentro de `InventoryDocumentsPanel.tsx` (~880 líneas, ~25 estados, ~20
-handlers, subida de archivo compartida con la lista) debería extraerse a `DocumentWorkspace.tsx`
-(contrato sugerido: `documentId`, `onChanged` para recargar la lista, `onClose`; que gestione su
-propio estado/errores/archivo). Se dejó sin hacer **a propósito**: es refactor estructural sin
-capacidad nueva, de alto riesgo de regresión, y su corrección NO la cubren los tests (validan el
-backend, no el cableado React) → hay que verificarlo pestaña a pestaña con la app abierta. Hacerlo
-como tarea propia.
+El detalle/revisión se extrajo de `InventoryDocumentsPanel.tsx` a un componente propio
+`src/components/inventory/DocumentWorkspace.tsx` (2310 líneas). El panel bajó de **2932 → 642
+líneas** (solo lista + formulario + toggle de catálogo). Contrato:
+`<DocumentWorkspace key={documentId} documentId initialTab reloadToken onChanged onClose />`.
+
+- El workspace **gestiona su propio estado, errores/feedback y subida de archivo** (reemplazar/
+  quitar el PDF del detalle); ya no comparte `selectedFiles` con la lista. Carga su detalle +
+  trazabilidad en un `useEffect([documentId, reloadToken])`. Se monta con `key={documentId}`, así
+  que cada documento arranca limpio (no hay reset manual).
+- `onChanged` = `loadDocuments` del panel (refresca contadores/estado de la lista tras subir/quitar
+  archivo, extraer texto, publicar, retirar y retirada granular — exactamente donde antes se
+  llamaba a `loadDocuments`). `onClose` cierra el detalle. `initialTab` abre en una pestaña concreta
+  (la columna "Por revisar" sigue abriendo en "Pendientes"). `reloadToken` se incrementa al editar
+  los metadatos del documento abierto, para refrescarlo en silencio sin desmontarlo.
+- Las etiquetas compartidas (`targetTypeLabels`, `statusLabels`, `extractionStatusLabels`) se
+  movieron a `inventoryFormatting.ts`; las propias del workspace (incidencias, extracción, QC,
+  `ImportIssuesPanel`, `QualityControlPanel`, etc.) viven en `DocumentWorkspace.tsx`.
+- **Verificación**: build limpio (58 módulos) + 31/31 tests + recorrido con Edge headless
+  (Playwright) que inició sesión, abrió el documento "4R 4 estrellas" y pulsó las 6 pestañas
+  (Resumen/Pendientes/Aprobados/Rechazados/Publicados/Incidencias) capturando cada una. Todas
+  renderizan (tablas de revisión, dry-run/publicar, trazabilidad con "Ver lo publicado", incidencias
+  + extracciones) sin errores de React; el único 404 de consola es `favicon.ico` (preexistente). El
+  "Cerrar detalle" desmonta el workspace correctamente.
 
 ## PRÓXIMA GRAN TAREA (decidida): migrar el flujo comercial a BD real — "Opción B"
 
@@ -426,7 +442,6 @@ catálogo global → retirada granular de tarifa y de actividad completa. Total 
 
 ## Otros próximos pasos sugeridos (no iniciados)
 
-- **Extraer el workspace del documento** (ver arriba) — el ítem de estructura pendiente.
 - Extender la validación `zod` a los endpoints comerciales y de inventario (ver arriba).
 
 ## Reglas y restricciones

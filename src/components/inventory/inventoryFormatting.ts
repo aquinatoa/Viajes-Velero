@@ -1,9 +1,39 @@
-import type { StagingReviewStatus } from "../../domain/documentImportTypes";
+import type {
+  InventoryTargetType,
+  StagingReviewStatus,
+} from "../../domain/documentImportTypes";
 
 /** Mensaje legible de un error desconocido, con texto de respaldo. */
 export function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
+
+// Etiquetas compartidas por la lista de documentos y el workspace de detalle.
+export const targetTypeLabels: Record<InventoryTargetType, string> = {
+  ACCOMMODATION: "Alojamiento",
+  ACTIVITY: "Actividad",
+  MIXED: "Mixto",
+  UNKNOWN: "No estoy seguro",
+};
+
+export const statusLabels: Record<string, string> = {
+  UPLOADED: "Subido",
+  ANALYZING: "Analizando",
+  PENDING_REVIEW: "Pendiente de revisión",
+  PARTIALLY_REVIEWED: "Revisado parcialmente",
+  APPROVED: "Aprobado",
+  REJECTED: "Rechazado",
+  PUBLISHED: "Publicado",
+};
+
+export const extractionStatusLabels: Record<string, string> = {
+  NOT_STARTED: "No iniciado",
+  EXTRACTING: "Extrayendo",
+  EXTRACTED: "Extraído",
+  PARTIALLY_EXTRACTED: "Extraído parcialmente",
+  FAILED: "Fallido",
+  NEEDS_OCR: "Requiere OCR",
+};
 
 const currencySymbols: Record<string, string> = {
   EUR: "€",
