@@ -117,10 +117,28 @@ API, sin dependencias). El cuerpo de las páginas NO se tocó (capa fina URL↔p
 - **Verificación**: build (64 módulos) + 31/31 tests + Edge headless: expandido, colapsado (rail +
   tooltip), submenú, navegación con cambio de URL y **botón atrás del navegador**, item activo por
   ruta, items deshabilitados en gris y **drawer móvil** (390px) con overlay. Cero errores de React.
-- **Deuda menor**: queda CSS muerto del sidebar antiguo en `styles.css` (`.sidebar`, `.steps*`,
-  `.sidebar__*` y su `@media`); inofensivo (las clases ya no se usan), limpiar cuando convenga.
-- **Fuera de alcance** (no hecho): crear las pantallas de los items deshabilitados, ampliar el
-  modelo de roles en backend, y el topbar de la referencia (campana, menú de usuario).
+- **Fuera de alcance** (no hecho): crear las pantallas de los items deshabilitados y ampliar el
+  modelo de roles en backend.
+
+## Barra superior (Topbar) + limpieza CSS — HECHO (SIN commitear, build OK, 31/31 tests, verificado por capturas)
+
+- **Topbar** (`src/components/Topbar.tsx`): barra superior pegajosa con breadcrumb a la izquierda
+  ("Viajes Velero / <sección>", el label se deriva de `currentPage` en `App.tsx`) y a la derecha
+  **campana** (popover "No tienes notificaciones" — honesto, sin contador falso), **ayuda** (popover
+  con texto breve) y **menú de usuario** (avatar con iniciales + nombre + rol + chevron → dropdown
+  con email, badge de rol y "Cerrar sesión"). Los desplegables cierran al pulsar fuera o con Escape
+  (`aria-haspopup`/`aria-expanded`). En `App.tsx` el shell autenticado se envolvió en
+  `<div className="main-area">` (flex column: Topbar + `<main>`). CSS `.topbar*`/`.main-area` con
+  tokens del sistema (sin glassmorphism). En móvil la topbar deja hueco al botón hamburguesa.
+- **Limpieza CSS**: eliminado el CSS muerto del sidebar antiguo en `styles.css` (`.sidebar`,
+  `.steps*`, `.sidebar__*`, `.sidebar .brand-block`, sus `@media` y la referencia en comentario).
+  Además se corrigió un `@media (max-width:1024px)` que ponía `.app-shell` a 1fr (rompía el sidebar
+  v2 entre 901–1024px): ahora el cambio a una sola columna solo ocurre a ≤900px (modo drawer).
+- **Verificación**: build (65 módulos) + 31/31 tests + Edge headless (topbar por defecto, dropdown
+  de usuario con "Cerrar sesión", popover de campana, y cambio de breadcrumb + item activo al
+  navegar a Inventario). Cero errores de React.
+- **Fuera de alcance**: la campana/ayuda son honestas pero sin fuente de datos real todavía (no hay
+  sistema de notificaciones); conectar cuando exista.
 
 ## Navegación del app
 

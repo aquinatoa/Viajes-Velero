@@ -3,6 +3,7 @@ import { InputField, TextAreaField } from "./components/Field";
 import { SectionCard } from "./components/SectionCard";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { useSidebar } from "./components/sidebar/useSidebar";
+import { Topbar } from "./components/Topbar";
 import { type Page, pageFromPath, routeForPage } from "./router";
 import { StatusPill } from "./components/StatusPill";
 import { InventoryDocumentsPanel } from "./components/inventory/InventoryDocumentsPanel";
@@ -631,6 +632,14 @@ export function App() {
     );
   }
 
+  const pageLabels: Record<Page, string> = {
+    new: "Nuevo registro",
+    existing: "Existente",
+    inventory: "Inventario documental",
+    users: "Usuarios y permisos",
+    audit: "Auditoría",
+  };
+
   return (
     <div className={`app-shell ${sidebarUi.collapsed ? "app-shell--collapsed" : ""}`}>
       <Sidebar
@@ -640,6 +649,8 @@ export function App() {
         onLogout={handleLogout}
         ui={sidebarUi}
       />
+      <div className="main-area">
+      <Topbar user={currentUser} pageLabel={pageLabels[currentPage]} onLogout={handleLogout} />
       <main className="main-content">
         {currentPage === "new" || currentPage === "existing" || currentPage === "inventory" ? (
         <header className="hero">
@@ -1126,6 +1137,7 @@ export function App() {
           </div>
         ) : null}
       </main>
+      </div>
     </div>
   );
 }
