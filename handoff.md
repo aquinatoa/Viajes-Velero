@@ -457,11 +457,32 @@ registro* / *Existente*) **mezcla fuentes de datos**:
 - **Tests**: `tests/documentFlow.test.ts` añade el flujo comercial (crea Accommodation → upsert
   cliente → solicitud → propuesta con FK real → aprobar). Total **21/21**.
 
-**PENDIENTE de verificación del usuario (NO testeable desde CLI):** abrir la app y validar end-to-end
-los flujos **Nuevo** (parse → buscar → propuesta con precio real → enviar a Zoho CRM) y **Existente**
-(buscar oportunidad en Zoho → aprobar). Requiere login de Zoho. Si algo falla, mirar la consola del
-navegador y el log de la API. El envío a Zoho (`createZohoOpportunityApi`/`approveZohoOpportunityApi`)
-NO se tocó; sigue igual.
+**✅ Validación end-to-end (HECHA con Edge headless + Zoho real, cliente de prueba desechable).**
+Se recorrieron ambos flujos contra el stack real (BD + Zoho de producción) y se limpiaron los
+registros de prueba al terminar:
+- **Registro (Nuevo)**: normalizar → corregir destino en la revisión → buscar inventario (192
+  alojamientos) → construir propuesta (precio real) → **enviar a Zoho** = deal creado correctamente
+  (con contacto+cuenta "PRUEBA VALIDACION" y las opciones en `Description`). ✓
+- **Actualización (Existente)**: buscar por email (encontró el deal tras indexar) → **aprobar
+  opción** = OK. ✓
+- Limpieza: deal/contacto/cuenta borrados de Zoho (200 SUCCESS) y cliente de prueba borrado de
+  `dev.db` (cascade).
+
+**Hallazgos de la validación (pendientes de decidir si se corrigen):**
+1. **Zoho necesita el bundle CA para salir tras el proxy TLS corporativo.** `npm run dev` arranca el
+   backend SIN el CA → las llamadas a Zoho fallan con `fetch failed` (500). Arrancar con
+   `NODE_EXTRA_CA_CERTS=/c/Users/User/corp-ca-bundle.pem npm.cmd run dev` (o exportar esa var en el
+   perfil del shell, o `NODE_OPTIONS=--use-system-ca` en Node 24). Sin esto, los pasos de Zoho NO
+   funcionan aunque el código esté bien. *(Idea: añadir un script `dev:proxy` o documentarlo en el
+   README; no se hardcodea la ruta en package.json porque es específica de esta máquina.)*
+2. **El parser de texto libre no reconoce "Salou"** (su `destinationCatalog` en
+   `src/services/requestService.ts` solo tiene Valencia/Gandia/Madrid/Barcelona), pero el inventario
+   publicado es de Salou. Resultado: la solicitud queda con destino vacío y hay que **corregirlo a
+   mano en el paso "Revisión normalizada"** (que existe justo para eso). *(Idea: ampliar el catálogo
+   con Salou/Cambrils/etc., o que el parser extraiga el destino tras "en <ciudad>" como fallback.)*
+3. **Latencia de indexado de Zoho:** buscar por email **justo después** de crear el deal devuelve 0;
+   tras ~30 s ya aparece. La UI de Existente puede inducir a "no encontrado" si se busca demasiado
+   pronto. *(Idea: aviso o reintento con backoff.)*
 
 ## Cobertura de tests del flujo de ACTIVIDADES — HECHO (SIN commitear, build OK, 31/31 tests)
 
