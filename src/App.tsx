@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { InputField, TextAreaField } from "./components/Field";
 import { SectionCard } from "./components/SectionCard";
-import { Sidebar, type Page } from "./components/Sidebar";
+import { Sidebar } from "./components/sidebar/Sidebar";
+import { useSidebar } from "./components/sidebar/useSidebar";
+import { type Page, pageFromPath, routeForPage } from "./router";
 import { StatusPill } from "./components/StatusPill";
 import { InventoryDocumentsPanel } from "./components/inventory/InventoryDocumentsPanel";
 import { LoginPage } from "./components/LoginPage";
@@ -87,12 +89,45 @@ export function App() {
   const proposalSectionRef = useRef<HTMLDivElement | null>(null);
   const crmSectionRef = useRef<HTMLDivElement | null>(null);
 
-  const [currentPage, setCurrentPage] = useState<Page>("new");
+  // Navegación por URL (router propio, History API). currentPage se deriva.
+  const [currentPath, setCurrentPath] = useState(() =>
+    typeof window !== "undefined" ? window.location.pathname : "/",
+  );
+  const currentPage: Page = pageFromPath(currentPath) ?? "new";
+  const sidebarUi = useSidebar();
   const [newStep, setNewStep] = useState(1);
+
+  // Reaccionar a los botones atrás/adelante del navegador.
+  useEffect(() => {
+    const onPop = () => setCurrentPath(window.location.pathname);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // Navega a una ruta real (actualiza la URL y limpia avisos).
+  const navigatePath = (path: string) => {
+    if (typeof window !== "undefined" && path !== window.location.pathname) {
+      window.history.pushState({}, "", path);
+    }
+    setCurrentPath(path);
+    setUiError("");
+    setUiMessage("");
+  };
 
   // Sesión / autenticación.
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
+
+  // Normaliza rutas no reconocidas (p. ej. "/") a la página inicial una vez con
+  // sesión, para que la URL y el item activo del menú queden coherentes.
+  useEffect(() => {
+    if (!currentUser || isZohoCallback) return;
+    if (pageFromPath(currentPath) === null) {
+      const target = routeForPage("new");
+      window.history.replaceState({}, "", target);
+      setCurrentPath(target);
+    }
+  }, [currentUser, currentPath, isZohoCallback]);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,7 +159,7 @@ export function App() {
       await logoutApi();
     } finally {
       setCurrentUser(null);
-      setCurrentPage("new");
+      navigatePath(routeForPage("new"));
     }
   };
 
@@ -238,12 +273,6 @@ export function App() {
     setCrmPayload(null);
     setCreatedOpportunity(null);
     setNewStep(1);
-  };
-
-  const handleNavigate = (page: Page) => {
-    setCurrentPage(page);
-    setUiError("");
-    setUiMessage("");
   };
 
   const handleParseRequest = async () => {
@@ -596,19 +625,20 @@ export function App() {
       <LoginPage
         onLoggedIn={(user) => {
           setCurrentUser(user);
-          setCurrentPage("new");
+          navigatePath(routeForPage("new"));
         }}
       />
     );
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${sidebarUi.collapsed ? "app-shell--collapsed" : ""}`}>
       <Sidebar
-        currentPage={currentPage}
-        onNavigate={handleNavigate}
         user={currentUser}
+        currentPath={currentPath}
+        onNavigate={navigatePath}
         onLogout={handleLogout}
+        ui={sidebarUi}
       />
       <main className="main-content">
         {currentPage === "new" || currentPage === "existing" || currentPage === "inventory" ? (

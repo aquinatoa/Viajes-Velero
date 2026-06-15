@@ -86,11 +86,47 @@ El flujo nunca publica automáticamente. La revisión humana es obligatoria.
   AI_MODEL=claude-sonnet-4-5
   ```
 
+## Sidebar v2 + navegación por URL — HECHO (SIN commitear, build OK, 31/31 tests, verificado por capturas)
+
+Se rediseñó el menú lateral y se migró la navegación a **rutas reales** (router propio con History
+API, sin dependencias). El cuerpo de las páginas NO se tocó (capa fina URL↔página).
+
+- **Router**: `src/router.ts` (`Page`, `pageFromPath`, `routeForPage`). La URL es la fuente de
+  verdad; `App.tsx` deriva `currentPage` de la ruta, navega con `navigatePath` (pushState), escucha
+  `popstate` (atrás/adelante) y normaliza rutas desconocidas (p. ej. `/`, post-`/callback`) a
+  `/nuevo-registro`. Rutas: `/nuevo-registro`, `/existente/buscar`·`/existente/aprobar`,
+  `/inventario/documentos-ia`, `/admin/usuarios`, `/auditoria/acciones`. `main.tsx` sin cambios (no
+  hay react-router). El flujo Zoho `/callback` sigue igual (early-return con `window.location`).
+- **Sidebar v2** en `src/components/sidebar/`: `sidebar.config.ts` (config centralizada: secciones,
+  items, children, permisos, badges, `status:"disabled"`), `icons.tsx` (set SVG inline, sin libs),
+  `useSidebar.ts` (colapso persistido en `localStorage` `viajes-velero-sidebar-collapsed`, drawer
+  móvil, submenús), `Sidebar.tsx` + `SidebarSection.tsx` + `SidebarItem.tsx`. Estados: activo
+  (`aria-current`), hover, deshabilitado, submenú animado; **colapsable** (rail de iconos +
+  tooltips), **drawer móvil** (hamburguesa + overlay + Escape + cierre al navegar), accesibilidad
+  (`aria-expanded`, focus visible) y `prefers-reduced-motion` (global). Identidad conservada
+  (azul-petróleo de marca + acento verde, calibrado más vivo para el fondo oscuro).
+- **Permisos**: la config soporta 5 roles (`SidebarRole`) pero el backend sigue ADMIN/USER →
+  mapeo `ADMIN→admin`, `USER→comercial`. Resultado igual que antes: USER ve solo Nuevo registro y
+  Existente; ADMIN ve todo. Items sin permiso se ocultan; secciones vacías desaparecen.
+- **Items "próximamente"** (deshabilitados, en gris, sin click): Publicar documento, Roles y
+  permisos, Perfiles, Logs del sistema, y el submenú "Nueva con 1/2/3 opciones". Para activarlos:
+  crear su pantalla y quitar `status:"disabled"` en `sidebar.config.ts`.
+- **Cómo añadir una opción**: editar `sidebar.config.ts` (un objeto en la sección; `icon` por nombre
+  de `icons.tsx`; `route` real o `status:"disabled"`; `permissions`; `badge`). Nada hardcodeado en
+  los componentes.
+- **Verificación**: build (64 módulos) + 31/31 tests + Edge headless: expandido, colapsado (rail +
+  tooltip), submenú, navegación con cambio de URL y **botón atrás del navegador**, item activo por
+  ruta, items deshabilitados en gris y **drawer móvil** (390px) con overlay. Cero errores de React.
+- **Deuda menor**: queda CSS muerto del sidebar antiguo en `styles.css` (`.sidebar`, `.steps*`,
+  `.sidebar__*` y su `@media`); inofensivo (las clases ya no se usan), limpiar cuando convenga.
+- **Fuera de alcance** (no hecho): crear las pantallas de los items deshabilitados, ampliar el
+  modelo de roles en backend, y el topbar de la referencia (campana, menú de usuario).
+
 ## Navegación del app
 
 La app exige **login** (ver "Autenticación y roles"). Tras entrar, `App.tsx` muestra el shell con
-sidebar (`src/components/Sidebar.tsx`). Las páginas (`Page` se exporta desde `Sidebar.tsx`) se
-**gatean por rol**:
+el sidebar v2 (`src/components/sidebar/`, ver "Sidebar v2 + navegación por URL"). La navegación es
+por **rutas** (`src/router.ts`); las páginas internas (`Page`) se **gatean por rol**:
 
 - **Nuevo registro** y **Existente** (ambos roles): flujos comerciales (solicitud → propuesta →
   CRM Zoho). Ya **persisten en BD real** (ver "Opción B"). Usan `/api/commercial/*`,
