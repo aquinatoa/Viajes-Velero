@@ -19,6 +19,7 @@ export type SidebarItemStatus = "active" | "disabled";
 
 /** Nombres de icono soportados por `icons.tsx`. */
 export type IconName =
+  | "home"
   | "circle-plus"
   | "search"
   | "clipboard-check"
@@ -68,6 +69,21 @@ const ADMIN_ONLY: SidebarRole[] = ["admin"];
 const AUDIT: SidebarRole[] = ["admin", "auditor"];
 
 export const sidebarSections: SidebarSection[] = [
+  {
+    id: "inicio",
+    label: "Inicio",
+    accent: "neutral",
+    items: [
+      {
+        id: "portada",
+        label: "Inicio",
+        description: "Portada y acciones",
+        icon: "home",
+        route: "/inicio",
+        status: "active",
+      },
+    ],
+  },
   {
     id: "nuevo-registro",
     label: "Nuevo registro",

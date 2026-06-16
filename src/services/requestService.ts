@@ -30,7 +30,12 @@ const destinationCatalog = [
   { city: "Valencia", country: "España", aliases: ["valencia"] },
   { city: "Gandia", country: "España", aliases: ["gandia", "gandía"] },
   { city: "Madrid", country: "España", aliases: ["madrid"] },
-  { city: "Barcelona", country: "España", aliases: ["barcelona"] }
+  { city: "Barcelona", country: "España", aliases: ["barcelona"] },
+  { city: "Salou", country: "España", aliases: ["salou"] },
+  { city: "Cambrils", country: "España", aliases: ["cambrils"] },
+  { city: "La Pineda", country: "España", aliases: ["la pineda", "pineda"] },
+  { city: "Tarragona", country: "España", aliases: ["tarragona"] },
+  { city: "Costa Daurada", country: "España", aliases: ["costa daurada", "costa dorada"] }
 ];
 
 const categoryAliases = ["2*", "3*", "4*", "5*", "hostal", "hotel", "residencia"];
@@ -72,25 +77,104 @@ function detectLanguage(text: string) {
 
 function findDestination(text: string) {
   const lower = text.toLowerCase();
-  return destinationCatalog.find((candidate) =>
+  const present = destinationCatalog.filter((candidate) =>
     candidate.aliases.some((alias) => lower.includes(alias))
   );
-}
 
-function extractDates(text: string) {
-  const isoDates = [...text.matchAll(/\b(20\d{2}-\d{2}-\d{2})\b/g)].map((match) => match[1]);
-
-  if (isoDates.length >= 2) {
-    return {
-      dateFrom: isoDates[0],
-      dateTo: isoDates[1]
-    };
+  if (present.length <= 1) {
+    return present[0];
   }
 
-  return {
-    dateFrom: "",
-    dateTo: ""
-  };
+  // Si hay varias ciudades en el texto, preferir la que va tras una preposición de
+  // DESTINO ("a/en/hacia Salou", "destino: Salou") y penalizar la de ORIGEN
+  // ("de Madrid", "colegio de Madrid"), para no confundir el origen con el destino.
+  const scored = present.map((candidate) => {
+    let score = 0;
+    for (const alias of candidate.aliases) {
+      const a = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp(`\\b(?:a|en|hacia|hasta|destino:?)\\s+${a}\\b`).test(lower)) score += 2;
+      if (new RegExp(`\\b(?:de|del|desde)\\s+${a}\\b`).test(lower)) score -= 2;
+    }
+    return { candidate, score };
+  });
+
+  scored.sort((x, y) => y.score - x.score);
+  return scored[0].candidate;
+}
+
+const SPANISH_MONTHS: Record<string, number> = {
+  enero: 1,
+  febrero: 2,
+  marzo: 3,
+  abril: 4,
+  mayo: 5,
+  junio: 6,
+  julio: 7,
+  agosto: 8,
+  septiembre: 9,
+  setiembre: 9,
+  octubre: 10,
+  noviembre: 11,
+  diciembre: 12
+};
+
+function stripAccents(value: string) {
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+function monthNumber(token: string | undefined): number | null {
+  if (!token) return null;
+  return SPANISH_MONTHS[stripAccents(token).toLowerCase()] ?? null;
+}
+
+function toIso(year: number, month: number, day: number): string {
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${year}-${mm}-${dd}`;
+}
+
+/**
+ * Extrae el rango de fechas del texto libre. Reconoce, por orden:
+ *   1. ISO: "2026-05-18 ... 2026-05-22"
+ *   2. Lenguaje natural en español: "del 18 al 22 de mayo de 2026",
+ *      "del 2 de mayo al 6 de junio de 2026", "entre el 18 y el 22 de mayo de 2026".
+ *   3. Numérico DD/MM/AAAA: "18/05/2026 ... 22/05/2026" (también con - o .).
+ */
+function extractDates(text: string) {
+  const empty = { dateFrom: "", dateTo: "" };
+
+  // 1) ISO (AAAA-MM-DD)
+  const isoDates = [...text.matchAll(/\b(20\d{2}-\d{2}-\d{2})\b/g)].map((match) => match[1]);
+  if (isoDates.length >= 2) {
+    return { dateFrom: isoDates[0], dateTo: isoDates[1] };
+  }
+
+  const lower = text.toLowerCase();
+
+  // 2) Español: D1 [de MES1] (al|a|y|hasta|-) [el] D2 de MES2 [de] AAAA
+  const es = lower.match(
+    /(\d{1,2})\s*(?:de\s+([a-záéíóúñ]+)\s+)?(?:al|a|y|hasta|–|-)\s*(?:el\s+)?(\d{1,2})\s+de\s+([a-záéíóúñ]+)\s+(?:de\s+)?(20\d{2})/
+  );
+  if (es) {
+    const day1 = Number(es[1]);
+    const day2 = Number(es[3]);
+    const month2 = monthNumber(es[4]);
+    const month1 = monthNumber(es[2]) ?? month2;
+    const year = Number(es[5]);
+    if (month1 && month2) {
+      return { dateFrom: toIso(year, month1, day1), dateTo: toIso(year, month2, day2) };
+    }
+  }
+
+  // 3) Numérico DD/MM/AAAA (o con - o .)
+  const numeric = [...text.matchAll(/\b(\d{1,2})[/.-](\d{1,2})[/.-](20\d{2})\b/g)].map((m) =>
+    toIso(Number(m[3]), Number(m[2]), Number(m[1]))
+  );
+  if (numeric.length >= 2) {
+    return { dateFrom: numeric[0], dateTo: numeric[1] };
+  }
+
+  return empty;
 }
 
 function extractParticipants(text: string) {
@@ -114,7 +198,10 @@ function extractTeachers(text: string) {
 
 function extractAgeInfo(text: string) {
   const lower = text.toLowerCase();
-  const range = lower.match(/(\d{1,2})\s*[-a]\s*(\d{1,2})\s*años/) ?? lower.match(/ages?\s+(\d{1,2})\s*[-to]+\s*(\d{1,2})/);
+  // Acepta "14-17 años", "15 a 16 años", "entre 15 y 16 años", "de 14 a 17 años".
+  const range =
+    lower.match(/(\d{1,2})\s*(?:-|–|a|y|hasta)\s*(\d{1,2})\s*años/) ??
+    lower.match(/ages?\s+(\d{1,2})\s*(?:-|to)\s*(\d{1,2})/);
   const average = lower.match(/media\s+de\s+(\d{1,2})\s*años/) ?? lower.match(/average age\s+(\d{1,2})/);
 
   return {
@@ -124,12 +211,17 @@ function extractAgeInfo(text: string) {
 }
 
 function extractBoardType(text: string) {
-  const lower = text.toLowerCase();
-  return boardAliases.find((alias) => lower.includes(alias)) ?? "";
+  const lower = stripAccents(text.toLowerCase());
+  return boardAliases.find((alias) => lower.includes(stripAccents(alias))) ?? "";
 }
 
 function extractCategory(text: string) {
   const lower = text.toLowerCase();
+  // "4 estrellas" / "de 4*" → "4*" (prioriza el número de estrellas sobre "hotel").
+  const stars = lower.match(/(\d)\s*(?:\*|estrellas?)/);
+  if (stars) {
+    return `${stars[1]}*`;
+  }
   return categoryAliases.find((alias) => lower.includes(alias.toLowerCase())) ?? "";
 }
 

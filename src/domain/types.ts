@@ -1,5 +1,20 @@
 export type ClientType = "new" | "existing";
 
+/**
+ * Usuario activo que consume la pantalla inicial (HomeLanding).
+ *
+ * Hoy se deriva del usuario autenticado del backend (login propio). El día que
+ * la app viva como widget dentro de Zoho CRM, este mismo objeto se rellenará
+ * desde el SDK de Zoho (usuario conectado) sin tocar la pantalla: solo cambia
+ * la FUENTE que lo construye. La auditoría de cada acción se asocia a este id.
+ */
+export interface CurrentUser {
+  id: string;
+  name: string;
+  email?: string;
+  role?: "admin" | "operativo" | "lectura";
+}
+
 export type RequestStatus =
   | "RECEIVED"
   | "PARSED_WITH_GAPS"

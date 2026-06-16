@@ -11,9 +11,12 @@ import { LoginPage } from "./components/LoginPage";
 import { UsersPanel } from "./components/admin/UsersPanel";
 import { AuditPanel } from "./components/admin/AuditPanel";
 import { MiCuentaPanel } from "./components/admin/MiCuentaPanel";
+import { HomeLanding } from "./components/home/HomeLanding";
+import { PlanRequestModal } from "./components/plan/PlanRequestModal";
 import type {
   Client,
   CrmPayload,
+  CurrentUser,
   FindCandidateOpportunitiesResult,
   ParseTripRequestInput,
   ParseTripRequestResult,
@@ -70,6 +73,21 @@ const initialBuilderState: ProposalBuilderState = {
   },
 };
 
+/**
+ * Puente al usuario de la pantalla inicial. Hoy se construye desde el usuario
+ * autenticado del backend; el día que la app viva dentro de Zoho CRM, este es el
+ * ÚNICO punto a cambiar (rellenar desde el SDK de Zoho). El rol del backend
+ * (ADMIN/USER) se mapea al modelo de la portada (admin/operativo).
+ */
+function toCurrentUser(user: AuthUser): CurrentUser {
+  return {
+    id: user.id,
+    name: user.name ?? user.email,
+    email: user.email,
+    role: user.role === "ADMIN" ? "admin" : "operativo",
+  };
+}
+
 function newFlowStepText(step: number) {
   switch (step) {
     case 1:
@@ -98,6 +116,7 @@ export function App() {
   const currentPage: Page = pageFromPath(currentPath) ?? "new";
   const sidebarUi = useSidebar();
   const [newStep, setNewStep] = useState(1);
+  const [planModalOpen, setPlanModalOpen] = useState(false);
 
   // Reaccionar a los botones atrás/adelante del navegador.
   useEffect(() => {
@@ -125,7 +144,7 @@ export function App() {
   useEffect(() => {
     if (!currentUser || isZohoCallback) return;
     if (pageFromPath(currentPath) === null) {
-      const target = routeForPage("new");
+      const target = routeForPage("home");
       window.history.replaceState({}, "", target);
       setCurrentPath(target);
     }
@@ -627,13 +646,30 @@ export function App() {
       <LoginPage
         onLoggedIn={(user) => {
           setCurrentUser(user);
-          navigatePath(routeForPage("new"));
+          navigatePath(routeForPage("home"));
         }}
       />
     );
   }
 
+  // Pantalla inicial (portada del widget): a pantalla completa, SIN sidebar ni
+  // topbar, como el login y el callback de Zoho. Las cards entran al shell normal.
+  if (currentPage === "home") {
+    return (
+      <>
+        <HomeLanding
+          currentUser={toCurrentUser(currentUser)}
+          onNavigate={navigatePath}
+          onOpenSettings={() => navigatePath(routeForPage("users"))}
+          onPlan={() => setPlanModalOpen(true)}
+        />
+        <PlanRequestModal open={planModalOpen} onClose={() => setPlanModalOpen(false)} />
+      </>
+    );
+  }
+
   const pageLabels: Record<Page, string> = {
+    home: "Inicio",
     new: "Nuevo registro",
     existing: "Existente",
     inventory: "Inventario documental",

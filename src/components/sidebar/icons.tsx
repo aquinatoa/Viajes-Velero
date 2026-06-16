@@ -25,6 +25,13 @@ const base = {
 // --- Iconos del menú (mapeados desde IconName) ---------------------------------
 
 const menuIcons: Record<IconName, () => ReactElement> = {
+  home: () => (
+    <svg {...base}>
+      <path d="M3 11.5 12 4l9 7.5" />
+      <path d="M5 10v10h14V10" />
+      <path d="M10 20v-6h4v6" />
+    </svg>
+  ),
   "circle-plus": () => (
     <svg {...base}>
       <circle cx="12" cy="12" r="9" />

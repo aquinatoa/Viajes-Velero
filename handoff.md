@@ -11,6 +11,9 @@
 > empujado**).
 >
 > **Commits de esta tanda (más reciente arriba):**
+> - _(esta sesión)_ Pantalla inicial nueva (landing "Dirección B") + popup "Planificar solicitud"
+>   de 4 pasos + mejoras de parser + búsqueda de alojamientos (dedupe + scoring afinado) +
+>   limpieza de la BBDD de alojamientos. Ver **"Rediseño 2026-06-16"** abajo.
 > - `a652ef9` "Mi cuenta" (Perfiles activado: cambiar la propia contraseña)
 > - `4348115` handoff: validación E2E de los flujos comerciales
 > - `0badc59` Topbar (notificaciones/ayuda/usuario) + limpieza CSS del sidebar antiguo
@@ -31,8 +34,78 @@
 >
 > **Pendientes principales:** módulos del menú aún deshabilitados (Roles y permisos, Logs del
 > sistema, Publicar documento, "Nueva con 1/2/3 opciones"); extender `zod` a los endpoints
-> comercial/inventario (tras la validación, ya hecha); mejorar el parser de destino (no reconoce
-> "Salou", ver hallazgos). Detalle en las secciones siguientes.
+> comercial/inventario (tras la validación, ya hecha); reconstruir tarifas de los hoteles cuyo
+> PDF tiene tabla difícil (Calypso, Palas Pineda, MedPlaya, campings) — ver "Rediseño 2026-06-16".
+> Detalle en las secciones siguientes.
+
+## Rediseño 2026-06-16 — Landing + Popup "Planificar solicitud" + BBDD de alojamientos
+
+Sesión de rediseño visual y de datos. **Build OK.** Verificado E2E con Edge headless (login real +
+modal + Zoho real). El **login se mantiene** como puerta (no se quitó): el prompt pedía "sin login /
+usuario desde Zoho", pero el backend exige `Authorization: Bearer`; se dejó preparado el puente a
+Zoho sin romper nada (ver `toCurrentUser`).
+
+**1. Pantalla inicial nueva (portada del widget) — "Dirección B: Panel claro".**
+- `src/components/home/HomeLanding.tsx` (nuevo): portada a pantalla completa **sin sidebar ni login**
+  (early-return en `App.tsx`, como el `/callback`). Header + hero de marca con bienvenida dinámica,
+  **dos cards** (azul "Planificar" / verde "Confirmar"), **tuerca de Configuraciones** arriba-derecha
+  (solo admin → navega a `/admin/usuarios`), y bloques "Resumen general" / "Actividad reciente" con
+  **estados honestos** ("—" / "sin datos", sin contadores falsos).
+- `src/router.ts`: nueva página `home` + ruta `/inicio` (destino por defecto tras login).
+- `src/domain/types.ts`: tipo `CurrentUser` (`id/name/email/role`). Puente en `App.tsx`
+  `toCurrentUser(AuthUser)` (ADMIN→admin, USER→operativo) — **único punto a cambiar** para Zoho.
+- `src/components/sidebar/` : item **"Inicio"** (icono `home`) para volver a la portada desde los flujos.
+- La card "Planificar" **abre el popup** (no navega); "Confirmar" navega a `/existente/buscar`.
+
+**2. Popup "Planificar solicitud" (slide 1) — flujo completo de 4 pasos.**
+- `src/components/plan/PlanRequestModal.tsx` (nuevo): estética premium tipo reservas, **reutiliza los
+  servicios existentes** (`parseTripRequest`, `searchAccommodationsApi`, `buildProposal`, CRM…), sin
+  tocar backend. Pasos: **1 Solicitud** (chat del mensaje del cliente → `rawTripRequestText`; varios
+  mensajes se concatenan) · **2 Datos del viaje** · **3 Alojamientos** · **4 Enviar a CRM**.
+- Paso 2 = barra tipo reserva **Destino · Entrada · Salida · Grupo · Filtros**:
+  - **Calendario de rango** propio (`DateRangePicker`, sin libs): 2 meses, selección entrada→salida,
+    "N noches", navegación de meses, cierre con backdrop/Escape.
+  - **Configurador de grupo** (`GroupPopover`): **Adultos / Niños / Bebés** con steppers `–/+`.
+    Mapeo: **Niños→`participants`** (alumnos), **Adultos→`teachers`** (profesores), **Bebés→contador
+    local** (se guarda/muestra, **no se envía aún** a búsqueda/CRM).
+  - **Icono de filtros** abre/cierra "Detalles del viaje" (país, edad, régimen, categoría, requisitos),
+    ya no como sección fija. Punto verde si tienen contenido.
+  - Escape cierra primero el popover, no el modal (guard por `document.querySelector`).
+- Paso 3 = una tarjeta por hotel (ver dedupe), con chips, "**por qué encaja**" (= `matchReasons`),
+  precio /pax y "Elegir" (hasta 3 opciones); actividades por opción debajo.
+- La página `/nuevo-registro` sigue accesible como respaldo; el popup la sustituye en la práctica.
+- Estilos `.home-*` y `.pm-*` en `src/styles.css` (no se tocaron estilos previos).
+
+**3. Parser de la solicitud (`src/services/requestService.ts`) — mejoras.**
+- **Fechas en español**: "del 18 al 22 de mayo de 2026", "entre el 11 y el 15…", `DD/MM/AAAA` (antes
+  solo ISO). · **Destino**: catálogo ampliado (Salou, Cambrils, La Pineda, Tarragona, Costa Daurada)
+  y **preferencia por preposición** ("a/en Salou" gana a "de Madrid" origen). · **Edad**: "entre 15 y
+  16 años", "de 14 a 17 años". · **Categoría**: "4 estrellas" → `4*`. · **Régimen** insensible a
+  acentos.
+
+**4. Búsqueda de alojamientos (`server/searchDb.ts`) — dedupe + scoring afinado.**
+- **Dedupe**: una coincidencia **por alojamiento** (su mejor tarifa), no por tarifa. Antes salían
+  ~192 (alojamientos × tarifas) con el mismo hotel repetido; ahora una tarjeta por hotel.
+- **Scoring**: categoría con **exclusión de categoría inferior** (piden 4★ → no se cuelan 2★/3★;
+  exacta +35, upgrade +20); **destino por zona** (Salou→Costa Daurada; se descartan otras zonas —
+  Costa Brava/Pirineo; exacto +40, zona +18); **régimen por código** MP/PC/AD/SA (casa "pensión
+  completa" con `PC`); **fechas** (+20 cubre / +6 solapa) y **estancia mínima** (+8 / −10).
+
+**5. BBDD de alojamientos — limpieza y reconstrucción (solo alojamientos).**
+- **Fuente**: los ~40 PDFs por hotel del ZIP `Documentos de Tarifas/RE_ próximos pasos…zip` (el Excel
+  `OK TARIFAS Costes.xlsx` que sembró los datos está mal estructurado y NO está en esta máquina).
+- **Metadatos**: limpiados los 49 (nombre/localidad/categoría/tipo) desde las cabeceras de los PDFs;
+  borrado 1 registro basura ("Hotel 4R ***", 0 tarifas).
+- **Tarifas reconstruidas** (leídas del PDF, importes verificados) de los hoteles de tabla limpia:
+  **4R Hotel 3★, 4R Salou Park Resort I 4★, Eurosalou, Terra Aurea, Voralmar** (+ dedupe del 4R 4★).
+  El resto mantiene sus tarifas del Excel.
+- **Borrado** de **14 alojamientos sin precio usable** (Evenia ×3, El Acebo, Can Solé, Camping Joan,
+  El Garrofer, Vall Natura, casas de colonias Descoberta…) y de **401 filas de tarifa a 0 €** del
+  resto → la búsqueda ya no muestra tarjetas a 0. Quedan **33 alojamientos · 554 tarifas**.
+- **Backups** de `dev.db` antes de cada paso destructivo en `prisma/dev.db.bak-*` (gitignored).
+- **Pendiente**: reconstruir tarifas de los hoteles con tabla difícil/escaneada (Calypso, Palas
+  Pineda, MedPlaya Sant Eloi/Santa Mónica, Canada Palace, California, campings) — idealmente vía el
+  **flujo documental con revisión humana**. Mejorar el scoring de capacidad/grupo mínimo si se quiere.
 
 ## Autenticación y roles (RBAC) + auditoría — HECHO
 
