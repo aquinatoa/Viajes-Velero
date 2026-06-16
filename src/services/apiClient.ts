@@ -223,6 +223,14 @@ export function updateAuthUserApi(
   );
 }
 
+export function changeOwnPasswordApi(input: { currentPassword: string; newPassword: string }) {
+  return postJson<{ ok: true }>(
+    "/api/auth/change-password",
+    input,
+    "No se pudo cambiar la contraseña.",
+  );
+}
+
 export function auditLogApi(limit = 200) {
   return getJson<{ entries: AuditEntry[] }>(`/api/audit?limit=${limit}`, "No se pudo cargar la auditoría.");
 }

@@ -10,6 +10,7 @@ import { InventoryDocumentsPanel } from "./components/inventory/InventoryDocumen
 import { LoginPage } from "./components/LoginPage";
 import { UsersPanel } from "./components/admin/UsersPanel";
 import { AuditPanel } from "./components/admin/AuditPanel";
+import { MiCuentaPanel } from "./components/admin/MiCuentaPanel";
 import type {
   Client,
   CrmPayload,
@@ -638,6 +639,7 @@ export function App() {
     inventory: "Inventario documental",
     users: "Usuarios y permisos",
     audit: "Auditoría",
+    profile: "Mi cuenta",
   };
 
   return (
@@ -650,7 +652,12 @@ export function App() {
         ui={sidebarUi}
       />
       <div className="main-area">
-      <Topbar user={currentUser} pageLabel={pageLabels[currentPage]} onLogout={handleLogout} />
+      <Topbar
+        user={currentUser}
+        pageLabel={pageLabels[currentPage]}
+        onNavigate={navigatePath}
+        onLogout={handleLogout}
+      />
       <main className="main-content">
         {currentPage === "new" || currentPage === "existing" || currentPage === "inventory" ? (
         <header className="hero">
@@ -1134,6 +1141,12 @@ export function App() {
         {currentPage === "audit" ? (
           <div className="content-grid">
             <AuditPanel />
+          </div>
+        ) : null}
+
+        {currentPage === "profile" ? (
+          <div className="content-grid">
+            <MiCuentaPanel currentUser={currentUser} />
           </div>
         ) : null}
       </main>

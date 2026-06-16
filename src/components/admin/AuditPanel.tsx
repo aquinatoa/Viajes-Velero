@@ -6,6 +6,7 @@ const actionLabels: Record<string, string> = {
   LOGOUT: "Cierre de sesión",
   USER_CREATE: "Crear usuario",
   USER_UPDATE: "Actualizar usuario",
+  PASSWORD_CHANGE: "Cambio de contraseña",
   INVENTORY_PUBLISH: "Publicar inventario",
   INVENTORY_UNPUBLISH: "Retirar inventario",
   INVENTORY_DELETE_DOCUMENT: "Borrar documento",

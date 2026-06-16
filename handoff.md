@@ -140,6 +140,23 @@ API, sin dependencias). El cuerpo de las páginas NO se tocó (capa fina URL↔p
 - **Fuera de alcance**: la campana/ayuda son honestas pero sin fuente de datos real todavía (no hay
   sistema de notificaciones); conectar cuando exista.
 
+## "Mi cuenta" (cambiar la propia contraseña) — HECHO (SIN commitear, build OK, 31/31 tests, verificado por capturas)
+
+Primer módulo deshabilitado activado: **Perfiles → "Mi cuenta"**.
+- **Backend**: `changeOwnPassword(userId, current, new, keepToken)` en `server/auth.ts` (verifica la
+  contraseña actual, actualiza el hash e invalida las DEMÁS sesiones, conserva la actual). Endpoint
+  `POST /api/auth/change-password` (cualquier usuario autenticado) con `changePasswordSchema` (zod) y
+  auditoría `PASSWORD_CHANGE`. apiClient `changeOwnPasswordApi`.
+- **Frontend**: `src/components/admin/MiCuentaPanel.tsx` (datos del usuario + form actual/nueva/
+  repetir, valida ≥8 y coincidencia). Ruta nueva `profile` → `/admin/perfiles` en `src/router.ts`.
+  El item "Perfiles" del sidebar se activó como **"Mi cuenta"** (sigue en la sección admin para no
+  descuadrarla). Además se añadió **"Mi cuenta" al menú de usuario del topbar** (accesible a todos
+  vía dropdown; el Topbar recibió `onNavigate`). `AuditPanel` etiqueta `PASSWORD_CHANGE`.
+- **Verificado** con Edge: error de contraseña actual incorrecta, cambio OK ("otras sesiones
+  cerradas"), y revertido al valor original (admin sigue con `velero-admin-2026`).
+- Quedan deshabilitados: Roles y permisos, Logs del sistema, Publicar documento, "Nueva con
+  1/2/3 opciones". Siguiente decisión del usuario sobre cuál sigue.
+
 ## Navegación del app
 
 La app exige **login** (ver "Autenticación y roles"). Tras entrar, `App.tsx` muestra el shell con

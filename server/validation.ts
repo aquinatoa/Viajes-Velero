@@ -58,3 +58,9 @@ export const updateUserSchema = z.object({
   isActive: z.boolean().optional(),
   password: passwordSchema.optional(),
 });
+
+// Cambio de la propia contraseña.
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Indica tu contraseña actual."),
+  newPassword: passwordSchema,
+});

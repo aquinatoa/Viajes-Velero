@@ -99,6 +99,36 @@ export async function updateUser(
   return publicUser(row);
 }
 
+/**
+ * Cambio de la propia contraseña por el usuario autenticado. Verifica la
+ * contraseña actual, actualiza el hash e invalida las DEMÁS sesiones (mantiene
+ * la actual, identificada por `keepToken`, para no echar al usuario que la
+ * acaba de cambiar). Devuelve un motivo cuando falla.
+ */
+export async function changeOwnPassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string,
+  keepToken: string | undefined,
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "bad_current" }> {
+  const row = await prisma.user.findUnique({ where: { id: userId } });
+  if (!row) return { ok: false, reason: "not_found" };
+  if (!verifyPassword(currentPassword, row.passwordHash, row.passwordSalt)) {
+    return { ok: false, reason: "bad_current" };
+  }
+
+  const { hash, salt } = hashPassword(newPassword);
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash: hash, passwordSalt: salt },
+  });
+  // Invalidar el resto de sesiones del usuario, conservando la actual.
+  await prisma.authToken.deleteMany({
+    where: keepToken ? { userId, NOT: { token: keepToken } } : { userId },
+  });
+  return { ok: true };
+}
+
 // ── Login / sesiones ─────────────────────────────────────────────────────────
 
 export async function login(

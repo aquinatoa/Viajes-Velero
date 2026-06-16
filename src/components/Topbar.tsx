@@ -6,12 +6,14 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { AuthUser } from "../services/apiClient";
+import { routeForPage } from "../router";
 
 type OpenMenu = "bell" | "help" | "user" | null;
 
 interface TopbarProps {
   user: AuthUser;
   pageLabel: string;
+  onNavigate: (route: string) => void;
   onLogout: () => void;
 }
 
@@ -49,7 +51,7 @@ function ChevronDownIcon() {
   );
 }
 
-export function Topbar({ user, pageLabel, onLogout }: TopbarProps) {
+export function Topbar({ user, pageLabel, onNavigate, onLogout }: TopbarProps) {
   const [open, setOpen] = useState<OpenMenu>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -159,6 +161,17 @@ export function Topbar({ user, pageLabel, onLogout }: TopbarProps) {
                   {isAdmin ? "Administrador" : "Usuario"}
                 </span>
               </div>
+              <button
+                type="button"
+                className="topbar__menuitem"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(null);
+                  onNavigate(routeForPage("profile"));
+                }}
+              >
+                Mi cuenta
+              </button>
               <button
                 type="button"
                 className="topbar__logout"

@@ -52,6 +52,7 @@ import {
 import { saveInventoryDocumentFile } from "./documentStorage";
 import {
   type AuthedRequest,
+  changeOwnPassword,
   createUser,
   ensureAdminFromEnv,
   listAuditLog,
@@ -65,7 +66,13 @@ import {
 } from "./auth";
 import { extractPdfText } from "./pdfTextExtraction";
 import { analyzeDocumentText, AiAnalysisError } from "./aiDocumentAnalysis";
-import { parseBody, loginSchema, createUserSchema, updateUserSchema } from "./validation";
+import {
+  parseBody,
+  loginSchema,
+  createUserSchema,
+  updateUserSchema,
+  changePasswordSchema,
+} from "./validation";
 
 const app = express();
 const port = 8787;
@@ -1216,6 +1223,38 @@ app.post("/api/auth/logout", requireAuth, async (request, response) => {
 
 app.get("/api/auth/me", requireAuth, (request, response) => {
   response.json({ user: (request as AuthedRequest).user });
+});
+
+// Cambio de la propia contraseña (cualquier usuario autenticado).
+app.post("/api/auth/change-password", requireAuth, async (request, response) => {
+  const req = request as AuthedRequest;
+  try {
+    const body = parseBody(changePasswordSchema, request, response);
+    if (!body) return;
+    if (!req.user) {
+      response.status(401).json({ error: "No autenticado." });
+      return;
+    }
+    const result = await changeOwnPassword(
+      req.user.id,
+      body.currentPassword,
+      body.newPassword,
+      req.authToken,
+    );
+    if (!result.ok) {
+      if (result.reason === "bad_current") {
+        response.status(400).json({ error: "La contraseña actual no es correcta." });
+        return;
+      }
+      response.status(404).json({ error: "Usuario no encontrado." });
+      return;
+    }
+    await writeAudit({ user: req.user, action: "PASSWORD_CHANGE", entity: "auth" });
+    response.json({ ok: true });
+  } catch (error) {
+    console.error("Error cambiando contraseña", error);
+    response.status(500).json({ error: "No se pudo cambiar la contraseña." });
+  }
 });
 
 // Gestión de usuarios (solo ADMIN).

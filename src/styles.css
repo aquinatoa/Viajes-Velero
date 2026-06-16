@@ -2303,12 +2303,28 @@ tr.is-selected {
   color: var(--info);
 }
 
+.topbar__menuitem {
+  width: 100%;
+  text-align: left;
+  padding: 11px 14px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.topbar__menuitem:hover {
+  background: var(--surface-2);
+}
+
 .topbar__logout {
   width: 100%;
   text-align: left;
   padding: 11px 14px;
   background: transparent;
   border: 0;
+  border-top: 1px solid var(--border);
   border-radius: 0;
   color: var(--danger);
   font-weight: 600;
