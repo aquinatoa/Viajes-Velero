@@ -1,25 +1,38 @@
 # Handoff - Viajes Velero Ops
 
 > Documento de compactación de contexto para continuar el trabajo en una conversación nueva
-> sin arrastrar todo el historial. Última actualización: 2026-06-14.
+> sin arrastrar todo el historial. Última actualización: 2026-06-16.
 >
-> Estado: el módulo documental (importar tarifas desde PDF con IA, revisar y publicar) está
-> completo y operativo, con una experiencia de uso por pestañas y tablas pensada para gestionar
-> muchos alojamientos. La importación masiva por Excel se retiró del app (queda como script CLI).
-> Trabajo reciente commiteado en la rama `feat/documental-review-workspace` y **subido a GitHub**:
-> remoto `origin` = `https://github.com/aquinatoa/Viajes-Velero` (ramas `main` y
-> `feat/documental-review-workspace` empujadas). Commits clave (más reciente arriba):
-> `bd3f909` autenticación/roles/auditoría · rediseño visual "Consola de operaciones" ·
-> Opción B (flujo comercial a BD real) · pulido+craft de frontend · `33dd035` módulo documental.
-> (Historial completo en `git log`.)
+> **App**: consola interna de operaciones (React+TS+Vite / Express / Prisma+SQLite). Requiere
+> **login** con roles ADMIN/USER y registra auditoría. Dos grandes áreas: flujo **comercial**
+> (Nuevo registro / Existente → Zoho CRM) y **módulo documental** (importar tarifas desde PDF con
+> IA, revisar por pestañas y publicar al inventario). Rama de trabajo `feat/documental-review-workspace`,
+> remoto `origin` = `https://github.com/aquinatoa/Viajes-Velero` (todo lo de abajo **commiteado y
+> empujado**).
 >
-> El flujo comercial (Nuevo/Existente) ya **persiste en la BD real** (no mock); falta verificarlo
-> end-to-end con Zoho + navegador (ver "Opción B"). El frontend recibió dos pases (pulido + craft),
-> validados por captura con Edge headless (ver "Frontend" y "Validación visual"). Pendiente
-> estructural: extraer el workspace del documento (#11).
+> **Commits de esta tanda (más reciente arriba):**
+> - `a652ef9` "Mi cuenta" (Perfiles activado: cambiar la propia contraseña)
+> - `4348115` handoff: validación E2E de los flujos comerciales
+> - `0badc59` Topbar (notificaciones/ayuda/usuario) + limpieza CSS del sidebar antiguo
+> - `85d5488` Sidebar v2 (menú modular/colapsable) + navegación por URL (router propio)
+> - `a7de364` extraer `DocumentWorkspace` de `InventoryDocumentsPanel`
+> - `0f3cd7b` seguridad: validación zod en auth + `.env.example` genérico
+> - `c9169db` aviso visible de análisis IA en modo mock
+> - `c642cc4` tests del flujo documental de actividades (21→31)
 >
-> Rediseño visual aplicado (Dirección A "Consola de operaciones"). **La app ahora requiere LOGIN**
-> con roles (ADMIN/USER) y registra auditoría. Ver "Autenticación y roles".
+> **Estado de validación:** los flujos **Nuevo** (registro → propuesta → crear deal en Zoho) y
+> **Existente** (buscar → aprobar opción en Zoho) están **validados E2E contra Zoho real** (ver
+> "Validación end-to-end"). 31/31 tests, build OK.
+>
+> **⚠️ OPERATIVO IMPORTANTE — Zoho tras el proxy TLS:** el backend solo alcanza Zoho si Node tiene el
+> bundle de CA. `npm run dev` a secas arranca SIN él → las llamadas a Zoho fallan con `fetch failed`.
+> Arrancar con `NODE_EXTRA_CA_CERTS=/c/Users/User/corp-ca-bundle.pem npm.cmd run dev` (o
+> `NODE_OPTIONS=--use-system-ca` en Node 24). Pendiente: meterlo en un script `dev`.
+>
+> **Pendientes principales:** módulos del menú aún deshabilitados (Roles y permisos, Logs del
+> sistema, Publicar documento, "Nueva con 1/2/3 opciones"); extender `zod` a los endpoints
+> comercial/inventario (tras la validación, ya hecha); mejorar el parser de destino (no reconoce
+> "Salou", ver hallazgos). Detalle en las secciones siguientes.
 
 ## Autenticación y roles (RBAC) + auditoría — HECHO
 
@@ -86,7 +99,7 @@ El flujo nunca publica automáticamente. La revisión humana es obligatoria.
   AI_MODEL=claude-sonnet-4-5
   ```
 
-## Sidebar v2 + navegación por URL — HECHO (SIN commitear, build OK, 31/31 tests, verificado por capturas)
+## Sidebar v2 + navegación por URL — HECHO (commit `85d5488`, build OK, 31/31 tests, verificado por capturas)
 
 Se rediseñó el menú lateral y se migró la navegación a **rutas reales** (router propio con History
 API, sin dependencias). El cuerpo de las páginas NO se tocó (capa fina URL↔página).
@@ -120,7 +133,7 @@ API, sin dependencias). El cuerpo de las páginas NO se tocó (capa fina URL↔p
 - **Fuera de alcance** (no hecho): crear las pantallas de los items deshabilitados y ampliar el
   modelo de roles en backend.
 
-## Barra superior (Topbar) + limpieza CSS — HECHO (SIN commitear, build OK, 31/31 tests, verificado por capturas)
+## Barra superior (Topbar) + limpieza CSS — HECHO (commit `0badc59`, build OK, 31/31 tests, verificado por capturas)
 
 - **Topbar** (`src/components/Topbar.tsx`): barra superior pegajosa con breadcrumb a la izquierda
   ("Viajes Velero / <sección>", el label se deriva de `currentPage` en `App.tsx`) y a la derecha
@@ -140,7 +153,7 @@ API, sin dependencias). El cuerpo de las páginas NO se tocó (capa fina URL↔p
 - **Fuera de alcance**: la campana/ayuda son honestas pero sin fuente de datos real todavía (no hay
   sistema de notificaciones); conectar cuando exista.
 
-## "Mi cuenta" (cambiar la propia contraseña) — HECHO (SIN commitear, build OK, 31/31 tests, verificado por capturas)
+## "Mi cuenta" (cambiar la propia contraseña) — HECHO (commit `a652ef9`, build OK, 31/31 tests, verificado por capturas)
 
 Primer módulo deshabilitado activado: **Perfiles → "Mi cuenta"**.
 - **Backend**: `changeOwnPassword(userId, current, new, keepToken)` en `server/auth.ts` (verifica la
@@ -276,7 +289,7 @@ typechquea `server/` (corre con `tsx`) y en runtime el cliente sí los conoce. C
 - El estado de revisión del 4R se ha ido cambiando durante las pruebas (mezcla de pendientes y
   aprobados). No asumir un estado fijo: comprobar en la UI / `GET /documents/:id`.
 
-## Trabajo recién completado (rama `feat/documental-review-workspace`, SIN commitear)
+## Trabajo recién completado (rama `feat/documental-review-workspace`, ya commiteado)
 
 Los cuatro "próximos pasos" anteriores ya están hechos (build OK, 10/10 tests). Pendiente de commit:
 
@@ -300,7 +313,7 @@ Los cuatro "próximos pasos" anteriores ya están hechos (build OK, 10/10 tests)
   y `RateReviewTable.tsx` (`RateReviewTable`, `StagingEditableCard`, definiciones de campos y de
   columnas). El panel bajó de ~3150 a ~2510 líneas.
 
-## Gestión del inventario publicado (SIN commitear, build OK, 16/16 tests)
+## Gestión del inventario publicado (ya commiteado, build OK, tests al día)
 
 Tres funciones nuevas pedidas por el usuario (borrar documento, retirada granular, catálogo global):
 
@@ -329,7 +342,7 @@ Archivos nuevos: `InventoryCatalogView.tsx`. Tipos en `documentImportTypes.ts`
 `deleteJson`). Las pruebas (`npm run test`) ahora cubren también catálogo, borrado bloqueado/
 permitido y retirada granular.
 
-## Edición de registro, archivo y simplificación (SIN commitear, build OK, 17/17 tests)
+## Edición de registro, archivo y simplificación (ya commiteado, build OK, tests al día)
 
 - **Editar registro**: el formulario de registro se reutiliza para editar (botón "Editar" por fila →
   precarga y "Guardar cambios"/"Cancelar"). Backend `updateInventoryDocumentMetadata` +
@@ -403,7 +416,7 @@ Próximos refinamientos visuales posibles (no hechos): escala tipográfica más 
 de sección; estilizar el texto de la columna "Estado" como pill; revisar densidad de la
 `.rate-table` para alinearla al nuevo sistema; modo oscuro como variante (Dirección C) si se quisiera.
 
-## Extraer el workspace del documento — HECHO (SIN commitear, build OK, 31/31 tests, verificado por capturas)
+## Extraer el workspace del documento — HECHO (commit `a7de364`, build OK, 31/31 tests, verificado por capturas)
 
 El detalle/revisión se extrajo de `InventoryDocumentsPanel.tsx` a un componente propio
 `src/components/inventory/DocumentWorkspace.tsx` (2310 líneas). El panel bajó de **2932 → 642
@@ -501,7 +514,7 @@ registros de prueba al terminar:
    tras ~30 s ya aparece. La UI de Existente puede inducir a "no encontrado" si se busca demasiado
    pronto. *(Idea: aviso o reintento con backoff.)*
 
-## Cobertura de tests del flujo de ACTIVIDADES — HECHO (SIN commitear, build OK, 31/31 tests)
+## Cobertura de tests del flujo de ACTIVIDADES — HECHO (commit `c642cc4`, build OK, 31/31 tests)
 
 `tests/documentFlow.test.ts` añade una sección "Flujo documental de ACTIVIDADES" que espeja la de
 alojamientos: crear documento (`targetType: "ACTIVITY"`) → staging de actividad vía análisis mock
@@ -511,7 +524,7 @@ análisis IA solo detecta la actividad, no sus tarifas) → aprobar en lote (omi
 operativa con origen (`searchActivitiesDb`, con `ageRangeText` para puntuar ≥50) → idempotencia →
 catálogo global → retirada granular de tarifa y de actividad completa. Total **21 → 31 tests**.
 
-## Endurecimiento de seguridad — PARCIAL (SIN commitear, build OK, 31/31 tests, verificado en runtime)
+## Endurecimiento de seguridad — PARCIAL (commit `0f3cd7b`, build OK, 31/31 tests, verificado en runtime)
 
 - **`.env.example` genérico**: se quitaron las rutas reales con nombre de usuario
   (`/Users/anthony/...`) de `ACCOMMODATION_RATES_XLSX`/`ACTIVITY_RATES_XLSX`; ahora son placeholders.
@@ -556,6 +569,8 @@ npm.cmd run build                 # tsc -b && vite build
 npm.cmd run test                  # pruebas del flujo documental (BD SQLite temporal)
 taskkill /F /IM node.exe          # liberar :8787 / DLL de Prisma
 npm.cmd run dev                   # API :8787 + Vite :5173 (la app PIDE LOGIN; admin desde .env)
+# Para que ZOHO funcione tras el proxy TLS, arrancar con el bundle de CA:
+NODE_EXTRA_CA_CERTS=/c/Users/User/corp-ca-bundle.pem npm.cmd run dev
 npm.cmd run prisma:push           # db push aditivo (no reset)
 npm.cmd run prisma:generate       # con la API detenida si da EPERM
 npm.cmd run prisma:import-rates   # (CLI) resembrar base desde Excel, si hiciera falta
