@@ -3,7 +3,9 @@ export {
   validateTripRequest,
   upsertClientFromRequest,
   saveNormalizedTripRequest,
-  findCandidateOpportunities
+  findCandidateOpportunities,
+  extractClientInfo,
+  extractRequestExtras
 } from "./requestService";
 export { buildProposal, approveProposal, confirmFinalSelection } from "./proposalService";
 export {

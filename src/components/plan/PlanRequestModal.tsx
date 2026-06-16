@@ -8,6 +8,8 @@ import {
   saveNormalizedTripRequest,
   upsertClientFromRequest,
   validateTripRequest,
+  extractClientInfo,
+  extractRequestExtras,
 } from "../../services/mcpTools";
 import {
   ApiAuthError,
@@ -119,6 +121,9 @@ export function PlanRequestModal({ open, onClose, onCompleted }: PlanRequestModa
     [messages, draft],
   );
 
+  // Presupuesto por alumno + requisitos especiales detectados del mensaje (paso 3).
+  const extras = useMemo(() => extractRequestExtras(rawText), [rawText]);
+
   // Reset completo al abrir.
   useEffect(() => {
     if (!open) return;
@@ -171,11 +176,26 @@ export function PlanRequestModal({ open, onClose, onCompleted }: PlanRequestModa
     setError(err instanceof Error ? err.message : fallback);
   };
 
+  // Autorrellena los datos del cliente con lo que detectemos del mensaje, sin
+  // pisar lo que el usuario ya haya escrito.
+  const autofillClient = (text: string) => {
+    const info = extractClientInfo(text);
+    setForm((f) => ({
+      ...f,
+      email: f.email || info.email,
+      firstName: f.firstName || info.firstName,
+      lastName: f.lastName || info.lastName,
+      opportunityName: f.opportunityName || info.opportunityName,
+    }));
+  };
+
   const addMessage = () => {
     const text = draft.trim();
     if (!text) return;
+    const combined = [...messages, text].map((m) => m.trim()).filter(Boolean).join("\n\n");
     setMessages((prev) => [...prev, text]);
     setDraft("");
+    autofillClient(combined);
   };
 
   const removeMessage = (index: number) => {
@@ -186,11 +206,22 @@ export function PlanRequestModal({ open, onClose, onCompleted }: PlanRequestModa
   const handleNormalize = async () => {
     setError("");
     setInfo("");
-    const input: ParseTripRequestInput = { ...form, rawTripRequestText: rawText };
     if (rawText.trim().length < 20) {
       setError("Añade el mensaje del cliente (al menos una frase) para poder normalizar.");
       return;
     }
+    // Autorrelleno de los datos del cliente con lo detectado en el mensaje (sin
+    // pisar lo escrito); cubre el caso de pegar y normalizar sin pulsar "Añadir".
+    const detected = extractClientInfo(rawText);
+    const filledForm: ParseTripRequestInput = {
+      ...form,
+      email: form.email || detected.email,
+      firstName: form.firstName || detected.firstName,
+      lastName: form.lastName || detected.lastName,
+      opportunityName: form.opportunityName || detected.opportunityName,
+    };
+    setForm(filledForm);
+    const input: ParseTripRequestInput = { ...filledForm, rawTripRequestText: rawText };
     setBusy(true);
     try {
       const parsed = parseTripRequest(input);
@@ -458,6 +489,8 @@ export function PlanRequestModal({ open, onClose, onCompleted }: PlanRequestModa
               accommodationSearch={accommodationSearch}
               activitySearch={activitySearch}
               builder={builder}
+              budgetPerStudent={extras.budgetPerStudent}
+              specialRequirements={extras.specialRequirements}
               optionForAccommodation={optionForAccommodation}
               onToggleAccommodation={toggleAccommodation}
               onToggleActivity={toggleActivity}
@@ -587,6 +620,9 @@ function StepSolicitud({
       <div className="pm-side">
         <div className="pm-panel">
           <h3 className="pm-panel__h">Datos del cliente</h3>
+          <p className="pm-panel__hint">
+            <Icon.Sparkles /> Se autocompletan desde el mensaje · puedes editarlos
+          </p>
           <div className="pm-frm">
             <label className="pm-fld">
               <span>Tipo de cliente</span>
@@ -1118,6 +1154,8 @@ function StepAlojamientos({
   accommodationSearch,
   activitySearch,
   builder,
+  budgetPerStudent,
+  specialRequirements,
   optionForAccommodation,
   onToggleAccommodation,
   onToggleActivity,
@@ -1128,6 +1166,8 @@ function StepAlojamientos({
   accommodationSearch: SearchAccommodationsResult | null;
   activitySearch: SearchActivitiesResult | null;
   builder: ProposalBuilderState;
+  budgetPerStudent: number | null;
+  specialRequirements: string[];
   optionForAccommodation: (id: string) => number | null;
   onToggleAccommodation: (id: string) => void;
   onToggleActivity: (optionNumber: number, activityId: string) => void;
@@ -1136,6 +1176,18 @@ function StepAlojamientos({
   const matches = accommodationSearch?.matches ?? [];
   const selectedCount = builder.selectedAccommodationIds.length;
   const gradients = ["pm-room__img--1", "pm-room__img--2", "pm-room__img--3"];
+
+  // Noches de la estancia y nº de alumnos, para estimar el coste por alumno y de grupo.
+  const nights =
+    norm?.dateFrom && norm?.dateTo
+      ? Math.max(
+          1,
+          Math.round((new Date(norm.dateTo).getTime() - new Date(norm.dateFrom).getTime()) / 86400000),
+        )
+      : 0;
+  const participants = norm?.participants ?? null;
+
+  const RANK_LABEL = ["★ Mejor opción", "2ª mejor", "3ª mejor"];
 
   return (
     <div className="pm-aloj">
@@ -1148,10 +1200,28 @@ function StepAlojamientos({
         />
         <SummaryField label="Grupo" value={groupText} icon={<Icon.Group />} />
         <SummaryField label="Régimen" value={norm?.regimeRequested || "—"} icon={<Icon.Board />} />
+        {budgetPerStudent ? (
+          <SummaryField label="Presupuesto" value={`${budgetPerStudent} €/alumno`} icon={<Icon.Wallet />} />
+        ) : null}
         <button className="pm-searchbar__edit" onClick={onEdit}>
           Editar datos
         </button>
       </div>
+
+      {specialRequirements.length > 0 ? (
+        <div className="pm-reqs">
+          <div className="pm-reqs__h">
+            <Icon.Alert /> Requisitos a confirmar con el alojamiento
+          </div>
+          <div className="pm-reqs__list">
+            {specialRequirements.map((r) => (
+              <span className="pm-reqs__item" key={r}>
+                {r}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="pm-aloj__head">
         <div>
@@ -1172,9 +1242,26 @@ function StepAlojamientos({
             const a = match.accommodation;
             const option = optionForAccommodation(a.id);
             const price = match.rate.pvpAmount || match.rate.netSaleAmount;
+            const perApto = /apto|apartamento/i.test(match.rate.tariffUnit || "");
+            const stayPerUnit = nights > 0 ? price * nights : 0;
+            const groupTotal = !perApto && stayPerUnit && participants ? stayPerUnit * participants : 0;
+            const rank = idx < 3 ? idx + 1 : 0;
+            const quality =
+              match.score >= 100
+                ? { label: "Excelente", cls: "exc" }
+                : match.score >= 70
+                  ? { label: "Buena", cls: "good" }
+                  : { label: "Parcial", cls: "part" };
+            // Sello de presupuesto (solo productos por pax con coste/alumno calculado).
+            const budgetDiff =
+              budgetPerStudent && !perApto && stayPerUnit ? stayPerUnit - budgetPerStudent : null;
             return (
-              <article className={`pm-room ${option ? "is-sel" : ""}`} key={a.id}>
+              <article
+                className={`pm-room ${option ? "is-sel" : ""} ${rank ? `pm-room--rank${rank}` : ""}`}
+                key={a.id}
+              >
                 <div className={`pm-room__img ${gradients[idx % 3]}`}>
+                  {rank ? <span className={`pm-rank pm-rank--${rank}`}>{RANK_LABEL[rank - 1]}</span> : null}
                   {a.sourceDocumentName ? (
                     <span className="pm-room__src">Origen: {a.sourceDocumentName}</span>
                   ) : null}
@@ -1184,7 +1271,8 @@ function StepAlojamientos({
                   <div>
                     <div className="pm-room__name">{a.accommodationName}</div>
                     <div className="pm-room__loc">
-                      <Icon.Pin /> {a.locality} · {a.categoryType}
+                      <Icon.Pin /> {a.locality}
+                      {a.categoryType ? ` · ${a.categoryType}` : ""}
                     </div>
                   </div>
                   <div className="pm-chips">
@@ -1194,7 +1282,10 @@ function StepAlojamientos({
                   </div>
                   <div className="pm-why">
                     <div className="pm-why__h">
-                      <Icon.Star /> Por qué encaja · score {match.score}
+                      <Icon.Star /> Por qué encaja
+                      <span className={`pm-quality pm-quality--${quality.cls}`} title={`Score ${match.score}`}>
+                        {quality.label}
+                      </span>
                     </div>
                     <ul>
                       {(match.matchReasons.length > 0 ? match.matchReasons : ["Coincide con la búsqueda"])
@@ -1206,14 +1297,40 @@ function StepAlojamientos({
                         ))}
                     </ul>
                   </div>
-                  <div className="pm-room__foot">
+                  <div className="pm-room__est-row">
                     <div className="pm-price">
                       desde
                       <b>
                         {euro(price)}
-                        <small> /pax</small>
+                        <small> /{perApto ? "apto" : "pax"}·noche</small>
                       </b>
                     </div>
+                    {stayPerUnit ? (
+                      <div className="pm-est">
+                        <span className="pm-est__main">
+                          ≈ {euro(stayPerUnit)}/{perApto ? "apto" : "alumno"}
+                        </span>
+                        <span className="pm-est__sub">
+                          {nights} noches{groupTotal ? ` · ≈ ${euro(groupTotal)} grupo` : ""}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                  {budgetDiff !== null ? (
+                    <div className={`pm-budget ${budgetDiff <= 0 ? "pm-budget--ok" : "pm-budget--over"}`}>
+                      {budgetDiff <= 0 ? (
+                        <>
+                          <Icon.Check /> Dentro de presupuesto
+                          {budgetDiff < 0 ? ` · ${euro(-budgetDiff)}/alumno de margen` : ""}
+                        </>
+                      ) : (
+                        <>
+                          <Icon.Alert /> +{euro(budgetDiff)}/alumno sobre presupuesto
+                        </>
+                      )}
+                    </div>
+                  ) : null}
+                  <div className="pm-room__foot">
                     <button
                       className={`pm-selbtn ${option ? "is" : ""}`}
                       onClick={() => onToggleAccommodation(a.id)}
@@ -1443,6 +1560,18 @@ const Icon = {
   Board: () => (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
       <path d="M5 11h14M7 11V7a5 5 0 0 1 10 0v4M4 11h16l-1 9H5l-1-9Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  ),
+  Wallet: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v0H5a2 2 0 0 0-2 2v0" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="16.5" cy="13" r="1.3" fill="currentColor" />
+    </svg>
+  ),
+  Alert: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <path d="M12 9v4M12 17h.01M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   ),
 };

@@ -2947,7 +2947,18 @@ tr.is-selected {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--muted);
+  margin-bottom: 4px;
+}
+.pm-panel__hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--accent-700, #0f5f43);
   margin-bottom: 13px;
+}
+.pm-panel__hint svg {
+  flex: none;
 }
 .pm-frm {
   display: flex;
@@ -3745,6 +3756,153 @@ tr.is-selected {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
+}
+
+/* Ranking top-3: oro / plata / bronce */
+.pm-room--rank1 {
+  border-color: #e0b34d;
+  box-shadow: 0 0 0 2px #f6e6bd, 0 16px 34px -22px rgba(180, 130, 20, 0.55);
+}
+.pm-room--rank2 {
+  border-color: #b9c2cc;
+  box-shadow: 0 0 0 2px #e6ebef, 0 14px 30px -22px rgba(120, 130, 140, 0.5);
+}
+.pm-room--rank3 {
+  border-color: #cda06a;
+  box-shadow: 0 0 0 2px #efe0cd, 0 14px 30px -22px rgba(150, 110, 60, 0.5);
+}
+.pm-rank {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  z-index: 2;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  padding: 5px 11px;
+  border-radius: 999px;
+  color: #3a2c08;
+  box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.4);
+}
+.pm-rank--1 {
+  background: linear-gradient(135deg, #f6d77a, #e0b34d);
+}
+.pm-rank--2 {
+  background: linear-gradient(135deg, #e7edf1, #c3ccd4);
+  color: #2f3a44;
+}
+.pm-rank--3 {
+  background: linear-gradient(135deg, #e6c79e, #cda06a);
+  color: #3a2a14;
+}
+/* cuando hay rank, el "Origen" baja para no solapar la cinta */
+.pm-room--rank1 .pm-room__src,
+.pm-room--rank2 .pm-room__src,
+.pm-room--rank3 .pm-room__src {
+  top: 40px;
+}
+
+/* Etiqueta de calidad de coincidencia */
+.pm-quality {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.pm-quality--exc {
+  background: var(--accent);
+  color: #fff;
+}
+.pm-quality--good {
+  background: var(--brand-050);
+  color: var(--brand);
+}
+.pm-quality--part {
+  background: var(--surface-2, #f5f7f9);
+  color: var(--muted);
+}
+
+/* Estimación de coste por alumno / grupo */
+.pm-room__est-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 2px;
+}
+.pm-est {
+  text-align: right;
+}
+.pm-est__main {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-700, #0f5f43);
+  font-variant-numeric: tabular-nums;
+}
+.pm-est__sub {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Sello de presupuesto por tarjeta */
+.pm-budget {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 8px;
+  margin-top: 2px;
+}
+.pm-budget svg {
+  flex: none;
+}
+.pm-budget--ok {
+  background: var(--accent-050, #e6f1ec);
+  color: var(--accent-700, #0f5f43);
+  border: 1px solid #cfe6db;
+}
+.pm-budget--over {
+  background: var(--warn-bg, #fdf3e2);
+  color: #8a5a12;
+  border: 1px solid #f0dcb8;
+}
+
+/* Panel de requisitos a confirmar (paso 3) */
+.pm-reqs {
+  margin-top: 14px;
+  background: var(--warn-bg, #fdf3e2);
+  border: 1px solid #f0dcb8;
+  border-radius: 14px;
+  padding: 13px 16px;
+}
+.pm-reqs__h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #8a5a12;
+  margin-bottom: 10px;
+}
+.pm-reqs__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pm-reqs__item {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  background: #fff;
+  border: 1px solid #f0dcb8;
+  border-radius: 999px;
+  padding: 5px 12px;
 }
 
 /* Paso 3 — actividades */

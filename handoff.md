@@ -107,6 +107,22 @@ Zoho sin romper nada (ver `toCurrentUser`).
   Pineda, MedPlaya Sant Eloi/Santa Mónica, Canada Palace, California, campings) — idealmente vía el
   **flujo documental con revisión humana**. Mejorar el scoring de capacidad/grupo mínimo si se quiere.
 
+**6. Paso 1 (autorrelleno) y paso 3 (decisión) del popup — 2ª tanda.**
+- **Autorrelleno de datos del cliente** (`extractClientInfo` en `requestService.ts`): al pegar/añadir
+  el mensaje, se rellenan **Email · Nombre · Apellidos · Nombre de oportunidad** (tipo de viaje +
+  destino + año). Heurístico, no pisa lo escrito a mano; se ejecuta al añadir y al normalizar.
+- **Paso 3 enriquecido para decidir** (`StepAlojamientos` + `extractRequestExtras`):
+  - **Ranking top-3** con medallas oro/plata/bronce (cinta + borde de color).
+  - **Coste estimado por alumno** (precio × noches) y **total de grupo** (× nº alumnos); los productos
+    por apartamento se calculan por apto, no por pax.
+  - **Etiqueta de coincidencia** Excelente/Buena/Parcial (según score).
+  - **Presupuesto/alumno** detectado del mensaje → **sello por tarjeta** "✓ Dentro de presupuesto ·
+    N€ de margen" / "⚠ +N€ sobre presupuesto", y el tope en la barra-resumen.
+  - **Requisitos a confirmar** detectados del mensaje (panel ámbar): alergias/dietas, habitación
+    adaptada/accesibilidad, habitaciones de profes cercanas, picnic, transporte. Recordatorios, no
+    auto-comprobables.
+- Descartado por falta de dato fiable: capacidad/grupo mínimo, distancia a playa/servicios.
+
 ## Autenticación y roles (RBAC) + auditoría — HECHO
 
 La app exige **login** (operadores internos). Verificado por captura y pruebas de API.

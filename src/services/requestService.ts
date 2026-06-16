@@ -225,6 +225,81 @@ function extractCategory(text: string) {
   return categoryAliases.find((alias) => lower.includes(alias.toLowerCase())) ?? "";
 }
 
+export interface ExtractedClientInfo {
+  email: string;
+  firstName: string;
+  lastName: string;
+  opportunityName: string;
+}
+
+/**
+ * Primer análisis del mensaje del cliente para AUTORRELLENAR los datos de contacto
+ * en el paso 1. Heurístico (sin IA, instantáneo). Extrae lo que detecte; lo que no
+ * aparezca queda vacío para que el usuario lo complete.
+ */
+export function extractClientInfo(text: string): ExtractedClientInfo {
+  const email = (text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/)?.[0] ?? "").replace(/[.,;:]+$/, "");
+
+  let firstName = "";
+  let lastName = "";
+  const nameMatch = text.match(
+    /\b(?:[Ss]oy|[Mm]e llamo|[Mm]i nombre es|[Ll]e saluda|[Aa]tentamente,?)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ'’-]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ'’-]+){0,3})/,
+  );
+  if (nameMatch) {
+    const parts = nameMatch[1].trim().split(/\s+/);
+    firstName = parts[0] ?? "";
+    lastName = parts.slice(1).join(" ");
+  }
+
+  // Nombre de la oportunidad sugerido: tipo de viaje + destino + año.
+  const lower = text.toLowerCase();
+  let base = "";
+  if (lower.includes("fin de curso")) base = "Viaje fin de curso";
+  else if (lower.includes("viaje de estudios") || lower.includes("viaje de estudio")) base = "Viaje de estudios";
+  else if (lower.includes("viaje cultural")) base = "Viaje cultural";
+  else if (lower.includes("viaje escolar") || lower.includes("viaje")) base = "Viaje escolar";
+
+  const destination = findDestination(text)?.city ?? "";
+  const year = text.match(/\b(20\d{2})\b/)?.[1] ?? "";
+  const opportunityName = [base, destination, year].filter(Boolean).join(" ").trim();
+
+  return { email, firstName, lastName, opportunityName };
+}
+
+export interface RequestExtras {
+  /** Presupuesto por alumno detectado (€), o null. */
+  budgetPerStudent: number | null;
+  /** Requisitos especiales a confirmar con el alojamiento. */
+  specialRequirements: string[];
+}
+
+/**
+ * Variables adicionales del mensaje útiles para decidir en el paso 3:
+ * presupuesto por alumno y requisitos especiales (dietas, accesibilidad…).
+ * Heurístico; no condiciona la búsqueda, solo informa al operador.
+ */
+export function extractRequestExtras(text: string): RequestExtras {
+  const lower = stripAccents(text.toLowerCase());
+
+  // Presupuesto por alumno: "350 € por alumno", "presupuesto de 350 €", "350€/pax".
+  const perPax = lower.match(/(\d{2,4})\s*(?:€|eur(?:os)?)\s*(?:\/|por)\s*(?:alumno|persona|pax|estudiante|nino)/);
+  const general = lower.match(/presupuesto[^.\n]*?(\d{2,4})\s*(?:€|eur(?:os)?)/);
+  const m = perPax ?? general;
+  const budgetPerStudent = m ? Number(m[1]) : null;
+
+  const specialRequirements: string[] = [];
+  const add = (re: RegExp, label: string) => {
+    if (re.test(lower) && !specialRequirements.includes(label)) specialRequirements.push(label);
+  };
+  add(/alergi|sin gluten|sin lactosa|celiac|intoleran|vegetarian|vegan|halal|dieta/, "Alergias / dietas especiales");
+  add(/movilidad reducida|accesibl|adaptad|silla de ruedas|discapacidad/, "Habitación adaptada / accesibilidad");
+  add(/(habitacion|cuarto)[^.\n]*(cercan|junt|proxim)|profesor[^.\n]*(cercan|junt|proxim)/, "Habitaciones de profesores cercanas");
+  add(/picnic|para llevar/, "Picnic / comida para llevar");
+  add(/autobus|autocar|transporte|bus\b/, "Transporte / autocar");
+
+  return { budgetPerStudent, specialRequirements };
+}
+
 function extractGroupType(text: string) {
   const lower = text.toLowerCase();
 
