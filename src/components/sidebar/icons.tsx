@@ -98,6 +98,13 @@ const menuIcons: Record<IconName, () => ReactElement> = {
       <path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17" />
     </svg>
   ),
+  calendar: () => (
+    <svg {...base}>
+      <rect x="3" y="4.5" width="18" height="16" rx="2" />
+      <path d="M3 9h18M8 3v3M16 3v3" />
+      <path d="M7.5 13h2M11 13h2M14.5 13h2M7.5 16.5h2M11 16.5h2" />
+    </svg>
+  ),
 };
 
 export function MenuIcon({ name, className }: { name: IconName; className?: string }) {

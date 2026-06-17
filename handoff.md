@@ -11,7 +11,11 @@
 > empujado**).
 >
 > **Commits de esta tanda (más reciente arriba):**
-> - _(esta sesión, 2026-06-17)_ Popup a **5 pasos** (Actividades como paso propio) + arreglos del
+> - _(esta sesión, 2026-06-17 cont.)_ **Confirmar = WORKSPACE** (3 columnas: lista · detalle ·
+>   acción, **sin popup**) + **Calendario** del módulo (dos lecturas **Viaje/Gestión**) + **barra
+>   lateral enfocada solo en Confirmar** y el **resto de secciones movidas a la tuerca de
+>   Configuración** del topbar. Ver **"Sesión 2026-06-17 (cont.) — Workspace Confirmar + Calendario"** abajo.
+> - `7f84425` Popup a **5 pasos** (Actividades como paso propio) + arreglos del
 >   **envío a CRM** (nombre/fase/importe/Descripción legible + resumen y enlace al trato) + fix
 >   **"fetch failed"** (autorrelanzado con el CA) + nuevo entorno **"Confirmar solicitud"** (lista de
 >   tratos del CRM con confirmar: opción/fase/nota). Ver **"Sesión 2026-06-17"** abajo.
@@ -36,7 +40,8 @@
 > Arrancar con `NODE_EXTRA_CA_CERTS=/c/Users/User/corp-ca-bundle.pem npm.cmd run dev` (o
 > `NODE_OPTIONS=--use-system-ca` en Node 24). Pendiente: meterlo en un script `dev`.
 >
-> **Pendientes principales:** _(de la sesión 2026-06-17, ver su sección)_ alinear la **fase inicial**
+> **Pendientes principales:** **verificación en vivo del nuevo workspace de Confirmar** (build + 31/31
+> tests OK, pero NO se abrió `npm run dev` contra Zoho real esta sesión); alinear la **fase inicial**
 > del alta de tratos con el pipeline real de Zoho ("Nueva" no está en sus fases); **cargar precios/edades
 > de actividades** (las 264 tarifas están a 0/null) para que el coste/alumno y el Amount las incluyan;
 > opcional: **etiquetar** los tratos de viaje para que "Confirmar" no liste los 200 de consultoría.
@@ -44,6 +49,54 @@
 > documento, "Nueva con 1/2/3 opciones"); extender `zod` a los endpoints comercial/inventario;
 > reconstruir tarifas de los hoteles cuyo PDF tiene tabla difícil (Calypso, Palas Pineda, MedPlaya,
 > campings) — ver "Rediseño 2026-06-16". Detalle en las secciones siguientes.
+
+## Sesión 2026-06-17 (cont.) — Workspace Confirmar + Calendario + sidebar enfocado
+
+Rediseño del entorno **Confirmar solicitud**: de grid de tarjetas + popup a un **workspace
+master-detalle** (dirección visual tomada de una referencia tipo CRM de tratos). **Solo frontend,
+sin tocar backend.** **Build OK · 31/31 tests.** **NO verificado en vivo** (no se abrió `npm run dev`
+contra Zoho real). Bocetos en `mockups/confirm-workspace.{html,png}` y `mockups/confirm-calendar.{html,png}`
+(la carpeta `mockups/` está en `.gitignore`, no se versiona). Archivos tocados: `src/App.tsx`,
+`src/components/confirm/ConfirmRequestsPanel.tsx` (reescrito), `src/components/Topbar.tsx`,
+`src/components/sidebar/{Sidebar.tsx,sidebar.config.ts,icons.tsx}`, `src/styles.css`.
+
+**1. Confirmar = WORKSPACE de 3 columnas (sin popup)** — `ConfirmRequestsPanel.tsx` reescrito.
+- **Columna 1 (lista):** 4 KPIs reales calculados de los tratos (Por confirmar = sin opción elegida
+  y no ganado/perdido · Presup. enviado · Ganadas · Cartera activa = suma de importes no cerrados) +
+  buscador + filtro por fase + orden + lista de tratos **seleccionables** (badge de fase, importe,
+  cuenta·contacto, "✓ Opción N").
+- **Columna 2 (detalle):** cabecera (nombre, fase, importe) + **pestañas Resumen / Propuesta /
+  Historial**. Resumen = meta (destino/fechas/grupo/cierre) + **opciones como tarjetas** (la elegida
+  marcada) + timeline. Propuesta = la Descripción legible. Historial = eventos (creado, opción
+  elegida, **notas fechadas parseadas** `[YYYY-MM-DD] …`, última modificación).
+- **Columna 3 (acción, siempre visible):** tarjeta oscura con **barra de progreso del pipeline** +
+  caja "Confirmar" (elegir opción 1/2/3, avanzar de fase, nota, **Guardar** → `updateZohoOpportunityApi`,
+  **Abrir en Zoho**). Misma lógica de guardado que el antiguo modal; el modal `ConfirmModal` se eliminó.
+- El componente recibe `view` y `onNavigate` desde `App.tsx`; la página `confirm` ya **no** se envuelve
+  en `.content-grid` (el workspace gestiona su propio layout y alturas con scroll por columna).
+- CSS nuevo con prefijo `.cw*` en `styles.css`. Los estilos antiguos `.cf-card/.cf-modal/...` quedan
+  **muertos** (sin uso) pero se conservan `.cf__alert/.cf__empty/.cf__search/.cf-stage--*` (reutilizados).
+
+**2. Calendario del módulo (dos lecturas)** — mismo componente, `view === "calendar"` (`<ConfirmCalendar>`).
+- Conmutador **Viaje / Gestión**: **Viaje** pinta los días de estancia (parseados de `Fechas:` de la
+  Descripción, formato `YYYY-MM-DD → YYYY-MM-DD`) como barras que cruzan varios días; **Gestión** pinta
+  la fecha de cierre (`closingDate`) de cada oportunidad. Rejilla mensual lunes→domingo, navegación de
+  meses + "Hoy", color por fase, clic en evento → selecciona el trato y vuelve al workspace.
+- Ruta nueva **`/confirmar/calendario`** (cae en la página `confirm`; `App.tsx` deriva `view` del path).
+
+**3. Barra lateral enfocada SOLO en Confirmar + resto en la tuerca de Configuración** (decisión del usuario).
+- `sidebar.config.ts`: nueva opción **Calendario** (`/confirmar/calendario`, icono `calendar` nuevo en
+  `icons.tsx`) en la sección Confirmar; constante `PRIMARY_SECTION_ID = "confirmar"` y helper
+  `sidebarRoleFromBackend`.
+- `Sidebar.tsx`: la barra lateral renderiza **solo** la sección `confirmar` (las demás se ocultan).
+- `Topbar.tsx`: **nueva tuerca "Configuración"** con desplegable que lista el **resto** de secciones
+  (`visibleSections` menos la principal, solo items activos con ruta), **agrupado y filtrado por rol**:
+  Admin ve Inicio · Nueva solicitud · Documentos IA · Usuarios · Acciones realizadas; Usuario ve Inicio ·
+  Nueva solicitud. Si no hay secciones extra para el rol, la tuerca no se pinta. La tuerca de la
+  **portada (Home)** sigue navegando a Usuarios (sin cambios; esa pantalla no tiene topbar).
+
+**Pendiente inmediato:** abrir `npm run dev` (con el CA de Zoho, ver aviso operativo) y verificar el
+workspace + calendario + tuerca con tratos reales.
 
 ## Sesión 2026-06-17 — Popup 5 pasos + arreglos CRM + "Confirmar solicitud"
 

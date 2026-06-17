@@ -29,7 +29,8 @@ export type IconName =
   | "shield-check"
   | "user-cog"
   | "history"
-  | "list-checks";
+  | "list-checks"
+  | "calendar";
 
 export interface SidebarChildItem {
   id: string;
@@ -134,9 +135,18 @@ export const sidebarSections: SidebarSection[] = [
       {
         id: "solicitudes-crm",
         label: "Solicitudes en CRM",
-        description: "Tratos creados en Zoho",
+        description: "Propuestas y tratos",
         icon: "clipboard-check",
         route: "/confirmar",
+        permissions: COMMERCIAL,
+        status: "active",
+      },
+      {
+        id: "calendario",
+        label: "Calendario",
+        description: "Viajes y cierres",
+        icon: "calendar",
+        route: "/confirmar/calendario",
         permissions: COMMERCIAL,
         status: "active",
       },
@@ -224,6 +234,17 @@ export const sidebarSections: SidebarSection[] = [
     ],
   },
 ];
+
+/**
+ * Sección que vive en la barra lateral (el módulo principal de trabajo). El resto
+ * de secciones se acceden desde el menú "Configuración" del topbar.
+ */
+export const PRIMARY_SECTION_ID = "confirmar";
+
+/** Mapea el rol del backend (ADMIN/USER) al modelo de permisos del menú. */
+export function sidebarRoleFromBackend(role: string): SidebarRole {
+  return role === "ADMIN" ? "admin" : "comercial";
+}
 
 /** ¿El rol puede ver un elemento con estas restricciones de permiso? */
 export function canSee(permissions: SidebarRole[] | undefined, role: SidebarRole): boolean {

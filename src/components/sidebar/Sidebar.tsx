@@ -8,7 +8,7 @@
  * del estado de UI para que el layout principal ajuste su ancho.
  */
 import type { AuthUser } from "../../services/apiClient";
-import { visibleSections, type SidebarRole } from "./sidebar.config";
+import { visibleSections, PRIMARY_SECTION_ID, type SidebarRole } from "./sidebar.config";
 import type { SidebarUi } from "./useSidebar";
 import { SidebarSection } from "./SidebarSection";
 import {
@@ -34,7 +34,9 @@ function roleFromUser(user: AuthUser): SidebarRole {
 
 export function Sidebar({ user, currentPath, onNavigate, onLogout, ui }: SidebarProps) {
   const role = roleFromUser(user);
-  const sections = visibleSections(role);
+  // Solo el módulo principal vive en la barra lateral; el resto de secciones se
+  // alcanzan desde el menú "Configuración" del topbar.
+  const sections = visibleSections(role).filter((s) => s.id === PRIMARY_SECTION_ID);
   const { collapsed, mobileOpen } = ui;
 
   function navigate(route: string) {

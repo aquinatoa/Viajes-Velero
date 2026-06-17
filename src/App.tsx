@@ -1166,9 +1166,10 @@ export function App() {
         ) : null}
 
         {currentPage === "confirm" ? (
-          <div className="content-grid">
-            <ConfirmRequestsPanel />
-          </div>
+          <ConfirmRequestsPanel
+            view={currentPath.startsWith("/confirmar/calendario") ? "calendar" : "list"}
+            onNavigate={navigatePath}
+          />
         ) : null}
 
         {currentPage === "inventory" ? (
