@@ -74,12 +74,14 @@ const ZONES: Record<string, string[]> = {
   "costa daurada": [
     "salou", "cambrils", "la pineda", "tarragona", "vila-seca", "reus", "calafell",
     "coma-ruga", "l'ampolla", "l'ametlla de mar", "mont-roig", "miami platja", "tamarit",
+    "deltebre", "riumar", "la canonja", "el delta de l'ebre", "delta del ebro", "amposta",
+    "sant carles de la rapita", "port aventura",
   ],
   "costa brava": [
     "lloret de mar", "tossa de mar", "calella", "palamos", "empuriabrava", "pals",
     "blanes", "platja d'aro", "roses", "l'estartit",
   ],
-  pirineo: ["jaca", "caspe", "mequinenza"],
+  pirineo: ["jaca", "caspe", "mequinenza", "vall d'aran", "vielha", "baqueira"],
   barcelona: ["barcelona", "sitges", "castelldefels"],
 };
 function zoneOf(loc?: string | null): string {
@@ -236,11 +238,22 @@ function scoreActivityMatch(
   let score = 0;
   const ageRange = parseAgeRange(filters);
 
-  if (normalizeText(activity.locationMain ?? "") === normalizeText(filters.destinationText)) {
-    score += 30;
+  // Ubicación: exacta (+30) o misma zona turística (+18). Sin coincidencia no
+  // suma, y el umbral de la búsqueda la dejará fuera (así no se cuelan
+  // actividades de otra comarca, p. ej. el Pirineo en un viaje a Salou).
+  const locA = normalizeText(activity.locationMain ?? "");
+  const locF = normalizeText(filters.destinationText);
+  if (locA && locA === locF) {
+    score += 50;
     reasons.push(`Ubicación coincidente: ${activity.locationMain}.`);
+  } else if (locA && zoneOf(activity.locationMain) && zoneOf(activity.locationMain) === zoneOf(filters.destinationText)) {
+    score += 18;
+    reasons.push(`En la misma zona: ${activity.locationMain}.`);
   }
 
+  // Edad: si la tarifa tiene tramo y solapa, +40; tarifa de adulto, +20; si la
+  // tarifa NO trae edad (dato ausente en la BBDD), no se penaliza: +8 y se marca
+  // para confirmar con el proveedor.
   if (ageRange && rate.ageMin !== null && rate.ageMax !== null) {
     const overlaps = ageRange.max >= rate.ageMin && ageRange.min <= rate.ageMax;
     if (overlaps) {
@@ -252,6 +265,9 @@ function scoreActivityMatch(
       score += 20;
       reasons.push("Tarifa válida para adulto.");
     }
+  } else if (rate.ageMin === null && rate.ageMax === null) {
+    score += 8;
+    reasons.push("Edad sin especificar (confirmar con el proveedor).");
   }
 
   return { score, reasons };
@@ -406,7 +422,7 @@ export async function searchActivitiesDb(
     activities.map((activity) => activity.sourceDocumentId)
   );
 
-  const matches: ActivitySearchMatch[] = activities
+  const perRateMatches: ActivitySearchMatch[] = activities
     .flatMap((activity) =>
       activity.rates.map((rate) => {
         const scored = scoreActivityMatch(activity, rate, filters);
@@ -443,8 +459,29 @@ export async function searchActivitiesDb(
         };
       })
     )
-    .filter((item) => item.score >= 50)
-    .sort((a, b) => b.score - a.score);
+    // Umbral bajo: basta con coincidir por ubicación (+30) o zona (+18). La edad
+    // suma cuando hay dato, pero no es obligatoria (la BBDD aún no la trae).
+    .filter((item) => item.score >= 15);
+
+  // Una sola tarjeta por ACTIVIDAD: su mejor tarifa (mayor score; a igualdad, la
+  // más barata con precio > 0). Evita repetir la misma actividad por cada tramo.
+  const bestByActivity = new Map<string, ActivitySearchMatch>();
+  for (const item of perRateMatches) {
+    const current = bestByActivity.get(item.activity.id);
+    if (
+      !current ||
+      item.score > current.score ||
+      (item.score === current.score &&
+        item.rate.salePvpAmount > 0 &&
+        (current.rate.salePvpAmount === 0 || item.rate.salePvpAmount < current.rate.salePvpAmount))
+    ) {
+      bestByActivity.set(item.activity.id, item);
+    }
+  }
+
+  const matches: ActivitySearchMatch[] = [...bestByActivity.values()].sort(
+    (a, b) => b.score - a.score
+  );
 
   return {
     filters,

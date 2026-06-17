@@ -233,6 +233,8 @@ export interface SearchActivitiesResult {
 export interface ProposalBuilderState {
   selectedAccommodationIds: string[];
   activitiesByOption: Record<number, string[]>;
+  /** Actividades elegidas para todo el viaje (aplican a todas las opciones). */
+  selectedActivityIds: string[];
 }
 
 export interface ProposalAccommodationOption {
@@ -348,4 +350,6 @@ export interface PrepareCrmPayloadInput {
   request: NormalizedRequestDraft;
   proposal: TripProposal;
   opportunityRecommendation?: FindCandidateOpportunitiesResult;
+  /** Nombre de la oportunidad escrito por el operador (se usa tal cual como Deal_Name). */
+  opportunityName?: string;
 }

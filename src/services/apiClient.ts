@@ -277,6 +277,46 @@ export function approveZohoOpportunityApi(payload: {
   );
 }
 
+export interface ZohoDealSummary {
+  id: string;
+  dealName: string;
+  stage: string;
+  amount: number | null;
+  closingDate: string;
+  accountName: string;
+  contactName: string;
+  description: string;
+  nextStep: string;
+  createdTime: string;
+  modifiedTime: string;
+  dealUrl: string;
+}
+
+export function listZohoOpportunitiesApi() {
+  return getJson<{ deals: ZohoDealSummary[] }>(
+    "/api/crm/opportunities",
+    "No se pudieron listar los tratos de Zoho.",
+  );
+}
+
+export function fetchZohoDealStagesApi() {
+  return getJson<{ stages: string[] }>(
+    "/api/crm/deal-stages",
+    "No se pudieron obtener las fases de Zoho.",
+  );
+}
+
+export function updateZohoOpportunityApi(
+  id: string,
+  payload: { stage?: string; chosenOption?: number | null; note?: string },
+) {
+  return postJson<{ dealId: string; stage?: string; chosenOption?: number | null }>(
+    `/api/crm/opportunities/${encodeURIComponent(id)}/update`,
+    payload,
+    "No se pudo actualizar el trato en Zoho.",
+  );
+}
+
 export function fetchZohoAuthUrlApi() {
   return getJson<{ authUrl: string }>(
     "/api/crm/auth/url",

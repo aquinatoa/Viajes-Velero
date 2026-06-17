@@ -6,12 +6,21 @@
  * botones atrás/adelante del navegador funcionan, y `App` deriva la página
  * actual de la ruta. Mantener las rutas alineadas con `sidebar.config.ts`.
  */
-export type Page = "home" | "new" | "existing" | "inventory" | "users" | "audit" | "profile";
+export type Page =
+  | "home"
+  | "new"
+  | "existing"
+  | "confirm"
+  | "inventory"
+  | "users"
+  | "audit"
+  | "profile";
 
 /** Prefijo de ruta → página interna. El primero que coincide gana. */
 const ROUTE_PREFIXES: { prefix: string; page: Page }[] = [
   { prefix: "/inicio", page: "home" },
   { prefix: "/nuevo-registro", page: "new" },
+  { prefix: "/confirmar", page: "confirm" },
   { prefix: "/existente", page: "existing" },
   { prefix: "/inventario", page: "inventory" },
   { prefix: "/admin/usuarios", page: "users" },
@@ -24,6 +33,7 @@ const PAGE_ROUTE: Record<Page, string> = {
   home: "/inicio",
   new: "/nuevo-registro",
   existing: "/existente/buscar",
+  confirm: "/confirmar",
   inventory: "/inventario/documentos-ia",
   users: "/admin/usuarios",
   audit: "/auditoria/acciones",

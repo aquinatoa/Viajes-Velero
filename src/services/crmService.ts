@@ -81,11 +81,63 @@ export const prepareCrmPayload = ({
   };
 };
 
+/** Importe (€) en número a partir del total formateado de una opción ("6.528 €" → 6528). */
+function amountFromText(text: string | undefined): number | null {
+  if (!text) return null;
+  const digits = text.replace(/[^\d]/g, "");
+  return digits ? Number(digits) : null;
+}
+
+/**
+ * Texto legible del viaje para el campo Description de Zoho (en vez de un JSON
+ * crudo): cabecera con los datos del grupo y, debajo, cada opción con su precio
+ * y actividades.
+ */
+function buildOpportunityDescription(
+  request: PrepareCrmPayloadInput["request"],
+  proposal: PrepareCrmPayloadInput["proposal"]
+): string {
+  const lines: string[] = [];
+  const group = [
+    request.participants ? `${request.participants} alumnos` : null,
+    request.teachers ? `${request.teachers} profesores` : null
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  lines.push("SOLICITUD DE VIAJE");
+  if (request.destinationText) lines.push(`Destino: ${request.destinationText}`);
+  if (request.dateFrom && request.dateTo) lines.push(`Fechas: ${request.dateFrom} → ${request.dateTo}`);
+  if (group) lines.push(`Grupo: ${group}`);
+  if (request.regimeRequested) lines.push(`Régimen: ${request.regimeRequested}`);
+  if (request.categoryRequested) lines.push(`Categoría: ${request.categoryRequested}`);
+  if (request.ageRangeText) lines.push(`Edades: ${request.ageRangeText}`);
+  if (request.requirementsText) lines.push(`Requisitos: ${request.requirementsText}`);
+
+  lines.push("", "OPCIONES DE ALOJAMIENTO");
+  for (const option of proposal.accommodationOptions) {
+    lines.push(
+      `${option.optionNumber}) ${option.accommodationNameSnapshot}` +
+        (option.boardType ? ` (${option.boardType})` : "")
+    );
+    lines.push(`   Total: ${option.totalPvpText} — ${option.priceBreakdownText}`);
+    const acts = proposal.activityOptions.filter((a) => a.optionNumber === option.optionNumber);
+    if (acts.length > 0) {
+      lines.push(
+        `   Actividades: ${acts.map((a) => `${a.activityNameSnapshot} (${a.pvpSnapshot})`).join(", ")}`
+      );
+    }
+  }
+
+  return lines.join("\n");
+}
+
 export const prepareNewOpportunityPayload = ({
   client,
   request,
   proposal,
-  opportunityRecommendation
+  opportunityRecommendation,
+  opportunityName
 }: PrepareCrmPayloadInput): CrmPayload => {
   const groupedActivities = proposal.accommodationOptions.map((option) => ({
     option_number: option.optionNumber,
@@ -103,6 +155,15 @@ export const prepareNewOpportunityPayload = ({
       }))
   }));
 
+  // Deal_Name = nombre de oportunidad escrito por el operador (con respaldos).
+  const dealName =
+    opportunityName?.trim() ||
+    proposal.summaryText ||
+    `Grupo ${request.destinationText} ${request.dateFrom || "pendiente"}`;
+
+  // Importe del trato = total de la opción 1 (la principal/mejor).
+  const amount = amountFromText(proposal.accommodationOptions[0]?.totalPvpText);
+
   return {
     contact: buildCommonContact(client),
     account: buildCommonAccount(client),
@@ -117,8 +178,9 @@ export const prepareNewOpportunityPayload = ({
       participants: request.participants,
       teachers: request.teachers,
       group_type: request.groupType,
-      opportunity_name:
-        proposal.summaryText || `Grupo ${request.destinationText} ${request.dateFrom || "pendiente"}`
+      opportunity_name: dealName,
+      amount,
+      description: buildOpportunityDescription(request, proposal)
     },
     approved_option: null,
     activities: groupedActivities

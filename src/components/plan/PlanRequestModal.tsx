@@ -46,13 +46,14 @@ import type {
  * usuario venga de Zoho, la auditoría ya se asocia al usuario autenticado.
  */
 
-type Step = 1 | 2 | 3 | 4;
+type Step = 1 | 2 | 3 | 4 | 5;
 
 const STEP_LABELS: { n: Step; label: string }[] = [
   { n: 1, label: "Solicitud" },
   { n: 2, label: "Datos del viaje" },
   { n: 3, label: "Alojamientos" },
-  { n: 4, label: "Enviar a CRM" },
+  { n: 4, label: "Actividades" },
+  { n: 5, label: "Enviar a CRM" },
 ];
 
 const EMPTY_FORM: ParseTripRequestInput = {
@@ -67,6 +68,7 @@ const EMPTY_FORM: ParseTripRequestInput = {
 const EMPTY_BUILDER: ProposalBuilderState = {
   selectedAccommodationIds: [],
   activitiesByOption: { 1: [], 2: [], 3: [] },
+  selectedActivityIds: [],
 };
 
 const EXAMPLE_MESSAGE =
@@ -115,6 +117,7 @@ export function PlanRequestModal({ open, onClose, onCompleted }: PlanRequestModa
   const [proposal, setProposal] = useState<TripProposal | null>(null);
   const [crmPayload, setCrmPayload] = useState<CrmPayload | null>(null);
   const [createdDealId, setCreatedDealId] = useState<string | null>(null);
+  const [createdDealUrl, setCreatedDealUrl] = useState<string | null>(null);
 
   const rawText = useMemo(
     () => [...messages, draft].map((m) => m.trim()).filter(Boolean).join("\n\n"),
@@ -146,6 +149,7 @@ export function PlanRequestModal({ open, onClose, onCompleted }: PlanRequestModa
     setProposal(null);
     setCrmPayload(null);
     setCreatedDealId(null);
+    setCreatedDealUrl(null);
   }, [open]);
 
   // Escape para cerrar el modal — pero si hay un popover abierto (calendario o
@@ -348,36 +352,40 @@ export function PlanRequestModal({ open, onClose, onCompleted }: PlanRequestModa
     return idx === -1 ? null : idx + 1;
   };
 
-  const toggleActivity = (optionNumber: number, activityId: string) => {
+  // Actividades elegidas para TODO el viaje (aplican a todas las opciones).
+  const toggleActivity = (activityId: string) => {
     setBuilder((current) => {
-      const list = current.activitiesByOption[optionNumber] ?? [];
-      const active = list.includes(activityId);
+      const active = current.selectedActivityIds.includes(activityId);
       return {
         ...current,
-        activitiesByOption: {
-          ...current.activitiesByOption,
-          [optionNumber]: active ? list.filter((x) => x !== activityId) : [...list, activityId],
-        },
+        selectedActivityIds: active
+          ? current.selectedActivityIds.filter((x) => x !== activityId)
+          : [...current.selectedActivityIds, activityId],
       };
     });
   };
 
-  // Paso 3 → 4
+  // Paso 4 → 5: construir la propuesta. Las actividades del viaje se asignan a
+  // cada opción de alojamiento (mismo conjunto para todas).
   const handleBuildProposal = async () => {
     if (!savedRequest || !parseResult || !accommodationSearch || !activitySearch) return;
     setError("");
     setInfo("");
     setBusy(true);
     try {
+      const activitiesByOption: Record<number, string[]> = {};
+      builder.selectedAccommodationIds.forEach((_, idx) => {
+        activitiesByOption[idx + 1] = builder.selectedActivityIds;
+      });
       const next = await buildProposal({
         tripRequestId: savedRequest.id,
         normalized: parseResult.normalized,
         accommodationMatches: accommodationSearch.matches,
         activityMatches: activitySearch.matches,
-        builderState: builder,
+        builderState: { ...builder, activitiesByOption },
       });
       setProposal(next);
-      setStep(4);
+      setStep(5);
       setInfo(`Propuesta con ${next.accommodationOptions.length} opciones.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo construir la propuesta.");
@@ -398,6 +406,7 @@ export function PlanRequestModal({ open, onClose, onCompleted }: PlanRequestModa
         request: parseResult.normalized,
         proposal,
         opportunityRecommendation: candidate ?? undefined,
+        opportunityName: form.opportunityName,
       });
       const created = await createZohoOpportunityApi({
         contact: payload.contact as {
@@ -413,6 +422,7 @@ export function PlanRequestModal({ open, onClose, onCompleted }: PlanRequestModa
       logCrmSyncAttempt(payload);
       setCrmPayload(payload);
       setCreatedDealId(created.dealId);
+      setCreatedDealUrl(created.dealUrl ?? null);
       setInfo("Trato creado en Zoho CRM con las opciones.");
       onCompleted?.();
     } catch (err) {
@@ -493,13 +503,28 @@ export function PlanRequestModal({ open, onClose, onCompleted }: PlanRequestModa
               specialRequirements={extras.specialRequirements}
               optionForAccommodation={optionForAccommodation}
               onToggleAccommodation={toggleAccommodation}
-              onToggleActivity={toggleActivity}
               onEdit={() => setStep(2)}
             />
           ) : null}
 
-          {step === 4 && proposal ? (
-            <StepCrm proposal={proposal} createdDealId={createdDealId} crmPayload={crmPayload} />
+          {step === 4 ? (
+            <StepActividades
+              activitySearch={activitySearch}
+              builder={builder}
+              accommodationSearch={accommodationSearch}
+              onToggleActivity={toggleActivity}
+            />
+          ) : null}
+
+          {step === 5 && proposal ? (
+            <StepCrm
+              proposal={proposal}
+              createdDealId={createdDealId}
+              createdDealUrl={createdDealUrl}
+              crmPayload={crmPayload}
+              dealName={form.opportunityName?.trim() || proposal.summaryText}
+              contactEmail={client?.email ?? form.email}
+            />
           ) : null}
         </div>
 
@@ -527,13 +552,18 @@ export function PlanRequestModal({ open, onClose, onCompleted }: PlanRequestModa
           {step === 3 ? (
             <button
               className="pm-primary"
-              onClick={handleBuildProposal}
+              onClick={() => setStep(4)}
               disabled={busy || builder.selectedAccommodationIds.length === 0}
             >
-              {busy ? "Construyendo…" : "Construir propuesta"} <Icon.ArrowRight />
+              Siguiente: actividades <Icon.ArrowRight />
             </button>
           ) : null}
           {step === 4 ? (
+            <button className="pm-primary" onClick={handleBuildProposal} disabled={busy}>
+              {busy ? "Construyendo…" : "Construir propuesta"} <Icon.ArrowRight />
+            </button>
+          ) : null}
+          {step === 5 ? (
             createdDealId ? (
               <button className="pm-primary" onClick={onClose}>
                 Cerrar
@@ -1158,7 +1188,6 @@ function StepAlojamientos({
   specialRequirements,
   optionForAccommodation,
   onToggleAccommodation,
-  onToggleActivity,
   onEdit,
 }: {
   norm: ParseTripRequestResult["normalized"] | undefined;
@@ -1170,12 +1199,15 @@ function StepAlojamientos({
   specialRequirements: string[];
   optionForAccommodation: (id: string) => number | null;
   onToggleAccommodation: (id: string) => void;
-  onToggleActivity: (optionNumber: number, activityId: string) => void;
   onEdit: () => void;
 }) {
   const matches = accommodationSearch?.matches ?? [];
   const selectedCount = builder.selectedAccommodationIds.length;
   const gradients = ["pm-room__img--1", "pm-room__img--2", "pm-room__img--3"];
+
+  // Orden y filtro rápido (estado local del paso, no afecta a la búsqueda).
+  const [sortBy, setSortBy] = useState<"match" | "price" | "cost">("match");
+  const [onlyWithinBudget, setOnlyWithinBudget] = useState(false);
 
   // Noches de la estancia y nº de alumnos, para estimar el coste por alumno y de grupo.
   const nights =
@@ -1188,6 +1220,58 @@ function StepAlojamientos({
   const participants = norm?.participants ?? null;
 
   const RANK_LABEL = ["★ Mejor opción", "2ª mejor", "3ª mejor"];
+
+  // Precio por alumno de cada actividad del inventario (para sumar el coste real
+  // de las actividades elegidas por opción).
+  const activityPriceById = useMemo(() => {
+    const map = new Map<string, number>();
+    (activitySearch?.matches ?? []).forEach((m) => map.set(m.activity.id, m.rate.salePvpAmount || 0));
+    return map;
+  }, [activitySearch]);
+
+  const activitiesPerStudent = (optionNumber: number) =>
+    (builder.activitiesByOption[optionNumber] ?? []).reduce(
+      (sum, id) => sum + (activityPriceById.get(id) ?? 0),
+      0,
+    );
+
+  // Coste base de un alojamiento (sin actividades): precio unitario, si es por
+  // apartamento, y el coste de la estancia por unidad (pax o apto).
+  const costFor = (match: NonNullable<typeof accommodationSearch>["matches"][number]) => {
+    const price = match.rate.pvpAmount || match.rate.netSaleAmount;
+    const perApto = /apto|apartamento/i.test(match.rate.tariffUnit || "");
+    const stayPerUnit = nights > 0 ? price * nights : 0;
+    return { price, perApto, stayPerUnit };
+  };
+
+  // El ranking (oro/plata/bronce) se calcula sobre el orden original por score,
+  // para que las medallas sigan significando "mejor coincidencia" aunque se
+  // reordene la lista por precio o coste.
+  const rankById = useMemo(() => {
+    const map = new Map<string, number>();
+    matches.slice(0, 3).forEach((m, i) => map.set(m.accommodation.id, i + 1));
+    return map;
+  }, [matches]);
+
+  // Lista a mostrar: filtro de presupuesto + orden elegido (copia, no muta).
+  const displayMatches = useMemo(() => {
+    let list = matches.slice();
+    if (onlyWithinBudget && budgetPerStudent) {
+      list = list.filter((m) => {
+        const { perApto, stayPerUnit } = costFor(m);
+        return !perApto && stayPerUnit > 0 && stayPerUnit <= budgetPerStudent;
+      });
+    }
+    if (sortBy === "price") {
+      list.sort((a, b) => costFor(a).price - costFor(b).price);
+    } else if (sortBy === "cost") {
+      list.sort((a, b) => (costFor(a).stayPerUnit || Infinity) - (costFor(b).stayPerUnit || Infinity));
+    }
+    return list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matches, sortBy, onlyWithinBudget, budgetPerStudent, nights]);
+
+  const hiddenByBudget = onlyWithinBudget && budgetPerStudent ? matches.length - displayMatches.length : 0;
 
   return (
     <div className="pm-aloj">
@@ -1223,6 +1307,85 @@ function StepAlojamientos({
         </div>
       ) : null}
 
+      {selectedCount > 0 ? (
+        <div className="pm-compare">
+          <div className="pm-compare__h">
+            <Icon.Check /> Tu comparativa · {selectedCount} {selectedCount === 1 ? "opción" : "opciones"} de 3
+          </div>
+          <div className="pm-compare__grid">
+            {builder.selectedAccommodationIds.map((accId, idx) => {
+              const optionNumber = idx + 1;
+              const match = matches.find((m) => m.accommodation.id === accId);
+              if (!match) return null;
+              const a = match.accommodation;
+              const { price, perApto, stayPerUnit } = costFor(match);
+              const actCount = (builder.activitiesByOption[optionNumber] ?? []).length;
+              const actCost = activitiesPerStudent(optionNumber);
+              const perStudentTotal = stayPerUnit + (!perApto ? actCost : 0);
+              const budgetDiff =
+                budgetPerStudent && !perApto && stayPerUnit ? perStudentTotal - budgetPerStudent : null;
+              return (
+                <div className="pm-cmp" key={accId}>
+                  <div className="pm-cmp__top">
+                    <span className="pm-cmp__opt">Opción {optionNumber}</span>
+                    <button
+                      className="pm-cmp__rm"
+                      onClick={() => onToggleAccommodation(accId)}
+                      aria-label={`Quitar ${a.accommodationName} de la comparativa`}
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                  <div className="pm-cmp__name">{a.accommodationName}</div>
+                  <div className="pm-cmp__loc">
+                    {a.locality}
+                    {a.categoryType ? ` · ${a.categoryType}` : ""}
+                  </div>
+                  <dl className="pm-cmp__rows">
+                    <div>
+                      <dt>Precio</dt>
+                      <dd>
+                        {euro(price)}
+                        <small> /{perApto ? "apto" : "pax"}·noche</small>
+                      </dd>
+                    </div>
+                    {stayPerUnit ? (
+                      <div>
+                        <dt>Coste/{perApto ? "apto" : "alumno"}</dt>
+                        <dd className="pm-cmp__big">{euro(perStudentTotal)}</dd>
+                      </div>
+                    ) : null}
+                    <div>
+                      <dt>Actividades</dt>
+                      <dd>
+                        {actCount
+                          ? actCost > 0
+                            ? `${actCount} · ${euro(actCost)}/alumno`
+                            : `${actCount} · a consultar`
+                          : "—"}
+                      </dd>
+                    </div>
+                  </dl>
+                  {budgetDiff !== null ? (
+                    <div className={`pm-cmp__bud ${budgetDiff <= 0 ? "ok" : "over"}`}>
+                      {budgetDiff <= 0 ? (
+                        <>
+                          <Icon.Check /> Dentro de presupuesto
+                        </>
+                      ) : (
+                        <>
+                          <Icon.Alert /> +{euro(budgetDiff)}/alumno
+                        </>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
       <div className="pm-aloj__head">
         <div>
           <h2>Alojamientos disponibles</h2>
@@ -1234,18 +1397,49 @@ function StepAlojamientos({
         <span className="pm-selcount">{selectedCount} de 3 seleccionados</span>
       </div>
 
+      {matches.length > 0 ? (
+        <div className="pm-aloj__tools">
+          <label className="pm-sort">
+            <span>Ordenar por</span>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)}>
+              <option value="match">Mejor coincidencia</option>
+              <option value="price">Precio (menor)</option>
+              <option value="cost">Coste/alumno (menor)</option>
+            </select>
+          </label>
+          {budgetPerStudent ? (
+            <label className="pm-onlybud">
+              <input
+                type="checkbox"
+                checked={onlyWithinBudget}
+                onChange={(e) => setOnlyWithinBudget(e.target.checked)}
+              />
+              Solo dentro de presupuesto
+              {hiddenByBudget > 0 ? <span className="pm-onlybud__n">{hiddenByBudget} ocultos</span> : null}
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+
       {matches.length === 0 ? (
         <p className="pm-empty">No se encontraron alojamientos para estos filtros. Ajusta los datos del viaje.</p>
+      ) : displayMatches.length === 0 ? (
+        <p className="pm-empty">
+          Ningún alojamiento queda dentro del presupuesto de {budgetPerStudent} €/alumno. Quita el filtro
+          para ver todas las coincidencias.
+        </p>
       ) : (
         <div className="pm-rooms">
-          {matches.map((match, idx) => {
+          {displayMatches.map((match, idx) => {
             const a = match.accommodation;
             const option = optionForAccommodation(a.id);
-            const price = match.rate.pvpAmount || match.rate.netSaleAmount;
-            const perApto = /apto|apartamento/i.test(match.rate.tariffUnit || "");
-            const stayPerUnit = nights > 0 ? price * nights : 0;
-            const groupTotal = !perApto && stayPerUnit && participants ? stayPerUnit * participants : 0;
-            const rank = idx < 3 ? idx + 1 : 0;
+            const { price, perApto, stayPerUnit } = costFor(match);
+            // El coste/alumno de una opción elegida incluye sus actividades.
+            const actCost = option && !perApto ? activitiesPerStudent(option) : 0;
+            const perStudentTotal = stayPerUnit + actCost;
+            const groupTotal =
+              !perApto && perStudentTotal && participants ? perStudentTotal * participants : 0;
+            const rank = rankById.get(a.id) ?? 0;
             const quality =
               match.score >= 100
                 ? { label: "Excelente", cls: "exc" }
@@ -1254,7 +1448,7 @@ function StepAlojamientos({
                   : { label: "Parcial", cls: "part" };
             // Sello de presupuesto (solo productos por pax con coste/alumno calculado).
             const budgetDiff =
-              budgetPerStudent && !perApto && stayPerUnit ? stayPerUnit - budgetPerStudent : null;
+              budgetPerStudent && !perApto && stayPerUnit ? perStudentTotal - budgetPerStudent : null;
             return (
               <article
                 className={`pm-room ${option ? "is-sel" : ""} ${rank ? `pm-room--rank${rank}` : ""}`}
@@ -1308,10 +1502,12 @@ function StepAlojamientos({
                     {stayPerUnit ? (
                       <div className="pm-est">
                         <span className="pm-est__main">
-                          ≈ {euro(stayPerUnit)}/{perApto ? "apto" : "alumno"}
+                          ≈ {euro(perStudentTotal)}/{perApto ? "apto" : "alumno"}
                         </span>
                         <span className="pm-est__sub">
-                          {nights} noches{groupTotal ? ` · ≈ ${euro(groupTotal)} grupo` : ""}
+                          {nights} noches
+                          {actCost ? ` + ${euro(actCost)} actividades` : ""}
+                          {groupTotal ? ` · ≈ ${euro(groupTotal)} grupo` : ""}
                         </span>
                       </div>
                     ) : null}
@@ -1334,6 +1530,7 @@ function StepAlojamientos({
                     <button
                       className={`pm-selbtn ${option ? "is" : ""}`}
                       onClick={() => onToggleAccommodation(a.id)}
+                      aria-pressed={!!option}
                     >
                       {option ? (
                         <>
@@ -1353,69 +1550,223 @@ function StepAlojamientos({
         </div>
       )}
 
-      {selectedCount > 0 && (activitySearch?.matches.length ?? 0) > 0 ? (
-        <div className="pm-acts">
-          <h2 className="pm-acts__title">Actividades por opción</h2>
-          {builder.selectedAccommodationIds.map((accId, idx) => {
-            const optionNumber = idx + 1;
-            const acc = accommodationSearch?.matches.find((m) => m.accommodation.id === accId);
-            return (
-              <div className="pm-act-block" key={accId}>
-                <div className="pm-act-block__h">
-                  <strong>Opción {optionNumber}</strong>
-                  <span>{acc?.accommodation.accommodationName}</span>
-                </div>
-                <div className="pm-act-chips">
-                  {activitySearch?.matches.map((m) => {
-                    const active = builder.activitiesByOption[optionNumber]?.includes(m.activity.id);
-                    return (
-                      <button
-                        key={`${optionNumber}-${m.activity.id}`}
-                        className={`pm-act-chip ${active ? "is" : ""}`}
-                        onClick={() => onToggleActivity(optionNumber, m.activity.id)}
-                        title={m.activity.sourceDocumentName ? `Origen: ${m.activity.sourceDocumentName}` : undefined}
-                      >
-                        {m.activity.activityName}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
     </div>
   );
 }
 
-/* ── Paso 4: Enviar a CRM ──────────────────────────────────────────────────── */
+/* ── Paso 4: Actividades del viaje (catálogo único para todas las opciones) ──── */
+
+function StepActividades({
+  activitySearch,
+  builder,
+  accommodationSearch,
+  onToggleActivity,
+}: {
+  activitySearch: SearchActivitiesResult | null;
+  builder: ProposalBuilderState;
+  accommodationSearch: SearchAccommodationsResult | null;
+  onToggleActivity: (activityId: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const CAP = 24;
+
+  const all = activitySearch?.matches ?? [];
+  const selectedSet = new Set(builder.selectedActivityIds);
+  const optionCount = builder.selectedAccommodationIds.length;
+  const optionNames = builder.selectedAccommodationIds
+    .map((id) => accommodationSearch?.matches.find((m) => m.accommodation.id === id)?.accommodation.accommodationName)
+    .filter(Boolean) as string[];
+
+  const norm = (s: string) =>
+    s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const q = norm(query.trim());
+  const filtered = q
+    ? all.filter((m) => norm(`${m.activity.activityName} ${m.activity.locationMain}`).includes(q))
+    : all;
+
+  // Seleccionadas primero; tope con "ver todas" (salvo si hay búsqueda activa).
+  const ordered = [...filtered].sort(
+    (a, b) => (selectedSet.has(b.activity.id) ? 1 : 0) - (selectedSet.has(a.activity.id) ? 1 : 0),
+  );
+  const shown = expanded || q ? ordered : ordered.slice(0, CAP);
+  const hidden = ordered.length - shown.length;
+
+  return (
+    <div className="pm-acts2">
+      <div className="pm-acts2__head">
+        <div>
+          <h2>Actividades del viaje</h2>
+          <p>
+            {all.length} disponibles
+            {optionCount > 0 ? ` · aplican a las ${optionCount} opciones de alojamiento` : ""} · precios y
+            edades por confirmar con el proveedor
+          </p>
+        </div>
+        <span className="pm-selcount">{builder.selectedActivityIds.length} seleccionadas</span>
+      </div>
+
+      {optionNames.length > 0 ? (
+        <div className="pm-acts2__opts">
+          {optionNames.map((name, i) => (
+            <span className="pm-acts2__optchip" key={i}>
+              Opción {i + 1}: {name}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="pm-acts2__search">
+        <Icon.Search />
+        <input
+          placeholder="Buscar actividad o ubicación…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {query ? (
+          <button className="pm-acts2__clear" onClick={() => setQuery("")} aria-label="Limpiar búsqueda">
+            <Icon.Close />
+          </button>
+        ) : null}
+      </div>
+
+      {all.length === 0 ? (
+        <p className="pm-empty">
+          No se encontraron actividades para este destino. Puedes continuar sin actividades.
+        </p>
+      ) : filtered.length === 0 ? (
+        <p className="pm-empty">Ninguna actividad coincide con “{query}”.</p>
+      ) : (
+        <>
+          <div className="pm-actcards">
+            {shown.map((m) => {
+              const active = selectedSet.has(m.activity.id);
+              const price = m.rate.salePvpAmount;
+              return (
+                <article className={`pm-actcard ${active ? "is" : ""}`} key={m.activity.id}>
+                  <div className="pm-actcard__b">
+                    <div className="pm-actcard__name">{m.activity.activityName}</div>
+                    <div className="pm-actcard__meta">
+                      <Icon.Pin /> {m.activity.locationMain || "Ubicación s/d"}
+                      {m.activity.durationText ? ` · ${m.activity.durationText}` : ""}
+                    </div>
+                  </div>
+                  <div className="pm-actcard__foot">
+                    <span className="pm-actcard__price">{price > 0 ? euro(price) : "a consultar"}</span>
+                    <button
+                      className={`pm-actcard__btn ${active ? "is" : ""}`}
+                      onClick={() => onToggleActivity(m.activity.id)}
+                      aria-pressed={active}
+                    >
+                      {active ? (
+                        <>
+                          <Icon.Check /> Añadida
+                        </>
+                      ) : (
+                        <>
+                          <Icon.Plus /> Añadir
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+          {hidden > 0 ? (
+            <button className="pm-act-more" onClick={() => setExpanded(true)}>
+              Ver todas ({hidden} más)
+            </button>
+          ) : expanded && !q ? (
+            <button className="pm-act-more pm-act-more--less" onClick={() => setExpanded(false)}>
+              Ver menos
+            </button>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ── Paso 5: Enviar a CRM ──────────────────────────────────────────────────── */
 
 function StepCrm({
   proposal,
   createdDealId,
-  crmPayload,
+  createdDealUrl,
+  dealName,
+  contactEmail,
 }: {
   proposal: TripProposal;
   createdDealId: string | null;
+  createdDealUrl: string | null;
   crmPayload: CrmPayload | null;
+  dealName: string;
+  contactEmail: string;
 }) {
+  const done = Boolean(createdDealId);
   return (
     <div className="pm-crm">
-      {createdDealId ? (
+      {done ? (
         <div className="pm-crm__done">
           <span className="pm-crm__check">
             <Icon.Check />
           </span>
-          <div>
+          <div className="pm-crm__done-b">
             <strong>Trato creado en Zoho CRM</strong>
-            <p>ID del trato: {createdDealId}. Las opciones se han enviado con la propuesta.</p>
+            <p>“{dealName}” se ha registrado con las {proposal.accommodationOptions.length} opciones.</p>
+            <dl className="pm-crm__fields">
+              <div>
+                <dt>Nombre del trato</dt>
+                <dd>{dealName || "—"}</dd>
+              </div>
+              <div>
+                <dt>Importe (opción 1)</dt>
+                <dd>{proposal.accommodationOptions[0]?.totalPvpText || "—"}</dd>
+              </div>
+              <div>
+                <dt>Fase</dt>
+                <dd>Nueva</dd>
+              </div>
+              <div>
+                <dt>ID del trato</dt>
+                <dd>{createdDealId}</dd>
+              </div>
+            </dl>
+            {createdDealUrl ? (
+              <a className="pm-crm__link" href={createdDealUrl} target="_blank" rel="noreferrer">
+                Abrir trato en Zoho <Icon.External />
+              </a>
+            ) : null}
           </div>
         </div>
       ) : (
-        <p className="pm-crm__lead">
-          Revisa el resumen y crea el trato en Zoho con las opciones seleccionadas.
-        </p>
+        <>
+          <p className="pm-crm__lead">
+            Revisa lo que se registrará y crea el trato en Zoho con las opciones seleccionadas.
+          </p>
+          <div className="pm-crm__reg">
+            <h3>Lo que se registrará en Zoho</h3>
+            <dl className="pm-crm__fields">
+              <div>
+                <dt>Nombre del trato</dt>
+                <dd>{dealName || "—"}</dd>
+              </div>
+              <div>
+                <dt>Importe (opción 1)</dt>
+                <dd>{proposal.accommodationOptions[0]?.totalPvpText || "—"}</dd>
+              </div>
+              <div>
+                <dt>Fase</dt>
+                <dd>Nueva</dd>
+              </div>
+              <div>
+                <dt>Contacto</dt>
+                <dd>{contactEmail || "—"}</dd>
+              </div>
+            </dl>
+          </div>
+        </>
       )}
 
       <div className="pm-crm__summary">
@@ -1431,8 +1782,6 @@ function StepCrm({
           ))}
         </ul>
       </div>
-
-      {crmPayload && !createdDealId ? null : null}
     </div>
   );
 }
@@ -1481,6 +1830,17 @@ const Icon = {
   Filter: () => (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  ),
+  Search: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  ),
+  External: () => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+      <path d="M14 5h5v5M19 5l-8 8M11 5H6a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   ),
   ChevronLeft: () => (

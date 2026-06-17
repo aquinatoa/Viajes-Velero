@@ -9,7 +9,10 @@ import {
   exchangeZohoAuthCode,
   getZohoAuthStatus,
   getZohoAuthUrl,
+  getZohoDealStages,
+  listZohoDeals,
   searchZohoOpportunitiesByEmail,
+  updateZohoDeal,
   ZohoReauthRequiredError,
 } from "./zoho";
 import { searchAccommodationsDb, searchActivitiesDb } from "./searchDb";
@@ -230,6 +233,50 @@ app.post("/api/crm/opportunities/approve", async (request, response) => {
     };
 
     const result = await approveZohoOpportunityOption(payload);
+    response.json(result);
+  } catch (error) {
+    crmErrorResponse(error, response, "No se pudo actualizar el trato en Zoho.");
+  }
+});
+
+// Confirmar solicitud: listar todos los tratos del CRM.
+app.get("/api/crm/opportunities", async (_request, response) => {
+  try {
+    const deals = await listZohoDeals();
+    response.json({ deals });
+  } catch (error) {
+    crmErrorResponse(error, response, "No se pudieron listar los tratos de Zoho.");
+  }
+});
+
+// Fases válidas del pipeline (para el desplegable de avance de fase).
+app.get("/api/crm/deal-stages", async (_request, response) => {
+  try {
+    const stages = await getZohoDealStages();
+    response.json({ stages });
+  } catch (error) {
+    crmErrorResponse(error, response, "No se pudieron obtener las fases de Zoho.");
+  }
+});
+
+// Confirmar/actualizar un trato (fase, opción elegida y/o nota).
+app.post("/api/crm/opportunities/:id/update", async (request, response) => {
+  try {
+    const body = request.body as { stage?: string; chosenOption?: number | null; note?: string };
+    const noteDate = new Date().toISOString().slice(0, 10);
+    const result = await updateZohoDeal({
+      dealId: request.params.id,
+      stage: body.stage,
+      chosenOption: body.chosenOption,
+      note: body.note,
+      noteDate,
+    });
+    await writeAudit({
+      user: (request as AuthedRequest).user,
+      action: "CRM_OPPORTUNITY_UPDATE",
+      entity: "crm",
+      detail: request.params.id,
+    });
     response.json(result);
   } catch (error) {
     crmErrorResponse(error, response, "No se pudo actualizar el trato en Zoho.");

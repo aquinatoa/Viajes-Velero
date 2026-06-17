@@ -83,14 +83,20 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
         activityNameSnapshot: selected.activity.activityName,
         providerSnapshot: selected.activity.supplierName,
         durationSnapshot: selected.activity.durationText,
-        pvpSnapshot: formatCurrency(rate.salePvpAmount || 0),
+        pvpSnapshot: rate.salePvpAmount > 0 ? formatCurrency(rate.salePvpAmount) : "A consultar",
         descriptionSnapshot: selected.activity.descriptionText,
         isSelected: false
       };
     });
   });
 
-  const summaryText = `${accommodationOptions.length} opciones, ${nights} noches, ${participants} participantes y ${activityOptions.length} actividades asignadas.`;
+  const uniqueActivities = new Set(activityOptions.map((a) => a.activityId)).size;
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const summaryText = `${plural(accommodationOptions.length, "opción", "opciones")}, ${plural(
+    nights,
+    "noche",
+    "noches",
+  )}, ${participants} participantes y ${plural(uniqueActivities, "actividad", "actividades")}.`;
 
   return saveTripProposalApi({
     tripRequestId: input.tripRequestId,

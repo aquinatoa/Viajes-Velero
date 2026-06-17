@@ -11,6 +11,7 @@ import { LoginPage } from "./components/LoginPage";
 import { UsersPanel } from "./components/admin/UsersPanel";
 import { AuditPanel } from "./components/admin/AuditPanel";
 import { MiCuentaPanel } from "./components/admin/MiCuentaPanel";
+import { ConfirmRequestsPanel } from "./components/confirm/ConfirmRequestsPanel";
 import { HomeLanding } from "./components/home/HomeLanding";
 import { PlanRequestModal } from "./components/plan/PlanRequestModal";
 import type {
@@ -71,6 +72,7 @@ const initialBuilderState: ProposalBuilderState = {
     2: [],
     3: [],
   },
+  selectedActivityIds: [],
 };
 
 /**
@@ -672,6 +674,7 @@ export function App() {
     home: "Inicio",
     new: "Nuevo registro",
     existing: "Existente",
+    confirm: "Confirmar solicitud",
     inventory: "Inventario documental",
     users: "Usuarios y permisos",
     audit: "Auditoría",
@@ -1159,6 +1162,12 @@ export function App() {
                 <p className="empty-state">Busca primero una oportunidad existente.</p>
               )}
             </SectionCard>
+          </div>
+        ) : null}
+
+        {currentPage === "confirm" ? (
+          <div className="content-grid">
+            <ConfirmRequestsPanel />
           </div>
         ) : null}
 

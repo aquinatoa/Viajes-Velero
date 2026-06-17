@@ -30,7 +30,7 @@ const zohoConfig = {
   contactsModule: process.env.ZOHO_CONTACTS_MODULE ?? "Contacts",
   accountsModule: process.env.ZOHO_ACCOUNTS_MODULE ?? "Accounts",
   dealsModule: process.env.ZOHO_DEALS_MODULE ?? "Deals",
-  dealStage: process.env.ZOHO_DEAL_STAGE ?? "Qualification",
+  dealStage: process.env.ZOHO_DEAL_STAGE ?? "Nueva",
   dealOptionsField: process.env.ZOHO_DEAL_OPTIONS_FIELD ?? "Description",
   approvedOptionField: process.env.ZOHO_APPROVED_OPTION_FIELD ?? ""
 };
@@ -328,6 +328,8 @@ export async function createZohoOpportunity(payload: {
     participants?: number | null;
     teachers?: number | null;
     group_type?: string;
+    amount?: number | null;
+    description?: string;
   };
   proposalOptions: unknown;
 }) {
@@ -358,8 +360,13 @@ export async function createZohoOpportunity(payload: {
   if (payload.opportunity.date_to) {
     record.Closing_Date = payload.opportunity.date_to;
   }
+  if (typeof payload.opportunity.amount === "number" && payload.opportunity.amount > 0) {
+    record.Amount = payload.opportunity.amount;
+  }
+  // Campo de detalle: texto legible si lo manda el frontend; si no, JSON de respaldo.
   if (zohoConfig.dealOptionsField) {
-    record[zohoConfig.dealOptionsField] = JSON.stringify(payload.proposalOptions, null, 2);
+    record[zohoConfig.dealOptionsField] =
+      payload.opportunity.description?.trim() || JSON.stringify(payload.proposalOptions, null, 2);
   }
 
   const result = await zohoRequest<ZohoRecordResponse<{ details?: { id?: string } }>>(
@@ -372,8 +379,17 @@ export async function createZohoOpportunity(payload: {
     }
   );
 
+  const dealId = result.data?.[0]?.details?.id ?? null;
+  // URL web del trato (deep link). Deriva la base web del dominio de API:
+  // www.zohoapis.eu → crm.zoho.eu.
+  const webBase = zohoConfig.apiDomain.replace(/(www\.)?zohoapis/, "crm.zoho");
+  const dealUrl = dealId ? `${webBase}/crm/tab/${zohoConfig.dealsModule}/${dealId}` : null;
+
   return {
-    dealId: result.data?.[0]?.details?.id ?? null,
+    dealId,
+    dealUrl,
+    dealName,
+    amount: typeof payload.opportunity.amount === "number" ? payload.opportunity.amount : null,
     contactId,
     accountId
   };
@@ -424,4 +440,134 @@ export async function approveZohoOpportunityOption(payload: {
     dealId: payload.dealId,
     approvedOptionNumber: payload.approvedOptionNumber
   };
+}
+
+/** URL web (deep link) de un trato: www.zohoapis.eu → crm.zoho.eu. */
+function dealWebUrl(dealId: string): string {
+  const webBase = zohoConfig.apiDomain.replace(/(www\.)?zohoapis/, "crm.zoho");
+  return `${webBase}/crm/tab/${zohoConfig.dealsModule}/${dealId}`;
+}
+
+function toNumber(value: unknown): number | null {
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && value.trim() !== "" && !Number.isNaN(Number(value))) {
+    return Number(value);
+  }
+  return null;
+}
+
+function lookupName(value: unknown): string {
+  if (value && typeof value === "object" && "name" in value) {
+    return String((value as { name?: unknown }).name ?? "");
+  }
+  return value ? String(value) : "";
+}
+
+export type ZohoDealSummary = {
+  id: string;
+  dealName: string;
+  stage: string;
+  amount: number | null;
+  closingDate: string;
+  accountName: string;
+  contactName: string;
+  description: string;
+  nextStep: string;
+  createdTime: string;
+  modifiedTime: string;
+  dealUrl: string;
+};
+
+/** Lista los tratos del módulo Deals (los más recientes primero). */
+export async function listZohoDeals(limit = 200): Promise<ZohoDealSummary[]> {
+  const fields = [
+    "Deal_Name", "Stage", "Amount", "Closing_Date", "Account_Name", "Contact_Name",
+    "Description", "Next_Step", "Created_Time", "Modified_Time",
+  ].join(",");
+  const perPage = Math.min(Math.max(limit, 1), 200);
+  const result = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
+    `${zohoConfig.dealsModule}?fields=${fields}&per_page=${perPage}&sort_by=Modified_Time&sort_order=desc`,
+    { method: "GET" }
+  );
+
+  return (
+    result.data?.map((deal) => ({
+      id: String(deal.id),
+      dealName: String(deal.Deal_Name ?? ""),
+      stage: String(deal.Stage ?? ""),
+      amount: toNumber(deal.Amount),
+      closingDate: String(deal.Closing_Date ?? ""),
+      accountName: lookupName(deal.Account_Name),
+      contactName: lookupName(deal.Contact_Name),
+      description: String(deal.Description ?? ""),
+      nextStep: String(deal.Next_Step ?? ""),
+      createdTime: String(deal.Created_Time ?? ""),
+      modifiedTime: String(deal.Modified_Time ?? ""),
+      dealUrl: dealWebUrl(String(deal.id)),
+    })) ?? []
+  );
+}
+
+/** Fases válidas del pipeline (para validar el avance de fase). */
+export async function getZohoDealStages(): Promise<string[]> {
+  const result = await zohoRequest<{
+    fields?: { api_name?: string; pick_list_values?: { display_value?: string }[] }[];
+  }>(`settings/fields?module=${zohoConfig.dealsModule}`, { method: "GET" });
+  const stageField = result.fields?.find((f) => f.api_name === "Stage");
+  return (stageField?.pick_list_values ?? [])
+    .map((p) => String(p.display_value ?? ""))
+    .filter(Boolean);
+}
+
+const CHOSEN_OPTION_PREFIX = "▸ Opción elegida por el cliente:";
+
+/**
+ * Actualiza un trato sin destruir su Descripción: cambia la fase, registra la
+ * opción elegida y/o añade una nota fechada, conservando el resto del texto.
+ */
+export async function updateZohoDeal(payload: {
+  dealId: string;
+  stage?: string;
+  chosenOption?: number | null;
+  note?: string;
+  noteDate?: string; // YYYY-MM-DD (lo pone el backend)
+}): Promise<{ dealId: string; stage?: string; chosenOption?: number | null }> {
+  const needsDescription = payload.chosenOption != null || (payload.note && payload.note.trim());
+
+  let description = "";
+  if (needsDescription) {
+    const current = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
+      `${zohoConfig.dealsModule}/${payload.dealId}?fields=Description`,
+      { method: "GET" }
+    );
+    description = String(current.data?.[0]?.Description ?? "");
+  }
+
+  if (payload.chosenOption != null) {
+    // Quita cualquier línea previa de opción elegida y añade la nueva.
+    description = description
+      .split("\n")
+      .filter((line) => !line.startsWith(CHOSEN_OPTION_PREFIX))
+      .join("\n")
+      .trimEnd();
+    description += `\n\n${CHOSEN_OPTION_PREFIX} Opción ${payload.chosenOption}`;
+  }
+
+  if (payload.note && payload.note.trim()) {
+    const stamp = payload.noteDate ? ` [${payload.noteDate}]` : "";
+    description = `${description.trimEnd()}\n▸ Nota${stamp}: ${payload.note.trim()}`;
+  }
+
+  const update: Record<string, unknown> = {};
+  if (payload.stage) update.Stage = payload.stage;
+  if (needsDescription) update.Description = description.trim();
+
+  if (Object.keys(update).length > 0) {
+    await zohoRequest(`${zohoConfig.dealsModule}/${payload.dealId}`, {
+      method: "PUT",
+      body: JSON.stringify({ data: [update] })
+    });
+  }
+
+  return { dealId: payload.dealId, stage: payload.stage, chosenOption: payload.chosenOption };
 }

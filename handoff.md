@@ -1,7 +1,7 @@
 # Handoff - Viajes Velero Ops
 
 > Documento de compactación de contexto para continuar el trabajo en una conversación nueva
-> sin arrastrar todo el historial. Última actualización: 2026-06-16.
+> sin arrastrar todo el historial. Última actualización: 2026-06-17.
 >
 > **App**: consola interna de operaciones (React+TS+Vite / Express / Prisma+SQLite). Requiere
 > **login** con roles ADMIN/USER y registra auditoría. Dos grandes áreas: flujo **comercial**
@@ -11,7 +11,11 @@
 > empujado**).
 >
 > **Commits de esta tanda (más reciente arriba):**
-> - _(esta sesión)_ Pantalla inicial nueva (landing "Dirección B") + popup "Planificar solicitud"
+> - _(esta sesión, 2026-06-17)_ Popup a **5 pasos** (Actividades como paso propio) + arreglos del
+>   **envío a CRM** (nombre/fase/importe/Descripción legible + resumen y enlace al trato) + fix
+>   **"fetch failed"** (autorrelanzado con el CA) + nuevo entorno **"Confirmar solicitud"** (lista de
+>   tratos del CRM con confirmar: opción/fase/nota). Ver **"Sesión 2026-06-17"** abajo.
+> - Pantalla inicial nueva (landing "Dirección B") + popup "Planificar solicitud"
 >   de 4 pasos + mejoras de parser + búsqueda de alojamientos (dedupe + scoring afinado) +
 >   limpieza de la BBDD de alojamientos. Ver **"Rediseño 2026-06-16"** abajo.
 > - `a652ef9` "Mi cuenta" (Perfiles activado: cambiar la propia contraseña)
@@ -32,11 +36,99 @@
 > Arrancar con `NODE_EXTRA_CA_CERTS=/c/Users/User/corp-ca-bundle.pem npm.cmd run dev` (o
 > `NODE_OPTIONS=--use-system-ca` en Node 24). Pendiente: meterlo en un script `dev`.
 >
-> **Pendientes principales:** módulos del menú aún deshabilitados (Roles y permisos, Logs del
-> sistema, Publicar documento, "Nueva con 1/2/3 opciones"); extender `zod` a los endpoints
-> comercial/inventario (tras la validación, ya hecha); reconstruir tarifas de los hoteles cuyo
-> PDF tiene tabla difícil (Calypso, Palas Pineda, MedPlaya, campings) — ver "Rediseño 2026-06-16".
-> Detalle en las secciones siguientes.
+> **Pendientes principales:** _(de la sesión 2026-06-17, ver su sección)_ alinear la **fase inicial**
+> del alta de tratos con el pipeline real de Zoho ("Nueva" no está en sus fases); **cargar precios/edades
+> de actividades** (las 264 tarifas están a 0/null) para que el coste/alumno y el Amount las incluyan;
+> opcional: **etiquetar** los tratos de viaje para que "Confirmar" no liste los 200 de consultoría.
+> _Anteriores:_ módulos del menú aún deshabilitados (Roles y permisos, Logs del sistema, Publicar
+> documento, "Nueva con 1/2/3 opciones"); extender `zod` a los endpoints comercial/inventario;
+> reconstruir tarifas de los hoteles cuyo PDF tiene tabla difícil (Calypso, Palas Pineda, MedPlaya,
+> campings) — ver "Rediseño 2026-06-16". Detalle en las secciones siguientes.
+
+## Sesión 2026-06-17 — Popup 5 pasos + arreglos CRM + "Confirmar solicitud"
+
+Sesión larga sobre los flujos comerciales. **Build OK · 31/31 tests · verificado E2E con Edge
+headless** (incluida un **alta real en Zoho** creada y luego borrada). **Pendiente de commit al
+escribir esto** (el usuario pidió commitear al final). Archivos tocados: `server/zoho.ts`,
+`server/index.ts`, `server/loadEnv.ts`, `server/searchDb.ts`, `src/components/plan/PlanRequestModal.tsx`,
+`src/components/confirm/ConfirmRequestsPanel.tsx` (NUEVO), `src/services/{crmService,proposalService,apiClient}.ts`,
+`src/domain/types.ts`, `src/router.ts`, `src/App.tsx`, `src/components/home/HomeLanding.tsx`,
+`src/components/sidebar/sidebar.config.ts`, `src/styles.css`, `.env` (no versionado) y `.env.example`.
+
+**1. Popup "Planificar solicitud" → ahora 5 pasos** (antes 4). Paso de **Actividades** separado entre
+Alojamientos y Enviar a CRM: `1 Solicitud · 2 Datos · 3 Alojamientos · 4 Actividades · 5 Enviar a CRM`.
+- **Paso 3 (Alojamientos) pulido**: ranking top-3 con medallas (sobre el score, no el orden mostrado),
+  **panel comparativo** arriba (opciones elegidas con precio/coste-alumno/presupuesto), barra de
+  **orden** (coincidencia/precio/coste) + filtro **"solo dentro de presupuesto"**, microinteracciones
+  (hover-lift, `aria-pressed`). El "muro de chips" de actividades se SACÓ de aquí.
+- **Paso 4 (Actividades) NUEVO** (`StepActividades`): catálogo de **tarjetas** con **buscador** por
+  nombre/ubicación, botón "+ Añadir / ✓ Añadida", tope de 24 con "Ver todas (N más)". Las actividades
+  se eligen **una vez para todo el viaje** (decisión del usuario) → `builder.selectedActivityIds`
+  (lista única); al construir la propuesta se asignan a TODAS las opciones (`activitiesByOption`
+  derivado en `handleBuildProposal`). `ProposalBuilderState` ganó `selectedActivityIds`.
+- **Coste con actividades**: el precio de actividad (`salePvpAmount`) se integra en coste/alumno,
+  total de grupo y sello de presupuesto **cuando exista**; hoy salen **"a consultar"** (ver caveat de
+  datos abajo). `pvpSnapshot` = "A consultar" cuando es 0. `summaryText` pluraliza y cuenta actividades
+  **únicas**.
+
+**2. Búsqueda de actividades (`server/searchDb.ts`) — relajada para que aparezcan.** Antes daban **0**
+(el scoring exigía edad, que está vacía en BBDD). Ahora: ubicación **exacta +50** o **misma zona +18**
+(Costa Daurada ampliada con Deltebre/Riumar/La Canonja/Delta del Ebro/Amposta/PortAventura; Vall d'Aran
+→ Pirineo, excluido para Salou); edad suma si hay dato (+40) y si NO hay dato **no penaliza (+8)**;
+**umbral bajado 50→15**; **dedupe por actividad** (mejor tarifa). Para Salou salen ~103.
+
+**3. Envío a CRM (paso 5) — arreglado (varios bugs reales).** `crmService.ts` + `server/zoho.ts`:
+- **`Deal_Name` = lo escrito en "Nombre de la oportunidad"** (antes se autogeneraba e ignoraba lo del
+  usuario). Se pasa `opportunityName` a `prepareNewOpportunityPayload`.
+- **`Stage` = "Nueva"** (antes "Qualification", inválido en la org del backend; default en `zoho.ts` y
+  `.env` actualizados). _OJO_: ver hallazgo de pipelines abajo.
+- **`Amount`** = total de la opción 1 (parseado del texto). **`Description` legible** (cabecera del
+  grupo + opciones con precios + actividades) en vez del **JSON crudo** anterior.
+- **Resumen de éxito + enlace**: tras crear, el paso 5 muestra check verde con Nombre/Importe/Fase/ID
+  y botón **"Abrir trato en Zoho"** (deep link). `createZohoOpportunity` ahora devuelve
+  `dealUrl/dealName/amount`. Bloque "Lo que se registrará en Zoho" antes de enviar.
+
+**4. Fix "fetch failed" al enviar a Zoho — RESUELTO de forma permanente.** Causa: proxy TLS corporativo;
+Node solo confía en el bundle si arranca con `NODE_EXTRA_CA_CERTS`, y `npm run dev` no lo ponía. Ahora
+**`server/loadEnv.ts` autorrelanza el proceso** con `NODE_EXTRA_CA_CERTS` si en `.env` está
+`ZOHO_CA_BUNDLE` y el archivo existe (guard `__VELERO_CA_RELAUNCHED`). En `.env` local:
+`ZOHO_CA_BUNDLE="C:/Users/User/corp-ca-bundle.pem"`. Así **`npm run dev` a secas YA alcanza Zoho** (sin
+el comando manual del CA). `.env.example` documenta la variable (vacía).
+
+**5. Nuevo entorno "Confirmar solicitud" (reemplaza el flujo Existente por email).**
+- La card "Confirmar" de la portada y el sidebar ("Confirmar solicitud → Solicitudes en CRM") llevan a
+  **`/confirmar`** (página `confirm` nueva en `src/router.ts`). El flujo viejo `existing` (App.tsx,
+  búsqueda por email) queda en el código pero **ya no se enlaza**.
+- `src/components/confirm/ConfirmRequestsPanel.tsx` (NUEVO): **lista TODOS los tratos** del CRM (decisión
+  del usuario; mezcla viajes + consultoría) como tarjetas (fase con badge, importe, cuenta/contacto, y
+  destino/fechas/grupo parseados de la Descripción). **Buscador + filtro por fase + orden**. Modal de
+  **Confirmar**: detalle legible de la propuesta + **elegir opción final (1/2/3)** + **avanzar de fase**
+  (desplegable con las fases reales) + **añadir nota** (todo sin destruir la Descripción) + "Abrir en Zoho".
+- Backend `server/zoho.ts`: `listZohoDeals` (GET Deals con campos, orden por Modified_Time),
+  `getZohoDealStages` (pick_list de Stage), `updateZohoDeal` (GET+PUT preservando Description; gestiona
+  línea "▸ Opción elegida…" y notas fechadas). Endpoints `GET /api/crm/opportunities`,
+  `GET /api/crm/deal-stages`, `POST /api/crm/opportunities/:id/update` (auditoría `CRM_OPPORTUNITY_UPDATE`).
+  apiClient: `listZohoOpportunitiesApi`, `fetchZohoDealStagesApi`, `updateZohoOpportunityApi`.
+
+**HALLAZGOS / CAVEATS importantes para la próxima sesión:**
+- ⚠️ **El conector MCP de Zoho (claude.ai) es OTRA org distinta de la del backend.** El backend
+  (`zohoapis.eu`, token del `.env`) tiene fases reales: *Preparando Presupuesto · Presupuesto Enviado ·
+  Seguimiento al Presupuesto · Pendiente de depósito · Oportunidad Ganada · Pendiente de pago resto ·
+  Cierre Administrativo · Expediente cerrado · Oportunidad Perdida · Lista de Espera · …*. El MCP mostró
+  otras (Nueva/En análisis/…) → **no usar el MCP para limpiar/leer datos del backend** (no los ve). El
+  alta de prueba se borró con un script puntual usando el token del `.env` (refresh + DELETE).
+- ⚠️ **Incoherencia de fase**: los tratos de viaje se crean en **"Nueva"**, que NO está en la lista de
+  fases reales de arriba (¿pertenece a otro pipeline/layout?). El alta funcionó igualmente (Zoho lo
+  aceptó). **Pendiente decidir**: alinear la fase inicial del alta con el pipeline real (p. ej.
+  "Preparando Presupuesto") para coherencia con "Confirmar".
+- ⚠️ **Actividades sin datos**: las 264 tarifas de actividad están **a 0/null en precio y edad**. Las
+  actividades son seleccionables y van al CRM como "a consultar", pero el **coste/alumno y el Amount NO
+  las incluyen** hasta cargar tarifas reales (vía flujo documental). El módulo de coste ya está listo
+  para cuando haya precios.
+- "Confirmar" lista **200 tratos** (toda la cartera). Si molesta el ruido de consultoría, se puede
+  **etiquetar** los viajes al crear y filtrar por etiqueta (propuesto y descartado por ahora).
+- Deep link del trato: `…/crm/tab/Deals/<id>` sin `orgId` (abre si estás logueado en la org). Si tu
+  Zoho exige `orgId`, añadirlo (se obtiene de la org).
 
 ## Rediseño 2026-06-16 — Landing + Popup "Planificar solicitud" + BBDD de alojamientos
 

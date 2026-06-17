@@ -63,7 +63,7 @@ export function HomeLanding({
   onOpenSettings,
   onPlan,
   planRoute = "/nuevo-registro",
-  confirmRoute = "/existente/buscar",
+  confirmRoute = "/confirmar",
 }: HomeLandingProps) {
   const isAdmin = currentUser.role === "admin";
   const name = firstName(currentUser);
