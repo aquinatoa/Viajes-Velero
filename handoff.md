@@ -1,54 +1,197 @@
-# Handoff - Viajes Velero Ops
+# Handoff - Oravia (antes Viajes Velero Ops)
 
 > Documento de compactación de contexto para continuar el trabajo en una conversación nueva
-> sin arrastrar todo el historial. Última actualización: 2026-06-17.
+> sin arrastrar todo el historial. Última actualización: **2026-08-10**.
 >
-> **App**: consola interna de operaciones (React+TS+Vite / Express / Prisma+SQLite). Requiere
-> **login** con roles ADMIN/USER y registra auditoría. Dos grandes áreas: flujo **comercial**
-> (Nuevo registro / Existente → Zoho CRM) y **módulo documental** (importar tarifas desde PDF con
-> IA, revisar por pestañas y publicar al inventario). Rama de trabajo `feat/documental-review-workspace`,
-> remoto `origin` = `https://github.com/aquinatoa/Viajes-Velero` (todo lo de abajo **commiteado y
-> empujado**).
+> **App**: consola interna de operaciones de **Oravia Travel Group** (React+TS+Vite / Express /
+> Prisma+SQLite). Convierte el mensaje de un colegio en una propuesta de hasta tres opciones, la
+> **envía** con su documento, crea el trato en Zoho y persigue el depósito. **No es un CRM**: Zoho lo
+> es, y compite mejor. Qué es la app y para quién, en `PRODUCT.md`; el sistema visual, en `DESIGN.md`;
+> lo que viene, en `PROXIMOS-PASOS.md`.
+>
+> Rama `feat/documental-review-workspace`, remoto `origin` =
+> `https://github.com/aquinatoa/Viajes-Velero` (**todo commiteado y empujado**).
+>
+> **Cinco pantallas** (menú en dos grupos): *Día a día* → **Propuestas** (inicio) y **Viajes**
+> (+Calendario); *Gestión* → **Tarifas**, **Usuarios**, **Actividad**. **Nueva solicitud** no es una
+> sección: es un botón fijo en la barra superior, porque es una acción, no un sitio.
 >
 > **Commits de esta tanda (más reciente arriba):**
-> - _(esta sesión, 2026-06-17 cont.)_ **Confirmar = WORKSPACE** (3 columnas: lista · detalle ·
->   acción, **sin popup**) + **Calendario** del módulo (dos lecturas **Viaje/Gestión**) + **barra
->   lateral enfocada solo en Confirmar** y el **resto de secciones movidas a la tuerca de
->   Configuración** del topbar. Ver **"Sesión 2026-06-17 (cont.) — Workspace Confirmar + Calendario"** abajo.
-> - `7f84425` Popup a **5 pasos** (Actividades como paso propio) + arreglos del
->   **envío a CRM** (nombre/fase/importe/Descripción legible + resumen y enlace al trato) + fix
->   **"fetch failed"** (autorrelanzado con el CA) + nuevo entorno **"Confirmar solicitud"** (lista de
->   tratos del CRM con confirmar: opción/fase/nota). Ver **"Sesión 2026-06-17"** abajo.
-> - Pantalla inicial nueva (landing "Dirección B") + popup "Planificar solicitud"
->   de 4 pasos + mejoras de parser + búsqueda de alojamientos (dedupe + scoring afinado) +
->   limpieza de la BBDD de alojamientos. Ver **"Rediseño 2026-06-16"** abajo.
-> - `a652ef9` "Mi cuenta" (Perfiles activado: cambiar la propia contraseña)
-> - `4348115` handoff: validación E2E de los flujos comerciales
-> - `0badc59` Topbar (notificaciones/ayuda/usuario) + limpieza CSS del sidebar antiguo
-> - `85d5488` Sidebar v2 (menú modular/colapsable) + navegación por URL (router propio)
-> - `a7de364` extraer `DocumentWorkspace` de `InventoryDocumentsPanel`
-> - `0f3cd7b` seguridad: validación zod en auth + `.env.example` genérico
-> - `c9169db` aviso visible de análisis IA en modo mock
-> - `c642cc4` tests del flujo documental de actividades (21→31)
+> - `e71c7e3` Nueva solicitud como acción fija en el topbar + precios del 8% en la propuesta
+> - `85d19b4` Sistema visual Oravia + `PRODUCT.md` / `DESIGN.md` / `comunicaciones/`
+> - `da3dcef` Cambios del cliente sobre un viaje ya propuesto (versión nueva, no edición)
+> - `1028a73` La nueva solicitud pasa a ser un lienzo; el inicio, mesa de propuestas
+> - `2af6cde` Envío de propuestas: documento, correo y página para el colegio
+> - `c66c8b4` Rebrand a Oravia, roles por departamento y regla del 8%
 >
-> **Estado de validación:** los flujos **Nuevo** (registro → propuesta → crear deal en Zoho) y
-> **Existente** (buscar → aprobar opción en Zoho) están **validados E2E contra Zoho real** (ver
-> "Validación end-to-end"). 31/31 tests, build OK.
+> _Anteriores (17/06):_ `db2ec9a` workspace Confirmar + Calendario · `7f84425` popup 5 pasos +
+> arreglos CRM · `a652ef9` Mi cuenta · `85d5488` Sidebar v2 + router propio · `c642cc4` tests 21→31.
 >
-> **⚠️ OPERATIVO IMPORTANTE — Zoho tras el proxy TLS:** el backend solo alcanza Zoho si Node tiene el
-> bundle de CA. `npm run dev` a secas arranca SIN él → las llamadas a Zoho fallan con `fetch failed`.
-> Arrancar con `NODE_EXTRA_CA_CERTS=/c/Users/User/corp-ca-bundle.pem npm.cmd run dev` (o
-> `NODE_OPTIONS=--use-system-ca` en Node 24). Pendiente: meterlo en un script `dev`.
+> **Estado:** `tsc` limpio, **31/31 tests**, build de producción OK. Los flujos **Nuevo** y
+> **Existente** se validaron E2E contra Zoho real en junio; **lo de esta tanda NO se ha validado en
+> vivo contra Zoho** más allá de la lectura de tratos.
 >
-> **Pendientes principales:** **verificación en vivo del nuevo workspace de Confirmar** (build + 31/31
-> tests OK, pero NO se abrió `npm run dev` contra Zoho real esta sesión); alinear la **fase inicial**
-> del alta de tratos con el pipeline real de Zoho ("Nueva" no está en sus fases); **cargar precios/edades
-> de actividades** (las 264 tarifas están a 0/null) para que el coste/alumno y el Amount las incluyan;
-> opcional: **etiquetar** los tratos de viaje para que "Confirmar" no liste los 200 de consultoría.
-> _Anteriores:_ módulos del menú aún deshabilitados (Roles y permisos, Logs del sistema, Publicar
-> documento, "Nueva con 1/2/3 opciones"); extender `zod` a los endpoints comercial/inventario;
-> reconstruir tarifas de los hoteles cuyo PDF tiene tabla difícil (Calypso, Palas Pineda, MedPlaya,
-> campings) — ver "Rediseño 2026-06-16". Detalle en las secciones siguientes.
+> **⚠️ OPERATIVO — Zoho tras el proxy TLS:** el backend solo alcanza Zoho si Node tiene el bundle de
+> CA. `npm run dev` a secas arranca SIN él → `fetch failed`. Arrancar con
+> `NODE_OPTIONS=--use-system-ca npm run dev` (Node 24) o `NODE_EXTRA_CA_CERTS=...`. Sigue pendiente
+> meterlo en el script `dev`.
+>
+> **⚠️ El API no recarga solo:** `tsx` no vigila cambios del servidor. Si tocas `server/*`, hay que
+> reiniciar `npm run dev` o los endpoints nuevos devuelven 404.
+>
+> **Pendientes principales:** actualizar tests (nada de lo nuevo los tiene); hacer **reintentable el
+> cierre del lienzo**; **sanear el año de las tarifas** (313 de 555 tienen un año imposible) antes de
+> construir filtros por año o desactivación automática; **cargar precios de las 264 tarifas de
+> actividad**, todas a 0. Bloqueado por el cliente: **la clave de los buzones** (el envío está en
+> modo simulación) y **Azure** (la página del colegio no puede usarse). Detalle y orden en
+> `PROXIMOS-PASOS.md`.
+
+## Sesión 2026-08-09/10 — Envío de propuestas, lienzo, mesa y sistema visual
+
+La tanda más grande desde el arranque. Cierra tres de las once peticiones de junio y cambia la
+estructura de la app. Nada de esto estaba en la propuesta firmada (las 35 h pendientes eran precios,
+encaje con Zoho, despliegue y formación): es ampliación de alcance, pendiente de aprobar con Raúl.
+
+### El hueco que se cierra: la app no podía enviar
+
+Se buscó `nodemailer`, `smtp`, `pdf` en todo el servidor: no existía nada. La app fabricaba las tres
+opciones, las guardaba y creaba el trato… y ahí se paraba. **El presupuesto salía copiado a mano**,
+que es lo que Javier describió en junio (*"esto es lo que tendríais que copiar y enviarlo"*).
+
+**Piezas nuevas (backend):**
+- `server/mailConfig.ts` — un buzón por departamento. **Sin credenciales no falla**: la entrega queda
+  `SIMULATED` con su PDF generado. Encenderlo es rellenar cuatro líneas del `.env`.
+- `server/proposalPdf.ts` — documento con la marca del departamento, dibujado con `pdfkit` (sin
+  navegador, para que funcione igual en local y en App Service).
+- `server/proposalDelivery.ts` — numera (`ORV-2026-0184`), prepara, envía, registra visitas y elección,
+  y calcula el vencimiento del depósito (40 días desde la aceptación).
+- Modelo `ProposalDelivery` en Prisma: **una propuesta puede tener varias entregas**. Es lo que
+  permite reenviar una versión corregida sin pisar la que ya salió.
+
+**Decisión que conviene no revertir:** *preparar* y *enviar* son dos gestos distintos. Preparar genera
+documento y referencia sin que salga nada; enviar es lo único que lo pone en el buzón del colegio. El
+panel de revisión de la app depende de esa separación.
+
+**Por qué el buzón del departamento y no un servicio de correo:** Zoho solo vincula a la oportunidad
+los correos que pasan por la cuenta que tiene sincronizada por IMAP (se lo confirmó su soporte a
+Javier). Si el correo sale de otro sitio, desaparece del historial del trato.
+
+**Lo que NO arregla, y hay que saberlo:** el "mezcleje" de correos. Si un colegio tiene tres
+oportunidades abiertas, Zoho sigue sin saber a cuál colgar la respuesta. Por eso la **referencia va en
+el asunto**: aunque Zoho lo cuelgue mal, la app sabe de qué viaje se habla. El arreglo de raíz es una
+dirección de correo por expediente (`groups+ORV-2026-0184@…`), pendiente y bloqueado por Azure.
+
+### La nueva solicitud, de asistente a lienzo
+
+**Se borró `PlanRequestModal.tsx` (2.043 líneas).** Vivía en una ventana emergente que se cerraba al
+pulsar fuera y **se reiniciaba entera**: diez minutos de trabajo se perdían de un clic, sin aviso.
+Además convivía con la página *Nuevo registro* del menú, que hacía lo mismo peor.
+
+`src/components/request/RequestCanvas.tsx` lo sustituye. Ruta propia `/solicitudes/nueva`.
+
+- **Los tres hitos de arriba informan, no mandan.** Se rellenan solos del estado; pulsarlos no navega.
+  Solo el envío espera a que no falte un dato, y el hito dice cuál. Nunca sale un error después de
+  pulsar: el motivo está antes.
+- **Guarda solo** (`draft.ts`, en el navegador, con caducidad de una semana). Al volver ofrece
+  recuperar; no se aplica a la fuerza. **No cubre cambiar de ordenador**: eso pediría guardarlo en BD.
+- **Una opción = un hotel + su programa.** El programa se elige una vez y luego **varía por opción**
+  (lo pidió el cliente). El modelo ya lo soportaba con `activitiesByOption`: era la pantalla la que
+  lo simplificaba a una lista común.
+- **Panel de revisión antes de enviar**: a quién va, qué recibirá con el programa de cada opción, qué
+  se queda registrado, el asunto del correo y el documento real. Con salida "Guardar sin enviar".
+
+**Gotcha resuelto:** `parseTripRequest` validaba de paso el alta completa del cliente, así que exigía
+email y nombre **antes de dejar leer el mensaje**. Se separó en `readTripMessage(texto)`, que solo lee.
+El asistente antiguo seguía validando igual, pero ya no existe.
+
+### La pantalla de inicio: mesa de propuestas
+
+`src/components/home/ProposalDesk.tsx` sustituye a `HomeLanding.tsx` (borrado), que era una portada
+con dos tarjetones explicando los botones y **dos paneles vacíos** (`—` y "Sin actividad reciente").
+
+La unidad es **la propuesta**, no el trato: qué se mandó, si la han abierto, qué opción eligieron y
+cuánto queda para el depósito. Zoho no puede saber eso porque el trato no guarda qué tres opciones
+salieron. Se ordena por urgencia real, y **cada fila dice qué toca hacer** (*Enviar propuesta*,
+*Hacer seguimiento*, *Reclamar depósito*) en vez de un "Abrir" genérico; al pulsar abre **Viajes ya
+filtrado por ese viaje** (`/viajes?buscar=…`).
+
+### Cambios del cliente
+
+`server/proposalChanges.ts` + `src/components/home/ChangePanel.tsx`. El caso de junio: *"en vez de 48
+seremos 46"*. Se pega el mensaje, se ve qué cambiaría (campos y efecto en el precio de cada opción) y
+solo entonces se aplica. **Aplicar crea una versión nueva**, no edita: el colegio tiene un PDF con
+unos precios y cambiárselos por debajo dejaría dos verdades con la misma referencia.
+
+**Reparto:** el mensaje se interpreta en el navegador (allí vive el lector en español) y al servidor
+solo van los datos entendidos. Importar el lector desde `server/` arrastraba `apiClient` y su
+dependencia de `window`.
+
+**Bug que costó encontrar:** `totalPvpText` guarda el **total del grupo** (unitario × alumnos ×
+noches), no el precio por alumno. El primer recálculo comparaba magnitudes distintas y daba
+disparates (`4.860 € → 108 €`). Si tocas precios, comprueba siempre contra qué comparas.
+
+### Identidad y sistema visual
+
+Paleta muestreada del PNG del logo del cliente: azul `#132E5D`, ámbar `#FCBB37`. Se retiró la anterior
+(azul-petróleo + verde) de toda la app.
+
+**Fallo silencioso que apareció al hacerlo:** `--accent-050` se usaba **veinte veces sin estar
+definido**, así que caía en su valor de reserva… que era el verde antiguo. Todo lo seleccionado en
+Viajes, Tarifas y Usuarios se pintaba en verde dentro de una app azul. Si añades un token, defínelo
+en `:root`: los valores de reserva esconden estos fallos durante meses.
+
+**Regla dura:** el ámbar puro **no vale como color de texto** sobre blanco (no llega a contraste). Como
+fondo o indicador, sí; como letra, `--highlight-ink`.
+
+Se activó **`noUnusedLocals`** en `tsconfig.app.json`. No es cosmético: fue lo que dio el inventario
+exacto del código muerto, y evita que vuelva a acumularse en silencio. `App.tsx` pasó de 1.225 a 328
+líneas.
+
+### Rutas nuevas (las viejas redirigen)
+
+`/propuestas` · `/solicitudes/nueva` · `/viajes` (+`/viajes/calendario`) · `/tarifas/documentos` ·
+`/ajustes/{usuarios,mi-cuenta,actividad}`. `redirectFor()` en `router.ts` mantiene vivas las antiguas
+(`/confirmar`, `/inventario`, `/admin/*`, `/auditoria`, `/nuevo-registro`) porque alguien las tendrá
+en favoritos.
+
+### Datos que NO están sanos (comprobado, no supuesto)
+
+- **313 de 555 tarifas de alojamiento tienen un año imposible** (147 dicen 2001; 28 dicen 2028+).
+  Solo 214 son plausibles. Es la IA confundiendo números de la tabla con el año. **Bloquea** los
+  filtros por año y la desactivación automática que pidió el cliente: darían resultados falsos.
+- **Las 264 tarifas de actividad siguen a 0.** Todas salen como "a consultar" y ninguna variación del
+  programa mueve el precio por alumno.
+- **200 tratos en el CRM** mezclando pruebas y datos reales.
+- En la BD de desarrollo hay **entregas de prueba** (`ORV-2026-0001..0003`), una de ellas con la
+  opción 2 aceptada a mano para probar el reloj. Borrarlas antes de enseñar nada.
+
+### Endpoints nuevos
+
+```
+POST /api/proposals/:id/prepare-delivery     preparar (genera PDF y referencia, no envía)
+POST /api/deliveries/:id/send                enviar
+GET  /api/deliveries                         lista (DEPT_ADMIN solo ve su departamento)
+GET  /api/deliveries/:id/pdf                 documento (con sesión; se abre desde memoria)
+GET  /api/public/proposals/:token            página del colegio · SIN sesión
+POST /api/public/proposals/:token/choose     elegir opción · SIN sesión
+POST /api/proposals/:id/changes/preview      qué cambiaría
+POST /api/proposals/:id/changes/apply        aplicar → versión nueva
+```
+
+Las dos públicas no llevan sesión a propósito: las abre el colegio desde el enlace del correo. Lo
+único que las protege es que el token es largo y aleatorio, así que **ahí no puede publicarse ningún
+dato personal de alumnos**.
+
+---
+
+# Histórico anterior (junio 2026)
+
+> **Léelo como histórico, no como estado actual.** Describe la app tal como estaba en junio y hay
+> partes que ya no aplican: los roles eran ADMIN/USER (ahora hay DEPT_ADMIN y QUOTER), existían las
+> páginas *Nuevo registro* y *Existente* (retiradas), el asistente vivía en un popup (sustituido por
+> el lienzo) y el menú tenía items "próximamente" (eliminados). Se conserva porque explica **por qué**
+> se tomaron decisiones que siguen vigentes: el workspace de Confirmar, el parser en español, la
+> importación de tarifas con IA y los caveats de Zoho.
 
 ## Sesión 2026-06-17 (cont.) — Workspace Confirmar + Calendario + sidebar enfocado
 
