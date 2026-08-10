@@ -48,7 +48,15 @@ const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
 const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5";
 const MAX_TEXT_CHARS = 30000;
-const AI_MAX_OUTPUT_TOKENS = 16000;
+/**
+ * Techo de salida por lectura. Son los 64.000 del modelo, no una cifra elegida:
+ * un documento de tarifas real (tres hoteles x tres regímenes x seis columnas =
+ * 54 tarifas, cada una con su fragmento de origen) no cabía en los 16.000 de
+ * antes y la respuesta se cortaba a media frase — el JSON quedaba inválido y el
+ * documento no se podía leer en absoluto. A esta altura hay que ir en
+ * streaming: una petición normal se cae por timeout antes de terminar.
+ */
+const AI_MAX_OUTPUT_TOKENS = 64000;
 
 /**
  * Lee la configuración de IA desde variables de entorno.
@@ -131,12 +139,15 @@ async function analyzeWithAnthropic(
 
   let message;
   try {
-    message = await client.messages.create({
+    // En streaming, no por gusto: con un techo de salida alto una petición
+    // normal se queda esperando y revienta por timeout antes de contestar.
+    const stream = client.messages.stream({
       model: config.model || DEFAULT_ANTHROPIC_MODEL,
       max_tokens: AI_MAX_OUTPUT_TOKENS,
       system: buildSystemPrompt(),
       messages: [{ role: "user", content: buildUserPrompt(input, text) }],
     });
+    message = await stream.finalMessage();
   } catch (error) {
     throw mapAnthropicError(error);
   }
