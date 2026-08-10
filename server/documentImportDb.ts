@@ -12,6 +12,7 @@ import type {
   UnpublishItemResult,
   UnpublishResult,
 } from "../src/domain/documentImportTypes";
+import { deriveSalePrice } from "./pricing";
 
 const prisma = new PrismaClient();
 
@@ -966,11 +967,13 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
       }
 
       const year = rate.year ?? context.controlYear ?? null;
-      // El precio de venta operativo es el PVP; si no hay PVP pero sí precio
-      // neto (común cuando el documento da tarifas netas), se usa el neto.
-      const salePrice = rate.pvpAmount ?? rate.netAmount;
+      // Regla de precios Oravia (Opción A): el documento trae el COSTE (neto);
+      // el PVP de venta = coste + 8%. Si el documento trae un PVP explícito, ese
+      // prevalece. Nunca se inventa: sin coste ni PVP, se omite la tarifa.
+      const costBase = decimalToNumber(rate.netAmount) ?? decimalToNumber(rate.costAmount);
+      const salePrice = deriveSalePrice(costBase, decimalToNumber(rate.pvpAmount));
       if (salePrice === null || salePrice === undefined) {
-        warnings.push(`Tarifa de "${accommodation.accommodationName}" omitida: sin precio (PVP ni neto).`);
+        warnings.push(`Tarifa de "${accommodation.accommodationName}" omitida: sin precio (coste ni PVP).`);
         skippedRates += 1;
         continue;
       }
@@ -1097,8 +1100,14 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
       }
 
       const year = rate.year ?? context.controlYear ?? null;
-      if (rate.salePvpAmount === null || rate.salePvpAmount === undefined) {
-        warnings.push(`Tarifa de "${activity.activityName}" omitida: sin precio.`);
+      // Regla de precios Oravia (Opción A): venta = coste + 8% si no viene un PVP
+      // explícito. Así, subiendo solo el coste, la actividad deja de ir "a consultar".
+      const activitySalePrice = deriveSalePrice(
+        decimalToNumber(rate.costNetAmount),
+        decimalToNumber(rate.salePvpAmount),
+      );
+      if (activitySalePrice === null || activitySalePrice === undefined) {
+        warnings.push(`Tarifa de "${activity.activityName}" omitida: sin precio (coste ni PVP).`);
         skippedActivityRates += 1;
         continue;
       }
@@ -1119,7 +1128,7 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
         ageMin: rate.ageMin,
         ageMax: rate.ageMax,
         currency: rate.currency,
-        salePvpAmount: rate.salePvpAmount,
+        salePvpAmount: activitySalePrice,
         costNetAmount: rate.costNetAmount,
         commissionPercent: rate.commissionPercent,
         durationText: rate.durationText,

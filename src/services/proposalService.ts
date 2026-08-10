@@ -4,6 +4,7 @@ import type {
   TripProposal
 } from "../domain/types";
 import { approveTripProposalApi, saveTripProposalApi } from "./apiClient";
+import { applyDefaultMarkup } from "./pricing";
 import { diffNights, formatCurrency } from "./utils";
 
 function ensureProposalInputs(input: BuildProposalInput) {
@@ -43,7 +44,9 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
     }
 
     const rate = selected.rate;
-    const unitPrice = rate.pvpAmount || rate.netSaleAmount || 0;
+    // El PVP publicado ya incluye el margen (regla del 8% al publicar). Si por
+    // datos antiguos solo hubiera neto, se aplica el 8% para no vender a coste.
+    const unitPrice = rate.pvpAmount || (rate.netSaleAmount ? applyDefaultMarkup(rate.netSaleAmount) : 0);
     const total = unitPrice * participants * nights;
 
     return {

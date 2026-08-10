@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AuthUser } from "../services/apiClient";
 import { routeForPage } from "../router";
+import { BRAND_NAME } from "../brand";
 import { PRIMARY_SECTION_ID, sidebarRoleFromBackend, visibleSections } from "./sidebar/sidebar.config";
 
 type OpenMenu = "settings" | "bell" | "help" | "user" | null;
@@ -100,7 +101,7 @@ export function Topbar({ user, pageLabel, onNavigate, onLogout }: TopbarProps) {
   return (
     <header className="topbar" ref={rootRef}>
       <div className="topbar__context">
-        <span className="topbar__brand">Viajes Velero</span>
+        <span className="topbar__brand">{BRAND_NAME}</span>
         <span className="topbar__sep" aria-hidden>
           /
         </span>
@@ -108,6 +109,15 @@ export function Topbar({ user, pageLabel, onNavigate, onLogout }: TopbarProps) {
       </div>
 
       <div className="topbar__actions">
+        {/* Crear una solicitud se hace desde cualquier pantalla: es una acción,
+            no una sección. Por eso vive aquí y no en el menú lateral. */}
+        <button
+          type="button"
+          className="topbar__cta"
+          onClick={() => onNavigate("/solicitudes/nueva")}
+        >
+          Nueva solicitud
+        </button>
         {/* Configuración: acceso al resto de secciones */}
         {settingsSections.length > 0 ? (
           <div className="topbar__menu">
