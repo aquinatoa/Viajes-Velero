@@ -285,38 +285,71 @@ function aplanar(texto: string): string {
     .trim();
 }
 
-/** Un fragmento corto casa por casualidad; no sirve como prueba. */
-const MINIMO_FRAGMENTO = 12;
+/**
+ * Cuántas palabras seguidas de la cita tienen que estar en el PDF para darla
+ * por buena.
+ *
+ * No se puede exigir la cita entera. Al leer una tabla, la IA ensambla la
+ * cabecera de la columna con el precio de la fila —"Alojamiento + C. Artificial
+ * (1.30 h) DOBLE PC 65 € pax y noche"— y en el PDF esas dos piezas están
+ * separadas por media página. La cita es correcta y no es literal.
+ *
+ * Lo que sí se puede exigir es un anclaje: que un trozo reconocible de la cita
+ * esté de verdad en el documento. Cuatro palabras seguidas ("pc 65 € pax y
+ * noche" son seis) no salen por casualidad, y un texto inventado no las alcanza.
+ */
+const MINIMO_PALABRAS_ANCLA = 4;
+
+/** La tirada más larga de palabras seguidas de la cita que está en el documento. */
+function palabrasAncladas(cita: string, documento: string): number {
+  const palabras = cita.split(" ").filter(Boolean);
+  let mejor = 0;
+
+  for (let inicio = 0; inicio < palabras.length; inicio += 1) {
+    // Si lo que queda no puede batir el récord, no hace falta seguir.
+    if (palabras.length - inicio <= mejor) break;
+    for (let fin = palabras.length; fin > inicio + mejor; fin -= 1) {
+      if (documento.includes(palabras.slice(inicio, fin).join(" "))) {
+        mejor = fin - inicio;
+        break;
+      }
+    }
+  }
+
+  return mejor;
+}
 
 export function checkRateBlocks(
   accommodations: AccommodationBlock[],
   documentText: string,
 ): Map<string, RateFlag[]> {
   const porTarifa = new Map<string, RateFlag[]>();
-  const anotar = (rateId: string, code: RateFlagCode, message: string) => {
-    porTarifa.set(rateId, [...(porTarifa.get(rateId) ?? []), { rateId, code, message }]);
-  };
-
   const documento = aplanar(documentText);
   if (!documento) return porTarifa;
 
-  // Dónde cae cada tarifa dentro del documento.
-  const posiciones = new Map<string, number>();
   for (const alojamiento of accommodations) {
     for (const rate of alojamiento.rates) {
-      const fragmento = aplanar(String(rate.rawText ?? ""));
-      if (fragmento.length < MINIMO_FRAGMENTO) continue;
+      const cita = aplanar(String(rate.rawText ?? ""));
+      if (!cita) continue;
 
-      const posicion = documento.indexOf(fragmento);
-      if (posicion === -1) {
-        anotar(
-          rate.id,
-          "FRAGMENT_NOT_IN_DOCUMENT",
-          "El texto que se cita como origen no está en el documento. La cita no es del PDF, así que este precio no se puede comprobar contra nada.",
-        );
-        continue;
-      }
-      posiciones.set(rate.id, posicion);
+      const ancladas = palabrasAncladas(cita, documento);
+      const suficiente = Math.min(
+        MINIMO_PALABRAS_ANCLA,
+        cita.split(" ").filter(Boolean).length,
+      );
+      if (ancladas >= suficiente) continue;
+
+      porTarifa.set(rate.id, [
+        ...(porTarifa.get(rate.id) ?? []),
+        {
+          rateId: rate.id,
+          code: "FRAGMENT_NOT_IN_DOCUMENT",
+          message:
+            ancladas === 0
+              ? "Nada de este texto de origen está en el documento: la cita no sale del PDF, así que el precio no se puede comprobar contra nada."
+              : `Del texto que se cita como origen solo ${ancladas} palabra(s) seguidas están en el documento. La cita no parece del PDF.`,
+        },
+      ]);
     }
   }
 
