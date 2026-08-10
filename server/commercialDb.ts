@@ -93,6 +93,8 @@ export async function upsertClientFromIntakeDb(input: UpsertClientInput): Promis
 
 export interface SaveTripRequestInput {
   clientId: string;
+  ownerUserId?: string | null;
+  department?: "GROUPS" | "SPORTS" | null;
   opportunityName?: string | null;
   originalMessage: string;
   language?: string | null;
@@ -119,6 +121,8 @@ export async function saveTripRequestDb(input: SaveTripRequestInput): Promise<Tr
   const row = await prisma.tripRequest.create({
     data: {
       clientId: input.clientId,
+      ownerUserId: input.ownerUserId ?? null,
+      department: (input.department ?? null) as never,
       opportunityName: input.opportunityName ?? null,
       originalMessage: input.originalMessage,
       language: input.language ?? null,
@@ -162,10 +166,17 @@ export async function saveTripRequestDb(input: SaveTripRequestInput): Promise<Tr
   };
 }
 
-/** Solicitudes previas de un cliente (para detectar oportunidades candidatas). */
-export async function getClientTripRequestsDb(clientId: string) {
+/**
+ * Solicitudes previas de un cliente (para detectar oportunidades candidatas).
+ * `visibilityWhere` restringe el resultado según el rol/departamento del usuario
+ * ("cada uno ve lo suyo"): {} = sin restricción, {ownerUserId} o {department}.
+ */
+export async function getClientTripRequestsDb(
+  clientId: string,
+  visibilityWhere: Record<string, unknown> = {},
+) {
   const rows = await prisma.tripRequest.findMany({
-    where: { clientId },
+    where: { clientId, ...visibilityWhere },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,

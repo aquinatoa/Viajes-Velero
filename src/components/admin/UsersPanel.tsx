@@ -4,6 +4,8 @@ import {
   listAuthUsersApi,
   updateAuthUserApi,
   type AuthUser,
+  type BackendDepartment,
+  type BackendRole,
   type ManagedUser,
 } from "../../services/apiClient";
 
@@ -11,7 +13,10 @@ interface UsersPanelProps {
   currentUser: AuthUser;
 }
 
-const roleLabels: Record<string, string> = { ADMIN: "Administrador", USER: "Usuario" };
+/** Los roles con ámbito de departamento (Groups/Sports); los globales no lo llevan. */
+function roleUsesDepartment(role: BackendRole): boolean {
+  return role === "DEPT_ADMIN" || role === "QUOTER";
+}
 
 export function UsersPanel({ currentUser }: UsersPanelProps) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
@@ -22,7 +27,8 @@ export function UsersPanel({ currentUser }: UsersPanelProps) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"ADMIN" | "USER">("USER");
+  const [role, setRole] = useState<BackendRole>("QUOTER");
+  const [department, setDepartment] = useState<BackendDepartment>("GROUPS");
   const [saving, setSaving] = useState(false);
 
   async function load() {
@@ -51,11 +57,18 @@ export function UsersPanel({ currentUser }: UsersPanelProps) {
     }
     setSaving(true);
     try {
-      await createAuthUserApi({ email: email.trim(), name: name.trim() || undefined, password, role });
+      await createAuthUserApi({
+        email: email.trim(),
+        name: name.trim() || undefined,
+        password,
+        role,
+        department: roleUsesDepartment(role) ? department : null,
+      });
       setEmail("");
       setName("");
       setPassword("");
-      setRole("USER");
+      setRole("QUOTER");
+      setDepartment("GROUPS");
       setFeedback("Usuario creado.");
       await load();
     } catch (err) {
@@ -77,6 +90,14 @@ export function UsersPanel({ currentUser }: UsersPanelProps) {
     }
   }
 
+  function handleChangeRole(user: ManagedUser, nextRole: BackendRole) {
+    // Al pasar a un rol de departamento sin tenerlo, se asigna Groups por defecto.
+    const nextDepartment = roleUsesDepartment(nextRole)
+      ? (user.department ?? "GROUPS")
+      : null;
+    void patch(user, { role: nextRole, department: nextDepartment }, "perfil cambiado");
+  }
+
   function handleResetPassword(user: ManagedUser) {
     const next = window.prompt(`Nueva contraseña para ${user.email} (mín. 8 caracteres):`);
     if (next == null) return;
@@ -92,7 +113,10 @@ export function UsersPanel({ currentUser }: UsersPanelProps) {
       <div className="section-card__header">
         <div>
           <h2>Usuarios y permisos</h2>
-          <p>Gestiona el acceso. Administrador hace todo; Usuario solo el flujo comercial.</p>
+          <p>
+            Administrador global = todo · Administrador de departamento = su marca (Groups/Sports) ·
+            Cotizador = crea cotizaciones y ve solo las suyas.
+          </p>
         </div>
         <button type="button" onClick={() => void load()}>
           Actualizar
@@ -113,7 +137,7 @@ export function UsersPanel({ currentUser }: UsersPanelProps) {
       <form className="form-grid" onSubmit={handleCreate}>
         <label className="field">
           <span>Email</span>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="persona@viajesvelero.com" />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="persona@oraviatravel.com" />
         </label>
         <label className="field">
           <span>Nombre (opcional)</span>
@@ -125,9 +149,21 @@ export function UsersPanel({ currentUser }: UsersPanelProps) {
         </label>
         <label className="field">
           <span>Perfil</span>
-          <select value={role} onChange={(e) => setRole(e.target.value as "ADMIN" | "USER")}>
-            <option value="USER">Usuario (solo propuestas)</option>
-            <option value="ADMIN">Administrador (todo)</option>
+          <select value={role} onChange={(e) => setRole(e.target.value as BackendRole)}>
+            <option value="QUOTER">Cotizador (crea, ve solo lo suyo)</option>
+            <option value="DEPT_ADMIN">Administrador de departamento</option>
+            <option value="ADMIN">Administrador global (todo)</option>
+          </select>
+        </label>
+        <label className="field" style={{ opacity: roleUsesDepartment(role) ? 1 : 0.45 }}>
+          <span>Departamento</span>
+          <select
+            value={department}
+            onChange={(e) => setDepartment(e.target.value as BackendDepartment)}
+            disabled={!roleUsesDepartment(role)}
+          >
+            <option value="GROUPS">Groups</option>
+            <option value="SPORTS">Sports</option>
           </select>
         </label>
         <div className="stack compact actions-row">
@@ -144,6 +180,7 @@ export function UsersPanel({ currentUser }: UsersPanelProps) {
               <th>Email</th>
               <th>Nombre</th>
               <th>Perfil</th>
+              <th>Departamento</th>
               <th>Estado</th>
               <th>Creado</th>
               <th>Acciones</th>
@@ -157,9 +194,37 @@ export function UsersPanel({ currentUser }: UsersPanelProps) {
                   <td>{user.email}{isSelf ? " (tú)" : ""}</td>
                   <td>{user.name ?? "—"}</td>
                   <td>
-                    <span className={`status-tag ${user.role === "ADMIN" ? "status-tag--approved" : ""}`}>
-                      {roleLabels[user.role]}
-                    </span>
+                    <select
+                      value={user.role}
+                      onChange={(e) => handleChangeRole(user, e.target.value as BackendRole)}
+                      disabled={isSelf}
+                      aria-label={`Perfil de ${user.email}`}
+                    >
+                      <option value="QUOTER">Cotizador</option>
+                      <option value="DEPT_ADMIN">Admin. departamento</option>
+                      <option value="ADMIN">Admin. global</option>
+                      {user.role === "USER" ? <option value="USER">Usuario (heredado)</option> : null}
+                    </select>
+                  </td>
+                  <td>
+                    {roleUsesDepartment(user.role) ? (
+                      <select
+                        value={user.department ?? "GROUPS"}
+                        onChange={(e) =>
+                          void patch(
+                            user,
+                            { department: e.target.value as BackendDepartment },
+                            "departamento cambiado",
+                          )
+                        }
+                        aria-label={`Departamento de ${user.email}`}
+                      >
+                        <option value="GROUPS">Groups</option>
+                        <option value="SPORTS">Sports</option>
+                      </select>
+                    ) : (
+                      <span className="status-tag">Todos</span>
+                    )}
                   </td>
                   <td>
                     <span className={`status-tag ${user.isActive ? "status-tag--approved" : "status-tag--rejected"}`}>
@@ -169,20 +234,6 @@ export function UsersPanel({ currentUser }: UsersPanelProps) {
                   <td>{new Date(user.createdAt).toLocaleDateString()}</td>
                   <td>
                     <div className="stack compact">
-                      <button
-                        type="button"
-                        className="link-action"
-                        onClick={() =>
-                          void patch(
-                            user,
-                            { role: user.role === "ADMIN" ? "USER" : "ADMIN" },
-                            "perfil cambiado",
-                          )
-                        }
-                        disabled={isSelf}
-                      >
-                        {user.role === "ADMIN" ? "Hacer Usuario" : "Hacer Administrador"}
-                      </button>
                       <button
                         type="button"
                         className="link-action"
@@ -201,7 +252,7 @@ export function UsersPanel({ currentUser }: UsersPanelProps) {
             })}
             {!loading && users.length === 0 ? (
               <tr>
-                <td colSpan={6}>No hay usuarios.</td>
+                <td colSpan={7}>No hay usuarios.</td>
               </tr>
             ) : null}
           </tbody>

@@ -6,13 +6,46 @@ const prisma = new PrismaClient();
 
 const TOKEN_TTL_MS = 1000 * 60 * 60 * 12; // 12 horas
 
-export type Role = "ADMIN" | "USER";
+export type Role = "ADMIN" | "DEPT_ADMIN" | "QUOTER" | "USER";
+export type Department = "GROUPS" | "SPORTS";
 
 export interface AuthedUser {
   id: string;
   email: string;
   name: string | null;
   role: Role;
+  /** Departamento (Groups/Sports); null = acceso global (roles ADMIN/USER). */
+  department: Department | null;
+}
+
+// ── Capacidades por rol ───────────────────────────────────────────────────────
+
+/** Roles con acceso administrativo (usuarios, catálogo, auditoría). */
+export const ADMIN_ROLES: Role[] = ["ADMIN", "DEPT_ADMIN"];
+
+/** ¿Es un administrador global (ve todos los departamentos)? */
+export function isGlobalAdmin(user: AuthedUser): boolean {
+  return user.role === "ADMIN";
+}
+
+/** ¿El rol solo puede CREAR cotizaciones y no modificar nada del sistema? */
+export function isQuoter(user: AuthedUser): boolean {
+  return user.role === "QUOTER";
+}
+
+/**
+ * Filtro Prisma de visibilidad de cotizaciones ("cada uno ve lo suyo"):
+ * - ADMIN / USER (global): sin restricción.
+ * - DEPT_ADMIN: todas las de su departamento.
+ * - QUOTER: solo las que ha creado él.
+ */
+export function tripRequestVisibilityWhere(user: AuthedUser): Record<string, unknown> {
+  if (user.role === "ADMIN" || user.role === "USER") return {};
+  if (user.role === "DEPT_ADMIN") {
+    return user.department ? { department: user.department } : {};
+  }
+  // QUOTER
+  return { ownerUserId: user.id };
 }
 
 export interface AuthedRequest extends Request {
@@ -40,8 +73,15 @@ function publicUser(row: {
   email: string;
   name: string | null;
   role: string;
+  department?: string | null;
 }): AuthedUser {
-  return { id: row.id, email: row.email, name: row.name, role: row.role as Role };
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    role: row.role as Role,
+    department: (row.department as Department | null) ?? null,
+  };
 }
 
 // ── Usuarios ────────────────────────────────────────────────────────────────
@@ -51,6 +91,7 @@ export async function createUser(input: {
   name?: string | null;
   password: string;
   role: Role;
+  department?: Department | null;
 }): Promise<AuthedUser> {
   const { hash, salt } = hashPassword(input.password);
   const row = await prisma.user.create({
@@ -60,6 +101,7 @@ export async function createUser(input: {
       passwordHash: hash,
       passwordSalt: salt,
       role: input.role as never,
+      department: (input.department ?? null) as never,
     },
   });
   return publicUser(row);
@@ -76,7 +118,7 @@ export async function listUsers(): Promise<(AuthedUser & { isActive: boolean; cr
 
 export async function updateUser(
   id: string,
-  patch: { name?: string; role?: Role; isActive?: boolean; password?: string },
+  patch: { name?: string; role?: Role; department?: Department | null; isActive?: boolean; password?: string },
 ): Promise<AuthedUser | null> {
   const existing = await prisma.user.findUnique({ where: { id } });
   if (!existing) return null;
@@ -84,6 +126,7 @@ export async function updateUser(
   const data: Record<string, unknown> = {};
   if (patch.name !== undefined) data.name = patch.name;
   if (patch.role !== undefined) data.role = patch.role;
+  if (patch.department !== undefined) data.department = patch.department;
   if (patch.isActive !== undefined) data.isActive = patch.isActive;
   if (patch.password) {
     const { hash, salt } = hashPassword(patch.password);

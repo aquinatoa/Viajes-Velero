@@ -24,6 +24,8 @@ model Client {
 model TripRequest {
   id                 String         @id @default(cuid())
   clientId           String
+  ownerUserId        String?        // quién creó la cotización (para "ver solo lo suyo")
+  department         Department?    // Groups / Sports; null si aún no asignado
   opportunityName    String?
   originalMessage    String
   language           String?
@@ -142,6 +144,7 @@ model TripProposal {
   tripRequest          TripRequest                  @relation(fields: [tripRequestId], references: [id], onDelete: Cascade)
   accommodationOptions ProposalAccommodationOption[]
   activityOptions      ProposalActivityOption[]
+  deliveries           ProposalDelivery[]
 }
 
 model ProposalAccommodationOption {
@@ -499,20 +502,29 @@ model StagingActivityPolicy {
 // ----------------------------------------------------------------------------
 
 enum UserRole {
-  ADMIN
-  USER
+  ADMIN       // Administrador global: ve y gestiona todo (todos los departamentos)
+  DEPT_ADMIN  // Administrador de departamento: gestiona y ve solo su departamento
+  QUOTER      // Cotizador: crea cotizaciones, no edita nada, ve solo las suyas
+  USER        // (heredado) cotizador global sin restricción de departamento
+}
+
+// Marca / línea de negocio de Oravia. Null = global (todos los departamentos).
+enum Department {
+  GROUPS
+  SPORTS
 }
 
 model User {
-  id           String      @id @default(cuid())
-  email        String      @unique
+  id           String       @id @default(cuid())
+  email        String       @unique
   name         String?
   passwordHash String
   passwordSalt String
-  role         UserRole    @default(USER)
-  isActive     Boolean     @default(true)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  role         UserRole     @default(USER)
+  department   Department?  // null = acceso a todos los departamentos (roles globales)
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
   tokens       AuthToken[]
 }
 
@@ -539,4 +551,65 @@ model AuditLog {
 
   @@index([createdAt])
   @@index([userId])
+}
+
+// ----------------------------------------------------------------------------
+// Entrega de propuestas al cliente
+// ----------------------------------------------------------------------------
+// Una "entrega" es cada vez que una propuesta sale hacia el cliente. Se separa
+// de TripProposal porque una misma propuesta puede reenviarse (corregida, a otro
+// contacto, o porque el primer correo se perdió) y cada envío tiene su propia
+// vida: cuándo salió, si lo abrieron, qué opción eligieron y cuándo vence el
+// depósito. Es lo que permite que la app -y no la bandeja de entrada- sea quien
+// sabe en qué punto está cada viaje.
+
+enum DeliveryStatus {
+  DRAFT       // preparada, todavía sin enviar
+  SIMULATED   // generada sin credenciales de correo: existe el PDF, no salió
+  SENT        // entregada al servidor de correo
+  FAILED      // el servidor de correo la rechazó
+}
+
+model ProposalDelivery {
+  id         String   @id @default(cuid())
+  proposalId String
+  // Referencia visible para el cliente (ORV-2026-0184). Va en el asunto y en el
+  // PDF: es la pista que permite reconocer el hilo aunque Zoho lo cuelgue mal.
+  reference  String   @unique
+  department Department?
+
+  // Destinatario y contenido enviado (se guarda tal cual salió, no se recalcula)
+  recipientEmail String
+  recipientName  String?
+  replyToEmail   String?   // dirección por expediente, cuando exista (fase 6)
+  subject        String
+  bodyText       String
+  pdfPath        String?   // ruta del PDF generado, dentro de storage/
+
+  status        DeliveryStatus @default(DRAFT)
+  failureReason String?
+  sentAt        DateTime?
+  sentByUserId  String?
+
+  // Vida de la propuesta una vez fuera: la página pública la actualiza sola
+  publicToken   String    @unique
+  firstViewedAt DateTime?
+  lastViewedAt  DateTime?
+  viewCount     Int       @default(0)
+
+  chosenOptionNumber Int?
+  chosenAt           DateTime?
+
+  // Reloj del depósito: 40 días desde la aceptación (acuerdo de junio)
+  depositDueAt  DateTime?
+  depositPaidAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  proposal TripProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@index([proposalId])
+  @@index([status])
+  @@index([depositDueAt])
 }

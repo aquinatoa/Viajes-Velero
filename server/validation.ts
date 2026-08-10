@@ -33,7 +33,8 @@ export function parseBody<T>(
   return result.data;
 }
 
-const roleSchema = z.enum(["ADMIN", "USER"]);
+const roleSchema = z.enum(["ADMIN", "DEPT_ADMIN", "QUOTER", "USER"]);
+const departmentSchema = z.enum(["GROUPS", "SPORTS"]).nullable();
 const passwordSchema = z.string().min(8, "La contraseña debe tener al menos 8 caracteres.");
 
 // Login: deliberadamente laxo (solo no vacío) para no bloquear credenciales
@@ -49,12 +50,14 @@ export const createUserSchema = z.object({
   name: z.string().trim().optional(),
   password: passwordSchema,
   role: roleSchema.optional(),
+  department: departmentSchema.optional(),
 });
 
 // Edición de usuario: todos los campos opcionales (patch parcial).
 export const updateUserSchema = z.object({
   name: z.string().trim().optional(),
   role: roleSchema.optional(),
+  department: departmentSchema.optional(),
   isActive: z.boolean().optional(),
   password: passwordSchema.optional(),
 });
