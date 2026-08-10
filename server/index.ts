@@ -34,6 +34,7 @@ import {
   attachInventoryDocumentFile,
   countInventoryDocumentStaging,
   bulkUpdateStagingReview,
+  confirmAccommodationAssignmentDb,
   createInventoryDocument,
   createInventoryDocumentStaging,
   deleteInventoryDocument,
@@ -958,6 +959,33 @@ app.patch("/api/inventory/staging/bulk", async (request, response) => {
     }
     console.error("Error bulk-updating staging entities", error);
     response.status(500).json({ error: "No se pudo actualizar el estado de los candidatos." });
+  }
+});
+
+// Firmar el reparto: "estas tarifas son de este alojamiento". Es requisito para
+// publicar cuando el documento trae varios (ver `buildPublishPlan`).
+app.post("/api/inventory/documents/:id/confirm-assignment", async (request, response) => {
+  try {
+    const body = (request.body ?? {}) as { accommodationIds?: unknown };
+    const ids = Array.isArray(body.accommodationIds)
+      ? body.accommodationIds.map((value) => String(value)).filter(Boolean)
+      : [];
+    if (ids.length === 0) {
+      response.status(400).json({ error: "No se indicó qué alojamiento confirmar." });
+      return;
+    }
+
+    const result = await confirmAccommodationAssignmentDb(String(request.params.id), ids);
+    await writeAudit({
+      user: (request as AuthedRequest).user,
+      action: "INVENTORY_ASSIGNMENT_CONFIRM",
+      entity: "inventory",
+      detail: `${result.confirmed} alojamiento(s) del documento ${request.params.id}`,
+    });
+    response.json(result);
+  } catch (error) {
+    console.error("Error confirming accommodation assignment", error);
+    response.status(500).json({ error: "No se pudo confirmar el reparto." });
   }
 });
 

@@ -432,6 +432,15 @@ export function bulkUpdateInventoryStagingApi(
 }
 
 // Regenerar candidatos: descarta el staging actual y lo vuelve a crear con IA.
+/** Firma el reparto: "estas tarifas son de este alojamiento". */
+export function confirmAssignmentApi(documentId: string, accommodationIds: string[]) {
+  return postJson<{ confirmed: number }>(
+    `/api/inventory/documents/${encodeURIComponent(documentId)}/confirm-assignment`,
+    { accommodationIds },
+    "No se pudo confirmar el reparto.",
+  );
+}
+
 export function regenerateInventoryDocumentStagingApi(documentId: string) {
   return postJson<CreateStagingResult>(
     `/api/inventory/documents/${encodeURIComponent(documentId)}/regenerate-staging`,

@@ -374,6 +374,10 @@ model ImportIssue {
   @@index([resolved])
 }
 
+/// Cuándo alguien confirmó que las tarifas de este bloque son de ESTE
+/// alojamiento. Solo se exige cuando el documento trae varios: es la decisión
+/// que más dinero mueve del proceso y la que peor se deduce del texto de un PDF
+/// desordenado, así que la firma una persona. Ver `rateChecks.ts`.
 model StagingAccommodation {
   id                  String   @id @default(cuid())
   sourceDocumentId    String
@@ -386,6 +390,7 @@ model StagingAccommodation {
   accommodationType   String?
   confidenceScore     Decimal?
   reviewStatus        String   @default("PENDING")
+  assignmentConfirmedAt DateTime?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

@@ -15,6 +15,8 @@
 export type RateFlagCode =
   /** El precio no aparece en el texto del que se supone que salió. */
   | "PRICE_NOT_IN_SOURCE"
+  /** El texto de origen no está en el documento: la cita es inventada. */
+  | "FRAGMENT_NOT_IN_DOCUMENT"
   /** Individual cuesta menos que doble. */
   | "OCCUPANCY_ORDER"
   /** Un régimen más completo cuesta menos que uno más corto. */
@@ -240,6 +242,97 @@ export function checkRates(rates: CheckableRate[]): Map<string, RateFlag[]> {
   return porTarifa;
 }
 
+
+// ---------------------------------------------------------------------------
+// Reparto entre alojamientos: de qué zona del documento sale cada tarifa
+// ---------------------------------------------------------------------------
+
+/**
+ * Por qué hace falta esto.
+ *
+ * `rawText` lo escribe la propia IA. Comprobar un precio contra el fragmento
+ * que ella misma eligió no demuestra nada: si se equivoca con convicción,
+ * escribe el fragmento acorde a su error y la comprobación pasa. El único
+ * testigo independiente es **el texto del documento**, que sale del PDF sin
+ * que nadie lo interprete.
+ *
+ * Con él se puede comprobar que el fragmento citado EXISTE en el documento. Si
+ * no está, la cita es inventada y el precio no se puede verificar contra nada.
+ *
+ * Lo que NO se puede comprobar, y conviene decirlo: a qué hotel pertenece cada
+ * bloque de precios. Se intentó —anclar cada tarifa al encabezado que la
+ * precede— y en estos PDFs no funciona: la capa de texto sale desordenada, los
+ * nombres aparecen lejos de sus tablas y en otro orden, así que el anclaje
+ * señala tarifas correctas como sospechosas. Un aviso que se equivoca a menudo
+ * enseña a ignorar los avisos, que es justo el fallo que queremos evitar. Esa
+ * decisión la firma una persona con el fragmento delante: ver la confirmación
+ * de reparto en la pantalla de revisión.
+ */
+
+export interface AccommodationBlock {
+  id: string;
+  accommodationName: string;
+  rates: CheckableRate[];
+}
+
+/** Texto comparable: sin acentos, en minúsculas y con un solo espacio. */
+function aplanar(texto: string): string {
+  return texto
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Un fragmento corto casa por casualidad; no sirve como prueba. */
+const MINIMO_FRAGMENTO = 12;
+
+export function checkRateBlocks(
+  accommodations: AccommodationBlock[],
+  documentText: string,
+): Map<string, RateFlag[]> {
+  const porTarifa = new Map<string, RateFlag[]>();
+  const anotar = (rateId: string, code: RateFlagCode, message: string) => {
+    porTarifa.set(rateId, [...(porTarifa.get(rateId) ?? []), { rateId, code, message }]);
+  };
+
+  const documento = aplanar(documentText);
+  if (!documento) return porTarifa;
+
+  // Dónde cae cada tarifa dentro del documento.
+  const posiciones = new Map<string, number>();
+  for (const alojamiento of accommodations) {
+    for (const rate of alojamiento.rates) {
+      const fragmento = aplanar(String(rate.rawText ?? ""));
+      if (fragmento.length < MINIMO_FRAGMENTO) continue;
+
+      const posicion = documento.indexOf(fragmento);
+      if (posicion === -1) {
+        anotar(
+          rate.id,
+          "FRAGMENT_NOT_IN_DOCUMENT",
+          "El texto que se cita como origen no está en el documento. La cita no es del PDF, así que este precio no se puede comprobar contra nada.",
+        );
+        continue;
+      }
+      posiciones.set(rate.id, posicion);
+    }
+  }
+
+  return porTarifa;
+}
+
+/**
+ * ¿Hay que confirmar a mano el reparto de este documento?
+ *
+ * Sí siempre que traiga más de un alojamiento: es la decisión que más dinero
+ * mueve de todo el proceso —cambiar dos hoteles de sitio cotiza el caro al
+ * precio del barato toda la temporada— y la que peor se deduce del texto.
+ */
+export function requiereConfirmarReparto(numeroDeAlojamientos: number): boolean {
+  return numeroDeAlojamientos > 1;
+}
 
 // ---------------------------------------------------------------------------
 // Actividades

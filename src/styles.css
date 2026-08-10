@@ -9238,6 +9238,56 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 
 .hot-decide__txt b { color: var(--ink); }
 
+/* El reparto: a qué hotel pertenece este bloque de precios. Se pinta en ámbar
+   —no en verde— porque es una pregunta abierta, no un paso hecho; al firmarlo
+   pasa a discreto para dejar de reclamar atención. */
+.hot-split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: 0 var(--sp-4) var(--sp-3);
+  padding: var(--sp-4);
+  border-radius: var(--radius);
+  border-left: 3px solid var(--warn, #b26a00);
+  background: rgba(178, 106, 0, 0.08);
+}
+
+.hot-split--ok {
+  border-left-color: var(--ok);
+  background: rgba(31, 122, 77, 0.06);
+}
+
+.hot-split__txt {
+  flex: 1;
+  min-width: 220px;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+
+.hot-split__txt b { color: var(--ink); }
+
+/* El fragmento literal del PDF: es la prueba con la que se decide. */
+.hot-split__ev {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.hot-split__ev code {
+  display: block;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.05);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
 .btn-go {
   border: 0;
   border-radius: var(--radius);

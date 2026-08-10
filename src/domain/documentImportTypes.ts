@@ -248,6 +248,11 @@ export interface StagingAccommodation {
   accommodationType?: string | null;
   confidenceScore?: number | null;
   reviewStatus: ReviewStatus;
+  /**
+   * Cuándo se confirmó que estas tarifas son de este alojamiento. Solo se exige
+   * si el documento trae varios; null = sin confirmar, y entonces no publica.
+   */
+  assignmentConfirmedAt?: string | null;
   rates: StagingAccommodationRate[];
   adjustments: StagingAccommodationAdjustment[];
   policies: StagingAccommodationPolicy[];
@@ -559,6 +564,8 @@ export interface PublishedInventorySummary {
 export interface PublishSkipReason {
   code:
     | "ACCOMMODATION_NOT_APPROVED"
+    /** Falta confirmar que ese bloque de tarifas es de ese alojamiento. */
+    | "ASSIGNMENT_NOT_CONFIRMED"
     | "RATE_NOT_APPROVED"
     | "MISSING_PRICE"
     | "MISSING_CURRENCY"

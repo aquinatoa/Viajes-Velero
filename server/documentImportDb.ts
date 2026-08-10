@@ -1053,6 +1053,27 @@ export async function bulkUpdateStagingReview(
  * actividades; sus hijos caen por onDelete: Cascade). Solo afecta al staging,
  * nunca al inventario operativo. Se usa para regenerar candidatos desde cero.
  */
+/**
+ * Firma el reparto de un bloque: alguien ha comprobado contra el documento que
+ * esas tarifas son de ese alojamiento.
+ *
+ * Se guarda la fecha, no un booleano, porque lo que importa después es *cuándo*
+ * se miró: si el documento se vuelve a leer y cambian los candidatos, la firma
+ * anterior ya no vale para lo nuevo.
+ */
+export async function confirmAccommodationAssignmentDb(
+  sourceDocumentId: string,
+  accommodationIds: string[],
+): Promise<{ confirmed: number }> {
+  if (accommodationIds.length === 0) return { confirmed: 0 };
+
+  const result = await prisma.stagingAccommodation.updateMany({
+    where: { sourceDocumentId, id: { in: accommodationIds } },
+    data: { assignmentConfirmedAt: new Date() },
+  });
+  return { confirmed: result.count };
+}
+
 export async function deleteInventoryDocumentStaging(sourceDocumentId: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await tx.stagingAccommodation.deleteMany({ where: { sourceDocumentId } });
@@ -1095,6 +1116,8 @@ export interface PublishSkipReason {
   /** Clave estable para agrupar; no se enseña al usuario. */
   code:
     | "ACCOMMODATION_NOT_APPROVED"
+    /** Falta confirmar que ese bloque de tarifas es de ese alojamiento. */
+    | "ASSIGNMENT_NOT_CONFIRMED"
     | "RATE_NOT_APPROVED"
     | "MISSING_PRICE"
     | "MISSING_CURRENCY"
@@ -1158,7 +1181,28 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
 
   const accommodationsToCreate: Record<string, unknown>[] = [];
 
+  // Con varios alojamientos en el mismo documento, el reparto —qué tabla de
+  // precios es de qué hotel— lo firma una persona. No es burocracia: en un PDF
+  // con la capa de texto desordenada, los nombres salen lejos de sus tablas y
+  // en otro orden, así que a qué hotel pertenece cada bloque NO se deduce del
+  // texto. Cambiar dos hoteles de sitio cotiza el caro al precio del barato
+  // toda la temporada, y los números siguen pareciendo razonables.
+  const exigeReparto = accommodations.length > 1;
+
   for (const accommodation of accommodations) {
+    if (exigeReparto && !accommodation.assignmentConfirmedAt) {
+      skippedAccommodations += 1;
+      const suyas = accommodation.rates.length;
+      warnings.push(
+        `Falta confirmar que las ${suyas} tarifas del bloque son de "${accommodation.accommodationName}". Hasta entonces no se publica.`,
+      );
+      if (suyas > 0) {
+        skippedRates += suyas;
+        noteSkip("ASSIGNMENT_NOT_CONFIRMED", suyas);
+      }
+      continue;
+    }
+
     if (!isApprovedStatus(accommodation.reviewStatus)) {
       skippedAccommodations += 1;
       const approvedChildRates = accommodation.rates.filter((rate) =>
@@ -1488,6 +1532,10 @@ function buildSkipReasons(
     ACCOMMODATION_NOT_APPROVED: (count) => ({
       message: `${count} ${plural(count, "tarifa aprobada se quedó fuera", "tarifas aprobadas se quedaron fuera")} porque su alojamiento todavía no está aprobado.`,
       fix: "Aprueba el alojamiento y vuelve a publicar: entrarán solas.",
+    }),
+    ASSIGNMENT_NOT_CONFIRMED: (count) => ({
+      message: `${count} ${plural(count, "tarifa espera", "tarifas esperan")} a que se confirme de qué alojamiento son. Este documento trae varios y el reparto no se puede dar por bueno solo.`,
+      fix: "En cada alojamiento, comprueba contra el documento que esos precios son suyos y confírmalo.",
     }),
     RATE_NOT_APPROVED: (count) => ({
       message: `${count} ${plural(count, "tarifa sigue", "tarifas siguen")} sin aprobar.`,

@@ -23,6 +23,7 @@ import {
   getInventoryDocumentApi,
   getPublishedInventoryByDocumentApi,
   publishApprovedInventoryDocumentApi,
+  confirmAssignmentApi,
   regenerateInventoryDocumentStagingApi,
   removeInventoryDocumentFileApi,
   unpublishInventoryDocumentApi,
@@ -56,7 +57,7 @@ import {
   type CandidateItem,
 } from "./RateReviewTable";
 import { buildMatrix, RateDetailDialog, RateMatrix } from "./RateMatrix";
-import { checkRates } from "../../domain/rateChecks";
+import { checkRateBlocks, checkRates, requiereConfirmarReparto } from "../../domain/rateChecks";
 
 /** Estados de revisión en claro, para la cabecera de cada alojamiento. */
 const reviewStatusLabels: Record<string, string> = {
@@ -1396,6 +1397,50 @@ export function DocumentWorkspace({
   // Qué vista usa cada alojamiento: rejilla (por defecto) o lista.
   const [vistaLista, setVistaLista] = useState<Record<string, boolean>>({});
 
+  /**
+   * Texto del PDF tal cual salió, sin pasar por la IA. Es el único testigo
+   * independiente que hay para comprobar de dónde sale cada tarifa.
+   */
+  const textoDelDocumento =
+    detail?.extractions.find(
+      (extraction) =>
+        (extraction.extractionMethod === "TEXT" || extraction.extractionMethod === "OCR") &&
+        (extraction.rawText ?? "").trim().length > 0,
+    )?.rawText ?? "";
+
+  /** ¿Este documento trae varios alojamientos? Entonces hay reparto que firmar. */
+  const hayReparto = requiereConfirmarReparto(detail?.stagingAccommodations.length ?? 0);
+
+  const avisosDeBloque = detail
+    ? checkRateBlocks(
+        detail.stagingAccommodations.map((accommodation) => ({
+          id: accommodation.id,
+          accommodationName: accommodation.accommodationName,
+          rates: accommodation.rates as never,
+        })),
+        textoDelDocumento,
+      )
+    : new Map<string, ReturnType<typeof checkRateBlocks> extends Map<string, infer V> ? V : never>();
+
+  /** Firma el reparto de un bloque y recarga: es requisito para publicar. */
+  async function handleConfirmarReparto(accommodationId: string, nombre: string) {
+    if (!detail) return;
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setBulkBusy(true);
+    try {
+      await confirmAssignmentApi(detail.id, [accommodationId]);
+      setDryRunResult(null);
+      setAwaitingPublishConfirm(false);
+      await refreshDetail();
+      setFeedbackMessage(`Reparto confirmado: estas tarifas son de "${nombre}".`);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "No se pudo confirmar el reparto."));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   const qcSummary = detail ? computeQualitySummary(detail) : null;
   // Se calcula aquí, después del resumen de calidad, porque lo usa.
   const nextStep = calcularSiguientePaso();
@@ -1885,8 +1930,22 @@ export function DocumentWorkspace({
                   const resumen = resumirTarifas(visibles);
                   // La máquina comprueba lo que sabe comprobar; la persona solo
                   // decide sobre lo que no cuadra.
-                  const avisos = checkRates(visibles as never);
+                  const propios = checkRates(visibles as never);
+                  // Los avisos de reparto se calculan con TODOS los alojamientos
+                  // y el texto real del PDF: una tarifa solo está fuera de sitio
+                  // en relación con las demás.
+                  const avisos = new Map(propios);
+                  for (const rate of visibles) {
+                    const deBloque = avisosDeBloque.get(rate.id);
+                    if (deBloque) avisos.set(rate.id, [...(avisos.get(rate.id) ?? []), ...deBloque]);
+                  }
                   const conAviso = avisos.size;
+                  const repartoConfirmado = Boolean(accommodation.assignmentConfirmedAt);
+                  // Dos precios que distingan este bloque de los demás: es lo que
+                  // se mira para decir "sí, esta tabla es de este hotel".
+                  const muestra = visibles
+                    .filter((rate) => (rate.rawText ?? "").trim().length > 0)
+                    .slice(0, 2);
 
                   // Con un filtro puesto (p. ej. "Pendientes"), un alojamiento
                   // cuyo contenido ya está todo resuelto no pinta nada aquí:
@@ -1930,6 +1989,60 @@ export function DocumentWorkspace({
                           </>
                         )}
                       </p>
+                    ) : null}
+
+                    {/* El reparto. Con varios hoteles en un mismo PDF, esto es
+                        lo que más dinero mueve: si dos se cambian de sitio, el
+                        caro se cotiza al precio del barato toda la temporada y
+                        los números siguen pareciendo razonables. La capa de
+                        texto de estos PDFs sale desordenada, así que la máquina
+                        no puede decidirlo — lo firma una persona, con el
+                        fragmento del documento delante. */}
+                    {hayReparto ? (
+                      <div className={`hot-split${repartoConfirmado ? " hot-split--ok" : ""}`}>
+                        {repartoConfirmado ? (
+                          <span className="hot-split__txt">
+                            <b>Reparto confirmado.</b> Alguien comprobó que estas tarifas son de{" "}
+                            {accommodation.accommodationName}.
+                          </span>
+                        ) : (
+                          <>
+                            <span className="hot-split__txt">
+                              <b>
+                                Este documento trae {detail.stagingAccommodations.length}{" "}
+                                alojamientos. ¿Estas tarifas son de{" "}
+                                {accommodation.accommodationName}?
+                              </b>{" "}
+                              Compruébalo contra el documento antes de seguir: si dos hoteles se
+                              cambian de sitio, los precios siguen pareciendo correctos.
+                            </span>
+                            {muestra.length > 0 ? (
+                              <ul className="hot-split__ev">
+                                {muestra.map((rate) => (
+                                  <li key={rate.id}>
+                                    <code>{(rate.rawText ?? "").trim().slice(0, 160)}</code>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                            <button
+                              type="button"
+                              className="btn-go"
+                              disabled={bulkBusy}
+                              onClick={() =>
+                                void handleConfirmarReparto(
+                                  accommodation.id,
+                                  accommodation.accommodationName,
+                                )
+                              }
+                            >
+                              {bulkBusy
+                                ? "Confirmando…"
+                                : `Sí, son de ${accommodation.accommodationName}`}
+                            </button>
+                          </>
+                        )}
+                      </div>
                     ) : null}
 
                     {/* Una sola decisión: aprobar el hotel y todo lo suyo a la

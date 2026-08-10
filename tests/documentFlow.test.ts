@@ -432,6 +432,56 @@ async function main() {
     );
   });
 
+  await test("con varios alojamientos, aprobar no basta: hay que firmar el reparto", async () => {
+    const prisma = new PrismaClient();
+    try {
+      // Todo aprobado, como si la revisión hubiera ido bien.
+      const alojamientos = await prisma.stagingAccommodation.findMany({
+        where: { sourceDocumentId: multiDocument.id },
+        include: { rates: true, adjustments: true },
+      });
+      await db.bulkUpdateStagingReview("accommodations", alojamientos.map((a) => a.id), "APPROVED");
+      await db.bulkUpdateStagingReview(
+        "accommodation-rates",
+        alojamientos.flatMap((a) => a.rates.map((r) => r.id)),
+        "APPROVED",
+      );
+
+      // Aun así no entra nada: falta decir de quién es cada bloque.
+      const frenado = await db.dryRunPublishApprovedInventoryDocument(multiDocument.id, {
+        controlYear: 2027,
+      });
+      assert.equal(frenado.accommodationsToPublish, 0, "nada se publica sin confirmar el reparto");
+      const motivo = (frenado.skipReasons ?? []).find(
+        (m: { code: string }) => m.code === "ASSIGNMENT_NOT_CONFIRMED",
+      );
+      assert.ok(motivo, "el motivo tiene que ser el reparto sin confirmar");
+      assert.ok(motivo.fix, "y decir qué hacer");
+
+      // Se firma el reparto de uno solo: entra ese y nada más.
+      const uno = alojamientos.find((a) => a.accommodationName === "Mediterrània MED1")!;
+      const firmado = await db.confirmAccommodationAssignmentDb(multiDocument.id, [uno.id]);
+      assert.equal(firmado.confirmed, 1);
+
+      const conUno = await db.dryRunPublishApprovedInventoryDocument(multiDocument.id, {
+        controlYear: 2027,
+      });
+      assert.equal(conUno.accommodationsToPublish, 1, "solo entra el alojamiento firmado");
+
+      // Y al firmar el resto, entran los tres.
+      await db.confirmAccommodationAssignmentDb(
+        multiDocument.id,
+        alojamientos.map((a) => a.id),
+      );
+      const conTodos = await db.dryRunPublishApprovedInventoryDocument(multiDocument.id, {
+        controlYear: 2027,
+      });
+      assert.equal(conTodos.accommodationsToPublish, 3);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
   // --- editar metadatos del documento -----------------------------------------
   await test("edita los metadatos de control del documento", async () => {
     const updated = await db.updateInventoryDocumentMetadata(document.id, {
@@ -1234,6 +1284,74 @@ async function main() {
       requestStatus: "READY_FOR_SEARCH",
     });
     assert.notEqual(solicitud.id, req.id, "una solicitud ya enviada no se reescribe");
+  });
+
+  // --- de dónde sale cada tarifa: la cita y el reparto --------------------------
+  // `rawText` lo escribe la IA. Comprobar un precio contra el fragmento que ella
+  // misma eligió no demuestra nada: si se equivoca con convicción, escribe el
+  // fragmento acorde y la comprobación pasa. El testigo independiente es el
+  // texto del PDF.
+  console.log("\nDe dónde sale cada tarifa (cita y reparto):");
+
+  const bloques = await import("../src/domain/rateChecks.ts");
+
+  // Un documento como el real: tres bloques de precios, uno por hotel.
+  const TEXTO_PDF = [
+    "PRECIOS ALOJAMIENTO (1) Villa Bonita / Aloha",
+    "PC 65 € pax y noche 82 € pax y noche",
+    "PRECIOS ALOJAMIENTO (2) Mediterrania MED2/3",
+    "PC 70 € pax y noche 87 € pax y noche",
+    "PRECIOS ALOJAMIENTO (3) Mediterrania MED1",
+    "PC 79 € pax y noche 112 € pax y noche",
+  ].join(" ");
+
+  await test("una cita que no está en el documento se señala", () => {
+    const avisos = bloques.checkRateBlocks(
+      [
+        {
+          id: "a1",
+          accommodationName: "Villa Bonita / Aloha",
+          rates: [
+            { id: "r-inventada", boardType: "PC", pvpAmount: 65, rawText: "PC 65 € en temporada alta con desayuno incluido" },
+            { id: "r-real", boardType: "PC", pvpAmount: 65, rawText: "PC 65 € pax y noche" },
+          ],
+        },
+        {
+          id: "a2",
+          accommodationName: "Mediterrania MED1",
+          rates: [{ id: "r-otro", boardType: "PC", pvpAmount: 79, rawText: "PC 79 € pax y noche" }],
+        },
+      ],
+      TEXTO_PDF,
+    );
+
+    const inventada = avisos.get("r-inventada") ?? [];
+    assert.equal(inventada[0]?.code, "FRAGMENT_NOT_IN_DOCUMENT");
+    assert.equal(avisos.has("r-real"), false, "la cita que sí está no se señala");
+  });
+
+  await test("un reparto limpio no genera ruido", () => {
+    const avisos = bloques.checkRateBlocks(
+      [
+        {
+          id: "a1",
+          accommodationName: "Villa Bonita / Aloha",
+          rates: [{ id: "v1", boardType: "PC", pvpAmount: 65, rawText: "PC 65 € pax y noche 82 € pax y noche" }],
+        },
+        {
+          id: "a2",
+          accommodationName: "Mediterrania MED1",
+          rates: [{ id: "m1", boardType: "PC", pvpAmount: 79, rawText: "PC 79 € pax y noche 112 € pax y noche" }],
+        },
+      ],
+      TEXTO_PDF,
+    );
+    assert.equal(avisos.size, 0);
+  });
+
+  await test("con un solo alojamiento no hay reparto que firmar", () => {
+    assert.equal(bloques.requiereConfirmarReparto(1), false);
+    assert.equal(bloques.requiereConfirmarReparto(3), true);
   });
 
   // --- ocupación y canal: cotizar la tarifa que toca ---------------------------

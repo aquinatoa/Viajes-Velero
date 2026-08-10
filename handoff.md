@@ -16,6 +16,59 @@
 > (+Calendario); *Gestión* → **Tarifas**, **Usuarios**, **Actividad**. **Nueva solicitud** no es una
 > sección: es un botón fijo en la barra superior, porque es una acción, no un sitio.
 >
+## Cargar tarifas, auditado contra el PDF real (10/08/2026)
+
+Se pasó el documento de compra por el proceso entero —registrar, subir, extraer,
+leer, candidatos, aprobar, publicar— en base y almacén aislados, y se contrastó
+lo publicado contra el propio PDF. Tres hallazgos.
+
+**No se podía leer.** La respuesta de la IA se cortaba por longitud: el techo
+estaba en 16.000 tokens de salida y este documento necesita **16.684**. El JSON
+llegaba a medias y fallaba entero. Subido a 64.000 —el techo del modelo, no una
+cifra elegida— y en streaming, porque a esa altura una petición normal se cae
+por timeout. Ya entra todo: 3 alojamientos, 54 tarifas, 11 actividades con
+precio, 5 suplementos, 7 políticas y las fechas excluidas.
+
+**Los dos Mediterrània salieron cambiados.** El catálogo publicó MED1 a coste 70
+y MED2/3 a 79; el PDF dice lo contrario. Se cotizaría el hotel caro al precio
+del barato toda la temporada, con números que siguen pareciendo razonables.
+
+**Los precios de actividad salieron cruzados**: Master class (230 €) acabó como
+partido amistoso, el entrenador asistente (150 €) como amistoso de fin de
+semana, y Césped Natural entró a 280/360 en vez de 360/540. Los "Desde 160 €" y
+"Desde 280 €" van interleados en la tabla de campos del PDF.
+
+### Qué se hizo con eso
+
+**Confirmar el reparto es obligatorio.** Un documento con varios alojamientos no
+publica ninguno hasta que alguien firma, hotel por hotel, que ese bloque de
+precios es suyo — con el fragmento literal del PDF delante. Se guarda la fecha
+en `StagingAccommodation.assignmentConfirmedAt`; sin ella, publicar omite el
+alojamiento con un motivo accionable (`ASSIGNMENT_NOT_CONFIRMED`).
+
+**Las citas se comprueban contra el PDF, no contra sí mismas.** `rawText` lo
+escribe la IA: verificar un precio contra el fragmento que ella misma eligió no
+demuestra nada, porque si se equivoca con convicción escribe el fragmento
+acorde. La comprobación nueva exige que ese fragmento **exista en el texto
+extraído del PDF**; si no está, la cita es inventada y el precio no se puede
+verificar contra nada.
+
+**Lo que se descartó, y por qué.** Se intentó deducir a qué hotel pertenece cada
+bloque anclando cada tarifa al encabezado que la precede. En estos PDFs no
+funciona: la capa de texto sale desordenada, los nombres aparecen lejos de sus
+tablas y en otro orden, y el anclaje marcaba tarifas correctas como
+sospechosas. Un aviso que se equivoca a menudo enseña a ignorar los avisos, que
+es exactamente el fallo que se quiere evitar. Por eso el reparto lo firma una
+persona en vez de adivinarlo la máquina.
+
+**Sigue abierto:** publicamos 72,80 € donde la tarifa del cliente dice 73 € —MSH
+redondea al euro y nosotros no—. Es decisión de negocio, sale en el presupuesto
+que ve el colegio. Y la lectura no es reproducible: dos pasadas del mismo PDF
+dieron 11 y 15 actividades, así que **aprobar una vez no vale para lo que salga
+al regenerar**.
+
+---
+
 ## Los tres PDFs del cliente, y qué faltaba para cotizarlos (10/08/2026)
 
 Los tres documentos de `Fuentes/Tarifas - nueva App/`:
@@ -194,7 +247,7 @@ reparto de tarifas de actividad y que las condiciones se publiquen con estructur
 > _Anteriores (17/06):_ `db2ec9a` workspace Confirmar + Calendario · `7f84425` popup 5 pasos +
 > arreglos CRM · `a652ef9` Mi cuenta · `85d5488` Sidebar v2 + router propio · `c642cc4` tests 21→31.
 >
-> **Estado:** `tsc` limpio, **65/65 tests**, build de producción OK. Los flujos **Nuevo** y
+> **Estado:** `tsc` limpio, **69/69 tests**, build de producción OK. Los flujos **Nuevo** y
 > **Existente** se validaron E2E contra Zoho real en junio; **lo de esta tanda NO se ha validado en
 > vivo contra Zoho** más allá de la lectura de tratos.
 >
