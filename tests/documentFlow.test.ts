@@ -83,6 +83,166 @@ async function main() {
   const commercial = await import("../server/commercialDb.ts");
   const { PrismaClient } = await import("@prisma/client");
 
+  // --- regla de precios según lo declarado al subir ----------------------------
+  // Es la pieza que toca dinero: si un documento de venta se toma por coste, sus
+  // precios salen con el margen encima. No depende de la BD, así que va primero.
+  const pricing = await import("../server/pricing.ts");
+
+  console.log("\nRegla de precios (compra vs. venta):");
+
+  await test("documento de COMPRA: aplica el margen del documento, no el 8% fijo", () => {
+    const resuelto = pricing.resolveRatePrices({ costAmount: 65 }, "PURCHASE", 12);
+    assert.equal(resuelto.costPrice, 65, "el coste se conserva");
+    assert.equal(resuelto.salePrice, 72.8, "65 + 12% = 72,80");
+  });
+
+  await test("documento de COMPRA sin margen declarado: usa el 8% por defecto", () => {
+    const resuelto = pricing.resolveRatePrices({ costAmount: 100 }, "PURCHASE", null);
+    assert.equal(resuelto.salePrice, 108);
+  });
+
+  await test("documento de COMPRA: da igual en qué campo colocara la IA la cifra", () => {
+    const enNeto = pricing.resolveRatePrices({ netAmount: 65 }, "PURCHASE", 12);
+    const enPvp = pricing.resolveRatePrices({ pvpAmount: 65 }, "PURCHASE", 12);
+    assert.equal(enNeto.salePrice, 72.8);
+    assert.equal(enPvp.salePrice, 72.8, "un PVP en un documento de compra sigue siendo coste");
+  });
+
+  await test("documento de VENTA: se guarda tal cual, sin sumarle margen", () => {
+    // El caso real del 10/08/2026: la tarifa pactada con el turoperador suizo
+    // cayó en "neto" y el código antiguo la habría publicado a 100,44 €.
+    const resuelto = pricing.resolveRatePrices({ netAmount: 93 }, "SALE");
+    assert.equal(resuelto.salePrice, 93, "el precio pactado no se toca");
+    assert.equal(resuelto.costPrice, null, "un documento de venta no dice lo que cuesta");
+  });
+
+  await test("documento de VENTA: el PVP manda sobre los demás importes", () => {
+    const resuelto = pricing.resolveRatePrices({ pvpAmount: 73, netAmount: 65 }, "SALE");
+    assert.equal(resuelto.salePrice, 73);
+  });
+
+  await test("sin declarar (UNKNOWN): se mantiene el comportamiento anterior", () => {
+    const conPvp = pricing.resolveRatePrices({ netAmount: 100, pvpAmount: 150 }, "UNKNOWN");
+    assert.equal(conPvp.salePrice, 150, "el PVP explícito prevalecía");
+    const sinPvp = pricing.resolveRatePrices({ netAmount: 100 }, "UNKNOWN");
+    assert.equal(sinPvp.salePrice, 108, "y si no, coste + 8%");
+  });
+
+  await test("sin ningún importe: no se inventa un precio", () => {
+    for (const kind of ["PURCHASE", "SALE", "UNKNOWN"] as const) {
+      assert.equal(pricing.resolveRatePrices({}, kind).salePrice, null, `${kind} debe dar null`);
+    }
+  });
+
+  await test("una tarifa pactada con un canal no vale para otro cliente", () => {
+    // Regla del filtro de cotización, aislada: sin canal vale para todos; con
+    // canal, solo para el suyo. Es lo que impide cotizar a un colegio con el
+    // precio pactado con el turoperador suizo.
+    const vale = (rateSegment: string | null, pedido: string | null) =>
+      !rateSegment || rateSegment === pedido;
+
+    assert.equal(vale("SWISS_TTOO", "SWISS_TTOO"), true, "su canal, sí");
+    assert.equal(vale("SWISS_TTOO", "GENERIC"), false, "otro canal, no");
+    assert.equal(vale("SWISS_TTOO", null), false, "sin decir el cliente, tampoco");
+    assert.equal(vale(null, "SWISS_TTOO"), true, "lo cargado sin canal sirve para todos");
+    assert.equal(vale(null, null), true);
+  });
+
+  await test("toRateKind solo admite los tres valores conocidos", () => {
+    assert.equal(pricing.toRateKind("PURCHASE"), "PURCHASE");
+    assert.equal(pricing.toRateKind("SALE"), "SALE");
+    assert.equal(pricing.toRateKind("VENTA"), "UNKNOWN", "un valor raro no se cuela");
+    assert.equal(pricing.toRateKind(undefined), "UNKNOWN");
+  });
+
+  // --- comprobaciones automáticas de las tarifas -------------------------------
+  console.log("\nComprobaciones automáticas de tarifas:");
+
+  const checks = await import("../src/domain/rateChecks.ts");
+
+  const tarifa = (
+    id: string,
+    boardType: string,
+    includedService: string,
+    occupancyLabel: string,
+    pvpAmount: number,
+    rawText: string,
+  ) => ({ id, boardType, includedService, occupancyLabel, pvpAmount, rawText });
+
+  await test("pasa limpio un bloque correcto (el real de Villa Bonita)", () => {
+    const filas = [
+      tarifa("a", "PC", "Campo artificial", "DOBLE", 73, "PC 73 € - Aloj + Campo Artificial — DOBLE"),
+      tarifa("b", "PC", "Campo artificial", "INDIVIDUAL", 92, "PC 92 € - Aloj + Campo Artificial — INDIVIDUAL"),
+      tarifa("c", "MP", "Campo artificial", "DOBLE", 67, "MP 67 € - Aloj + Campo Artificial — DOBLE"),
+      tarifa("d", "PC", "Sin campo", "DOBLE", 65, "PC 65 € - Aloj sin campo — DOBLE"),
+    ];
+    assert.equal(checks.checkRates(filas).size, 0, "no debe señalar nada");
+  });
+
+  await test("detecta un precio que no está en su texto de origen", () => {
+    const filas = [
+      tarifa("x", "PC", "Campo artificial", "DOBLE", 86, "PC 88 € - Aloj + Campo Artificial — DOBLE"),
+    ];
+    const avisos = checks.checkRates(filas).get("x") ?? [];
+    assert.equal(avisos.length, 1);
+    assert.equal(avisos[0].code, "PRICE_NOT_IN_SOURCE");
+  });
+
+  await test("no señala una tarifa sin texto de origen (no hay con qué contrastar)", () => {
+    const filas = [{ id: "y", boardType: "PC", pvpAmount: 99, rawText: "" }];
+    assert.equal(checks.checkRates(filas).size, 0);
+  });
+
+  await test("detecta que individual salga más barato que doble", () => {
+    const filas = [
+      tarifa("d1", "PC", "Campo artificial", "DOBLE", 92, "PC 92 € DOBLE"),
+      tarifa("i1", "PC", "Campo artificial", "INDIVIDUAL", 73, "PC 73 € INDIVIDUAL"),
+    ];
+    const avisos = checks.checkRates(filas).get("i1") ?? [];
+    assert.ok(avisos.some((a: { code: string }) => a.code === "OCCUPANCY_ORDER"));
+  });
+
+  await test("detecta que pensión completa salga más barata que media pensión", () => {
+    const filas = [
+      tarifa("pc", "PC", "Sin campo", "DOBLE", 60, "PC 60 € DOBLE"),
+      tarifa("mp", "MP", "Sin campo", "DOBLE", 67, "MP 67 € DOBLE"),
+    ];
+    const avisos = checks.checkRates(filas).get("pc") ?? [];
+    assert.ok(avisos.some((a: { code: string }) => a.code === "BOARD_ORDER"));
+  });
+
+  await test("detecta que sin campo salga más caro que con campo", () => {
+    const filas = [
+      tarifa("sin", "PC", "Sin campo", "DOBLE", 90, "PC 90 € sin campo DOBLE"),
+      tarifa("con", "PC", "Campo artificial", "DOBLE", 73, "PC 73 € Campo Artificial DOBLE"),
+    ];
+    const avisos = checks.checkRates(filas).get("sin") ?? [];
+    assert.ok(avisos.some((a: { code: string }) => a.code === "SERVICE_ORDER"));
+  });
+
+  console.log("\nComprobaciones de tarifas de actividad:");
+
+  await test("una tarifa de actividad correcta pasa limpia", () => {
+    const filas = [
+      { id: "ok", rateUnit: "PER_GROUP", salePvpAmount: 190, rawText: "Cesped Artificial 190 EUR 286 EUR" },
+    ];
+    assert.equal(checks.checkActivityRates(filas).size, 0);
+  });
+
+  await test("detecta un precio de actividad que no esta en su origen", () => {
+    const filas = [
+      { id: "mal", rateUnit: "PER_GROUP", salePvpAmount: 195, rawText: "Cesped Artificial 190 EUR 286 EUR" },
+    ];
+    const avisos = checks.checkActivityRates(filas).get("mal") ?? [];
+    assert.ok(avisos.some((a: { code: string }) => a.code === "PRICE_NOT_IN_SOURCE"));
+  });
+
+  await test("detecta que no se sepa si el precio es por equipo o por persona", () => {
+    const filas = [{ id: "sin", salePvpAmount: 190, rawText: "Campo 190 EUR" }];
+    const avisos = checks.checkActivityRates(filas).get("sin") ?? [];
+    assert.ok(avisos.some((a: { code: string }) => a.code === "UNIT_UNKNOWN"));
+  });
+
   console.log("\nFlujo documental:");
 
   const CONTROL_NAME = "Tarifas Prueba 4R 2026";
@@ -149,6 +309,110 @@ async function main() {
     assert.equal(created.accommodations, 1);
     assert.equal(created.rates, 2);
     assert.equal(created.policies, 1);
+  });
+
+  // --- un documento con varios alojamientos ------------------------------------
+  // El caso real de Fútbol Salou: un PDF con tres establecimientos. Antes se
+  // aplastaban en uno y las 70 tarifas colgaban del primero.
+  console.log("\nDocumento con varios alojamientos:");
+
+  const multiDocument = await db.createInventoryDocument({
+    targetType: "ACCOMMODATION",
+    controlName: "Tarifas Fútbol Salou 2027",
+    controlLocation: LOCALITY,
+    controlYear: 2027,
+  });
+
+  const rate = (accommodationName: string | null, pvp: number) => ({
+    accommodationName,
+    seasonName: null,
+    year: 2027,
+    dateFrom: null,
+    dateTo: null,
+    boardType: "PC",
+    unitName: null,
+    rateUnit: null,
+    occupancyLabel: "DOBLE",
+    minNights: null,
+    currency: "EUR",
+    pvpAmount: pvp,
+    netAmount: null,
+    costAmount: null,
+    rawText: null,
+  });
+
+  const multiAnalysis = {
+    mode: "mock" as const,
+    documentSummary: "Tres alojamientos en un mismo documento",
+    detectedAccommodation: null,
+    detectedAccommodations: [
+      { accommodationName: "Villa Bonita / Aloha", locality: LOCALITY },
+      { accommodationName: "Mediterrània MED2/3", locality: LOCALITY },
+      { accommodationName: "Mediterrània MED1", locality: LOCALITY },
+    ],
+    detectedActivities: [],
+    candidateRates: [
+      rate("Villa Bonita / Aloha", 73),
+      rate("Villa Bonita / Aloha", 92),
+      rate("Mediterrània MED2/3", 78),
+      // Nombre con ruido: debe reconocerse igualmente.
+      rate("  mediterrània med1 (doble)  ", 88),
+      // Sin etiqueta: cae en el primero, pero avisando.
+      rate(null, 65),
+    ],
+    candidateSupplements: [
+      { accommodationName: "Mediterrània MED1", concept: "Miniestadi", amount: 6 },
+    ],
+    candidatePolicies: [],
+    candidateBlackoutDates: [],
+    warnings: [],
+    confidence: 0.9,
+  };
+
+  const multiCreated = await db.createInventoryDocumentStaging(multiDocument.id, multiAnalysis, {
+    targetType: "ACCOMMODATION",
+    controlName: "Tarifas Fútbol Salou 2027",
+  });
+
+  await test("crea un alojamiento por cada establecimiento del documento", () => {
+    assert.equal(multiCreated.accommodations, 3, "tres hoteles, tres registros");
+    assert.equal(multiCreated.rates, 5);
+  });
+
+  await test("cada tarifa queda colgada de su alojamiento", async () => {
+    const stored = await db.getInventoryDocumentDetail(multiDocument.id);
+    const porNombre = new Map(
+      (stored?.stagingAccommodations ?? []).map((accommodation: { accommodationName: string; rates: unknown[] }) => [
+        accommodation.accommodationName,
+        accommodation.rates.length,
+      ]),
+    );
+    // Villa Bonita: sus 2 + la huérfana sin etiqueta.
+    assert.equal(porNombre.get("Villa Bonita / Aloha"), 3);
+    assert.equal(porNombre.get("Mediterrània MED2/3"), 1);
+    assert.equal(porNombre.get("Mediterrània MED1"), 1, "el nombre con ruido se reconoce");
+  });
+
+  await test("avisa de los alojamientos encontrados y de la tarifa sin dueño", () => {
+    const todos = multiCreated.warnings.join(" | ");
+    assert.match(todos, /3 alojamientos/, "debe decir cuántos hoteles trae");
+    assert.match(todos, /no decían a qué alojamiento/, "debe avisar de la tarifa sin etiqueta");
+  });
+
+  await test("publicar sin aprobar el alojamiento explica el motivo y cuenta las tarifas", async () => {
+    // Nada aprobado todavía en este documento: las 5 tarifas se quedan fuera y
+    // el motivo tiene que ser accionable, no un "omitidos: 5".
+    const simulacion = await db.dryRunPublishApprovedInventoryDocument(multiDocument.id, {
+      controlYear: 2027,
+    });
+    const motivos = simulacion.skipReasons ?? [];
+    assert.ok(motivos.length > 0, "tiene que decir por qué no entra nada");
+    const total = motivos.reduce((suma: number, motivo: { count: number }) => suma + motivo.count, 0);
+    assert.equal(total, 5, "los motivos cubren las 5 tarifas");
+    assert.ok(
+      motivos.every((motivo: { fix: string | null }) => motivo.fix),
+      "cada motivo dice qué hacer",
+    );
   });
 
   // --- editar metadatos del documento -----------------------------------------
@@ -222,6 +486,24 @@ async function main() {
   });
 
   // --- trazabilidad ------------------------------------------------------------
+  await test("las condiciones se publican con estructura, no como texto", async () => {
+    const prisma = new PrismaClient();
+    try {
+      const alojamientos = await prisma.accommodation.findMany({
+        where: { sourceDocumentId: document.id },
+        include: { policies: true, adjustments: true, blackoutDates: true },
+      });
+      const politicas = alojamientos.flatMap((a) => a.policies);
+      assert.ok(politicas.length > 0, "la política aprobada debe llegar a su propia tabla");
+      assert.ok(politicas[0].policyType, "conserva su tipo, no solo el texto");
+      assert.equal(politicas[0].sourceDocumentId, document.id, "mantiene la trazabilidad");
+      // El texto se conserva además: es lo que lee el colegio en la propuesta.
+      assert.ok(alojamientos[0].conditionsText, "el texto sigue estando");
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
   await test("la trazabilidad lista lo publicado con su staging de origen", async () => {
     const live = await db.getPublishedInventoryByDocument(document.id);
     assert.equal(live.accommodationCount, 1);
@@ -439,6 +721,82 @@ async function main() {
   });
 
   // --- aprobar en lote (la actividad, la tarifa con precio y la política) -------
+  await test("las tarifas de actividad llegan a su actividad (antes se descartaban)", async () => {
+    const docAct = await db.createInventoryDocument({
+      targetType: "ACTIVITY",
+      controlName: "Alquiler de campos 2027",
+      controlYear: 2027,
+    });
+
+    const analisis = {
+      mode: "mock" as const,
+      documentSummary: "Alquiler de instalaciones",
+      detectedAccommodation: null,
+      detectedAccommodations: [],
+      detectedActivities: [
+        { activityName: "Alquiler campo césped artificial" },
+        { activityName: "Partido amistoso" },
+      ],
+      candidateRates: [],
+      candidateActivityRates: [
+        {
+          activityName: "Alquiler campo césped artificial",
+          rateUnit: "PER_GROUP",
+          year: 2027,
+          currency: "EUR",
+          salePvpAmount: 120,
+          durationText: "90 min",
+          rawText: "Campo artificial 1,30 h — 120 € por equipo",
+        },
+        {
+          activityName: "Partido amistoso",
+          rateUnit: "PER_GROUP",
+          year: 2027,
+          currency: "EUR",
+          salePvpAmount: 250,
+          ageLabel: "fin de semana",
+          rawText: "Partido amistoso fin de semana — 250 €",
+        },
+        // Sin actividad que la reciba: debe avisar y no colarse.
+        {
+          activityName: "Clase de vela",
+          year: 2027,
+          currency: "EUR",
+          salePvpAmount: 40,
+          rawText: "Vela 40 €",
+        },
+      ],
+      candidateSupplements: [],
+      candidatePolicies: [],
+      candidateBlackoutDates: [],
+      warnings: [],
+      confidence: 0.9,
+    };
+
+    const creado = await db.createInventoryDocumentStaging(docAct.id, analisis, {
+      targetType: "ACTIVITY",
+      controlName: "Alquiler de campos 2027",
+    });
+
+    assert.equal(creado.activities, 2);
+    assert.equal(creado.activityRates, 3, "se leyeron las tres del documento");
+
+    const detalle = await db.getInventoryDocumentDetail(docAct.id);
+    const porNombre = new Map(
+      (detalle?.stagingActivities ?? []).map((a: { activityName: string; rates: unknown[] }) => [
+        a.activityName,
+        a.rates.length,
+      ]),
+    );
+    assert.equal(porNombre.get("Alquiler campo césped artificial"), 1, "el precio llega a su actividad");
+    assert.equal(porNombre.get("Partido amistoso"), 1);
+    assert.match(
+      creado.warnings.join(" | "),
+      /no encajan con ninguna actividad/,
+      "avisa del precio sin dueño en vez de tragárselo",
+    );
+  });
+
   await test("aprueba actividad + tarifa con precio + política; omite la tarifa sin precio", async () => {
     const actResult = await db.bulkUpdateStagingReview("activities", [stagingActivityId], "APPROVED");
     assert.equal(actResult.updated, 1);

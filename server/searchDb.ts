@@ -288,6 +288,13 @@ export async function searchAccommodationsDb(
     }
   });
 
+  // Filtro por cliente: una tarifa pactada con un canal concreto NO puede
+  // aparecer al cotizar para otro. Las tarifas sin canal valen para todos, que
+  // es el caso de todo lo que se cargó antes de existir esta distinción.
+  const wantedSegment = (filters.clientSegment ?? "").trim() || null;
+  const matchesSegment = (rate: { clientSegment?: string | null }) =>
+    !rate.clientSegment || rate.clientSegment === wantedSegment;
+
   const documentNames = await loadSourceDocumentNames(
     accommodations.map((accommodation) => accommodation.sourceDocumentId)
   );
@@ -312,7 +319,7 @@ export async function searchAccommodationsDb(
           return [];
         }
       }
-      return accommodation.rates.map((rate) => {
+      return accommodation.rates.filter(matchesSegment).map((rate) => {
         const scored = scoreAccommodationMatch(accommodation, rate, filters);
         return {
           accommodation: {
@@ -344,6 +351,8 @@ export async function searchAccommodationsDb(
             pvpAmount: Number(rate.pvpAmount ?? 0),
             netSaleAmount: Number(rate.netSaleAmount ?? 0),
             netAzulmarinoAmount: Number(rate.netAzulmarinoAmount ?? 0),
+            clientSegment: rate.clientSegment ?? "",
+            includedService: rate.includedService ?? "",
             sourceFile: rate.sourceFile ?? "",
             sourceSheet: rate.sourceSheet ?? ""
           },
@@ -418,13 +427,18 @@ export async function searchActivitiesDb(
     }
   });
 
+  // Mismo criterio que en alojamientos: sin canal vale para todos.
+  const wantedSegment = (filters.clientSegment ?? "").trim() || null;
+  const matchesSegment = (rate: { clientSegment?: string | null }) =>
+    !rate.clientSegment || rate.clientSegment === wantedSegment;
+
   const documentNames = await loadSourceDocumentNames(
     activities.map((activity) => activity.sourceDocumentId)
   );
 
   const perRateMatches: ActivitySearchMatch[] = activities
     .flatMap((activity) =>
-      activity.rates.map((rate) => {
+      activity.rates.filter(matchesSegment).map((rate) => {
         const scored = scoreActivityMatch(activity, rate, filters);
         return {
           activity: {
@@ -449,6 +463,7 @@ export async function searchActivitiesDb(
             ageMax: rate.ageMax ?? 0,
             salePvpAmount: Number(rate.salePvpAmount ?? 0),
             costNetAmount: Number(rate.costNetAmount ?? 0),
+            clientSegment: rate.clientSegment ?? "",
             commissionPercent: Number(rate.commissionPercent ?? 0),
             durationText: rate.durationText ?? "",
             sourceFile: rate.sourceFile ?? "",

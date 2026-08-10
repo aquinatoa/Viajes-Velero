@@ -39,3 +39,76 @@ export function deriveSalePrice(
   }
   return null;
 }
+
+/**
+ * Qué precios trae un documento de tarifas. Se declara al subirlo.
+ * - PURCHASE: los importes son coste; la venta se calcula con el margen.
+ * - SALE: los importes son precio de venta; se guardan tal cual, sin tocar.
+ * - UNKNOWN: documentos anteriores a esta declaración. Se mantiene el
+ *   comportamiento antiguo para no reescribir su historia.
+ */
+export type RateKind = "PURCHASE" | "SALE" | "UNKNOWN";
+
+export interface RateAmounts {
+  pvpAmount?: number | null;
+  netAmount?: number | null;
+  costAmount?: number | null;
+}
+
+export interface ResolvedRatePrices {
+  /** Precio de venta a publicar. null = la tarifa no se puede publicar. */
+  salePrice: number | null;
+  /** Coste conocido, si el documento lo aporta. */
+  costPrice: number | null;
+}
+
+function firstPositive(...values: Array<number | null | undefined>): number | null {
+  for (const value of values) {
+    if (value !== null && value !== undefined && value > 0) return value;
+  }
+  return null;
+}
+
+/**
+ * Traduce los importes que sacó la IA a coste y venta, guiándose por lo que el
+ * usuario declaró al subir el documento en vez de por en qué campo cayó cada
+ * cifra.
+ *
+ * El porqué: la IA reparte los importes entre pvp/neto/coste según lo que
+ * intuye del texto, y en la prueba del 10/08/2026 lo hizo distinto en cada
+ * fichero — la tarifa de venta del turoperador suizo cayó en "neto" y se habría
+ * publicado con un 8% encima de lo pactado. Con el tipo declarado, dónde caiga
+ * la cifra deja de importar.
+ */
+export function resolveRatePrices(
+  amounts: RateAmounts,
+  rateKind: RateKind,
+  marginPercent?: number | null,
+): ResolvedRatePrices {
+  const { pvpAmount, netAmount, costAmount } = amounts;
+
+  if (rateKind === "PURCHASE") {
+    // Todo lo que trae el documento es coste, esté en el campo que esté.
+    const cost = firstPositive(costAmount, netAmount, pvpAmount);
+    const markup = marginPercent ?? DEFAULT_MARKUP_PERCENT;
+    return { salePrice: deriveSalePrice(cost, null, markup), costPrice: cost };
+  }
+
+  if (rateKind === "SALE") {
+    // Todo lo que trae el documento es venta. No se le suma margen: ya lo lleva.
+    const sale = firstPositive(pvpAmount, netAmount, costAmount);
+    return { salePrice: sale === null ? null : round2(sale), costPrice: null };
+  }
+
+  // UNKNOWN: comportamiento anterior — neto/coste como base, PVP explícito manda.
+  const cost = firstPositive(netAmount, costAmount);
+  return {
+    salePrice: deriveSalePrice(cost, pvpAmount),
+    costPrice: cost,
+  };
+}
+
+/** Normaliza a uno de los tres valores admitidos. */
+export function toRateKind(value: unknown): RateKind {
+  return value === "PURCHASE" || value === "SALE" ? value : "UNKNOWN";
+}

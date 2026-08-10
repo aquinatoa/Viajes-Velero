@@ -55,6 +55,43 @@ import {
   StagingEditableCard,
   type CandidateItem,
 } from "./RateReviewTable";
+import { buildMatrix, RateDetailDialog, RateMatrix } from "./RateMatrix";
+import { checkRates } from "../../domain/rateChecks";
+
+/** Estados de revisión en claro, para la cabecera de cada alojamiento. */
+const reviewStatusLabels: Record<string, string> = {
+  PENDING: "Por revisar",
+  APPROVED: "Aprobado",
+  REJECTED: "Rechazado",
+  NEEDS_CHANGES: "Requiere cambios",
+  CORRECTED: "Corregido",
+  CONFIRMED: "Confirmado",
+};
+
+/**
+ * Resumen de un alojamiento para poder tenerlo plegado: cuántas tarifas, entre
+ * qué precios y con qué regímenes. Sin esto, plegar sería esconder.
+ */
+function resumirTarifas(rates: { boardType?: string | null; pvpAmount?: number | null; netAmount?: number | null }[]): string {
+  if (rates.length === 0) return "Sin tarifas";
+
+  const importes = rates
+    .map((rate) => Number(rate.pvpAmount ?? rate.netAmount ?? 0))
+    .filter((valor) => Number.isFinite(valor) && valor > 0);
+
+  const regimenes = [...new Set(rates.map((rate) => String(rate.boardType ?? "")).filter(Boolean))];
+
+  const partes = [`${rates.length} tarifa(s)`];
+  if (importes.length > 0) {
+    const min = Math.min(...importes);
+    const max = Math.max(...importes);
+    const fmt = (valor: number) =>
+      new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 }).format(valor);
+    partes.push(min === max ? `${fmt(min)} €` : `${fmt(min)} – ${fmt(max)} €`);
+  }
+  if (regimenes.length > 0) partes.push(regimenes.join(", "));
+  return partes.join(" · ");
+}
 
 const extractionMethodLabels: Record<string, string> = {
   TEXT: "Texto",
@@ -486,12 +523,12 @@ function computeQualitySummary(detail: InventoryDocumentDetail): QualitySummary 
       `Hay ${orphanApprovedRates} tarifa(s) aprobada(s) cuyo alojamiento o actividad no está aprobado; no se publicarán.`,
     );
   }
-  const foldedTotal = foldedPolicies + foldedAdjustments + foldedBlackouts;
-  if (foldedTotal > 0) {
-    warnings.push(
-      `Se publicarán como texto libre ${foldedPolicies} política(s), ${foldedAdjustments} suplemento(s) y ${foldedBlackouts} fecha(s) especial(es); se pierde su estructura.`,
-    );
-  }
+  // Las condiciones ya no se aplanan: el catálogo las guarda con su tipo, su
+  // importe y sus fechas, además del texto que lee el colegio. El aviso que
+  // decía "se pierde su estructura" dejó de ser cierto.
+  void foldedPolicies;
+  void foldedAdjustments;
+  void foldedBlackouts;
   const pending = (counts.PENDING ?? 0) + (counts.NEEDS_CHANGES ?? 0);
   if (pending > 0) {
     warnings.push(
@@ -625,6 +662,8 @@ export function DocumentWorkspace({
   const [actionInProgress, setActionInProgress] = useState<DocumentActionKey | null>(null);
   const [aiResult, setAiResult] = useState<AiDocumentAnalysisResult | null>(null);
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  // Paso actual de "Leer el documento": null = parado.
+  const [readingStep, setReadingStep] = useState<"extract" | "ai" | "staging" | null>(null);
   const [stagingCreating, setStagingCreating] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
@@ -817,6 +856,234 @@ export function DocumentWorkspace({
     }
   }
 
+  /**
+   * Leer el documento de principio a fin: extraer el texto, pasarlo por la IA y
+   * dejar los candidatos listos para revisar.
+   *
+   * Antes eran tres botones que había que pulsar en el orden correcto, sin que
+   * nada lo dijera. Es la misma cadena; lo que cambia es que la app la conduce y
+   * va contando por dónde va.
+   */
+  async function handleReadDocument() {
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setReadingStep("extract");
+
+    try {
+      await analyzeInventoryDocumentApi(documentId);
+
+      setReadingStep("ai");
+      const ai = await analyzeInventoryDocumentWithAiApi(documentId);
+      setAiResult(ai);
+
+      setReadingStep("staging");
+      const staging = await createInventoryDocumentStagingApi(documentId);
+
+      await refreshDetail();
+      await onChanged();
+
+      const mockNote =
+        staging.aiMode === "mock"
+          ? " Ojo: se ha usado el modo de ejemplo, sin IA real. Configura la clave del proveedor y vuelve a leerlo."
+          : "";
+      setFeedbackMessage(
+        `Documento leído: ${staging.accommodations} alojamiento(s) y ${staging.rates} tarifa(s) esperando tu revisión.${mockNote}`,
+      );
+    } catch (error) {
+      setErrorMessage(
+        getErrorMessage(error, "No se pudo leer el documento. Puedes intentarlo de nuevo."),
+      );
+    } finally {
+      setReadingStep(null);
+    }
+  }
+
+  /**
+   * Qué toca hacer ahora con este documento.
+   *
+   * La pantalla tiene siete zonas y el usuario preguntaba, con razón, "¿y ahora
+   * qué?". Esto lo responde en una frase y un botón, mirando en qué punto está:
+   * sin archivo → sin leer → pendientes de revisar → aprobados sin publicar →
+   * publicado.
+   */
+  function calcularSiguientePaso() {
+    if (!detail) {
+      return { tone: "wait", eyebrow: "", title: "", hint: "", action: null };
+    }
+
+    const candidatos =
+      detail.stagingAccommodations.length + detail.stagingActivities.length;
+
+    if (!detail.originalFileName) {
+      return {
+        tone: "todo" as const,
+        eyebrow: "Siguiente paso",
+        title: "Sube el archivo de tarifas",
+        hint: "Sin el PDF o el Excel no hay nada que leer.",
+        action: null,
+      };
+    }
+
+    if (candidatos === 0) {
+      return {
+        tone: "todo" as const,
+        eyebrow: "Siguiente paso",
+        title: "Lee el documento",
+        hint: "Saca el texto, lo entiende con IA y deja las tarifas listas para revisar. Tarda un par de minutos.",
+        action: { label: "Leer el documento", run: () => void handleReadDocument() },
+      };
+    }
+
+    const porRevisar =
+      (qcSummary?.counts.PENDING ?? 0) + (qcSummary?.counts.NEEDS_CHANGES ?? 0);
+    const aprobados = qcSummary?.counts.APPROVED ?? 0;
+
+    // Decir "revisa 6 candidatos" no ayuda: hay que decir QUÉ queda, porque
+    // alojamientos y actividades son cosas distintas e independientes.
+    const sinRevisar = (estado: unknown) =>
+      String(estado) === "PENDING" || String(estado) === "NEEDS_CHANGES";
+
+    const alojamientosPendientes = detail.stagingAccommodations.filter(
+      (a) =>
+        sinRevisar(a.reviewStatus) ||
+        a.rates.some((r) => sinRevisar(r.reviewStatus)) ||
+        a.adjustments.some((r) => sinRevisar(r.reviewStatus)) ||
+        a.policies.some((r) => sinRevisar(r.reviewStatus)) ||
+        a.blackoutDates.some((r) => sinRevisar(r.reviewStatus)),
+    ).length;
+
+    const actividadesPendientes = detail.stagingActivities.filter(
+      (a) =>
+        sinRevisar(a.reviewStatus) ||
+        a.rates.some((r) => sinRevisar(r.reviewStatus)) ||
+        a.policies.some((r) => sinRevisar(r.reviewStatus)),
+    ).length;
+
+    if (alojamientosPendientes > 0) {
+      return {
+        tone: "todo" as const,
+        eyebrow: "Siguiente paso",
+        title:
+          alojamientosPendientes === 1
+            ? "Revisa el alojamiento que queda"
+            : `Revisa ${alojamientosPendientes} alojamientos`,
+        hint:
+          actividadesPendientes > 0
+            ? `Después quedarán ${actividadesPendientes} actividad(es), que van aparte. Nada llega al catálogo hasta que lo apruebes.`
+            : "Comprueba que los precios son correctos y aprueba cada alojamiento. Nada llega al catálogo hasta que lo hagas.",
+        action: { label: "Ir a pendientes", run: () => setWorkspaceTab("pendientes") },
+      };
+    }
+
+    if (actividadesPendientes > 0) {
+      return {
+        tone: "todo" as const,
+        eyebrow: "Siguiente paso",
+        title: `Quedan ${actividadesPendientes} actividad(es) por revisar`,
+        hint: `Los alojamientos ya están aprobados. Las actividades —alquiler de campos, partidos, clases— son independientes de ellos y se aprueban aparte. No es obligatorio: puedes publicar solo los alojamientos, y lo que no apruebes simplemente no pasa al catálogo.`,
+        action: { label: "Ir a las actividades", run: () => setWorkspaceTab("pendientes") },
+      };
+    }
+
+    if (porRevisar > 0) {
+      return {
+        tone: "todo" as const,
+        eyebrow: "Siguiente paso",
+        title: `Revisa ${porRevisar} candidato(s)`,
+        hint: "Comprueba que los precios y los alojamientos son correctos, y apruébalos. Nada llega al catálogo hasta que lo hagas.",
+        action: { label: "Ir a pendientes", run: () => setWorkspaceTab("pendientes") },
+      };
+    }
+
+    if (aprobados > 0 && detail.status !== "PUBLISHED") {
+      return {
+        tone: "ready" as const,
+        eyebrow: "Siguiente paso",
+        title: `Publica ${aprobados} candidato(s) aprobado(s)`,
+        hint: "Ya está todo revisado. Al publicar pasan al catálogo y el comercial podrá cotizar con ellos.",
+        action: { label: "Ir a publicar", run: () => setWorkspaceTab("aprobados") },
+      };
+    }
+
+    if (detail.status === "PUBLISHED") {
+      return {
+        tone: "done" as const,
+        eyebrow: "Terminado",
+        title: "Sus tarifas están en el catálogo",
+        hint: "Ya se puede cotizar con ellas. Si el proveedor manda una corrección, reemplaza el archivo y vuelve a leerlo.",
+        action: { label: "Ver lo publicado", run: () => setWorkspaceTab("publicados") },
+      };
+    }
+
+    return {
+      tone: "done" as const,
+      eyebrow: "Sin nada pendiente",
+      title: "No queda nada por revisar",
+      hint: "Ningún candidato espera decisión en este documento.",
+      action: null,
+    };
+  }
+
+  /**
+   * Aprueba un alojamiento y TODO lo suyo en un solo gesto: sus tarifas, sus
+   * suplementos, sus condiciones y sus fechas especiales.
+   *
+   * El porqué: hasta ahora el hotel se aprobaba aparte de sus tarifas, y era
+   * posible aprobar las 18 y olvidar el hotel. Al publicar, esas 18 se caían con
+   * un aviso que nadie leía — así llegamos a tener 42 tarifas aprobadas y una
+   * publicada. Uniéndolo en una acción, el error deja de existir en vez de
+   * quedarse en advertencia.
+   */
+  async function handleApproveWholeAccommodation(accommodation: {
+    id: string;
+    accommodationName: string;
+    rates: { id: string }[];
+    adjustments: { id: string }[];
+    policies: { id: string }[];
+    blackoutDates: { id: string }[];
+  }) {
+    const total =
+      accommodation.rates.length +
+      accommodation.adjustments.length +
+      accommodation.policies.length +
+      accommodation.blackoutDates.length;
+
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setBulkBusy(true);
+    try {
+      // El padre primero: si fallara, no dejamos hijas aprobadas colgando de un
+      // alojamiento sin aprobar, que es justo el estado que causaba el problema.
+      await bulkUpdateInventoryStagingApi("accommodations", [accommodation.id], "APPROVED");
+
+      const porTipo: [StagingEntityKey, string[]][] = [
+        ["accommodation-rates", accommodation.rates.map((r) => r.id)],
+        ["accommodation-adjustments", accommodation.adjustments.map((r) => r.id)],
+        ["accommodation-policies", accommodation.policies.map((r) => r.id)],
+        ["accommodation-blackout-dates", accommodation.blackoutDates.map((r) => r.id)],
+      ];
+      for (const [entity, ids] of porTipo) {
+        if (ids.length > 0) {
+          await bulkUpdateInventoryStagingApi(entity, ids, "APPROVED");
+        }
+      }
+
+      setDryRunResult(null);
+      setAwaitingPublishConfirm(false);
+      await refreshDetail();
+      await onChanged();
+      setFeedbackMessage(
+        `"${accommodation.accommodationName}" aprobado junto con sus ${total} candidato(s). Ya se puede publicar.`,
+      );
+    } catch (error) {
+      setErrorMessage(
+        getErrorMessage(error, "No se pudo aprobar el alojamiento con todo su contenido."),
+      );
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   async function handleStagingSaved() {
     // Al cambiar un candidato, la simulación previa deja de ser válida: se
     // descarta para obligar a re-simular antes de confirmar la publicación.
@@ -971,9 +1238,29 @@ export function DocumentWorkspace({
     try {
       const result = await publishApprovedInventoryDocumentApi(documentId);
       setPublishResult(result);
-      setFeedbackMessage(
-        `Publicación completada: ${result.accommodations} alojamiento(s) y ${result.accommodationRates} tarifa(s); ${result.activities} actividad(es) y ${result.activityRates} tarifa(s) de actividad.`,
-      );
+
+      // El mensaje dice lo que ha pasado, no "completado" a secas: publicar y
+      // que no entre nada es un resultado posible y hay que verlo.
+      const entraron = result.accommodationRates + result.activityRates;
+      const fuera =
+        result.skippedRates +
+        result.skippedActivityRates +
+        result.skippedAccommodations +
+        result.skippedActivities;
+
+      if (entraron === 0) {
+        setErrorMessage(
+          fuera > 0
+            ? `No entró ninguna tarifa al catálogo: ${fuera} se quedaron fuera. Mira los motivos aquí abajo, arréglalos y vuelve a publicar.`
+            : "No entró ninguna tarifa al catálogo: no había nada aprobado que publicar.",
+        );
+      } else {
+        setFeedbackMessage(
+          fuera > 0
+            ? `${entraron} tarifa(s) ya están en el catálogo. ${fuera} se quedaron fuera: mira los motivos aquí abajo.`
+            : `Todo dentro: ${entraron} tarifa(s) en el catálogo, de ${result.accommodations} alojamiento(s) y ${result.activities} actividad(es).`,
+        );
+      }
       await refreshDetail();
       await onChanged();
       // Si la trazabilidad estaba cargada, refrescarla para reflejar lo vivo.
@@ -1104,7 +1391,14 @@ export function DocumentWorkspace({
     workspaceTab === "aprobados" ||
     workspaceTab === "rechazados";
 
+  // Tarifa abierta desde una celda de la matriz (para corregir una suelta).
+  const [matrixEditId, setMatrixEditId] = useState<string | null>(null);
+  // Qué vista usa cada alojamiento: rejilla (por defecto) o lista.
+  const [vistaLista, setVistaLista] = useState<Record<string, boolean>>({});
+
   const qcSummary = detail ? computeQualitySummary(detail) : null;
+  // Se calcula aquí, después del resumen de calidad, porque lo usa.
+  const nextStep = calcularSiguientePaso();
   const candidateCounts = qcSummary?.counts ?? {};
   const pendingTabCount = (candidateCounts.PENDING ?? 0) + (candidateCounts.NEEDS_CHANGES ?? 0);
   const approvedTabCount = candidateCounts.APPROVED ?? 0;
@@ -1153,56 +1447,77 @@ export function DocumentWorkspace({
 
       {!detailLoading && detail ? (
         <div className="stack">
-          <div className="grid two">
-            <div className="field">
-              <span>Nombre de control</span>
-              <strong>{detail.controlName}</strong>
+          {/* Lo primero es qué hay que hacer ahora, no cuándo se creó el
+              documento. Antes esta pantalla abría con siete fichas de metadatos
+              y la única acción quedaba a tres pantallazos de scroll. */}
+          <div className={`next-step next-step--${nextStep.tone}`}>
+            <div className="next-step__txt">
+              <span className="next-step__eyebrow">{nextStep.eyebrow}</span>
+              <h4>{nextStep.title}</h4>
+              <p>{nextStep.hint}</p>
             </div>
-            <div className="field">
-              <span>Tipo de registro</span>
-              <strong>{targetTypeLabels[detail.targetType]}</strong>
-            </div>
-            <div className="field">
-              <span>Estado</span>
-              <strong>{statusLabels[detail.status] ?? detail.status}</strong>
-            </div>
-            <div className="field">
-              <span>Extracción</span>
-              <strong>
-                {/* Si ya existe una extracción TEXT/OCR con contenido, mostrar
-                    "Extraído" aunque el estado almacenado no se haya reconciliado. */}
-                {detail.extractions.some(
-                  (extraction) =>
-                    (extraction.extractionMethod === "TEXT" ||
-                      extraction.extractionMethod === "OCR") &&
-                    (extraction.rawText ?? "").trim().length > 0,
-                ) && detail.extractionStatus === "NOT_STARTED"
-                  ? "Extraído"
-                  : extractionStatusLabels[detail.extractionStatus] ??
-                    detail.extractionStatus}
-              </strong>
-            </div>
-            <div className="field">
-              <span>Creado</span>
-              <strong>{formatDateTime(detail.createdAt)}</strong>
-            </div>
-            <div className="field">
-              <span>Actualizado</span>
-              <strong>{formatDateTime(detail.updatedAt)}</strong>
-            </div>
-            {detail.processedAt ? (
-              <div className="field">
-                <span>Procesado</span>
-                <strong>{formatDateTime(detail.processedAt)}</strong>
-              </div>
-            ) : null}
-            {detail.controlNotes ? (
-              <div className="field">
-                <span>Notas internas</span>
-                <strong>{detail.controlNotes}</strong>
-              </div>
+            {nextStep.action ? (
+              <button
+                type="button"
+                className="primary next-step__go"
+                onClick={nextStep.action.run}
+              >
+                {nextStep.action.label}
+              </button>
             ) : null}
           </div>
+
+          {/* Identidad en una línea, no en fichas. */}
+          <p className="doc-id">
+            <strong>{detail.controlName}</strong>
+            <span>{targetTypeLabels[detail.targetType]}</span>
+            {detail.controlLocation ? <span>{detail.controlLocation}</span> : null}
+            {detail.controlYear ? <span>Temporada {detail.controlYear}</span> : null}
+            <span className={`doc-state doc-state--${detail.status.toLowerCase()}`}>
+              {statusLabels[detail.status] ?? detail.status}
+            </span>
+          </p>
+
+          {/* Fechas y notas: sirven para diagnosticar, no para trabajar. */}
+          <details className="doc-meta">
+            <summary>Ficha técnica del documento</summary>
+            <div className="grid two">
+              <div className="field">
+                <span>Extracción</span>
+                <strong>
+                  {detail.extractions.some(
+                    (extraction) =>
+                      (extraction.extractionMethod === "TEXT" ||
+                        extraction.extractionMethod === "OCR") &&
+                      (extraction.rawText ?? "").trim().length > 0,
+                  ) && detail.extractionStatus === "NOT_STARTED"
+                    ? "Extraído"
+                    : extractionStatusLabels[detail.extractionStatus] ??
+                      detail.extractionStatus}
+                </strong>
+              </div>
+              <div className="field">
+                <span>Creado</span>
+                <strong>{formatDateTime(detail.createdAt)}</strong>
+              </div>
+              <div className="field">
+                <span>Actualizado</span>
+                <strong>{formatDateTime(detail.updatedAt)}</strong>
+              </div>
+              {detail.processedAt ? (
+                <div className="field">
+                  <span>Procesado</span>
+                  <strong>{formatDateTime(detail.processedAt)}</strong>
+                </div>
+              ) : null}
+              {detail.controlNotes ? (
+                <div className="field">
+                  <span>Notas internas</span>
+                  <strong>{detail.controlNotes}</strong>
+                </div>
+              ) : null}
+            </div>
+          </details>
 
           <nav className="ws-tabs">
             {workspaceTabs.map((tab) => (
@@ -1252,15 +1567,19 @@ export function DocumentWorkspace({
               )}
 
               <div className="file-cell">
-                <input
-                  className="file-cell__input"
-                  type="file"
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,image/*"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    setReplaceFile(file);
-                  }}
-                />
+                {/* Botón de verdad; el input nativo va dentro, oculto pero
+                    alcanzable con el teclado. */}
+                <label className="filepick__choose">
+                  {replaceFile ? `Elegido: ${replaceFile.name}` : "Elegir otro archivo"}
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,image/*"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      setReplaceFile(file);
+                    }}
+                  />
+                </label>
                 <div className="stack compact actions-row">
                   <button
                     type="button"
@@ -1292,52 +1611,99 @@ export function DocumentWorkspace({
                 ) : null}
               </div>
 
-              <div className="section-card__header compact">
-                <div>
-                  <h4>Acciones de revisión</h4>
+              {/* Una sola acción. Los tres pasos siguen existiendo debajo, por
+                  si hay que repetir uno suelto, pero ya no hay que saberse el
+                  orden para usar la aplicación. */}
+              <div className="read-doc">
+                <div className="read-doc__head">
+                  <h4>Leer el documento</h4>
                   <p>
-                    El análisis extrae texto básico del PDF para revisión humana. No crea tarifas
-                    automáticamente.
+                    Saca el texto del PDF, lo entiende con IA y deja las tarifas listas para que
+                    las revises. Tarda un par de minutos.
                   </p>
                 </div>
-              </div>
 
-              <div className="stack compact actions-row">
                 <button
                   type="button"
-                  className="primary"
-                  disabled={actionInProgress !== null || aiAnalyzing}
-                  onClick={() => void handleDocumentAction("analyze")}
-                >
-                  {actionInProgress === "analyze" ? "Analizando..." : "Ejecutar análisis"}
-                </button>
-                <button
-                  type="button"
-                  disabled={actionInProgress !== null || aiAnalyzing || stagingCreating}
-                  onClick={() => void handleAiAnalyze()}
-                >
-                  {aiAnalyzing ? "Analizando con IA..." : "Analizar con IA"}
-                </button>
-                <button
-                  type="button"
+                  className="primary read-doc__go"
                   disabled={
+                    readingStep !== null ||
                     actionInProgress !== null ||
                     aiAnalyzing ||
                     stagingCreating ||
-                    detail.stagingAccommodations.length > 0 ||
-                    detail.stagingActivities.length > 0
+                    !detail.originalFileName
                   }
                   title={
-                    detail.stagingAccommodations.length > 0 ||
-                    detail.stagingActivities.length > 0
-                      ? "Ya existen candidatos. Usa 'Regenerar candidatos' para rehacerlos."
-                      : undefined
+                    !detail.originalFileName ? "Sube antes el archivo del documento." : undefined
                   }
-                  onClick={() => void handleCreateStaging()}
+                  onClick={() => void handleReadDocument()}
                 >
-                  {stagingCreating ? "Creando candidatos..." : "Crear candidatos revisables"}
+                  {readingStep ? "Leyendo…" : "Leer el documento"}
                 </button>
+
+                {readingStep ? (
+                  <ol className="read-doc__steps">
+                    <li className={readingStep === "extract" ? "is-now" : "is-done"}>
+                      Sacando el texto
+                    </li>
+                    <li
+                      className={
+                        readingStep === "ai" ? "is-now" : readingStep === "staging" ? "is-done" : ""
+                      }
+                    >
+                      Entendiendo las tarifas
+                    </li>
+                    <li className={readingStep === "staging" ? "is-now" : ""}>
+                      Preparando la revisión
+                    </li>
+                  </ol>
+                ) : null}
               </div>
+
+              <details className="read-doc__manual">
+                <summary>Repetir un paso suelto</summary>
+                <div className="stack compact actions-row">
+                  <button
+                    type="button"
+                    disabled={actionInProgress !== null || aiAnalyzing || readingStep !== null}
+                    onClick={() => void handleDocumentAction("analyze")}
+                  >
+                    {actionInProgress === "analyze" ? "Sacando texto…" : "1 · Sacar el texto"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      actionInProgress !== null ||
+                      aiAnalyzing ||
+                      stagingCreating ||
+                      readingStep !== null
+                    }
+                    onClick={() => void handleAiAnalyze()}
+                  >
+                    {aiAnalyzing ? "Entendiendo…" : "2 · Entender con IA"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      actionInProgress !== null ||
+                      aiAnalyzing ||
+                      stagingCreating ||
+                      readingStep !== null ||
+                      detail.stagingAccommodations.length > 0 ||
+                      detail.stagingActivities.length > 0
+                    }
+                    title={
+                      detail.stagingAccommodations.length > 0 ||
+                      detail.stagingActivities.length > 0
+                        ? "Ya hay candidatos. Usa 'Regenerar candidatos' para rehacerlos."
+                        : undefined
+                    }
+                    onClick={() => void handleCreateStaging()}
+                  >
+                    {stagingCreating ? "Preparando…" : "3 · Preparar la revisión"}
+                  </button>
+                </div>
+              </details>
 
               <div className="section-card__header compact">
                 <div>
@@ -1431,7 +1797,7 @@ export function DocumentWorkspace({
                     {publishedInventory.accommodationRateCount +
                       publishedInventory.activityRateCount}
                   </strong>{" "}
-                  publicada(s) ahora. Usa "Simular publicación" y luego "Revisar y publicar".
+                  publicada(s) ahora. Pulsa "Revisar y publicar aprobados".
                 </div>
               ) : null}
 
@@ -1511,8 +1877,153 @@ export function DocumentWorkspace({
                   </p>
                 ) : null}
 
-                {detail.stagingAccommodations.map((accommodation) => (
-                  <div key={accommodation.id} className="staging-group">
+                {detail.stagingAccommodations.map((accommodation) => {
+                  const visibles = accommodation.rates.filter((rate) =>
+                    passesReviewFilter(rate.reviewStatus),
+                  );
+                  const matriz = buildMatrix(visibles as unknown as CandidateItem[]);
+                  const resumen = resumirTarifas(visibles);
+                  // La máquina comprueba lo que sabe comprobar; la persona solo
+                  // decide sobre lo que no cuadra.
+                  const avisos = checkRates(visibles as never);
+                  const conAviso = avisos.size;
+
+                  // Con un filtro puesto (p. ej. "Pendientes"), un alojamiento
+                  // cuyo contenido ya está todo resuelto no pinta nada aquí:
+                  // aparecía vacío y con "Sin tarifas", como si se hubieran
+                  // perdido las 18 que se acababan de aprobar.
+                  const quedaAlgo =
+                    passesReviewFilter(accommodation.reviewStatus) ||
+                    visibles.length > 0 ||
+                    accommodation.adjustments.some((x) => passesReviewFilter(x.reviewStatus)) ||
+                    accommodation.policies.some((x) => passesReviewFilter(x.reviewStatus)) ||
+                    accommodation.blackoutDates.some((x) => passesReviewFilter(x.reviewStatus));
+                  if (!quedaAlgo) return null;
+                  return (
+                  <details key={accommodation.id} className="staging-group hot-group" open={false}>
+                    <summary className="hot-group__head">
+                      <span className="hot-group__name">{accommodation.accommodationName}</span>
+                      <span className="hot-group__sum">{resumen}</span>
+                      <span
+                        className={`hot-group__pill hot-group__pill--${String(
+                          accommodation.reviewStatus,
+                        ).toLowerCase()}`}
+                      >
+                        {reviewStatusLabels[String(accommodation.reviewStatus)] ??
+                          String(accommodation.reviewStatus)}
+                      </span>
+                    </summary>
+
+                    {visibles.length > 0 ? (
+                      <p className={`hot-check${conAviso > 0 ? " hot-check--warn" : ""}`}>
+                        {conAviso > 0 ? (
+                          <>
+                            <b>
+                              {visibles.length - conAviso} de {visibles.length} tarifas cuadran
+                            </b>{" "}
+                            · {conAviso} no: están marcadas en la tabla. Púlsalas para ver por qué.
+                          </>
+                        ) : (
+                          <>
+                            <b>Las {visibles.length} tarifas cuadran.</b> El precio de cada una
+                            aparece en su texto de origen y la tabla es coherente consigo misma.
+                          </>
+                        )}
+                      </p>
+                    ) : null}
+
+                    {/* Una sola decisión: aprobar el hotel y todo lo suyo a la
+                        vez. Antes eran dos gestos y olvidarse del segundo
+                        tiraba el trabajo del primero. */}
+                    {String(accommodation.reviewStatus) !== "APPROVED" ? (
+                      <div className="hot-decide">
+                        <span className="hot-decide__txt">
+                          <b>¿Cuadra con el documento?</b> Aprobar da por buenas las{" "}
+                          {accommodation.rates.length} tarifas, sus suplementos y sus condiciones
+                          junto con el alojamiento. Nada se queda a medias.
+                        </span>
+                        <button
+                          type="button"
+                          className="btn-go"
+                          disabled={bulkBusy}
+                          onClick={() => void handleApproveWholeAccommodation(accommodation)}
+                        >
+                          {bulkBusy
+                            ? "Aprobando…"
+                            : `Aprobar ${accommodation.accommodationName} y sus ${accommodation.rates.length} tarifas`}
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {matriz ? (
+                      <div className="hot-group__mx">
+                        <div className="hot-switch" role="group" aria-label="Cómo ver las tarifas">
+                          <button
+                            type="button"
+                            className={vistaLista[accommodation.id] ? "" : "on"}
+                            onClick={() =>
+                              setVistaLista((v) => ({ ...v, [accommodation.id]: false }))
+                            }
+                          >
+                            Como en el documento
+                          </button>
+                          <button
+                            type="button"
+                            className={vistaLista[accommodation.id] ? "on" : ""}
+                            onClick={() =>
+                              setVistaLista((v) => ({ ...v, [accommodation.id]: true }))
+                            }
+                          >
+                            Como lista
+                          </button>
+                        </div>
+
+                        {!vistaLista[accommodation.id] ? (
+                          <>
+                            <RateMatrix
+                              matrix={matriz}
+                              flags={avisos}
+                              selectedId={matrixEditId}
+                              onSelectRate={(rateId: string) =>
+                                setMatrixEditId((actual) => (actual === rateId ? null : rateId))
+                              }
+                            />
+                            <RateDetailDialog
+                              rate={
+                                (visibles as unknown as CandidateItem[]).find(
+                                  (r) => String(r.id) === matrixEditId,
+                                ) ?? null
+                              }
+                              flags={matrixEditId ? (avisos.get(matrixEditId) ?? []) : []}
+                              onClose={() => setMatrixEditId(null)}
+                              onEdit={() => {
+                                setVistaLista((v) => ({ ...v, [accommodation.id]: true }));
+                              }}
+                              onApprove={(rateId) => {
+                                setMatrixEditId(null);
+                                void handleApproveWithParent(
+                                  "accommodation-rates",
+                                  "accommodations",
+                                  accommodation.id,
+                                  [rateId],
+                                  "Tarifa aprobada",
+                                );
+                              }}
+                              onReject={(rateId) => {
+                                setMatrixEditId(null);
+                                void handleBulkReview(
+                                  "accommodation-rates",
+                                  [rateId],
+                                  "REJECTED",
+                                  "Tarifa descartada",
+                                );
+                              }}
+                            />
+                          </>
+                        ) : null}
+                      </div>
+                    ) : null}
+
                     <StagingEditableCard
                       entity="accommodations"
                       id={accommodation.id}
@@ -1524,6 +2035,9 @@ export function DocumentWorkspace({
                       onSaved={handleStagingSaved}
                     />
 
+                    {/* La lista solo cuando NO hay rejilla o cuando se pide
+                        expresamente: enseñar las dos era repetir 18 filas. */}
+                    {!matriz || vistaLista[accommodation.id] ? (
                     <RateReviewTable
                       entity="accommodation-rates"
                       parentEntity="accommodations"
@@ -1534,6 +2048,7 @@ export function DocumentWorkspace({
                         ) as unknown as CandidateItem[]
                       }
                       columns={accommodationRateColumns}
+                      openId={matrixEditId}
                       itemLabel="tarifa(s)"
                       editorTitle="Editar tarifa"
                       fields={accommodationRateFields}
@@ -1542,6 +2057,8 @@ export function DocumentWorkspace({
                       onBulkReview={handleBulkReview}
                       onSaved={handleStagingSaved}
                     />
+
+                    ) : null}
 
                     <RateReviewTable
                       entity="accommodation-adjustments"
@@ -1599,11 +2116,40 @@ export function DocumentWorkspace({
                       onBulkReview={handleBulkReview}
                       onSaved={handleStagingSaved}
                     />
-                  </div>
-                ))}
+                  </details>
+                  );
+                })}
 
-                {detail.stagingActivities.map((activity) => (
+                {detail.stagingActivities.length > 0 ? (
+                  <p className="acts-note">
+                    <b>Actividades</b> — van aparte de los alojamientos: alquiler de campos,
+                    partidos, clases. Se aprueban por su cuenta y no es obligatorio: lo que no
+                    apruebes no pasa al catálogo, y puedes publicar solo los alojamientos.
+                  </p>
+                ) : null}
+
+                {detail.stagingActivities.map((activity) => {
+                  const quedaActividad =
+                    passesReviewFilter(activity.reviewStatus) ||
+                    activity.rates.some((x) => passesReviewFilter(x.reviewStatus)) ||
+                    activity.policies.some((x) => passesReviewFilter(x.reviewStatus));
+                  if (!quedaActividad) return null;
+                  return (
                   <div key={activity.id} className="staging-group">
+                    {activity.rates.length > 0 ? (
+                      <p className="acts-sum">
+                        {activity.rates.length} precio(s) ·{" "}
+                        {activity.rates.every((r) => r.rawText)
+                          ? "todos traen el texto del documento del que salieron"
+                          : "alguno no trae texto de origen: compruébalo contra el PDF"}
+                      </p>
+                    ) : (
+                      <p className="acts-sum acts-sum--warn">
+                        Esta actividad no trae ningún precio. Si la apruebas entrará al catálogo
+                        muda y saldrá como «a consultar» en las propuestas.
+                      </p>
+                    )}
+
                     <StagingEditableCard
                       entity="activities"
                       id={activity.id}
@@ -1653,7 +2199,8 @@ export function DocumentWorkspace({
                       onSaved={handleStagingSaved}
                     />
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )
           ) : null}
@@ -1771,7 +2318,10 @@ export function DocumentWorkspace({
                 </div>
               ) : null}
 
-              {dryRunResult ? (
+              {/* Mientras se confirma, el panel de simulación repetía cifra por
+                  cifra lo que ya dice la confirmación. Solo se enseña cuando se
+                  simula por separado. */}
+              {dryRunResult && !awaitingPublishConfirm ? (
                 <div className="publish-result publish-result--dryrun">
                   <div className="section-card__header compact">
                     <div>
@@ -1845,6 +2395,25 @@ export function DocumentWorkspace({
 
               {publishResult ? (
                 <div className="publish-result">
+                  {/* Titular: lo que entró y lo que no, en una línea. */}
+                  <p className="pub-head">
+                    <strong
+                      className={
+                        publishResult.accommodationRates + publishResult.activityRates > 0
+                          ? "pub-head__in"
+                          : "pub-head__none"
+                      }
+                    >
+                      {publishResult.accommodationRates + publishResult.activityRates} tarifa(s) en
+                      el catálogo
+                    </strong>
+                    {publishResult.skippedRates + publishResult.skippedActivityRates > 0 ? (
+                      <span className="pub-head__out">
+                        · {publishResult.skippedRates + publishResult.skippedActivityRates} fuera
+                      </span>
+                    ) : null}
+                  </p>
+
                   <div className="grid two">
                     <div className="field">
                       <span>Alojamientos publicados</span>
@@ -1862,29 +2431,42 @@ export function DocumentWorkspace({
                       <span>Tarifas de actividad</span>
                       <strong>{publishResult.activityRates}</strong>
                     </div>
-                    <div className="field">
-                      <span>Omitidos (no aprobados / inválidos)</span>
-                      <strong>
-                        {publishResult.skippedAccommodations +
-                          publishResult.skippedRates +
-                          publishResult.skippedActivities +
-                          publishResult.skippedActivityRates}
-                      </strong>
-                    </div>
                   </div>
+
+                  {/* Los motivos, que es lo accionable. Antes solo había un total. */}
+                  {publishResult.skipReasons?.length > 0 ? (
+                    <>
+                      <span className="ai-result__label">Por qué no entró el resto</span>
+                      <ul className="pub-reasons">
+                        {publishResult.skipReasons.map((reason) => (
+                          <li key={reason.code}>
+                            <span className="pub-reasons__n">{reason.count}</span>
+                            <span>
+                              {reason.message}
+                              {reason.fix ? <em> {reason.fix}</em> : null}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="pub-again">
+                        Arregla lo que puedas y vuelve a pulsar «Publicar aprobados»: se recalcula
+                        entero, no duplica nada y lo que aprueben ahora entrará.
+                      </p>
+                    </>
+                  ) : (
+                    <p>Entró todo lo aprobado. No se quedó nada fuera.</p>
+                  )}
 
                   {publishResult.warnings.length > 0 ? (
                     <>
-                      <span className="ai-result__label">Advertencias de publicación</span>
+                      <span className="ai-result__label">Otras advertencias</span>
                       <ul className="detail-list">
                         {publishResult.warnings.map((warning, index) => (
                           <li key={index}>{warning}</li>
                         ))}
                       </ul>
                     </>
-                  ) : (
-                    <p>Sin advertencias.</p>
-                  )}
+                  ) : null}
                 </div>
               ) : null}
             </>

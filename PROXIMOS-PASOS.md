@@ -44,21 +44,50 @@ De once peticiones: cuatro cerradas, tres a medias, cuatro sin empezar.
 
 ## Tres cosas que hay que saber antes de planificar
 
-**1. El año de las tarifas no es fiable.** De 555 tarifas de alojamiento, **313
-tienen un año anterior a 2025** (147 dicen 2001) y 28 dicen 2028 o más tarde.
-Solo 214 tienen un año plausible. Son errores de extracción: la IA confunde
-números de la tabla con el año.
+> ⚠️ **Reescrito el 10/08 contra la base de datos.** Lo que decía esta sección
+> —«la IA se inventa el año»— **era falso**, y el catálogo cargado es **de
+> muestra, nuestro**: el cliente sube ficheros nuevos cuando la app esté en pie.
 
-Esto **bloquea dos peticiones del cliente**: filtrar por año y desactivar
-tarifas viejas darían resultados falsos. Hay que arreglar el dato antes de
-construir la función, no después.
+**1. La IA no se inventa el año. El importador de Excel sí.** Las 313 tarifas con
+año imposible y las 264 actividades sin precio vienen **todas** del importador CLI
+(`prisma:import-rates`), que es andamiaje de desarrollo. Comprobado por
+`sourceDocumentId`: 554 de 555 tarifas de alojamiento y 264 de 264 de actividad
+entraron por ahí, ninguna por la IA.
 
-**2. Las 264 tarifas de actividad siguen sin precio.** Todas. Cada propuesta
-sale con las actividades como "a consultar", y ninguna variación del programa
-mueve el precio.
+La IA ha procesado tres PDFs reales del cliente y produjo **46 tarifas, las 46
+correctas**: año 2026, precio y moneda completos, cero años inventados. El
+extractor **no necesita arreglo**. Sale de la lista.
 
-**3. El CRM tiene 200 tratos** mezclando pruebas nuestras y datos reales. Antes
-de enseñar nada a Javier conviene separarlos.
+**2. Lo que sí falla: el catálogo no recibe lo aprobado.** De esas 46 tarifas,
+**42 quedaron aprobadas y solo 1 llegó al catálogo**. Y el PDF del que la IA no
+sacó ninguna tarifa **quedó marcado como PUBLICADO igual**.
+
+| Documento | Estado | Aprobadas | En catálogo |
+|---|---|---|---|
+| 4R 3 estrellas | PUBLISHED | 0 | 0 |
+| 4R 4 estrellas | PUBLISHED | **40** | **0** |
+| Albergue Jaca | PUBLISHED | 2 | 1 |
+
+Hay **tres caminos en el código que fallan en silencio**, y cualquiera de ellos
+produce este estado:
+
+- Si el alojamiento padre no está aprobado, se descartan todas sus tarifas
+  aprobadas y solo se deja un aviso (`documentImportDb.ts:948`).
+- **Publicar es de una sola vez**: aprobar después de haber publicado no publica
+  nada, y no hay forma de volver a intentarlo.
+- Un documento del que no sale ninguna tarifa **se marca PUBLICADO igual**.
+
+No se puede reconstruir cuál de los tres ocurrió: las tablas de staging no guardan
+fecha de revisión y esta base tiene historial manual. Da igual — los tres hay que
+cerrarlos.
+
+**Por qué es lo más urgente:** el día que arranque, el cliente sube sus ficheros,
+revisa, aprueba, pulsa publicar, ve «publicado» y el catálogo se queda vacío. El
+cotizador abre la app y no encuentra hoteles. Es el fallo más caro posible en una
+puesta en marcha, y es exactamente el que tenemos hoy sin saberlo.
+
+**3. El CRM tiene 200 tratos** mezclando pruebas nuestras y datos reales. Este sí
+sigue en pie. Antes de enseñar nada a Javier conviene separarlos.
 
 ---
 
@@ -77,8 +106,9 @@ de enseñar nada a Javier conviene separarlos.
 
 ### Bloque 2 · Lo que el cliente pidió y falta (2-3 semanas)
 
-4. **Sanear el año de las tarifas** y solo entonces: filtros por año y
-   desactivación automática de las viejas.
+4. **Arreglar el extractor** (que deje de inventarse el año y que sepa leer
+   precios de actividad) y solo entonces: filtros por año y desactivación
+   automática de las viejas. Las filas de muestra no se sanean: se tiran.
 5. **El neto a la vista** al cotizar, y **el proveedor en las actividades**.
 6. **Que el cobro del depósito avance la fase** en vez de hacerlo a mano.
 7. **Autorrellenar los campos al ganar**.

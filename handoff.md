@@ -10,12 +10,98 @@
 > lo que viene, en `PROXIMOS-PASOS.md`.
 >
 > Rama `feat/documental-review-workspace`, remoto `origin` =
-> `https://github.com/aquinatoa/Viajes-Velero` (**todo commiteado y empujado**).
+> `https://github.com/aquinatoa/Viajes-Velero` (pendiente de empujar tras la tanda del 10/08).
 >
 > **Cinco pantallas** (menú en dos grupos): *Día a día* → **Propuestas** (inicio) y **Viajes**
 > (+Calendario); *Gestión* → **Tarifas**, **Usuarios**, **Actividad**. **Nueva solicitud** no es una
 > sección: es un botón fijo en la barra superior, porque es una acción, no un sitio.
 >
+## Tanda del 10/08/2026 — el flujo documental, de punta a punta
+
+El día se fue en que **cargar tarifas sea fiable**, porque de ahí salen todas las
+propuestas: un precio mal aprobado son presupuestos mal hechos toda la temporada.
+Se probó contra los tres PDFs reales de Fútbol Salou 2027, no con ejemplos.
+
+**Lo que se declara al subir manda sobre lo que adivina la IA.** Un documento
+dice ahora si trae precios **de compra** (con su margen: 8 % habitual, 12 % en
+Deportivo) o **de venta** (y para qué cliente). El caso real que lo motivó: la
+tarifa pactada con el turoperador suizo cayó en el campo "neto" y el código
+antiguo la habría publicado a 100,44 € en vez de a los 93 € acordados.
+
+**Un documento puede traer varios alojamientos.** Los PDFs traen tres hoteles;
+antes se aplastaban en uno y las 54 tarifas colgaban del primero. Ahora cada
+tarifa y cada suplemento vienen etiquetados y se reparten por nombre, tolerando
+que la IA escriba "mediterrània med1 (doble)" donde la cabecera pone
+"Mediterrània MED1".
+
+**Las actividades ya pueden tener precio.** El esquema de la IA solo tenía una
+lista de tarifas con forma de alojamiento, y el código que guardaba actividades
+**descartaba cualquier tarifa**: el flujo documental nunca había podido cargar el
+precio de un alquiler de campo. Con su propia estructura —por equipo, por hora,
+por persona— entraron 11 actividades con 16 tarifas, cuadradas con la página 2
+del PDF (Master class 258 €, campos 190/286 €, luz 28/45 €).
+
+**Publicar dejó de mentir.** Un documento solo queda "Publicado" si algo llegó de
+verdad al catálogo; si no entra nada, se queda en revisión. Y el resultado dice
+los motivos agrupados con su arreglo, no un "omitidos: 6" mudo.
+
+**Las condiciones ya no se aplanan.** Políticas, suplementos y fechas excluidas
+tienen tablas propias en el catálogo, con tipo, importe y fechas, además del
+texto que lee el colegio. Un suplemento como texto no se podía sumar al precio.
+
+**La revisión se puede juzgar.** La matriz del documento sustituye a la lista
+cuando las tarifas forman rejilla completa; cada precio abre una ventana con el
+fragmento literal del que salió y su confianza; y **la máquina comprueba lo que
+sabe comprobar**: que el importe esté en su texto de origen, que individual
+cueste más que doble, que un régimen más completo no cueste menos, que sin campo
+no salga más caro que con campo, y en actividades que se sepa si se cobra por
+equipo o por persona. La persona decide solo sobre las excepciones.
+
+**Aprobar es un gesto, no dos.** "Aprobar el hotel y sus 18 tarifas" aprueba
+padre e hijas a la vez: la trampa de aprobar las tarifas y olvidar el hotel —que
+dejó 42 aprobadas y 1 publicada— deja de ser posible, no es que se avise.
+
+**El alta empieza por el archivo.** Sueltas el PDF, la app deduce nombre y
+temporada del nombre del fichero, pregunta solo lo que decide el precio y un
+botón encadena registrar, subir, leer y preparar la revisión.
+
+**Pruebas: de 31 a 55.** Cubren la regla de precios, el reparto entre hoteles,
+los motivos de publicación, las comprobaciones de alojamiento y de actividad, el
+reparto de tarifas de actividad y que las condiciones se publiquen con estructura.
+
+### Gotchas que costaron tiempo
+
+- **La API no recarga sola.** Solo lo hace la parte web. Un cambio en el prompt
+  no tiene efecto hasta reiniciar `npm run dev`: se leyó un documento entero con
+  el esquema viejo por no hacerlo.
+- **`listInventoryDocuments` selecciona campo a campo.** Al añadir columnas a
+  `SourceDocument` hay que añadirlas ahí o la pantalla muestra el valor por
+  defecto aunque el dato esté guardado.
+- **multer entrega el nombre del fichero en latin-1**: "GENÉRICO.pdf" llegaba
+  como "GENÃ‰RICO.pdf". Se recupera releyéndolo como UTF-8.
+- **`.stack` es flex con `align-items: flex-start`**, así que una rejilla dentro
+  se encoge a su contenido y cae todo en una columna.
+- Los Excel del importador de muestra apuntan a rutas del Mac anterior: **el
+  catálogo de muestra no se puede regenerar aquí**. Y sus 33 alojamientos
+  sostienen las 29 opciones de las 10 propuestas de prueba (borrado en cascada),
+  así que borrarlo dejaría esas propuestas vacías.
+
+### Lo que queda
+
+1. **Enseñar el consumo de IA**: ya se guardan tokens y modelo por documento,
+   pero no se ven en ninguna pantalla ni hay total.
+2. **Unificar los dos botones de publicar**: "Simular publicación" y "Revisar y
+   publicar" hacen casi lo mismo; sobra uno.
+3. **Decisión de negocio**: ahora que los suplementos tienen importe, ¿se suman
+   solos al cotizar o solo se muestran? (Miniestadi, 6 €/pax/noche, 40 alumnos y
+   5 noches = 1.200 €.)
+4. **De Javier**: los precios (dijo hoy o miércoles) y confirmar los nombres del
+   servidor de correo — los que mandó son de una plantilla genérica; los reales,
+   según su DNS, son `imap.oraviatravel.com` y `smtp.oraviatravel.com`, con los
+   puertos 993 y 587 que sí venían bien en su captura.
+
+---
+
 > **Commits de esta tanda (más reciente arriba):**
 > - `e71c7e3` Nueva solicitud como acción fija en el topbar + precios del 8% en la propuesta
 > - `85d19b4` Sistema visual Oravia + `PRODUCT.md` / `DESIGN.md` / `comunicaciones/`

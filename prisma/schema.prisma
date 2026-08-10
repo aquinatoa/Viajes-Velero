@@ -66,6 +66,61 @@ model Accommodation {
   proposalOptions    ProposalAccommodationOption[]
 
   @@index([sourceDocumentId])
+  policies           AccommodationPolicy[]
+  adjustments        AccommodationAdjustment[]
+  blackoutDates      AccommodationBlackoutDate[]
+}
+
+/// Condiciones publicadas de un alojamiento (impuestos, tasas, cancelación...).
+/// Antes se pegaban todas en un campo de texto y se perdía su tipo, con lo que
+/// la aplicación no podía razonar con ellas.
+model AccommodationPolicy {
+  id                String        @id @default(cuid())
+  accommodationId   String
+  policyType        String        @default("UNKNOWN")
+  policyText        String
+  sourceDocumentId  String?
+  sourceStagingId   String?
+  accommodation     Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+
+  @@index([accommodationId])
+  @@index([sourceDocumentId])
+}
+
+/// Suplementos publicados, con su importe y a qué aplica. Como texto libre no
+/// se podían sumar al precio de una propuesta.
+model AccommodationAdjustment {
+  id                String        @id @default(cuid())
+  accommodationId   String
+  adjustmentType    String        @default("UNKNOWN")
+  concept           String
+  amountType        String?
+  amount            Decimal?
+  appliesPer        String?
+  conditionText     String?
+  sourceDocumentId  String?
+  sourceStagingId   String?
+  accommodation     Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+
+  @@index([accommodationId])
+  @@index([sourceDocumentId])
+}
+
+/// Fechas en las que la tarifa no aplica. Con fechas de verdad se puede avisar
+/// al cotizar; como frase, no.
+model AccommodationBlackoutDate {
+  id                 String        @id @default(cuid())
+  accommodationId    String
+  dateFrom           DateTime?
+  dateTo             DateTime?
+  availabilityStatus String        @default("UNKNOWN")
+  reason             String?
+  sourceDocumentId   String?
+  sourceStagingId    String?
+  accommodation      Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+
+  @@index([accommodationId])
+  @@index([sourceDocumentId])
 }
 
 model AccommodationRate {
@@ -83,6 +138,15 @@ model AccommodationRate {
   pvpAmount              Decimal?
   netSaleAmount          Decimal?
   netAzulmarinoAmount    Decimal?
+
+  // Para qué cliente vale este precio. El mismo alojamiento, régimen y
+  // ocupación valen distinto según el canal (turoperador suizo con tarifa
+  // pactada frente a colegio). null = sirve para cualquier cliente.
+  clientSegment          String?
+  // Qué va incluido además del alojamiento (campo artificial, natural,
+  // ninguno...). Es un eje del precio, no una nota.
+  includedService        String?
+
   sourceFile             String?
   sourceSheet            String?
   sourceDocumentId       String?
@@ -121,6 +185,8 @@ model ActivityRate {
   salePvpAmount     Decimal?
   costNetAmount     Decimal?
   commissionPercent Decimal?
+  /// Para qué cliente vale este precio. null = cualquiera.
+  clientSegment     String?
   durationText      String?
   sourceFile        String?
   sourceSheet       String?
@@ -229,10 +295,30 @@ model SourceDocument {
   controlYear        Int?
   controlCategory    String?
   controlNotes       String?
+
+  // Qué precios trae el documento. Se declara al subirlo: la IA no puede
+  // deducirlo con fiabilidad y equivocarse cuesta dinero (una tarifa de venta
+  // tomada por coste se publica con el margen encima).
+  // PURCHASE = lo que nos cuesta · SALE = lo que cobramos · UNKNOWN = heredado.
+  rateKind           String   @default("UNKNOWN")
+  // Margen a aplicar sobre el coste cuando rateKind = PURCHASE. Si es null se
+  // usa el 8% por defecto del sistema. Deportivo trabaja al 12%.
+  marginPercent      Decimal?
+  // Para qué cliente es la tarifa cuando rateKind = SALE. El mismo alojamiento
+  // tiene precios distintos por canal (p. ej. TTOO suizo vs. cliente general).
+  clientSegment      String?
+
   status             String   @default("UPLOADED")
   extractionStatus   String   @default("NOT_STARTED")
   requiresOcr        Boolean  @default(false)
   aiConfidence       Decimal?
+
+  // Consumo de IA de la última lectura de este documento. Cada lectura cuesta
+  // dinero y Oravia va a leer decenas al año; sin esto no hay forma de saber
+  // cuánto cuesta cargar una temporada.
+  aiInputTokens      Int?
+  aiOutputTokens     Int?
+  aiModel            String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   processedAt        DateTime?
@@ -319,6 +405,10 @@ model StagingAccommodationRate {
   unitType                 String?
   rateUnit                 String?
   occupancyLabel           String?
+  // Servicio incluido en el precio además del alojamiento (campo artificial,
+  // campo natural, ninguno...). Es un eje más de la tarifa, no un adorno: en
+  // Fútbol Salou el mismo régimen y ocupación valen distinto según el campo.
+  includedService          String?
 
   minNights                Int?
   minPax                   Int?

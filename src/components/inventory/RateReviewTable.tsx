@@ -344,6 +344,8 @@ function renderPriceCell(rate: RateLike, kind: "accommodation" | "activity"): Re
 }
 
 interface RateReviewTableProps {
+  /** Fila que hay que abrir desde fuera (p. ej. una celda de la matriz). */
+  openId?: string | null;
   entity: StagingEntityKey;
   parentEntity: StagingEntityKey;
   parentId: string;
@@ -377,9 +379,16 @@ interface RateReviewTableProps {
  * candidatos con poco esfuerzo.
  */
 export function RateReviewTable(props: RateReviewTableProps) {
-  const { rates, entity, parentEntity, parentId, busy, columns } = props;
+  const { rates, entity, parentEntity, parentId, busy, columns, openId } = props;
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Al pulsar un precio en la matriz se abre aquí el editor de esa tarifa.
+  useEffect(() => {
+    if (openId && rates.some((rate) => rate.id === openId)) {
+      setExpandedId(openId);
+    }
+  }, [openId, rates]);
 
   const visibleIds = rates.map((rate) => rate.id);
   const selectedVisible = visibleIds.filter((id) => selected.has(id));
@@ -581,32 +590,143 @@ export function RateReviewTable(props: RateReviewTableProps) {
   );
 }
 
+/** Régimen en claro: "PC" no lo entiende quien no trabaja con tarifas a diario. */
+const BOARD_LABELS: Record<string, string> = {
+  PC: "Pensión completa",
+  MP: "Media pensión",
+  AD: "Alojamiento y desayuno",
+  SA: "Solo alojamiento",
+};
+
+/**
+ * Columnas de una tarifa de alojamiento.
+ *
+ * Antes eran Periodo · Régimen · Precio · Año, y con eso seis tarifas del mismo
+ * hotel salían idénticas salvo el importe: Periodo estaba vacío en todas y Año
+ * repetía la temporada del documento. Lo que de verdad las distingue —qué
+ * incluye el precio y para cuántas personas— no se enseñaba, así que no había
+ * forma de revisarlas. El año y el periodo siguen estando en el editor.
+ */
 export const accommodationRateColumns: CandidateColumn[] = [
-  { header: "Periodo", render: (i) => formatRatePeriod(i as unknown as RateLike) },
-  { header: "Régimen", render: (i) => cell(i.boardType) },
+  {
+    header: "Régimen",
+    render: (i) => BOARD_LABELS[String(i.boardType ?? "")] ?? cell(i.boardType),
+  },
+  { header: "Qué incluye", render: (i) => cell(i.includedService) },
+  { header: "Ocupación", render: (i) => cell(i.occupancyLabel) },
   { header: "Precio", render: (i) => renderPriceCell(i as unknown as RateLike, "accommodation") },
-  { header: "Año", render: (i) => cell(i.year) },
+  { header: "Periodo", render: (i) => formatRatePeriod(i as unknown as RateLike) },
 ];
 
+/** Cómo se cobra una actividad. Es lo que decide el importe de una propuesta:
+ *  190 € por equipo o 190 € por persona no se parecen en nada. */
+const RATE_UNIT_LABELS: Record<string, string> = {
+  PER_GROUP: "por equipo",
+  PER_PAX: "por persona",
+  PER_HOUR: "por hora",
+  PER_DAY: "por día",
+  PER_SERVICE: "por servicio",
+  UNKNOWN: "sin definir",
+};
+
+/**
+ * Columnas de una tarifa de actividad.
+ *
+ * Antes eran Periodo · Edad · Precio · Año: "Edad" mostraba "1 hora" porque ahí
+ * cae la variante, el periodo estaba vacío y el año repetía la temporada. Ni se
+ * veía cómo se cobra ni de dónde salía el número, así que no había forma de
+ * contrastarlo con el documento.
+ */
 export const activityRateColumns: CandidateColumn[] = [
-  { header: "Periodo", render: (i) => formatRatePeriod(i as unknown as RateLike) },
-  { header: "Edad", render: (i) => cell(i.ageLabel) },
+  { header: "Variante", render: (i) => cell(i.ageLabel) },
+  {
+    header: "Cómo se cobra",
+    render: (i) => {
+      const unidad = RATE_UNIT_LABELS[String(i.rateUnit ?? "")] ?? cell(i.rateUnit);
+      const duracion = String(i.durationText ?? "").trim();
+      return duracion ? `${unidad} · ${duracion}` : unidad;
+    },
+  },
   { header: "Precio", render: (i) => renderPriceCell(i as unknown as RateLike, "activity") },
-  { header: "Año", render: (i) => cell(i.year) },
+  {
+    header: "De dónde sale",
+    render: (i) => {
+      const origen = String(i.rawText ?? "").trim();
+      if (!origen) {
+        return <span className="cell-nosource">Sin texto de origen</span>;
+      }
+      return (
+        <span className="cell-source" title={origen}>
+          {origen}
+        </span>
+      );
+    },
+  },
 ];
+
+/** Códigos internos que no deben llegar a pantalla. */
+const APPLIES_LABELS: Record<string, string> = {
+  PAX: "por persona",
+  NIGHT: "por noche",
+  ROOM: "por habitación",
+  UNIT: "por unidad",
+  STAY: "por estancia",
+  BOOKING: "por reserva",
+  UNKNOWN: "",
+};
+
+export const POLICY_LABELS: Record<string, string> = {
+  TAX: "Impuestos",
+  TOURIST_TAX: "Tasa turística",
+  INCLUDED_SERVICES: "Qué incluye",
+  OCCUPANCY: "Ocupación",
+  CANCELLATION: "Cancelación",
+  PAYMENT: "Pago",
+  DEPOSIT: "Depósito",
+  GRATUITY: "Gratuidades",
+  ROOMING_LIST: "Lista de habitaciones",
+  MIN_STAY: "Estancia mínima",
+  MIN_GROUP_SIZE: "Grupo mínimo",
+  MAX_GROUP_SIZE: "Grupo máximo",
+  AGE_RESTRICTION: "Edades",
+  CHECK_IN_OUT: "Entrada y salida",
+  MEAL_CONDITIONS: "Comidas",
+  TRANSPORT_REQUIRED: "Transporte",
+  WEATHER_DEPENDENT: "Depende del tiempo",
+  LANGUAGE: "Idioma",
+  SPECIAL_NOTES: "Notas",
+  UNKNOWN: "Otros",
+};
+
+export const AVAILABILITY_LABELS: Record<string, string> = {
+  BLOCKED: "No disponible",
+  EXCLUDED: "Fechas excluidas",
+  ON_REQUEST: "Bajo petición",
+  SPECIAL_RATE: "Tarifa especial",
+  UNKNOWN: "Sin definir",
+};
+
+/** "6 FIXED · PAX" era ilegible; ahora dice "6 € por persona y noche". */
+function formatAdjustmentAmount(item: CandidateItem): string {
+  if (item.amount == null) return "—";
+  const cantidad = new Intl.NumberFormat("es-ES", { maximumFractionDigits: 2 }).format(
+    Number(item.amount),
+  );
+  const unidad = String(item.amountType ?? "") === "PERCENT" ? "%" : "€";
+  const aplica = APPLIES_LABELS[String(item.appliesPer ?? "")] ?? "";
+  return `${cantidad} ${unidad}${aplica ? ` ${aplica}` : ""}`.trim();
+}
 
 export const adjustmentColumns: CandidateColumn[] = [
   { header: "Concepto", render: (i) => cell(i.concept) },
-  {
-    header: "Importe",
-    render: (i) =>
-      i.amount != null ? `${i.amount}${i.amountType ? ` ${String(i.amountType)}` : ""}` : "—",
-  },
-  { header: "Aplica por", render: (i) => cell(i.appliesPer) },
+  { header: "Importe", render: (i) => formatAdjustmentAmount(i) },
 ];
 
 export const policyColumns: CandidateColumn[] = [
-  { header: "Tipo", render: (i) => cell(i.policyType) },
+  {
+    header: "Tipo",
+    render: (i) => POLICY_LABELS[String(i.policyType ?? "")] ?? cell(i.policyType),
+  },
   {
     header: "Texto",
     render: (i) => <span className="cell-truncate">{cell(i.policyText)}</span>,
@@ -615,6 +735,9 @@ export const policyColumns: CandidateColumn[] = [
 
 export const blackoutColumns: CandidateColumn[] = [
   { header: "Fechas", render: (i) => formatRatePeriod(i as unknown as RateLike) },
-  { header: "Disponibilidad", render: (i) => cell(i.availabilityStatus) },
+  {
+    header: "Disponibilidad",
+    render: (i) => AVAILABILITY_LABELS[String(i.availabilityStatus ?? "")] ?? cell(i.availabilityStatus),
+  },
   { header: "Motivo", render: (i) => cell(i.reason) },
 ];

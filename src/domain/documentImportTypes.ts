@@ -89,6 +89,30 @@ export type ActivityPolicyType =
 
 export type AvailabilityStatus = "BLOCKED" | "ON_REQUEST" | "SPECIAL_RATE" | "UNKNOWN";
 
+/**
+ * Qué precios trae el documento. Lo declara quien lo sube: la IA reparte los
+ * importes entre coste y venta según lo que intuye del texto, y equivocarse
+ * cuesta dinero (una tarifa de venta tomada por coste sale con margen encima).
+ */
+export type RateKind = "PURCHASE" | "SALE" | "UNKNOWN";
+
+/** Canal de venta al que pertenece una tarifa de venta. */
+export type ClientSegment = "GENERIC" | "SWISS_TTOO";
+
+export const rateKindLabels: Record<RateKind, string> = {
+  PURCHASE: "De compra",
+  SALE: "De venta",
+  UNKNOWN: "Sin declarar",
+};
+
+export const clientSegmentLabels: Record<ClientSegment, string> = {
+  GENERIC: "Cualquier otro cliente",
+  SWISS_TTOO: "Turoperador suizo",
+};
+
+/** Margen por defecto del sistema cuando el documento es de compra. */
+export const DEFAULT_MARGIN_PERCENT = 8;
+
 export interface CreateSourceDocumentInput {
   targetType: InventoryTargetType;
   controlName: string;
@@ -96,6 +120,9 @@ export interface CreateSourceDocumentInput {
   controlYear?: number | null;
   controlCategory?: string;
   controlNotes?: string;
+  rateKind?: RateKind;
+  marginPercent?: number | null;
+  clientSegment?: ClientSegment | null;
 }
 
 export interface SourceDocumentSummary {
@@ -105,6 +132,9 @@ export interface SourceDocumentSummary {
   controlLocation?: string | null;
   controlYear?: number | null;
   controlCategory?: string | null;
+  rateKind?: RateKind;
+  marginPercent?: number | null;
+  clientSegment?: ClientSegment | null;
   status: SourceDocumentStatus;
   extractionStatus: ExtractionStatus;
   requiresOcr: boolean;
@@ -322,9 +352,17 @@ export interface AiCandidateRate {
   dateFrom?: string | null;
   dateTo?: string | null;
   boardType?: string | null;
+  /**
+   * A qué alojamiento del documento pertenece esta tarifa. Un PDF de tarifas
+   * suele traer varios establecimientos con su propia tabla; sin esta etiqueta
+   * todas las tarifas acaban colgadas del primero.
+   */
+  accommodationName?: string | null;
   unitName?: string | null;
   rateUnit?: string | null;
   occupancyLabel?: string | null;
+  /** Qué va incluido además del alojamiento (campo artificial, natural...). */
+  includedService?: string | null;
   minNights?: number | null;
   currency?: string | null;
   pvpAmount?: number | null;
@@ -333,7 +371,33 @@ export interface AiCandidateRate {
   rawText?: string | null;
 }
 
+/**
+ * Precio de una actividad. Va aparte de las tarifas de alojamiento porque su
+ * forma es otra: una actividad se cobra por equipo, por hora o por persona, no
+ * por régimen y ocupación. Sin esta estructura no había dónde poner el precio
+ * de un alquiler de campo, y las actividades entraban al catálogo mudas.
+ */
+export interface AiCandidateActivityRate {
+  /** Nombre exacto de la actividad de `detectedActivities` a la que pertenece. */
+  activityName: string;
+  /** Cómo se cobra: PER_GROUP, PER_HOUR, PER_PAX, PER_SERVICE, PER_DAY. */
+  rateUnit?: string | null;
+  year?: number | null;
+  seasonName?: string | null;
+  currency?: string | null;
+  salePvpAmount?: number | null;
+  costNetAmount?: number | null;
+  durationText?: string | null;
+  /** A quién aplica: categoría, día de la semana, edad… */
+  ageLabel?: string | null;
+  minPax?: number | null;
+  maxPax?: number | null;
+  rawText?: string | null;
+}
+
 export interface AiCandidateSupplement {
+  /** Alojamiento al que pertenece el suplemento, si el documento lo separa. */
+  accommodationName?: string | null;
   adjustmentType?: string | null;
   concept: string;
   amountType?: string | null;
@@ -360,14 +424,24 @@ export interface AiCandidateBlackoutDate {
 export interface AiDocumentAnalysisResult {
   mode: AiAnalysisMode;
   documentSummary: string;
+  /**
+   * Compatibilidad: el primero de `detectedAccommodations`. Se mantiene para no
+   * romper lo que ya lo leía; para trabajar, usa siempre la lista.
+   */
   detectedAccommodation: AiDetectedAccommodation | null;
+  /** Todos los alojamientos del documento. Un PDF de tarifas suele traer varios. */
+  detectedAccommodations: AiDetectedAccommodation[];
   detectedActivities: AiDetectedActivity[];
   candidateRates: AiCandidateRate[];
+  /** Precios de las actividades del documento. */
+  candidateActivityRates: AiCandidateActivityRate[];
   candidateSupplements: AiCandidateSupplement[];
   candidatePolicies: AiCandidatePolicy[];
   candidateBlackoutDates: AiCandidateBlackoutDate[];
   warnings: string[];
   confidence: number;
+  /** Consumo de la llamada, cuando el proveedor lo informa. */
+  usage?: { inputTokens: number; outputTokens: number; model: string } | null;
   rawModelOutput?: string | null;
 }
 
@@ -412,6 +486,8 @@ export interface PublishApprovedResult {
   skippedRates: number;
   skippedActivities: number;
   skippedActivityRates: number;
+  /** Motivos agrupados de lo que no entró, del más frecuente al menos. */
+  skipReasons: PublishSkipReason[];
   warnings: string[];
 }
 
@@ -476,6 +552,24 @@ export interface PublishedInventorySummary {
  * Resultado de la simulación de publicación (dry-run). Refleja qué se
  * publicaría y qué se omitiría sin escribir nada en el inventario operativo.
  */
+/**
+ * Por qué se quedó algo fuera del catálogo, con cuántos casos y qué hacer.
+ * Un "omitidos: 6" no es accionable; esto sí.
+ */
+export interface PublishSkipReason {
+  code:
+    | "ACCOMMODATION_NOT_APPROVED"
+    | "RATE_NOT_APPROVED"
+    | "MISSING_PRICE"
+    | "MISSING_CURRENCY"
+    | "MISSING_YEAR";
+  count: number;
+  /** Explicación en claro, con el número ya dentro. */
+  message: string;
+  /** Qué hacer para que entren. Null si no hay acción evidente. */
+  fix: string | null;
+}
+
 export interface DryRunPublishResult {
   /** true si hay al menos un alojamiento o actividad aprobado. */
   hasPublishableCandidates: boolean;
@@ -489,6 +583,8 @@ export interface DryRunPublishResult {
   skippedRates: number;
   skippedActivities: number;
   skippedActivityRates: number;
+  /** Motivos agrupados de lo que no entraría, del más frecuente al menos. */
+  skipReasons: PublishSkipReason[];
   warnings: string[];
   approvedCandidates: number;
   pendingCandidates: number;

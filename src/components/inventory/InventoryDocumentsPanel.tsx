@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
 import type {
+  ClientSegment,
   CreateSourceDocumentInput,
   DryRunDeleteDocumentResult,
   InventoryTargetType,
+  RateKind,
   SourceDocumentSummary,
+} from "../../domain/documentImportTypes";
+import {
+  clientSegmentLabels,
+  DEFAULT_MARGIN_PERCENT,
 } from "../../domain/documentImportTypes";
 import {
   createInventoryDocumentApi,
@@ -15,6 +21,7 @@ import {
 } from "../../services/apiClient";
 import { InventoryCatalogView } from "./InventoryCatalogView";
 import { DocumentWorkspace } from "./DocumentWorkspace";
+import { NewDocumentDropzone } from "./NewDocumentDropzone";
 import {
   extractionStatusLabels,
   getErrorMessage,
@@ -29,6 +36,9 @@ const initialForm: CreateSourceDocumentInput = {
   controlYear: new Date().getFullYear(),
   controlCategory: "",
   controlNotes: "",
+  rateKind: "PURCHASE",
+  marginPercent: DEFAULT_MARGIN_PERCENT,
+  clientSegment: null,
 };
 
 export function InventoryDocumentsPanel() {
@@ -139,6 +149,9 @@ export function InventoryDocumentsPanel() {
       controlYear: document.controlYear ?? null,
       controlCategory: document.controlCategory ?? "",
       controlNotes: "",
+      rateKind: document.rateKind ?? "UNKNOWN",
+      marginPercent: document.marginPercent ?? null,
+      clientSegment: document.clientSegment ?? null,
     });
     setFormOpen(true);
     setErrorMessage(null);
@@ -161,6 +174,12 @@ export function InventoryDocumentsPanel() {
       return;
     }
 
+    // Los dos campos de precio se excluyen: un documento de compra lleva margen
+    // y ningún cliente; uno de venta lleva cliente y ningún margen. Se limpia
+    // aquí para que no viaje un resto de la elección anterior.
+    const isPurchase = form.rateKind === "PURCHASE";
+    const isSale = form.rateKind === "SALE";
+
     const payload = {
       ...form,
       controlName: form.controlName.trim(),
@@ -168,6 +187,8 @@ export function InventoryDocumentsPanel() {
       controlCategory: form.controlCategory?.trim() || undefined,
       controlNotes: form.controlNotes?.trim() || undefined,
       controlYear: form.controlYear ? Number(form.controlYear) : null,
+      marginPercent: isPurchase ? (form.marginPercent ?? DEFAULT_MARGIN_PERCENT) : null,
+      clientSegment: isSale ? (form.clientSegment ?? "GENERIC") : null,
     };
 
     setSaving(true);
@@ -306,11 +327,13 @@ export function InventoryDocumentsPanel() {
       <>
       <div className="section-card__header compact">
         <div>
-          <h3>{editingDocumentId ? "Editar documento" : "Registrar documento"}</h3>
+          {/* El título no repite lo que ya dice el botón de la derecha: nombra
+              la sección, que es la lista de documentos. */}
+          <h3>{editingDocumentId ? "Editar documento" : "Documentos de tarifas"}</h3>
           <p>
             {editingDocumentId
               ? "Corrige los datos de control de este documento."
-              : "Da de alta un documento fuente para luego subir su PDF y analizarlo."}
+              : "Cada documento se registra, se sube, se analiza y se revisa antes de publicar sus tarifas."}
           </p>
         </div>
         {!editingDocumentId ? (
@@ -320,7 +343,19 @@ export function InventoryDocumentsPanel() {
         ) : null}
       </div>
 
-      {formOpen || editingDocumentId ? (
+      {formOpen && !editingDocumentId ? (
+        <NewDocumentDropzone
+          onCancel={() => setFormOpen(false)}
+          onDone={async (documentId) => {
+            setFormOpen(false);
+            setFeedbackMessage("Documento subido y leído. Revisa las tarifas que ha encontrado.");
+            await loadDocuments();
+            await handleViewDetail(documentId);
+          }}
+        />
+      ) : null}
+
+      {editingDocumentId ? (
       <form className="grid two" onSubmit={handleSubmit}>
         <label className="field">
           <span>Tipo de registro</span>
@@ -367,6 +402,109 @@ export function InventoryDocumentsPanel() {
             placeholder="Ej. Valencia, Salou, Jaca"
           />
         </label>
+
+        {/* Declaración de precios: lo primero que hay que saber de un documento
+            de tarifas, porque de ello depende si se le aplica margen o no.
+            Ocupa las dos columnas: es una decisión, no un campo más. */}
+        <fieldset className="rate-kind">
+          <legend>¿Qué precios trae este documento?</legend>
+          <div className="rate-kind__options">
+            <label className="rate-kind__opt">
+              <input
+                type="radio"
+                name="rateKind"
+                checked={form.rateKind === "PURCHASE"}
+                onChange={() =>
+                  setForm((current) => ({
+                    ...current,
+                    rateKind: "PURCHASE" as RateKind,
+                    marginPercent: current.marginPercent ?? DEFAULT_MARGIN_PERCENT,
+                    clientSegment: null,
+                  }))
+                }
+              />
+              <span>
+                <strong>De compra</strong>
+                <small>Lo que os cuesta. La aplicación le añadirá vuestro margen.</small>
+              </span>
+            </label>
+
+            <label className="rate-kind__opt">
+              <input
+                type="radio"
+                name="rateKind"
+                checked={form.rateKind === "SALE"}
+                onChange={() =>
+                  setForm((current) => ({
+                    ...current,
+                    rateKind: "SALE" as RateKind,
+                    marginPercent: null,
+                    clientSegment: current.clientSegment ?? ("GENERIC" as ClientSegment),
+                  }))
+                }
+              />
+              <span>
+                <strong>De venta</strong>
+                <small>Lo que cobráis al cliente. Se guarda tal cual, sin tocar.</small>
+              </span>
+            </label>
+          </div>
+
+          {form.rateKind === "PURCHASE" ? (
+            <label className="rate-kind__follow">
+              <span>Margen que se aplica sobre la compra</span>
+              <span className="rate-kind__margin">
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={form.marginPercent ?? ""}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      marginPercent: event.target.value ? Number(event.target.value) : null,
+                    }))
+                  }
+                />
+                <em>%</em>
+              </span>
+              <small>
+                El habitual es {DEFAULT_MARGIN_PERCENT}&nbsp;%. Deportivo trabaja al 12&nbsp;%.
+              </small>
+            </label>
+          ) : null}
+
+          {form.rateKind === "SALE" ? (
+            <label className="rate-kind__follow">
+              <span>¿Para qué cliente es esta tarifa?</span>
+              <select
+                value={form.clientSegment ?? "GENERIC"}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    clientSegment: event.target.value as ClientSegment,
+                  }))
+                }
+              >
+                <option value="GENERIC">Cualquier otro cliente</option>
+                <option value="SWISS_TTOO">Turoperador suizo (Destination · Travelclub)</option>
+              </select>
+              <small>
+                El mismo alojamiento puede tener precios distintos según el cliente. Al cotizar se
+                elegirá cuál toca.
+              </small>
+            </label>
+          ) : null}
+
+          {form.rateKind === "UNKNOWN" ? (
+            <p className="rate-kind__legacy">
+              Este documento se subió antes de que se pidiera esta información. Mientras no se
+              declare, sus precios se interpretan como se hacía antes. Elige compra o venta para
+              dejarlo claro.
+            </p>
+          ) : null}
+        </fieldset>
 
         <label className="field">
           <span>Año / temporada</span>
@@ -500,19 +638,15 @@ export function InventoryDocumentsPanel() {
       ) : null}
 
       <div className="table-wrap">
-        <table>
+        <table className="doc-table">
           <thead>
             <tr>
-              <th>Nombre</th>
-              <th>Tipo</th>
-              <th>Ubicación</th>
-              <th>Año</th>
+              <th>Documento</th>
+              <th>Precios</th>
+              <th>Temporada</th>
               <th>Estado</th>
-              <th>Por revisar</th>
-              <th>Extracción</th>
-              <th>Creado</th>
-              <th>Acciones</th>
-              <th>Archivo fuente</th>
+              <th>Archivo</th>
+              <th aria-label="Acciones" />
             </tr>
           </thead>
           <tbody>
@@ -520,93 +654,133 @@ export function InventoryDocumentsPanel() {
               const selectedFile = selectedFiles[document.id];
               const isUploading = uploadingDocumentId === document.id;
               const isSelected = selectedDocumentId === document.id;
+              const kind = document.rateKind ?? "UNKNOWN";
+              const pending = document.pendingReviewCount ?? 0;
 
               return (
                 <tr key={document.id} className={isSelected ? "is-selected" : undefined}>
-                  <td>{document.controlName}</td>
-                  <td>{targetTypeLabels[document.targetType]}</td>
-                  <td>{document.controlLocation ?? "-"}</td>
-                  <td>{document.controlYear ?? "-"}</td>
-                  <td>{statusLabels[document.status] ?? document.status}</td>
+                  {/* Identidad: el nombre manda; tipo y sitio lo acompañan. */}
                   <td>
-                    {document.pendingReviewCount && document.pendingReviewCount > 0 ? (
-                      <button
-                        type="button"
-                        className="status-tag status-tag--needs_changes status-tag--action"
-                        title="Abrir candidatos pendientes"
-                        onClick={() => void handleViewDetail(document.id, "pendientes")}
-                      >
-                        {document.pendingReviewCount} pendiente(s)
-                      </button>
-                    ) : document.candidateCount ? (
-                      <span className="status-tag status-tag--approved">Revisado</span>
+                    <span className="doc-cell__name">{document.controlName}</span>
+                    <span className="doc-cell__sub" title={document.controlLocation ?? ""}>
+                      {targetTypeLabels[document.targetType]}
+                      {document.controlLocation ? ` · ${document.controlLocation}` : ""}
+                    </span>
+                  </td>
+
+                  {/* Qué precios trae: lo que decide si se le aplica margen. */}
+                  <td>
+                    {kind === "PURCHASE" ? (
+                      <span className="doc-kind doc-kind--buy">
+                        Compra
+                        <em>
+                          +{document.marginPercent ?? DEFAULT_MARGIN_PERCENT}&nbsp;% de margen
+                        </em>
+                      </span>
+                    ) : kind === "SALE" ? (
+                      <span className="doc-kind doc-kind--sell">
+                        Venta
+                        <em>
+                          {document.clientSegment
+                            ? clientSegmentLabels[document.clientSegment]
+                            : "Cualquier cliente"}
+                        </em>
+                      </span>
                     ) : (
-                      <span className="rate-table__empty">Sin candidatos</span>
-                    )}
-                  </td>
-                  <td>
-                    {extractionStatusLabels[document.extractionStatus] ??
-                      document.extractionStatus}
-                  </td>
-                  <td>{new Date(document.createdAt).toLocaleDateString()}</td>
-                  <td>
-                    <div className="stack compact">
-                      <button type="button" onClick={() => void handleViewDetail(document.id)}>
-                        {isSelected ? "Detalle abierto" : "Ver detalle"}
-                      </button>
                       <button
                         type="button"
-                        className="link-action"
+                        className="doc-kind doc-kind--unset"
+                        title="Declara si trae precios de compra o de venta"
                         onClick={() => handleEditDocument(document)}
                       >
-                        Editar
+                        Sin declarar
+                        <em>Pulsa para decirlo</em>
                       </button>
+                    )}
+                  </td>
+
+                  <td className="doc-cell__year">{document.controlYear ?? "—"}</td>
+
+                  {/* Un solo estado. La revisión pendiente va debajo, y es un
+                      atajo: pulsarla abre justo esos candidatos. */}
+                  <td>
+                    <span
+                      className={`doc-state doc-state--${document.status.toLowerCase()}`}
+                    >
+                      {statusLabels[document.status] ?? document.status}
+                    </span>
+                    {pending > 0 ? (
                       <button
                         type="button"
-                        className="link-action link-action--reject"
-                        disabled={deleteBusyId === document.id}
-                        onClick={() => void handleRequestDeleteDocument(document)}
+                        className="doc-cell__pending"
+                        onClick={() => void handleViewDetail(document.id, "pendientes")}
                       >
-                        {deleteBusyId === document.id ? "Comprobando..." : "Eliminar"}
+                        {pending} por revisar
                       </button>
-                    </div>
+                    ) : (
+                      <span className="doc-cell__sub">
+                        {extractionStatusLabels[document.extractionStatus] ??
+                          document.extractionStatus}
+                      </span>
+                    )}
                   </td>
-                  <td>
-                    <div className="file-cell">
-                      <input
-                        className="file-cell__input"
-                        type="file"
-                        accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,image/*"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
 
-                          setSelectedFiles((current) => ({
-                            ...current,
-                            [document.id]: file,
-                          }));
-                        }}
-                      />
+                  {/* Archivo: un botón de verdad, no el control crudo del navegador. */}
+                  <td>
+                    <div className="filepick">
+                      <label className="filepick__choose">
+                        {selectedFile ? "Cambiar" : "Elegir archivo"}
+                        <input
+                          type="file"
+                          accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,image/*"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            setSelectedFiles((current) => ({
+                              ...current,
+                              [document.id]: file,
+                            }));
+                          }}
+                        />
+                      </label>
 
                       {selectedFile ? (
-                        <small className="file-cell__name">
-                          Seleccionado: {selectedFile.name} (
-                          {Math.round(selectedFile.size / 1024)} KB)
-                        </small>
-                      ) : (
-                        <small className="file-cell__name file-cell__name--empty">
-                          Sin archivo seleccionado.
-                        </small>
-                      )}
-
-                      <button
-                        type="button"
-                        className="file-cell__button"
-                        disabled={!selectedFile || isUploading}
-                        onClick={() => void handleUpload(document.id)}
-                      >
-                        {isUploading ? "Subiendo..." : "Subir archivo"}
-                      </button>
+                        <>
+                          <span className="filepick__name" title={selectedFile.name}>
+                            {selectedFile.name}
+                            <em>{Math.round(selectedFile.size / 1024)} KB</em>
+                          </span>
+                          <button
+                            type="button"
+                            className="primary filepick__send"
+                            disabled={isUploading}
+                            onClick={() => void handleUpload(document.id)}
+                          >
+                            {isUploading ? "Subiendo…" : "Subir"}
+                          </button>
+                        </>
+                      ) : null}
                     </div>
+                  </td>
+
+                  <td className="doc-cell__actions">
+                    <button type="button" onClick={() => void handleViewDetail(document.id)}>
+                      {isSelected ? "Abierto" : "Ver detalle"}
+                    </button>
+                    <button
+                      type="button"
+                      className="link-action"
+                      onClick={() => handleEditDocument(document)}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      className="link-action link-action--reject"
+                      disabled={deleteBusyId === document.id}
+                      onClick={() => void handleRequestDeleteDocument(document)}
+                    >
+                      {deleteBusyId === document.id ? "Comprobando…" : "Eliminar"}
+                    </button>
                   </td>
                 </tr>
               );
@@ -614,7 +788,7 @@ export function InventoryDocumentsPanel() {
 
             {!loading && filteredDocuments.length === 0 && (
               <tr>
-                <td colSpan={10}>
+                <td colSpan={6}>
                   {documents.length === 0
                     ? "Todavía no hay documentos registrados."
                     : "Ningún documento coincide con la búsqueda."}

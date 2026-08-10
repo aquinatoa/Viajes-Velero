@@ -137,6 +137,12 @@ export interface SearchFilters {
   teachers?: number | null;
   ageRangeText?: string;
   averageAgeText?: string;
+  /**
+   * Para qué cliente se cotiza. Fútbol Salou tiene tarifa pactada con el
+   * turoperador suizo y otra general; sin esto no se sabe cuál coger.
+   * Vacío = cliente general.
+   */
+  clientSegment?: string | null;
 }
 
 export interface Accommodation {
@@ -168,6 +174,10 @@ export interface AccommodationRate {
   pvpAmount: number;
   netSaleAmount: number;
   netAzulmarinoAmount: number;
+  /** Canal al que pertenece este precio. Vacío = vale para cualquier cliente. */
+  clientSegment: string;
+  /** Qué va incluido además del alojamiento (campo artificial, natural...). */
+  includedService: string;
   sourceFile: string;
   sourceSheet: string;
 }

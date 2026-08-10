@@ -12,7 +12,7 @@ import type {
   UnpublishItemResult,
   UnpublishResult,
 } from "../src/domain/documentImportTypes";
-import { deriveSalePrice } from "./pricing";
+import { deriveSalePrice, resolveRatePrices, toRateKind, type RateKind } from "./pricing";
 
 const prisma = new PrismaClient();
 
@@ -23,6 +23,9 @@ export interface CreateInventoryDocumentInput {
   controlYear?: number | null;
   controlCategory?: string;
   controlNotes?: string;
+  rateKind?: string;
+  marginPercent?: number | null;
+  clientSegment?: string | null;
   originalFileName?: string;
   fileMimeType?: string;
   fileSizeBytes?: number;
@@ -48,6 +51,9 @@ export async function createInventoryDocument(input: CreateInventoryDocumentInpu
       controlYear: input.controlYear ?? null,
       controlCategory: input.controlCategory ?? null,
       controlNotes: input.controlNotes ?? null,
+      rateKind: toRateKind(input.rateKind),
+      marginPercent: input.marginPercent ?? null,
+      clientSegment: input.clientSegment ?? null,
       originalFileName: input.originalFileName ?? null,
       fileMimeType: input.fileMimeType ?? null,
       fileSizeBytes: input.fileSizeBytes ?? null,
@@ -56,6 +62,24 @@ export async function createInventoryDocument(input: CreateInventoryDocumentInpu
       status: "UPLOADED",
       extractionStatus: "NOT_STARTED",
       requiresOcr: false,
+    },
+  });
+}
+
+/**
+ * Anota el consumo de IA de la última lectura del documento.
+ * No toca nada más: es solo contabilidad.
+ */
+export async function updateInventoryDocumentAiUsage(
+  documentId: string,
+  usage: { inputTokens: number; outputTokens: number; model: string },
+) {
+  return prisma.sourceDocument.update({
+    where: { id: documentId },
+    data: {
+      aiInputTokens: usage.inputTokens,
+      aiOutputTokens: usage.outputTokens,
+      aiModel: usage.model,
     },
   });
 }
@@ -85,12 +109,15 @@ export interface UpdateInventoryDocumentMetadataInput {
   controlYear?: number | null;
   controlCategory?: string | null;
   controlNotes?: string | null;
+  rateKind?: string;
+  marginPercent?: number | null;
+  clientSegment?: string | null;
 }
 
 /**
  * Actualiza los metadatos de control de un documento (nombre, ubicación, año,
- * categoría, notas, tipo). NO toca el archivo, el staging ni el inventario
- * operativo. Solo incluye los campos presentes en la entrada.
+ * categoría, notas, tipo, y qué precios trae). NO toca el archivo, el staging
+ * ni el inventario operativo. Solo incluye los campos presentes en la entrada.
  */
 export async function updateInventoryDocumentMetadata(
   documentId: string,
@@ -103,6 +130,9 @@ export async function updateInventoryDocumentMetadata(
   if (input.controlYear !== undefined) data.controlYear = input.controlYear ?? null;
   if (input.controlCategory !== undefined) data.controlCategory = input.controlCategory || null;
   if (input.controlNotes !== undefined) data.controlNotes = input.controlNotes || null;
+  if (input.rateKind !== undefined) data.rateKind = toRateKind(input.rateKind);
+  if (input.marginPercent !== undefined) data.marginPercent = input.marginPercent ?? null;
+  if (input.clientSegment !== undefined) data.clientSegment = input.clientSegment || null;
 
   const updated = await prisma.sourceDocument.update({
     where: { id: documentId },
@@ -146,6 +176,11 @@ export async function listInventoryDocuments() {
       controlLocation: true,
       controlYear: true,
       controlCategory: true,
+      // Sin estos tres la lista mostraba "Sin declarar" aunque estuviera
+      // declarado: el select los omitía y nunca llegaban a la pantalla.
+      rateKind: true,
+      marginPercent: true,
+      clientSegment: true,
       status: true,
       extractionStatus: true,
       requiresOcr: true,
@@ -191,6 +226,8 @@ export async function listInventoryDocuments() {
     const { stagingAccommodations: _a, stagingActivities: _b, ...summary } = document;
     return {
       ...summary,
+      // El margen es Decimal en Prisma; la pantalla espera un número.
+      marginPercent: summary.marginPercent === null ? null : Number(summary.marginPercent),
       candidateCount: statuses.length,
       pendingReviewCount: statuses.filter(
         (status) => status === "PENDING" || status === "NEEDS_CHANGES",
@@ -361,6 +398,8 @@ export interface StagingCreationContext {
 }
 
 export interface StagingCreationResult {
+  /** Precios de actividad guardados (antes se descartaban siempre). */
+  activityRates?: number;
   accommodations: number;
   rates: number;
   adjustments: number;
@@ -409,6 +448,7 @@ export async function createInventoryDocumentStaging(
   const confidence = analysis.confidence ?? null;
 
   const hasAccommodationData =
+    analysis.detectedAccommodations?.length > 0 ||
     analysis.detectedAccommodation != null ||
     analysis.candidateRates.length > 0 ||
     analysis.candidateSupplements.length > 0 ||
@@ -425,6 +465,8 @@ export async function createInventoryDocumentStaging(
 
     return {
       sourceDocumentId,
+      // Se guarda aparte para repartir; no es columna de la tabla.
+      _accommodationName: rate.accommodationName ?? null,
       seasonName: rate.seasonName ?? null,
       year: rate.year ?? null,
       dateFrom: toStagingDate(rate.dateFrom),
@@ -433,6 +475,7 @@ export async function createInventoryDocumentStaging(
       unitName: rate.unitName ?? null,
       rateUnit: rate.rateUnit ?? null,
       occupancyLabel: rate.occupancyLabel ?? null,
+      includedService: rate.includedService ?? null,
       minNights: rate.minNights ?? null,
       currency: rate.currency ?? "EUR",
       pvpAmount: rate.pvpAmount ?? null,
@@ -445,6 +488,7 @@ export async function createInventoryDocumentStaging(
   });
 
   const adjustmentData = analysis.candidateSupplements.map((supplement) => ({
+    _accommodationName: supplement.accommodationName ?? null,
     adjustmentType: supplement.adjustmentType ?? "UNKNOWN",
     concept: supplement.concept,
     amountType: supplement.amountType ?? null,
@@ -452,6 +496,24 @@ export async function createInventoryDocumentStaging(
     appliesPer: supplement.appliesPer ?? null,
     conditionText: supplement.conditionText ?? null,
     rawText: supplement.rawText ?? null,
+    confidenceScore: confidence,
+    reviewStatus: "PENDING",
+  }));
+
+  const activityRateData = (analysis.candidateActivityRates ?? []).map((rate) => ({
+    // Se guarda aparte para repartir; no es columna de la tabla.
+    _activityName: rate.activityName,
+    year: rate.year ?? null,
+    seasonName: rate.seasonName ?? null,
+    ageLabel: rate.ageLabel ?? null,
+    rateUnit: rate.rateUnit ?? null,
+    currency: rate.currency ?? "EUR",
+    salePvpAmount: rate.salePvpAmount ?? null,
+    costNetAmount: rate.costNetAmount ?? null,
+    minPax: rate.minPax ?? null,
+    maxPax: rate.maxPax ?? null,
+    durationText: rate.durationText ?? null,
+    rawText: rate.rawText ?? null,
     confidenceScore: confidence,
     reviewStatus: "PENDING",
   }));
@@ -474,17 +536,105 @@ export async function createInventoryDocumentStaging(
     reviewStatus: "PENDING",
   }));
 
-  if (!analysis.detectedAccommodation && hasAccommodationData) {
+  // Los alojamientos del documento. Si la IA no detectó ninguno pero sí hay
+  // tarifas, se crea uno provisional con el nombre de control para no perderlas.
+  const detectedList = analysis.detectedAccommodations?.length
+    ? analysis.detectedAccommodations
+    : analysis.detectedAccommodation
+      ? [analysis.detectedAccommodation]
+      : [];
+
+  const accommodationsToCreate =
+    detectedList.length > 0
+      ? detectedList
+      : hasAccommodationData
+        ? [{ accommodationName: context.controlName } as (typeof detectedList)[number]]
+        : [];
+
+  if (detectedList.length === 0 && hasAccommodationData) {
     warnings.push(
       "Se detectaron tarifas o condiciones sin un alojamiento claro; se creó un alojamiento provisional a partir del nombre de control.",
+    );
+  }
+  if (detectedList.length > 1) {
+    warnings.push(
+      `El documento trae ${detectedList.length} alojamientos: ${detectedList
+        .map((accommodation) => accommodation.accommodationName)
+        .join(", ")}. Revisa que cada tarifa esté en el suyo.`,
+    );
+  }
+
+  // Reparto por nombre. La clave se normaliza porque la IA no siempre repite el
+  // nombre con las mismas mayúsculas o espacios que en la cabecera.
+  const normalizeKey = (value: string | null | undefined) =>
+    (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+
+  const nameToIndex = new Map<string, number>();
+  accommodationsToCreate.forEach((accommodation, index) => {
+    nameToIndex.set(normalizeKey(accommodation.accommodationName), index);
+  });
+
+  /** Índice del alojamiento al que pertenece un candidato; 0 si no se sabe. */
+  function indexFor(accommodationName: string | null | undefined): number {
+    if (accommodationsToCreate.length <= 1) return 0;
+    const exact = nameToIndex.get(normalizeKey(accommodationName));
+    if (exact !== undefined) return exact;
+    // La IA a veces devuelve "Mediterrània MED1 (doble)" o un fragmento.
+    const key = normalizeKey(accommodationName);
+    if (key) {
+      for (const [name, index] of nameToIndex) {
+        if (key.includes(name) || name.includes(key)) return index;
+      }
+    }
+    return -1;
+  }
+
+  const orphanRates: string[] = [];
+  const ratesByAccommodation = accommodationsToCreate.map(() => [] as typeof rateData);
+  for (const rate of rateData) {
+    const index = indexFor(rate._accommodationName);
+    if (index < 0) {
+      orphanRates.push(rate._accommodationName ?? "(sin nombre)");
+      ratesByAccommodation[0].push(rate);
+    } else {
+      ratesByAccommodation[index].push(rate);
+    }
+  }
+
+  const adjustmentsByAccommodation = accommodationsToCreate.map(() => [] as typeof adjustmentData);
+  for (const adjustment of adjustmentData) {
+    const index = indexFor(adjustment._accommodationName);
+    adjustmentsByAccommodation[index < 0 ? 0 : index].push(adjustment);
+  }
+
+  if (orphanRates.length > 0) {
+    const unique = [...new Set(orphanRates)];
+    warnings.push(
+      `${orphanRates.length} tarifa(s) no decían a qué alojamiento pertenecen (${unique
+        .slice(0, 3)
+        .join(", ")}); se han dejado en "${accommodationsToCreate[0]?.accommodationName}". Compruébalas.`,
+    );
+  }
+
+  if (accommodationsToCreate.length > 1 && (policyData.length > 0 || blackoutData.length > 0)) {
+    warnings.push(
+      `Las condiciones y fechas bloqueadas del documento se han asociado a "${accommodationsToCreate[0]?.accommodationName}". Si valen para todos los alojamientos, cópialas.`,
     );
   }
 
   const counts = await prisma.$transaction(async (tx) => {
     let accommodationsCount = 0;
 
-    if (hasAccommodationData) {
-      const detected = analysis.detectedAccommodation;
+    for (const [index, detected] of accommodationsToCreate.entries()) {
+      // Las condiciones del documento son de ámbito general: se cuelgan del
+      // primero para no multiplicarlas por cada hotel sin que nadie lo decida.
+      const isFirst = index === 0;
+      const rates = ratesByAccommodation[index].map(
+        ({ _accommodationName, ...rate }) => rate,
+      );
+      const adjustments = adjustmentsByAccommodation[index].map(
+        ({ _accommodationName, ...adjustment }) => adjustment,
+      );
 
       await tx.stagingAccommodation.create({
         data: {
@@ -498,19 +648,32 @@ export async function createInventoryDocumentStaging(
           accommodationType: detected?.accommodationType ?? null,
           confidenceScore: confidence,
           reviewStatus: "PENDING",
-          rates: rateData.length > 0 ? { create: rateData } : undefined,
-          adjustments: adjustmentData.length > 0 ? { create: adjustmentData } : undefined,
-          policies: policyData.length > 0 ? { create: policyData } : undefined,
-          blackoutDates: blackoutData.length > 0 ? { create: blackoutData } : undefined,
+          rates: rates.length > 0 ? { create: rates } : undefined,
+          adjustments: adjustments.length > 0 ? { create: adjustments } : undefined,
+          policies: isFirst && policyData.length > 0 ? { create: policyData } : undefined,
+          blackoutDates: isFirst && blackoutData.length > 0 ? { create: blackoutData } : undefined,
         },
       });
 
-      accommodationsCount = 1;
+      accommodationsCount += 1;
     }
 
     let activitiesCount = 0;
 
+    // Las tarifas de actividad se reparten por nombre, igual que las de
+    // alojamiento. Hasta ahora se creaba la actividad y se tiraba cualquier
+    // precio, así que entraban al catálogo mudas y las propuestas salían con
+    // "a consultar".
+    const tarifasPorActividad = new Map<string, typeof activityRateData>();
+    for (const rate of activityRateData) {
+      const clave = normalizeKey(rate._activityName);
+      tarifasPorActividad.set(clave, [...(tarifasPorActividad.get(clave) ?? []), rate]);
+    }
+
     for (const activity of analysis.detectedActivities) {
+      const suyas = tarifasPorActividad.get(normalizeKey(activity.activityName)) ?? [];
+      const rates = suyas.map(({ _activityName, ...rate }) => rate);
+
       await tx.stagingActivity.create({
         data: {
           sourceDocumentId,
@@ -522,10 +685,23 @@ export async function createInventoryDocumentStaging(
           descriptionText: activity.descriptionText ?? null,
           confidenceScore: confidence,
           reviewStatus: "PENDING",
+          rates: rates.length > 0 ? { create: rates } : undefined,
         },
       });
 
       activitiesCount += 1;
+    }
+
+    const sinDuenyo = activityRateData.filter(
+      (rate) =>
+        !analysis.detectedActivities.some(
+          (activity) => normalizeKey(activity.activityName) === normalizeKey(rate._activityName),
+        ),
+    );
+    if (sinDuenyo.length > 0) {
+      warnings.push(
+        `${sinDuenyo.length} precio(s) de actividad no encajan con ninguna actividad detectada y se han descartado. Revisa el documento.`,
+      );
     }
 
     return { accommodationsCount, activitiesCount };
@@ -538,6 +714,7 @@ export async function createInventoryDocumentStaging(
     policies: policyData.length,
     blackoutDates: blackoutData.length,
     activities: counts.activitiesCount,
+    activityRates: activityRateData.length,
     warnings,
   };
 }
@@ -900,6 +1077,34 @@ export class PublishValidationError extends Error {
 export interface PublishApprovedContext {
   controlLocation?: string | null;
   controlYear?: number | null;
+  /** Qué precios trae el documento, declarado al subirlo. */
+  rateKind?: RateKind;
+  /** Margen sobre el coste cuando el documento es de compra. */
+  marginPercent?: number | null;
+  /** Canal de venta al que pertenece la tarifa cuando el documento es de venta. */
+  clientSegment?: string | null;
+}
+
+/**
+ * Por qué se quedó algo fuera del catálogo, con cuántos casos y qué hacer.
+ * Existe porque un recuento de "omitidos: 6" no dice nada accionable: hay que
+ * saber si faltaba aprobar un hotel (se arregla en un clic) o si las tarifas no
+ * traen moneda (hay que editarlas).
+ */
+export interface PublishSkipReason {
+  /** Clave estable para agrupar; no se enseña al usuario. */
+  code:
+    | "ACCOMMODATION_NOT_APPROVED"
+    | "RATE_NOT_APPROVED"
+    | "MISSING_PRICE"
+    | "MISSING_CURRENCY"
+    | "MISSING_YEAR";
+  /** Cuántas tarifas o fichas se quedaron fuera por este motivo. */
+  count: number;
+  /** Explicación en claro, ya con el número dentro. */
+  message: string;
+  /** Qué hay que hacer para que entren. Null si no hay acción evidente. */
+  fix: string | null;
 }
 
 export interface PublishApprovedResult {
@@ -911,6 +1116,8 @@ export interface PublishApprovedResult {
   skippedRates: number;
   skippedActivities: number;
   skippedActivityRates: number;
+  /** Motivos agrupados de lo que no entró, del más frecuente al menos. */
+  skipReasons: PublishSkipReason[];
   warnings: string[];
 }
 
@@ -942,6 +1149,13 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
   let skippedActivities = 0;
   let skippedActivityRates = 0;
 
+  // Motivos agrupados: se cuentan aquí y se redactan al final, para que la
+  // pantalla pueda decir "4 por X, 2 por Y" en vez de un total mudo.
+  const skipCounts = new Map<PublishSkipReason["code"], number>();
+  const noteSkip = (code: PublishSkipReason["code"], count = 1) => {
+    skipCounts.set(code, (skipCounts.get(code) ?? 0) + count);
+  };
+
   const accommodationsToCreate: Record<string, unknown>[] = [];
 
   for (const accommodation of accommodations) {
@@ -950,11 +1164,20 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
       const approvedChildRates = accommodation.rates.filter((rate) =>
         isApprovedStatus(rate.reviewStatus),
       ).length;
+      const pendingChildRates = accommodation.rates.length - approvedChildRates;
+
       if (approvedChildRates > 0) {
         warnings.push(
           `El alojamiento "${accommodation.accommodationName}" no está aprobado: no se publican sus ${approvedChildRates} tarifa(s) aprobada(s).`,
         );
         skippedRates += approvedChildRates;
+        noteSkip("ACCOMMODATION_NOT_APPROVED", approvedChildRates);
+      }
+      // Las tarifas que tampoco están aprobadas también se quedan fuera: si no
+      // se cuentan, el resultado dice "0 fuera" con el catálogo vacío.
+      if (pendingChildRates > 0) {
+        skippedRates += pendingChildRates;
+        noteSkip("RATE_NOT_APPROVED", pendingChildRates);
       }
       continue;
     }
@@ -963,28 +1186,39 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
     for (const rate of accommodation.rates) {
       if (!isApprovedStatus(rate.reviewStatus)) {
         skippedRates += 1;
+        noteSkip("RATE_NOT_APPROVED");
         continue;
       }
 
       const year = rate.year ?? context.controlYear ?? null;
-      // Regla de precios Oravia (Opción A): el documento trae el COSTE (neto);
-      // el PVP de venta = coste + 8%. Si el documento trae un PVP explícito, ese
-      // prevalece. Nunca se inventa: sin coste ni PVP, se omite la tarifa.
-      const costBase = decimalToNumber(rate.netAmount) ?? decimalToNumber(rate.costAmount);
-      const salePrice = deriveSalePrice(costBase, decimalToNumber(rate.pvpAmount));
+      // El tipo de tarifa lo declara quien sube el documento, no lo deduce la
+      // IA: si es de compra se le aplica el margen, y si es de venta se guarda
+      // tal cual. Ver `resolveRatePrices` para el porqué.
+      const { salePrice, costPrice } = resolveRatePrices(
+        {
+          pvpAmount: decimalToNumber(rate.pvpAmount),
+          netAmount: decimalToNumber(rate.netAmount),
+          costAmount: decimalToNumber(rate.costAmount),
+        },
+        context.rateKind ?? "UNKNOWN",
+        context.marginPercent,
+      );
       if (salePrice === null || salePrice === undefined) {
         warnings.push(`Tarifa de "${accommodation.accommodationName}" omitida: sin precio (coste ni PVP).`);
         skippedRates += 1;
+        noteSkip("MISSING_PRICE");
         continue;
       }
       if (!rate.currency || rate.currency.trim() === "") {
         warnings.push(`Tarifa de "${accommodation.accommodationName}" omitida: sin moneda.`);
         skippedRates += 1;
+        noteSkip("MISSING_CURRENCY");
         continue;
       }
       if (year === null) {
         warnings.push(`Tarifa de "${accommodation.accommodationName}" omitida: sin año.`);
         skippedRates += 1;
+        noteSkip("MISSING_YEAR");
         continue;
       }
 
@@ -998,8 +1232,14 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
         boardType: rate.boardType,
         tariffUnit: rate.rateUnit,
         currency: rate.currency,
+        // De qué canal es este precio y qué lleva incluido: sin estos dos, dos
+        // tarifas del mismo hotel y régimen son indistinguibles al cotizar.
+        clientSegment: context.clientSegment ?? null,
+        includedService: rate.includedService ?? null,
         pvpAmount: salePrice,
-        netSaleAmount: rate.netAmount,
+        // El coste resuelto, no el campo crudo donde cayó la cifra. En un
+        // documento de venta queda a null: ese papel no dice lo que cuesta.
+        netSaleAmount: costPrice,
         netAzulmarinoAmount: rate.costAmount,
         sourceDocumentId,
         sourceStagingId: rate.id,
@@ -1049,11 +1289,6 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
     const freePolicySource = approvedPolicies.find((policy) => /GRAT|FREE/i.test(policy.policyType));
     const freePolicy = freePolicySource ? freePolicySource.policyText : null;
 
-    if (approvedPolicies.length > 0 || approvedAdjustments.length > 0 || approvedBlackouts.length > 0) {
-      warnings.push(
-        `En "${accommodation.accommodationName}" se plegaron a texto libre ${approvedPolicies.length} política(s), ${approvedAdjustments.length} suplemento(s) y ${approvedBlackouts.length} fecha(s) especial(es); se pierde su estructura.`,
-      );
-    }
 
     const locality =
       (accommodation.locality && accommodation.locality.trim()) ||
@@ -1067,6 +1302,48 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
       accommodationType: accommodation.accommodationType,
       observations,
       conditionsText,
+      // Además del texto —que se conserva porque es lo que lee el colegio en la
+      // propuesta—, cada condición se guarda con su tipo, su importe y sus
+      // fechas. Aplanarlas impedía que la aplicación las usara para calcular.
+      policies:
+        approvedPolicies.length > 0
+          ? {
+              create: approvedPolicies.map((policy) => ({
+                policyType: policy.policyType ?? "UNKNOWN",
+                policyText: policy.policyText,
+                sourceDocumentId,
+                sourceStagingId: policy.id,
+              })),
+            }
+          : undefined,
+      adjustments:
+        approvedAdjustments.length > 0
+          ? {
+              create: approvedAdjustments.map((adjustment) => ({
+                adjustmentType: adjustment.adjustmentType ?? "UNKNOWN",
+                concept: adjustment.concept,
+                amountType: adjustment.amountType,
+                amount: adjustment.amount,
+                appliesPer: adjustment.appliesPer,
+                conditionText: adjustment.conditionText,
+                sourceDocumentId,
+                sourceStagingId: adjustment.id,
+              })),
+            }
+          : undefined,
+      blackoutDates:
+        approvedBlackouts.length > 0
+          ? {
+              create: approvedBlackouts.map((blackout) => ({
+                dateFrom: blackout.dateFrom,
+                dateTo: blackout.dateTo,
+                availabilityStatus: blackout.availabilityStatus ?? "UNKNOWN",
+                reason: blackout.reason,
+                sourceDocumentId,
+                sourceStagingId: blackout.id,
+              })),
+            }
+          : undefined,
       freePolicy,
       sourceFile: null,
       sourceDocumentId,
@@ -1088,6 +1365,7 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
           `La actividad "${activity.activityName}" no está aprobada: no se publican sus ${approvedChildRates} tarifa(s) aprobada(s).`,
         );
         skippedActivityRates += approvedChildRates;
+        noteSkip("ACCOMMODATION_NOT_APPROVED", approvedChildRates);
       }
       continue;
     }
@@ -1096,29 +1374,37 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
     for (const rate of activity.rates) {
       if (!isApprovedStatus(rate.reviewStatus)) {
         skippedActivityRates += 1;
+        noteSkip("RATE_NOT_APPROVED");
         continue;
       }
 
       const year = rate.year ?? context.controlYear ?? null;
-      // Regla de precios Oravia (Opción A): venta = coste + 8% si no viene un PVP
-      // explícito. Así, subiendo solo el coste, la actividad deja de ir "a consultar".
-      const activitySalePrice = deriveSalePrice(
-        decimalToNumber(rate.costNetAmount),
-        decimalToNumber(rate.salePvpAmount),
+      // Mismo criterio que en alojamientos: manda lo declarado al subir, no el
+      // campo en el que la IA colocó la cifra.
+      const { salePrice: activitySalePrice, costPrice: activityCostPrice } = resolveRatePrices(
+        {
+          pvpAmount: decimalToNumber(rate.salePvpAmount),
+          costAmount: decimalToNumber(rate.costNetAmount),
+        },
+        context.rateKind ?? "UNKNOWN",
+        context.marginPercent,
       );
       if (activitySalePrice === null || activitySalePrice === undefined) {
         warnings.push(`Tarifa de "${activity.activityName}" omitida: sin precio (coste ni PVP).`);
         skippedActivityRates += 1;
+        noteSkip("MISSING_PRICE");
         continue;
       }
       if (!rate.currency || rate.currency.trim() === "") {
         warnings.push(`Tarifa de "${activity.activityName}" omitida: sin moneda.`);
         skippedActivityRates += 1;
+        noteSkip("MISSING_CURRENCY");
         continue;
       }
       if (year === null) {
         warnings.push(`Tarifa de "${activity.activityName}" omitida: sin año.`);
         skippedActivityRates += 1;
+        noteSkip("MISSING_YEAR");
         continue;
       }
 
@@ -1129,7 +1415,8 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
         ageMax: rate.ageMax,
         currency: rate.currency,
         salePvpAmount: activitySalePrice,
-        costNetAmount: rate.costNetAmount,
+        costNetAmount: activityCostPrice,
+        clientSegment: context.clientSegment ?? null,
         commissionPercent: rate.commissionPercent,
         durationText: rate.durationText,
         sourceDocumentId,
@@ -1177,7 +1464,50 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
     skippedRates,
     skippedActivities,
     skippedActivityRates,
+    skipReasons: buildSkipReasons(skipCounts),
   };
+}
+
+/**
+ * Convierte los recuentos por motivo en frases con su arreglo. El orden es por
+ * frecuencia: lo que más tarifas está frenando, primero.
+ */
+function buildSkipReasons(
+  counts: Map<PublishSkipReason["code"], number>,
+): PublishSkipReason[] {
+  const plural = (count: number, one: string, many: string) =>
+    count === 1 ? one : many;
+
+  const describe: Record<
+    PublishSkipReason["code"],
+    (count: number) => { message: string; fix: string | null }
+  > = {
+    ACCOMMODATION_NOT_APPROVED: (count) => ({
+      message: `${count} ${plural(count, "tarifa aprobada se quedó fuera", "tarifas aprobadas se quedaron fuera")} porque su alojamiento todavía no está aprobado.`,
+      fix: "Aprueba el alojamiento y vuelve a publicar: entrarán solas.",
+    }),
+    RATE_NOT_APPROVED: (count) => ({
+      message: `${count} ${plural(count, "tarifa sigue", "tarifas siguen")} sin aprobar.`,
+      fix: "Revísalas y apruébalas en la pestaña de revisión.",
+    }),
+    MISSING_PRICE: (count) => ({
+      message: `${count} ${plural(count, "tarifa no trae precio", "tarifas no traen precio")} (ni coste ni venta).`,
+      fix: "Edita la tarifa y escribe el importe; sin él no se puede cotizar.",
+    }),
+    MISSING_CURRENCY: (count) => ({
+      message: `${count} ${plural(count, "tarifa no dice en qué moneda está", "tarifas no dicen en qué moneda están")}.`,
+      fix: "Edita la tarifa e indica la moneda (normalmente EUR).",
+    }),
+    MISSING_YEAR: (count) => ({
+      message: `${count} ${plural(count, "tarifa no tiene temporada", "tarifas no tienen temporada")}.`,
+      fix: "Pon el año en la tarifa, o rellena el año de control del documento.",
+    }),
+  };
+
+  return [...counts.entries()]
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([code, count]) => ({ code, count, ...describe[code](count) }));
 }
 
 function countCreatedRates(items: Record<string, unknown>[]): number {
@@ -1222,6 +1552,7 @@ export async function publishApprovedInventoryDocument(
     skippedRates: plan.skippedRates,
     skippedActivities: plan.skippedActivities,
     skippedActivityRates: plan.skippedActivityRates,
+    skipReasons: plan.skipReasons,
     warnings: plan.warnings,
   };
 }
@@ -1298,6 +1629,7 @@ export async function dryRunPublishApprovedInventoryDocument(
     skippedRates: plan.skippedRates,
     skippedActivities: plan.skippedActivities,
     skippedActivityRates: plan.skippedActivityRates,
+    skipReasons: plan.skipReasons,
     warnings,
     approvedCandidates,
     pendingCandidates,

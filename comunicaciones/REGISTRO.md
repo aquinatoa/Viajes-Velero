@@ -29,6 +29,11 @@
 | 3 | ¿El correo admite direcciones por expediente (`groups+ref@`)? | Pendiente de enviar | Que los correos entrantes se cuelguen solos del viaje correcto | [2026-08-09](2026-08-09-arranque-envio-propuestas.md) |
 | 4 | Las cinco decisiones de Azure (titularidad, tamaño, acceso, dominio, copias) | Pendiente de enviar | Publicar la app, la página del colegio y el correo entrante | [2026-08-09](2026-08-09-arranque-envio-propuestas.md) |
 | 5 | Visto bueno al diseño del PDF de propuesta | Pendiente de enviar | Nada: se puede seguir trabajando y ajustarlo después | [2026-08-09](2026-08-09-arranque-envio-propuestas.md) |
+| 6 | ¿Los cotizadores pueden ver el margen, con cuentas compartidas? | Pendiente de enviar | Cómo se comporta la pantalla de cotizar (hoy se ve) | [2026-08-09](2026-08-09-arranque-envio-propuestas.md) |
+| 7 | ¿Qué hacer si el cliente cambia el viaje después de pagar el depósito? | Pendiente de enviar | La regla de versionado (hoy versiona sin mirar si hubo cobro) | [2026-08-09](2026-08-09-arranque-envio-propuestas.md) |
+
+> ⚠️ Antes de enviar el correo hay que **generar y adjuntar el PDF de propuesta de ejemplo**
+> (lo pide la petición 5) y la ficha `Coste Azure/INFO-DESPLIEGUE-Azure-para-Sistemas.pdf`.
 
 ## Pendiente con Raúl (interno, no es del cliente)
 
@@ -42,7 +47,7 @@
 |---|---|---|
 | A1 | El rebranding a Oravia ya está aplicado en la pantalla de acceso de la app | En la próxima reunión |
 | A2 | La app no puede saber si el cliente abre el correo salvo que se ponga un pixel de seguimiento. Deja de hacer falta si sale adelante la página del colegio | Cuando se hable de seguimiento |
-| A3 | Las 246 actividades siguen sin precio y salen al CRM como "a consultar" | En la próxima reunión |
+| ~~A3~~ | ~~Las actividades del catálogo no tienen precio~~ — **retirado el 10/08**: el catálogo cargado es de muestra, nuestro. El cliente subirá ficheros nuevos cuando la app esté en pie, así que no es un problema suyo y no se le cuenta | — |
 
 ---
 

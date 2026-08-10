@@ -1,69 +1,54 @@
 # Lo que necesitamos de Javier
 
-> Preparado el 09/08/2026. Cuatro peticiones, ordenadas por lo que desbloquean.
-> La primera parte es el correo listo para enviar; debajo está el detalle técnico
-> por si pregunta el porqué o se lo pasa a su informático.
+> Preparado el 09/08. **Reducido el 10/08** a lo que de verdad tiene que hacer él.
+> Fuera del correo, por decisión de Anthony:
+> - Las cinco de Azure y las dos de negocio → **ya tenemos respuesta de su lado**.
+> - El visto bueno al presupuesto → **se le enseña en llamada, con la app ya en Azure**.
+> - La dirección por expediente (`groups+ref@`) → pospuesta: sin nuestro propio lector
+>   de buzón no arregla nada, porque Zoho engancha por remitente, no por destinatario.
+> - Las actividades sin precio → **no se le dice**: el catálogo cargado es de muestra,
+>   nuestro, para trabajar. El suyo llega con ficheros nuevos cuando la app esté en pie.
+>
+> Parte 1 = correo listo para enviar. Parte 2 = notas internas, no se envían.
 
 ---
 
 ## Parte 1 · Correo para enviar tal cual
 
-**Asunto:** Cuatro cosas que necesitamos para arrancar el envío de propuestas
+**Asunto:** Lo de los precios, y dos cosas que necesito
 
 Hola Javier,
 
-Estamos preparando lo que hablamos en junio: que la propuesta con las tres opciones
-salga directamente desde la aplicación, sin copiar y pegar, y que los correos dejen de
-mezclarse entre oportunidades. Para poder encenderlo necesitamos cuatro cosas de vuestro
-lado. Las tres primeras son rápidas; la cuarta es la que lleva más tiempo parada.
+Te contesto a lo que preguntabas de los precios, y al final te pido dos cosas.
 
-**1. Una clave de aplicación para los buzones `groups@` y `sports@`**
+**Los precios**
 
-Es lo que permite que la aplicación envíe el correo desde vuestro buzón, para que la
-respuesta del colegio llegue donde siempre y Zoho lo vea. No es la contraseña normal de
-la cuenta: es una clave aparte que se genera desde Zoho Mail, se puede revocar cuando
-queráis y solo sirve para enviar.
+Pásanoslo todo en un mismo documento, y con el coste nos basta. La aplicación calcula
+sola el precio de venta sumándole el 8%, y el comercial puede subirlo o bajarlo a mano en
+cada presupuesto.
 
-Se saca en: Zoho Mail → Configuración → Seguridad → Contraseñas de aplicación → Generar.
-Nos hace falta una por cada buzón. Tarda un par de minutos.
+Si algún hotel o actividad no lleva ese 8%, ponle su precio de venta en una columna al
+lado. Cuando esa columna tiene precio, la aplicación usa ese y no calcula nada.
 
-**2. El dominio definitivo de Oravia**
+Lo bueno de hacerlo así es que el día que cambiéis el margen, se cambia en la aplicación y
+ya está. No hay que volver a subir ningún documento.
 
-Ahora mismo todo lo que hemos preparado usa `@oraviatravel.com` como ejemplo. Antes de
-crear los usuarios reales necesitamos saber cuál es el bueno, y si los correos
-`@viajesvelero.com` van a seguir funcionando durante la transición o hay fecha de corte.
+**Dos cosas que necesito**
 
-**3. Confirmar si vuestro correo admite direcciones por expediente**
+1. **Los datos de envío de los buzones groups@ y sports@**, para que la aplicación pueda
+   mandar los presupuestos desde vuestro correo de siempre. Necesito el usuario y la
+   contraseña de cada buzón, y que quien os lleve el correo me confirme el servidor de
+   salida y el puerto. Si vuestro panel permite generar una clave aparte solo para enviar,
+   mejor todavía: así no circula la contraseña real y podéis anularla cuando queráis.
 
-Esto es lo que resuelve de raíz el problema de los correos mezclados. La idea es que cada
-propuesta lleve su propia dirección de respuesta, del estilo:
+2. **Confirmarme el dominio.** Veo que `oraviatravel.com` ya está funcionando y con correo
+   montado, así que doy por hecho que es el bueno. Dime si es así, si ya tenéis creados ahí
+   los buzones groups@ y sports@, y si los de viajesvelero.com van a seguir activos un
+   tiempo o hay fecha de corte.
 
-    groups+ORV-2026-0184@oraviatravel.com
-
-El colegio responde como siempre, sin notar nada, pero nosotros sabemos con total
-certeza a qué viaje pertenece cada correo, sin que Zoho tenga que adivinarlo. Necesitamos
-que nos confirméis (o que lo preguntéis a vuestro soporte de Zoho) si vuestro plan de
-correo admite direcciones con el signo `+`, o bien un buzón que recoja todo lo que no
-coincida con una cuenta existente. Si la respuesta es que no, tenemos una alternativa que
-funciona casi igual de bien, pero preferimos saberlo antes.
-
-**4. Las decisiones del servidor**
-
-Esta es la importante, y lleva parada desde el 21 de julio. Ya no bloquea solo "poner la
-aplicación en producción": bloquea también la página donde el colegio elige su opción y
-todo lo relacionado con el correo entrante. Son cinco decisiones:
-
-- ¿La suscripción de Azure va a nombre de Oravia o la gestionamos nosotros con una cuota mensual?
-- ¿Arrancamos con el tamaño básico que recomendamos y escalamos si hace falta?
-- ¿Acceso con el usuario y contraseña que ya tiene la aplicación, o con cuentas de Microsoft?
-- ¿Qué dominio usamos para entrar y desde qué oficinas se va a conectar?
-- ¿Cuántos días de copias de seguridad queréis conservar?
-
-Te pasamos ya la ficha técnica que preparamos para tu informático, con los tamaños y el
-detalle de lo que hay que contratar.
-
-Con lo primero podemos empezar a trabajar esta misma semana. Cualquier duda me dices y lo
-vemos por teléfono.
+Aprovecho también para poner en copia a mi compañero **Mateo**, que se encargará de montar
+la aplicación en el servidor. Él te escribirá en un próximo mensaje con las consultas que
+necesite para poder hacerlo.
 
 Un saludo,
 Anthony
@@ -72,36 +57,63 @@ Anthony
 
 ## Parte 2 · Detalle interno (no enviar)
 
+### Las respuestas de precios, verificadas contra el código
+
+`server/pricing.ts` → `deriveSalePrice(cost, explicitPvp, markup = 8)`:
+
+- Si el documento trae **PVP explícito y > 0**, ese prevalece (permite márgenes distintos
+  del 8% por producto). → De ahí la «columna de venta al lado» que se le propone.
+- Si no, **venta = coste × 1,08** redondeado a 2 decimales.
+- Si no hay ni coste ni PVP, devuelve `null` y la tarifa se omite aguas arriba. **Nunca se
+  inventa un precio.**
+
+Es la «Opción A» acordada con él el 15/07. Lo que se le dice es exactamente lo que hace el
+código, no una intención.
+
+### El correo NO está en Zoho Mail — verificado por DNS el 10/08/2026
+
+El borrador anterior le mandaba generar una «contraseña de aplicación de Zoho Mail». Es
+falso, y venía arrastrado sin comprobar. Lo que dice el DNS:
+
+| Comprobación | `viajesvelero.com` | `oraviatravel.com` |
+|---|---|---|
+| MX | `mx.viajesvelero.com` → 217.116.0.227 | `mx.oraviatravel.com` → **217.116.0.227** |
+| SMTP | `smtp.viajesvelero.com` → .228 | `smtp.oraviatravel.com` → **.228** |
+| Webmail | `webmail.viajesvelero.com` → .245 | `webmail.oraviatravel.com` → **.245** |
+| SPF | `include:one.zoho.eu` + `include:spf.dominioabsoluto.net` | `redirect=spf.dominioabsoluto.net` |
+
+Conclusiones:
+
+- **Los buzones viven en su hosting** (Dominio Absoluto), no en Zoho Mail ni Google ni
+  Microsoft. Zoho aparece en el SPF porque el CRM está autorizado a enviar en nombre del
+  dominio — no es dónde están los buzones.
+- **`oraviatravel.com` ya existe y ya tiene el correo montado, en el mismo servidor exacto.**
+  El dominio que usábamos «de ejemplo» es el bueno y está operativo. Por eso la petición 2
+  es una confirmación, no una pregunta.
+- ⚠️ **`.env.example:66` tiene `MAIL_HOST="smtp.zoho.eu"` y está mal.** Debe ser
+  `smtp.oraviatravel.com`. Pendiente de corregir.
+
+### El catálogo cargado es de muestra
+
+Los alojamientos y actividades que hay en la base son **nuestros, para trabajar**. Cuando la
+app esté en pie, el cliente sube ficheros **nuevos y distintos**. De ahí que:
+
+- **No se le avisa de las actividades sin precio ni de los años raros de las tarifas**: son
+  defectos de datos de prueba, no problemas suyos.
+- Que producción arranque con la base vacía **es lo correcto**, no un inconveniente: evita
+  que los datos de muestra contaminen el entorno real.
+- Lo que **sí** sigue importando es la **calidad del extractor**: el fallo que confunde
+  números de la tabla con el año se repetirá con los ficheros nuevos. Se arregla en el
+  extractor, no en las filas actuales.
+
 ### Por qué cada petición
 
-| Petición | Desbloquea | Si no llega |
-|---|---|---|
-| Clave de aplicación de los buzones | Envío de la propuesta desde la app (fase 2) | Se construye igual y queda en modo simulación: el correo se genera y se guarda, pero no sale |
-| Dominio definitivo | Alta de los usuarios reales y el remitente de los correos | Seguimos con el ejemplo; cambiar el correo de un usuario después no borra sus cotizaciones |
-| Direcciones por expediente | Correo entrante colgado del viaje correcto (fase 6) | Alternativa: un buzón por departamento y la referencia en el asunto |
-| Decisiones de Azure | Fases 4, 5, 6 y 7 | Cuatro de las siete fases se quedan sin fecha |
+| # | Petición | Desbloquea | Si no llega |
+|---|---|---|---|
+| 1 | Credenciales SMTP de los buzones | Envío real de la propuesta | El despliegue **no** se bloquea: sube sin correo y se enciende después |
+| 2 | Confirmación del dominio | Alta de los usuarios reales y el remitente | Seguimos suponiendo `oraviatravel.com`, que el DNS ya respalda |
 
-### Cómo se genera la clave de aplicación en Zoho Mail
+### Lo que se le enseña en llamada, con la app ya en Azure
 
-Zoho Mail → icono de perfil → **Mi cuenta** → **Seguridad** → **Contraseñas de aplicación** →
-*Generar nueva contraseña* → nombre descriptivo (por ejemplo, "App Oravia") → copiar la
-clave. Solo se muestra una vez. Se puede revocar en cualquier momento sin afectar al
-acceso normal del buzón.
-
-Datos que necesitamos junto con la clave:
-
-- Dirección completa del buzón (`groups@…` y `sports@…`)
-- Servidor de salida y puerto (normalmente `smtp.zoho.eu`, puerto 465)
-- Si el buzón está en la región europea de Zoho (creemos que sí, porque el CRM lo está)
-
-### Documentos que le acompañan
-
-- `Coste Azure/INFO-DESPLIEGUE-Azure-para-Sistemas.pdf` — la ficha para su técnico.
-- `Alojamiento-Azure-ViajesVelero.html` — el documento de cliente sobre el alojamiento.
-
-### Lo que NO se le pide todavía
-
-- **El pixel de seguimiento del correo.** Deja de hacer falta si sale adelante la página
-  de la propuesta: se sabe si la abrió porque entra en la página, no espiando el correo.
-- **La plantilla de presupuesto de Alberto.** La reproduciremos, pero primero conviene ver
-  cómo queda nuestro PDF; si el suyo gusta más, lo copiamos.
+- El presupuesto tal y como le llega al colegio (y si prefiere la plantilla de Alberto).
+- La página donde el colegio elige su opción.

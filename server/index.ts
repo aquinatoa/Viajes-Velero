@@ -56,6 +56,8 @@ import {
   updateInventoryDocumentStatus,
   updateStagingEntity,
 } from "./documentImportDb";
+import { toRateKind } from "./pricing";
+import { updateInventoryDocumentAiUsage } from "./documentImportDb";
 import {
   approveTripProposalDb,
   findClientByEmailDb,
@@ -93,6 +95,36 @@ import {
 
 const app = express();
 const port = 8787;
+
+/**
+ * Recupera los acentos del nombre de un fichero subido.
+ *
+ * multer decodifica el nombre como latin-1, así que un PDF llamado
+ * "GENÉRICO.pdf" llega como "GENÃ‰RICO.pdf". Se vuelve a leer como UTF-8; si el
+ * resultado no es válido (un nombre que sí era latin-1 de verdad), se deja como
+ * estaba en vez de estropearlo más.
+ */
+/** Guarda el consumo de IA de la última lectura del documento. */
+async function recordAiUsage(
+  documentId: string,
+  usage: { inputTokens: number; outputTokens: number; model: string },
+) {
+  try {
+    await updateInventoryDocumentAiUsage(documentId, usage);
+  } catch (error) {
+    // Que no se pueda anotar el consumo no debe tumbar una lectura correcta.
+    console.error("No se pudo registrar el consumo de IA", error);
+  }
+}
+
+function decodeFileName(name: string): string {
+  try {
+    const recuperado = Buffer.from(name, "latin1").toString("utf8");
+    return recuperado.includes("�") ? name : recuperado;
+  } catch {
+    return name;
+  }
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -298,6 +330,42 @@ app.post("/api/crm/opportunities/:id/update", async (request, response) => {
   }
 });
 
+/**
+ * Comprueba que la declaración de precios del documento es coherente. Devuelve
+ * el mensaje de error, o null si está bien.
+ *
+ * Se valida en el servidor y no solo en la pantalla porque de esto depende que
+ * una tarifa se publique con margen o sin él.
+ */
+function validateRateDeclaration(payload: {
+  rateKind?: string;
+  marginPercent?: number | null;
+  clientSegment?: string | null;
+}): string | null {
+  const { rateKind, marginPercent, clientSegment } = payload;
+
+  if (rateKind !== undefined && !["PURCHASE", "SALE", "UNKNOWN"].includes(rateKind)) {
+    return "El tipo de precios debe ser de compra o de venta.";
+  }
+  if (rateKind === "PURCHASE" && clientSegment) {
+    return "Un documento de compra no lleva tipo de cliente: el cliente se elige al cotizar.";
+  }
+  if (rateKind === "SALE" && marginPercent !== undefined && marginPercent !== null) {
+    return "Un documento de venta no lleva margen: sus precios se guardan tal cual.";
+  }
+  if (
+    marginPercent !== undefined &&
+    marginPercent !== null &&
+    (!Number.isFinite(marginPercent) || marginPercent < 0 || marginPercent > 100)
+  ) {
+    return "El margen tiene que ser un porcentaje entre 0 y 100.";
+  }
+  if (clientSegment && !["GENERIC", "SWISS_TTOO"].includes(clientSegment)) {
+    return "El tipo de cliente no es uno de los conocidos.";
+  }
+  return null;
+}
+
 app.post("/api/inventory/documents", async (request, response) => {
   try {
     const payload = request.body as {
@@ -307,12 +375,21 @@ app.post("/api/inventory/documents", async (request, response) => {
       controlYear?: number | null;
       controlCategory?: string;
       controlNotes?: string;
+      rateKind?: string;
+      marginPercent?: number | null;
+      clientSegment?: string | null;
     };
 
     if (!payload.controlName?.trim()) {
       response.status(400).json({
         error: "Falta el nombre de control del documento.",
       });
+      return;
+    }
+
+    const rateKindError = validateRateDeclaration(payload);
+    if (rateKindError) {
+      response.status(400).json({ error: rateKindError });
       return;
     }
 
@@ -323,6 +400,9 @@ app.post("/api/inventory/documents", async (request, response) => {
       controlYear: payload.controlYear,
       controlCategory: payload.controlCategory,
       controlNotes: payload.controlNotes,
+      rateKind: payload.rateKind,
+      marginPercent: payload.marginPercent,
+      clientSegment: payload.clientSegment,
     });
 
     response.json(document);
@@ -386,10 +466,19 @@ app.patch("/api/inventory/documents/:id", async (request, response) => {
       controlYear?: number | null;
       controlCategory?: string | null;
       controlNotes?: string | null;
+      rateKind?: string;
+      marginPercent?: number | null;
+      clientSegment?: string | null;
     };
 
     if (payload.controlName !== undefined && !payload.controlName.trim()) {
       response.status(400).json({ error: "El nombre de control no puede quedar vacío." });
+      return;
+    }
+
+    const rateKindError = validateRateDeclaration(payload);
+    if (rateKindError) {
+      response.status(400).json({ error: rateKindError });
       return;
     }
 
@@ -445,7 +534,9 @@ app.post(
 
       const storedFile = await saveInventoryDocumentFile({
         documentId,
-        originalFileName: request.file.originalname,
+        // multer entrega el nombre del fichero interpretado como latin-1, así
+        // que "GENÉRICO.pdf" llegaba como "GENÃ‰RICO.pdf". Se devuelve a UTF-8.
+        originalFileName: decodeFileName(request.file.originalname),
         mimeType: request.file.mimetype,
         buffer: request.file.buffer,
       });
@@ -621,6 +712,12 @@ app.post("/api/inventory/documents/:id/ai-analyze", async (request, response) =>
         controlCategory: document.controlCategory,
       },
     });
+    // Registrar lo que costó esta lectura. Es la única forma de saber cuánto
+    // cuesta cargar una temporada entera.
+    if (result?.usage) {
+      await recordAiUsage(documentId, result.usage);
+    }
+
 
     await addInventoryDocumentIssue({
       sourceDocumentId: documentId,
@@ -687,6 +784,12 @@ app.post("/api/inventory/documents/:id/create-staging", async (request, response
         controlCategory: document.controlCategory,
       },
     });
+    // Registrar lo que costó esta lectura. Es la única forma de saber cuánto
+    // cuesta cargar una temporada entera.
+    if (analysis?.usage) {
+      await recordAiUsage(documentId, analysis.usage);
+    }
+
 
     const result = await createInventoryDocumentStaging(documentId, analysis, {
       targetType: document.targetType,
@@ -780,6 +883,12 @@ app.post("/api/inventory/documents/:id/regenerate-staging", async (request, resp
         controlCategory: document.controlCategory,
       },
     });
+    // Registrar lo que costó esta lectura. Es la única forma de saber cuánto
+    // cuesta cargar una temporada entera.
+    if (analysis?.usage) {
+      await recordAiUsage(documentId, analysis.usage);
+    }
+
 
     const result = await createInventoryDocumentStaging(documentId, analysis, {
       targetType: document.targetType,
@@ -914,6 +1023,9 @@ app.get(
       const result = await dryRunPublishApprovedInventoryDocument(documentId, {
         controlLocation: document.controlLocation,
         controlYear: document.controlYear,
+        rateKind: toRateKind(document.rateKind),
+        marginPercent: document.marginPercent === null ? null : Number(document.marginPercent),
+        clientSegment: document.clientSegment,
       });
 
       response.json(result);
@@ -941,10 +1053,25 @@ app.post("/api/inventory/documents/:id/publish-approved", async (request, respon
     const result = await publishApprovedInventoryDocument(documentId, {
       controlLocation: document.controlLocation,
       controlYear: document.controlYear,
+      rateKind: toRateKind(document.rateKind),
+      marginPercent: document.marginPercent === null ? null : Number(document.marginPercent),
+      clientSegment: document.clientSegment,
     });
 
-    // Marcar como publicado solo si la publicación terminó correctamente.
-    await updateInventoryDocumentStatus(documentId, "PUBLISHED");
+    // Un documento solo queda "Publicado" si algo llegó de verdad al catálogo.
+    // Antes se marcaba siempre: se aprobaban 40 tarifas, no entraba ninguna y
+    // la pantalla decía "Publicado" igual. Si no entró nada, se queda en
+    // revisión para que se pueda arreglar y volver a intentar.
+    const publishedSomething =
+      result.accommodations > 0 ||
+      result.accommodationRates > 0 ||
+      result.activities > 0 ||
+      result.activityRates > 0;
+
+    await updateInventoryDocumentStatus(
+      documentId,
+      publishedSomething ? "PUBLISHED" : "PENDING_REVIEW",
+    );
 
     await addInventoryDocumentIssue({
       sourceDocumentId: documentId,

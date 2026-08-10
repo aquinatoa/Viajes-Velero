@@ -5,6 +5,7 @@ import type {
   AiDetectedAccommodation,
   AiDetectedActivity,
   AiCandidateRate,
+  AiCandidateActivityRate,
   AiCandidateSupplement,
   AiCandidatePolicy,
   AiCandidateBlackoutDate,
@@ -175,7 +176,17 @@ async function analyzeWithAnthropic(
     throw parseError;
   }
 
-  return normalizeAnalysis(parsed, "ai", outputText, extraWarnings);
+  const analisis = normalizeAnalysis(parsed, "ai", outputText, extraWarnings);
+  // El coste de leer un documento sale de aquí: sin guardarlo no hay control.
+  const uso = (message as { usage?: { input_tokens?: number; output_tokens?: number } })?.usage;
+  analisis.usage = uso
+    ? {
+        inputTokens: Number(uso.input_tokens ?? 0),
+        outputTokens: Number(uso.output_tokens ?? 0),
+        model: config.model || DEFAULT_ANTHROPIC_MODEL,
+      }
+    : null;
+  return analisis;
 }
 
 function mapAnthropicError(error: unknown): AiAnalysisError {
@@ -324,10 +335,11 @@ function buildUserPrompt(input: AnalyzeDocumentTextInput, text: string): string 
     "",
     "{",
     '  "documentSummary": string,',
-    '  "detectedAccommodation": { "accommodationName": string|null, "providerName": string|null, "locality": string|null, "province": string|null, "country": string|null, "categoryType": string|null, "accommodationType": string|null } | null,',
+    '  "detectedAccommodations": [ { "accommodationName": string, "providerName": string|null, "locality": string|null, "province": string|null, "country": string|null, "categoryType": string|null, "accommodationType": string|null } ],',
     '  "detectedActivities": [ { "activityName": string, "supplierName": string|null, "locationMain": string|null, "activityType": string|null, "durationText": string|null, "descriptionText": string|null } ],',
-    '  "candidateRates": [ { "seasonName": string|null, "year": number|null, "dateFrom": string|null, "dateTo": string|null, "boardType": string|null, "unitName": string|null, "rateUnit": string|null, "occupancyLabel": string|null, "minNights": number|null, "currency": string|null, "pvpAmount": number|null, "netAmount": number|null, "costAmount": number|null, "rawText": string|null } ],',
-    '  "candidateSupplements": [ { "adjustmentType": string|null, "concept": string, "amountType": string|null, "amount": number|null, "appliesPer": string|null, "conditionText": string|null, "rawText": string|null } ],',
+    '  "candidateRates": [ { "accommodationName": string|null, "seasonName": string|null, "year": number|null, "dateFrom": string|null, "dateTo": string|null, "boardType": string|null, "unitName": string|null, "rateUnit": string|null, "occupancyLabel": string|null, "includedService": string|null, "minNights": number|null, "currency": string|null, "pvpAmount": number|null, "netAmount": number|null, "costAmount": number|null, "rawText": string|null } ],',
+    '  "candidateActivityRates": [ { "activityName": string, "rateUnit": string|null, "year": number|null, "currency": string|null, "salePvpAmount": number|null, "costNetAmount": number|null, "durationText": string|null, "ageLabel": string|null, "minPax": number|null, "maxPax": number|null, "rawText": string|null } ],',
+    '  "candidateSupplements": [ { "accommodationName": string|null, "adjustmentType": string|null, "concept": string, "amountType": string|null, "amount": number|null, "appliesPer": string|null, "conditionText": string|null, "rawText": string|null } ],',
     '  "candidatePolicies": [ { "policyType": string|null, "policyText": string, "rawText": string|null } ],',
     '  "candidateBlackoutDates": [ { "dateFrom": string|null, "dateTo": string|null, "availabilityStatus": string|null, "reason": string|null, "rawText": string|null } ],',
     '  "warnings": [ string ],',
@@ -336,9 +348,15 @@ function buildUserPrompt(input: AnalyzeDocumentTextInput, text: string): string 
     "",
     "Reglas de extracción:",
     "- No inventes datos. Usa null cuando algo no aparezca explícitamente en el texto.",
+    "- UN DOCUMENTO PUEDE TRAER VARIOS ALOJAMIENTOS. Devuélvelos TODOS en 'detectedAccommodations', uno por cada establecimiento con tabla de precios propia (p. ej. 'Villa Bonita / Aloha', 'Mediterrània MED2/3' y 'Mediterrània MED1' son TRES). No los fusiones ni te quedes solo con el primero.",
+    "- Cada tarifa y cada suplemento llevan 'accommodationName' con el nombre EXACTO del alojamiento de 'detectedAccommodations' al que pertenecen. Si el documento tiene un solo alojamiento, repite su nombre en todas.",
+    "- 'year' es el año o temporada de vigencia de la tarifa (p. ej. 2027). NO uses números sueltos de la tabla (códigos, referencias, importes, ocupaciones) como año. Si el documento no dice el año con claridad, devuelve null: el año de control lo pondrá la aplicación.",
     "- Conserva en 'rawText' el fragmento literal del texto de origen de cada candidato cuando sea posible.",
     "- Detecta regímenes y normalízalos en 'boardType': MP (media pensión), PC (pensión completa), AD (alojamiento y desayuno), SA (solo alojamiento) si aparecen.",
     "- Detecta periodos de fechas; usa formato ISO YYYY-MM-DD en dateFrom/dateTo cuando puedas inferirlo.",
+    "- LOS PRECIOS DE LAS ACTIVIDADES van en 'candidateActivityRates', NUNCA en 'candidateRates'. Una actividad (alquiler de campo, partido amistoso, clase) se cobra por equipo, por hora o por persona, no por régimen y ocupación. 'activityName' debe coincidir EXACTAMENTE con el nombre en 'detectedActivities'.",
+    "- 'rateUnit' de una actividad: PER_GROUP (por equipo o grupo), PER_HOUR (por hora), PER_PAX (por persona), PER_DAY (por día) o PER_SERVICE. Si el documento distingue precios por día de la semana, categoría o duración, crea UNA entrada por cada variante y explica cuál es en 'ageLabel' (p. ej. 'entre semana', 'fin de semana', '90 min').",
+    "- 'includedService': qué va INCLUIDO en el precio además del alojamiento, cuando la columna lo indique (p. ej. 'Campo artificial 1,30 h', 'Campo natural / fútbol playa', 'Sin campo', 'Entrenamientos'). Si el precio es solo alojamiento y el documento no distingue, usa null. No lo confundas con la ocupación (doble/individual) ni con el régimen.",
     "- Detecta precios netos y PVP: 'pvpAmount' precio de venta, 'netAmount' precio neto, 'costAmount' coste si aparece.",
     "- 'currency' debe ser el código de moneda (p. ej. EUR) si se deduce; si no, null.",
     "- Suplementos/ajustes: para porcentajes usa amountType='PERCENT' y amount con el valor; para importes fijos amountType='FIXED'. Incluye condiciones en conditionText.",
@@ -525,12 +543,34 @@ function normalizeAnalysis(
     }
   }
 
-  const detectedAccommodation = normalizeAccommodation(root.detectedAccommodation);
+  // Se acepta la lista nueva y el objeto único de antes: los modelos a veces
+  // devuelven el formato viejo, y perder los alojamientos ahí sería silencioso.
+  const detectedAccommodations = [
+    ...asArray(root.detectedAccommodations).map(normalizeAccommodation),
+    normalizeAccommodation(root.detectedAccommodation),
+  ].filter(
+    (accommodation): accommodation is AiDetectedAccommodation =>
+      accommodation !== null && Boolean(accommodation.accommodationName?.trim()),
+  );
+
+  // Dos bloques del mismo hotel no son dos hoteles.
+  const seenAccommodations = new Set<string>();
+  const uniqueAccommodations = detectedAccommodations.filter((accommodation) => {
+    const key = accommodation.accommodationName!.trim().toLowerCase();
+    if (seenAccommodations.has(key)) return false;
+    seenAccommodations.add(key);
+    return true;
+  });
+
+  const detectedAccommodation = uniqueAccommodations[0] ?? null;
   const detectedActivities = asArray(root.detectedActivities)
     .map(normalizeActivity)
     .filter((activity): activity is AiDetectedActivity => activity !== null);
 
   const candidateRates = asArray(root.candidateRates).map(normalizeRate);
+  const candidateActivityRates = asArray(root.candidateActivityRates)
+    .map(normalizeActivityRate)
+    .filter((rate): rate is AiCandidateActivityRate => rate !== null);
   const candidateSupplements = asArray(root.candidateSupplements)
     .map(normalizeSupplement)
     .filter((supplement): supplement is AiCandidateSupplement => supplement !== null);
@@ -565,8 +605,10 @@ function normalizeAnalysis(
     mode,
     documentSummary: toStr(root.documentSummary) ?? "",
     detectedAccommodation,
+    detectedAccommodations: uniqueAccommodations,
     detectedActivities,
     candidateRates,
+    candidateActivityRates,
     candidateSupplements,
     candidatePolicies,
     candidateBlackoutDates,
@@ -617,6 +659,7 @@ function normalizeRate(value: unknown): AiCandidateRate {
   const record = (value ?? {}) as Record<string, unknown>;
 
   return {
+    accommodationName: toStr(record.accommodationName),
     seasonName: toStr(record.seasonName),
     year: toNum(record.year),
     dateFrom: toStr(record.dateFrom),
@@ -625,11 +668,33 @@ function normalizeRate(value: unknown): AiCandidateRate {
     unitName: toStr(record.unitName),
     rateUnit: toStr(record.rateUnit),
     occupancyLabel: toStr(record.occupancyLabel),
+    includedService: toStr(record.includedService),
     minNights: toNum(record.minNights),
     currency: toStr(record.currency),
     pvpAmount: toNum(record.pvpAmount),
     netAmount: toNum(record.netAmount),
     costAmount: toNum(record.costAmount),
+    rawText: toStr(record.rawText),
+  };
+}
+
+function normalizeActivityRate(value: unknown): AiCandidateActivityRate | null {
+  const record = (value ?? {}) as Record<string, unknown>;
+  const activityName = toStr(record.activityName);
+  if (!activityName) return null;
+
+  return {
+    activityName,
+    rateUnit: toStr(record.rateUnit),
+    year: toNum(record.year),
+    seasonName: toStr(record.seasonName),
+    currency: toStr(record.currency),
+    salePvpAmount: toNum(record.salePvpAmount),
+    costNetAmount: toNum(record.costNetAmount),
+    durationText: toStr(record.durationText),
+    ageLabel: toStr(record.ageLabel),
+    minPax: toNum(record.minPax),
+    maxPax: toNum(record.maxPax),
     rawText: toStr(record.rawText),
   };
 }
@@ -642,6 +707,7 @@ function normalizeSupplement(value: unknown): AiCandidateSupplement | null {
   }
 
   return {
+    accommodationName: toStr(record.accommodationName),
     adjustmentType: toStr(record.adjustmentType),
     concept,
     amountType: toStr(record.amountType),
@@ -726,8 +792,10 @@ function buildMockAnalysis(
     mode: "mock",
     documentSummary,
     detectedAccommodation,
+    detectedAccommodations: detectedAccommodation ? [detectedAccommodation] : [],
     detectedActivities: [],
     candidateRates: [],
+    candidateActivityRates: [],
     candidateSupplements: [],
     candidatePolicies: [],
     candidateBlackoutDates: [],
