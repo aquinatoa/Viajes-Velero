@@ -155,11 +155,15 @@ async function deleteJson<T>(path: string, fallbackError: string): Promise<T> {
 
 // ── Auth API ──────────────────────────────────────────────────────────────────
 
+export type BackendRole = "ADMIN" | "DEPT_ADMIN" | "QUOTER" | "USER";
+export type BackendDepartment = "GROUPS" | "SPORTS";
+
 export interface AuthUser {
   id: string;
   email: string;
   name: string | null;
-  role: "ADMIN" | "USER";
+  role: BackendRole;
+  department: BackendDepartment | null;
 }
 
 export interface ManagedUser extends AuthUser {
@@ -207,14 +211,21 @@ export function createAuthUserApi(input: {
   email: string;
   name?: string;
   password: string;
-  role: "ADMIN" | "USER";
+  role: BackendRole;
+  department?: BackendDepartment | null;
 }) {
   return postJson<ManagedUser>("/api/auth/users", input, "No se pudo crear el usuario.");
 }
 
 export function updateAuthUserApi(
   id: string,
-  patch: { name?: string; role?: "ADMIN" | "USER"; isActive?: boolean; password?: string },
+  patch: {
+    name?: string;
+    role?: BackendRole;
+    department?: BackendDepartment | null;
+    isActive?: boolean;
+    password?: string;
+  },
 ) {
   return patchJson<ManagedUser>(
     `/api/auth/users/${encodeURIComponent(id)}`,
@@ -570,5 +581,154 @@ export function approveTripProposalApi(proposalId: string, approvedOptionNumber:
     `/api/commercial/proposals/${encodeURIComponent(proposalId)}/approve`,
     { approvedOptionNumber },
     "No se pudo aprobar la propuesta.",
+  );
+}
+// ── Entrega de propuestas al cliente ─────────────────────────────────────────
+// Preparar genera el PDF y la referencia sin que salga nada; enviar es lo que
+// la pone en el buzón. Mientras no haya clave del buzón el envío responde
+// `simulated: true`: la propuesta queda registrada pero no ha salido.
+
+export type DeliveryStatus = "DRAFT" | "SIMULATED" | "SENT" | "FAILED";
+
+export interface ProposalDeliveryResult {
+  id: string;
+  reference: string;
+  status: DeliveryStatus;
+  recipientEmail: string;
+  subject: string;
+  pdfPath: string | null;
+  publicUrl: string | null;
+  simulated: boolean;
+  failureReason?: string | null;
+}
+
+export interface ProposalDelivery {
+  id: string;
+  proposalId: string;
+  reference: string;
+  department: BackendDepartment | null;
+  recipientEmail: string;
+  recipientName: string | null;
+  subject: string;
+  status: DeliveryStatus;
+  failureReason: string | null;
+  sentAt: string | null;
+  firstViewedAt: string | null;
+  lastViewedAt: string | null;
+  viewCount: number;
+  chosenOptionNumber: number | null;
+  chosenAt: string | null;
+  depositDueAt: string | null;
+  depositPaidAt: string | null;
+  createdAt: string;
+  proposal?: {
+    id: string;
+    tripRequest?: {
+      opportunityName: string | null;
+      destinationText: string | null;
+      dateFrom: string | null;
+      dateTo: string | null;
+      participants: number | null;
+    } | null;
+  } | null;
+}
+
+export function prepareProposalDeliveryApi(
+  proposalId: string,
+  input?: { recipientEmail?: string; recipientName?: string },
+) {
+  return postJson<ProposalDeliveryResult>(
+    `/api/proposals/${encodeURIComponent(proposalId)}/prepare-delivery`,
+    input ?? {},
+    "No se pudo preparar la propuesta para enviar.",
+  );
+}
+
+export function sendProposalDeliveryApi(deliveryId: string) {
+  return postJson<ProposalDeliveryResult>(
+    `/api/deliveries/${encodeURIComponent(deliveryId)}/send`,
+    {},
+    "No se pudo enviar la propuesta.",
+  );
+}
+
+export function listProposalDeliveriesApi() {
+  return getJson<{ deliveries: ProposalDelivery[] }>(
+    "/api/deliveries",
+    "No se pudieron cargar las propuestas enviadas.",
+  );
+}
+
+/**
+ * Abre el documento de una entrega en otra pestaña. Se descarga con la sesión
+ * en la cabecera y se abre desde memoria: así el token no acaba en la URL, ni
+ * en el historial del navegador ni en los registros del servidor.
+ */
+export async function abrirProposalPdf(deliveryId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/deliveries/${encodeURIComponent(deliveryId)}/pdf`,
+    { headers: authHeaders() },
+  );
+  if (!response.ok) {
+    await parseErrorResponse(response, "No se pudo abrir el documento.");
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank", "noopener");
+  // Se revoca con margen para que la pestaña haya cargado el PDF.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+// ── Cambios del cliente sobre una propuesta ya hecha ─────────────────────────
+// El mensaje se lee en el navegador (allí vive el lector en español) y al
+// servidor solo van los datos entendidos, que es lo que afecta a precios.
+
+export interface DatosLeidosCambio {
+  participants?: number | null;
+  teachers?: number | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  regimeRequested?: string | null;
+  destinationText?: string | null;
+}
+
+export interface CampoCambiado {
+  campo: string;
+  etiqueta: string;
+  antes: string;
+  ahora: string;
+}
+
+export interface OpcionRecalculada {
+  optionNumber: number;
+  accommodationName: string;
+  precioAntes: number | null;
+  precioAhora: number | null;
+  totalAntes: number | null;
+  totalAhora: number | null;
+  aviso: string | null;
+}
+
+export interface VistaPreviaCambio {
+  proposalId: string;
+  hayCambios: boolean;
+  campos: CampoCambiado[];
+  opciones: OpcionRecalculada[];
+  avisos: string[];
+}
+
+export function previewChangeApi(proposalId: string, leido: DatosLeidosCambio) {
+  return postJson<VistaPreviaCambio>(
+    `/api/proposals/${encodeURIComponent(proposalId)}/changes/preview`,
+    { leido },
+    "No se pudo calcular el cambio.",
+  );
+}
+
+export function applyChangeApi(proposalId: string, leido: DatosLeidosCambio, mensaje: string) {
+  return postJson<{ proposalId: string; versionNumber: number; cambios: number }>(
+    `/api/proposals/${encodeURIComponent(proposalId)}/changes/apply`,
+    { leido, mensaje },
+    "No se pudo aplicar el cambio.",
   );
 }

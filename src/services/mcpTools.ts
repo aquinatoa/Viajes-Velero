@@ -1,5 +1,6 @@
 export {
   parseTripRequest,
+  readTripMessage,
   validateTripRequest,
   upsertClientFromRequest,
   saveNormalizedTripRequest,

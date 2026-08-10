@@ -1,14 +1,16 @@
 /**
- * Menú lateral de Viajes Velero · Operaciones.
+ * Menú lateral de Oravia · Operaciones.
  *
  * Moderno, colapsable, animado, modular y responsive. Conserva la identidad
- * (azul-petróleo de marca + acento verde) y navega por ruta. La configuración
+ * (azul marino de marca + acento ámbar) y navega por ruta. La configuración
  * de items/permisos vive en `sidebar.config.ts`; el estado de interacción
  * (colapso/drawer/submenús) en `useSidebar.ts`. El contenedor (`App`) es dueño
  * del estado de UI para que el layout principal ajuste su ancho.
  */
 import type { AuthUser } from "../../services/apiClient";
-import { visibleSections, PRIMARY_SECTION_ID, type SidebarRole } from "./sidebar.config";
+import { BRAND_NAME } from "../../brand";
+import isotipoBlanco from "../../assets/oravia-isotipo-blanco.png";
+import { visibleSections, sidebarRoleFromBackend, type SidebarRole } from "./sidebar.config";
 import type { SidebarUi } from "./useSidebar";
 import { SidebarSection } from "./SidebarSection";
 import {
@@ -16,7 +18,6 @@ import {
   CollapseIcon,
   LogoutIcon,
   MenuBarsIcon,
-  SailboatIcon,
 } from "./icons";
 
 interface SidebarProps {
@@ -27,16 +28,9 @@ interface SidebarProps {
   ui: SidebarUi;
 }
 
-/** Mapea el rol del backend (ADMIN/USER) al modelo de permisos del menú. */
-function roleFromUser(user: AuthUser): SidebarRole {
-  return user.role === "ADMIN" ? "admin" : "comercial";
-}
-
 export function Sidebar({ user, currentPath, onNavigate, onLogout, ui }: SidebarProps) {
-  const role = roleFromUser(user);
-  // Solo el módulo principal vive en la barra lateral; el resto de secciones se
-  // alcanzan desde el menú "Configuración" del topbar.
-  const sections = visibleSections(role).filter((s) => s.id === PRIMARY_SECTION_ID);
+  const role: SidebarRole = sidebarRoleFromBackend(user.role);
+  const sections = visibleSections(role);
   const { collapsed, mobileOpen } = ui;
 
   function navigate(route: string) {
@@ -73,12 +67,19 @@ export function Sidebar({ user, currentPath, onNavigate, onLogout, ui }: Sidebar
         aria-label="Navegación principal"
       >
         <div className="sb-brand">
-          <span className="sb-brand__logo" aria-hidden>
-            <SailboatIcon />
-          </span>
+          {/* El logo vuelve al inicio: es lo primero que intenta cualquiera. */}
+          <button
+            type="button"
+            className="sb-brand__logo"
+            onClick={() => navigate("/propuestas")}
+            aria-label="Ir a Propuestas"
+            title="Propuestas"
+          >
+            <img src={isotipoBlanco} alt="" width={26} height={26} />
+          </button>
           {!collapsed ? (
             <div className="sb-brand__text">
-              <strong>Viajes Velero</strong>
+              <strong>{BRAND_NAME}</strong>
               <span>Operaciones</span>
             </div>
           ) : null}

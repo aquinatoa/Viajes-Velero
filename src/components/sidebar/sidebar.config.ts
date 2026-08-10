@@ -4,13 +4,11 @@
  * La navegación, los permisos, los iconos y los badges se declaran AQUÍ, no en
  * el componente: añadir/quitar opciones o cambiar accesos es editar este archivo.
  *
- * Notas de adaptación al proyecto real:
- * - La app navega por URL con un router propio (History API); cada item activo
- *   apunta a una ruta que el `App` resuelve a una de sus páginas internas.
- * - El modelo de roles del backend hoy es solo ADMIN/USER. La config soporta un
- *   modelo más rico (SidebarRole) y se mapea: ADMIN→admin, USER→comercial.
- * - Las opciones que aún no existen como pantalla se marcan `status: "disabled"`
- *   (se muestran en gris, "próximamente"), no se inventan rutas muertas.
+ * Reglas:
+ * - Cada entrada lleva a una pantalla que existe. Nada de accesos en gris
+ *   prometiendo lo que no hay: si no está construido, no está en el menú.
+ * - Los nombres son los del idioma fijado en PRODUCT.md.
+ * - Los roles del backend (ADMIN / DEPT_ADMIN / QUOTER) se mapean abajo.
  */
 
 export type SidebarRole = "admin" | "operaciones" | "comercial" | "auditor" | "lectura";
@@ -71,165 +69,69 @@ const AUDIT: SidebarRole[] = ["admin", "auditor"];
 
 export const sidebarSections: SidebarSection[] = [
   {
-    id: "inicio",
-    label: "Inicio",
+    // Lo que se abre cada día. "Nueva solicitud" no está aquí a propósito: es
+    // una acción, no un sitio, y vive como botón fijo en la barra superior.
+    id: "trabajo",
+    label: "Día a día",
     accent: "neutral",
     items: [
       {
-        id: "portada",
-        label: "Inicio",
-        description: "Portada y acciones",
+        id: "propuestas",
+        label: "Propuestas",
+        description: "Qué has mandado y qué espera",
         icon: "home",
-        route: "/inicio",
+        route: "/propuestas",
+        permissions: COMMERCIAL,
         status: "active",
       },
-    ],
-  },
-  {
-    id: "nuevo-registro",
-    label: "Nuevo registro",
-    accent: "green",
-    items: [
       {
-        id: "nueva-solicitud",
-        label: "Nueva solicitud",
-        description: "Crear oportunidad",
-        icon: "circle-plus",
-        route: "/nuevo-registro",
+        id: "viajes",
+        label: "Viajes",
+        description: "En qué punto está cada expediente",
+        icon: "clipboard-check",
+        route: "/viajes",
         permissions: COMMERCIAL,
         status: "active",
         children: [
-          {
-            id: "nueva-solicitud-base",
-            label: "Nueva solicitud",
-            route: "/nuevo-registro",
-            permissions: COMMERCIAL,
-          },
-          {
-            id: "nueva-una-opcion",
-            label: "Nueva con 1 opción",
-            permissions: COMMERCIAL,
-            status: "disabled",
-          },
-          {
-            id: "nueva-dos-opciones",
-            label: "Nueva con 2 opciones",
-            permissions: COMMERCIAL,
-            status: "disabled",
-          },
-          {
-            id: "nueva-tres-opciones",
-            label: "Nueva con 3 opciones",
-            permissions: COMMERCIAL,
-            status: "disabled",
-          },
+          { id: "viajes-lista", label: "Todos los viajes", route: "/viajes", permissions: COMMERCIAL },
+          { id: "viajes-calendario", label: "Calendario", route: "/viajes/calendario", permissions: COMMERCIAL },
         ],
       },
     ],
   },
   {
-    id: "confirmar",
-    label: "Confirmar solicitud",
-    accent: "blue",
-    items: [
-      {
-        id: "solicitudes-crm",
-        label: "Solicitudes en CRM",
-        description: "Propuestas y tratos",
-        icon: "clipboard-check",
-        route: "/confirmar",
-        permissions: COMMERCIAL,
-        status: "active",
-      },
-      {
-        id: "calendario",
-        label: "Calendario",
-        description: "Viajes y cierres",
-        icon: "calendar",
-        route: "/confirmar/calendario",
-        permissions: COMMERCIAL,
-        status: "active",
-      },
-    ],
-  },
-  {
-    id: "inventario-documental",
-    label: "Inventario documental",
-    accent: "purple",
-    items: [
-      {
-        id: "documentos-ia",
-        label: "Documentos IA",
-        description: "Importar y revisar tarifas",
-        icon: "file-text",
-        route: "/inventario/documentos-ia",
-        permissions: OPERATIONS,
-        status: "active",
-      },
-      {
-        id: "publicar-documento",
-        label: "Publicar documento",
-        description: "Publicar tarifas revisadas",
-        icon: "upload-cloud",
-        permissions: OPERATIONS,
-        status: "disabled",
-      },
-    ],
-  },
-  {
-    id: "usuarios-permisos",
-    label: "Usuarios y permisos",
+    // Catálogo y permisos: se tocan por temporada o cuando entra alguien nuevo,
+    // no a diario. Y el backend ya restringe las tarifas a administradores.
+    id: "gestion",
+    label: "Gestión",
     accent: "orange",
     items: [
       {
+        id: "tarifas",
+        label: "Tarifas",
+        description: "Documentos de proveedores y catálogo",
+        icon: "file-text",
+        route: "/tarifas/documentos",
+        permissions: OPERATIONS,
+        status: "active",
+      },
+      {
         id: "usuarios",
         label: "Usuarios",
-        description: "Gestión de usuarios",
+        description: "Quién entra y con qué permisos",
         icon: "users",
-        route: "/admin/usuarios",
+        route: "/ajustes/usuarios",
         permissions: ADMIN_ONLY,
         status: "active",
       },
       {
-        id: "roles-permisos",
-        label: "Roles y permisos",
-        description: "Accesos y perfiles",
-        icon: "shield-check",
-        permissions: ADMIN_ONLY,
-        status: "disabled",
-      },
-      {
-        id: "perfiles",
-        label: "Mi cuenta",
-        description: "Tus datos y contraseña",
-        icon: "user-cog",
-        route: "/admin/perfiles",
-        permissions: ADMIN_ONLY,
-        status: "active",
-      },
-    ],
-  },
-  {
-    id: "auditoria",
-    label: "Auditoría",
-    accent: "neutral",
-    items: [
-      {
-        id: "acciones-realizadas",
-        label: "Acciones realizadas",
-        description: "Registro de actividad",
+        id: "actividad",
+        label: "Actividad",
+        description: "Registro de lo que se ha hecho",
         icon: "history",
-        route: "/auditoria/acciones",
+        route: "/ajustes/actividad",
         permissions: AUDIT,
         status: "active",
-      },
-      {
-        id: "logs-sistema",
-        label: "Logs del sistema",
-        description: "Eventos técnicos",
-        icon: "list-checks",
-        permissions: AUDIT,
-        status: "disabled",
       },
     ],
   },
@@ -239,11 +141,19 @@ export const sidebarSections: SidebarSection[] = [
  * Sección que vive en la barra lateral (el módulo principal de trabajo). El resto
  * de secciones se acceden desde el menú "Configuración" del topbar.
  */
-export const PRIMARY_SECTION_ID = "confirmar";
+export const PRIMARY_SECTION_ID = "trabajo";
 
-/** Mapea el rol del backend (ADMIN/USER) al modelo de permisos del menú. */
+/**
+ * Mapea el rol del backend al modelo de permisos del menú:
+ * - ADMIN (global) → admin: todo, incluidos Usuarios y Auditoría.
+ * - DEPT_ADMIN (departamento) → operaciones: Nueva, Confirmar y Tarifas/Catálogo,
+ *   pero NO gestión global de usuarios ni auditoría.
+ * - QUOTER (cotizador) / USER → comercial: solo Nueva y Confirmar.
+ */
 export function sidebarRoleFromBackend(role: string): SidebarRole {
-  return role === "ADMIN" ? "admin" : "comercial";
+  if (role === "ADMIN") return "admin";
+  if (role === "DEPT_ADMIN") return "operaciones";
+  return "comercial";
 }
 
 /** ¿El rol puede ver un elemento con estas restricciones de permiso? */

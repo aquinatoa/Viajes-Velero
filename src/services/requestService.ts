@@ -400,27 +400,32 @@ function buildWarnings(normalized: NormalizedRequestDraft): WarningItem[] {
   return warnings;
 }
 
-export const parseTripRequest = (input: ParseTripRequestInput): ParseTripRequestResult => {
-  intakeSchema.parse(input);
-
+/**
+ * Lee el mensaje del cliente y saca lo que se entiende, SIN exigir datos de
+ * contacto. Entender la petición y saber a quién responder son dos cosas
+ * distintas: el correo hace falta para enviar la propuesta, no para leer un
+ * texto. El lienzo usa esta función; el asistente antiguo sigue validando el
+ * alta completa con `parseTripRequest`.
+ */
+export const readTripMessage = (rawTripRequestText: string): ParseTripRequestResult => {
   const normalized = emptyDraft();
-  const destination = findDestination(input.rawTripRequestText);
-  const dates = extractDates(input.rawTripRequestText);
-  const ages = extractAgeInfo(input.rawTripRequestText);
+  const destination = findDestination(rawTripRequestText);
+  const dates = extractDates(rawTripRequestText);
+  const ages = extractAgeInfo(rawTripRequestText);
 
-  normalized.language = detectLanguage(input.rawTripRequestText);
+  normalized.language = detectLanguage(rawTripRequestText);
   normalized.destinationText = destination?.city ?? "";
   normalized.destinationCountry = destination?.country ?? "";
   normalized.dateFrom = dates.dateFrom;
   normalized.dateTo = dates.dateTo;
-  normalized.participants = extractParticipants(input.rawTripRequestText);
-  normalized.teachers = extractTeachers(input.rawTripRequestText);
+  normalized.participants = extractParticipants(rawTripRequestText);
+  normalized.teachers = extractTeachers(rawTripRequestText);
   normalized.ageRangeText = ages.ageRangeText;
   normalized.averageAgeText = ages.averageAgeText;
-  normalized.groupType = extractGroupType(input.rawTripRequestText);
-  normalized.regimeRequested = extractBoardType(input.rawTripRequestText);
-  normalized.categoryRequested = extractCategory(input.rawTripRequestText);
-  normalized.requirementsText = extractRequirements(input.rawTripRequestText);
+  normalized.groupType = extractGroupType(rawTripRequestText);
+  normalized.regimeRequested = extractBoardType(rawTripRequestText);
+  normalized.categoryRequested = extractCategory(rawTripRequestText);
+  normalized.requirementsText = extractRequirements(rawTripRequestText);
 
   const missingFields = buildMissingFields(normalized);
   const warnings = buildWarnings(normalized);
@@ -433,6 +438,11 @@ export const parseTripRequest = (input: ParseTripRequestInput): ParseTripRequest
       ? "PARSED_WITH_GAPS"
       : "READY_FOR_SEARCH"
   };
+};
+
+export const parseTripRequest = (input: ParseTripRequestInput): ParseTripRequestResult => {
+  intakeSchema.parse(input);
+  return readTripMessage(input.rawTripRequestText);
 };
 
 export const validateTripRequest = (

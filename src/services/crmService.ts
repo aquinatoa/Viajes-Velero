@@ -2,9 +2,31 @@ import type {
   Client,
   CrmPayload,
   CrmSyncLog,
+  NormalizedRequestDraft,
   PrepareCrmPayloadInput
 } from "../domain/types";
 import { createId } from "./utils";
+
+/**
+ * Nombre del viaje cuando el operador no escribe uno: "IES Vega Baja · Salou,
+ * mayo 2026". Identifica el viaje de un vistazo en el CRM y en las listas de la
+ * app, que es lo que se pide de un nombre.
+ */
+function nombreDeViaje(client: Client, request: NormalizedRequestDraft): string {
+  const centro = client.fullName?.trim();
+  const destino = request.destinationText?.trim();
+
+  let cuando = "";
+  if (request.dateFrom) {
+    const fecha = new Date(request.dateFrom);
+    if (!Number.isNaN(fecha.getTime())) {
+      cuando = new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric" }).format(fecha);
+    }
+  }
+
+  const partes = [centro, [destino, cuando].filter(Boolean).join(", ")].filter(Boolean);
+  return partes.join(" · ") || "Viaje sin nombre";
+}
 
 function buildCommonContact(client: Client) {
   return {
@@ -155,11 +177,12 @@ export const prepareNewOpportunityPayload = ({
       }))
   }));
 
-  // Deal_Name = nombre de oportunidad escrito por el operador (con respaldos).
-  const dealName =
-    opportunityName?.trim() ||
-    proposal.summaryText ||
-    `Grupo ${request.destinationText} ${request.dateFrom || "pendiente"}`;
+  // Deal_Name = cómo se llamará el viaje en el CRM y en las listas de la app.
+  // Antes caía en `summaryText` cuando el operador no escribía nombre, y en el
+  // CRM aparecían filas idénticas del tipo "3 opciones, 4 noches, 45
+  // participantes y 0 actividades": imposible distinguir una de otra. El
+  // respaldo tiene que identificar el viaje, no describirlo.
+  const dealName = opportunityName?.trim() || nombreDeViaje(client, request);
 
   // Importe del trato = total de la opción 1 (la principal/mejor).
   const amount = amountFromText(proposal.accommodationOptions[0]?.totalPvpText);

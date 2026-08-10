@@ -7,7 +7,7 @@ import {
 } from "../../services/apiClient";
 
 /**
- * Módulo "Confirmar solicitud" como WORKSPACE (no popup):
+ * Módulo "Viajes" como WORKSPACE (no popup):
  *  - Vista "list": 3 columnas → lista de tratos · detalle de la propuesta ·
  *    panel de acción (elegir opción, avanzar de fase, nota) siempre visible.
  *  - Vista "calendar": calendario con dos lecturas conmutables → "Viaje"
@@ -113,7 +113,11 @@ export function ConfirmRequestsPanel({
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
 
-  const [query, setQuery] = useState("");
+  // La mesa abre este panel ya filtrado por un viaje concreto.
+  const [query, setQuery] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("buscar") ?? "";
+  });
   const [stageFilter, setStageFilter] = useState("");
   const [sortBy, setSortBy] = useState<"recent" | "closing" | "amount">("recent");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -186,16 +190,16 @@ export function ConfirmRequestsPanel({
 
   const handleSelectFromCalendar = (id: string) => {
     setSelectedId(id);
-    onNavigate?.("/confirmar");
+    onNavigate?.("/viajes");
   };
 
   return (
     <div className="cw">
       <div className="cw__head">
         <div>
-          <h2>Confirmar solicitud</h2>
+          <h2>Viajes</h2>
           <p>
-            {loading ? "Cargando tratos de Zoho…" : `${deals.length} tratos en el CRM`} · propuestas
+            {loading ? "Cargando viajes…" : `${deals.length} viajes en el CRM`} · propuestas
             generadas y oportunidades del CRM.
           </p>
         </div>
@@ -205,7 +209,7 @@ export function ConfirmRequestsPanel({
               className={view === "list" ? "is" : ""}
               role="tab"
               aria-selected={view === "list"}
-              onClick={() => onNavigate?.("/confirmar")}
+              onClick={() => onNavigate?.("/viajes")}
             >
               Solicitudes
             </button>
@@ -213,7 +217,7 @@ export function ConfirmRequestsPanel({
               className={view === "calendar" ? "is" : ""}
               role="tab"
               aria-selected={view === "calendar"}
-              onClick={() => onNavigate?.("/confirmar/calendario")}
+              onClick={() => onNavigate?.("/viajes/calendario")}
             >
               Calendario
             </button>
@@ -234,10 +238,10 @@ export function ConfirmRequestsPanel({
           {/* ===== Columna 1: lista ===== */}
           <div className="cw__col cw__col--list">
             <div className="cw-kpis">
-              <Kpi n={kpis.porConfirmar} label="Por confirmar" dot="w" />
-              <Kpi n={kpis.enviado} label="Presup. enviado" dot="i" />
+              <Kpi n={kpis.porConfirmar} label="Sin confirmar" dot="w" />
+              <Kpi n={kpis.enviado} label="Propuesta enviada" dot="i" />
               <Kpi n={kpis.ganadas} label="Ganadas" dot="ok" />
-              <Kpi n={euro(kpis.cartera)} label="Cartera activa" dot="m" />
+              <Kpi n={euro(kpis.cartera)} label="En negociación" dot="m" />
             </div>
 
             <div className="cw-list">
@@ -272,7 +276,7 @@ export function ConfirmRequestsPanel({
                 ) : filtered.length === 0 ? (
                   <p className="cf__empty">
                     {deals.length === 0
-                      ? "No hay tratos en el CRM todavía."
+                      ? "No hay viajes en el CRM todavía."
                       : "Ningún trato coincide con el filtro."}
                   </p>
                 ) : (
@@ -549,7 +553,7 @@ function ActionRail({
       </div>
 
       <div className="cw-card">
-        <h4>✔ Confirmar solicitud</h4>
+        <h4>Confirmar el viaje</h4>
 
         {optionCount > 0 ? (
           <div className="cw-field">
