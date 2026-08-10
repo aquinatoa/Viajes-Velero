@@ -4,7 +4,7 @@ import type {
   TripProposal
 } from "../domain/types";
 import { approveTripProposalApi, saveTripProposalApi } from "./apiClient";
-import { applyDefaultMarkup } from "./pricing";
+import { applyDefaultMarkup, totalAlojamiento } from "./pricing";
 import { diffNights, formatCurrency } from "./utils";
 
 function ensureProposalInputs(input: BuildProposalInput) {
@@ -46,8 +46,24 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
     const rate = selected.rate;
     // El PVP publicado ya incluye el margen (regla del 8% al publicar). Si por
     // datos antiguos solo hubiera neto, se aplica el 8% para no vender a coste.
-    const unitPrice = rate.pvpAmount || (rate.netSaleAmount ? applyDefaultMarkup(rate.netSaleAmount) : 0);
-    const total = unitPrice * participants * nights;
+    const precioDe = (item: { pvpAmount: number; netSaleAmount: number }) =>
+      item.pvpAmount || (item.netSaleAmount ? applyDefaultMarkup(item.netSaleAmount) : 0);
+
+    const unitPrice = precioDe(rate);
+    // Los profesores duermen en habitación individual y cuestan más. Antes no
+    // se cobraban en absoluto: el total era solo alumnos, y en un grupo de 40 +
+    // 4 profesores eso son cuatro personas alojadas gratis toda la semana.
+    const teacherPrice = selected.singleRate ? precioDe(selected.singleRate) : unitPrice;
+    const total = totalAlojamiento({ unitPrice, teacherPrice, participants, teachers, nights });
+
+    const desglose = [`${formatCurrency(unitPrice)} x ${participants} alumnos`];
+    if (teachers > 0) {
+      desglose.push(
+        selected.singleRate
+          ? `${formatCurrency(teacherPrice)} x ${teachers} profesores (uso individual)`
+          : `${formatCurrency(teacherPrice)} x ${teachers} profesores (sin tarifa individual: mismo precio)`,
+      );
+    }
 
     return {
       optionNumber: index + 1,
@@ -60,7 +76,7 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
       participants,
       teachers,
       totalPvpText: formatCurrency(total),
-      priceBreakdownText: `${formatCurrency(unitPrice)} por pax y noche x ${participants} participantes x ${nights} noches`,
+      priceBreakdownText: `${desglose.join(" + ")}, por noche x ${nights} noches`,
       conditionsText: selected.accommodation.conditionsText,
       observationsText: selected.accommodation.observations,
       isSelected: false

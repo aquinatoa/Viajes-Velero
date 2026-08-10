@@ -16,6 +16,52 @@
 > (+Calendario); *Gestión* → **Tarifas**, **Usuarios**, **Actividad**. **Nueva solicitud** no es una
 > sección: es un botón fijo en la barra superior, porque es una acción, no un sitio.
 >
+## Los tres PDFs del cliente, y qué faltaba para cotizarlos (10/08/2026)
+
+Los tres documentos de `Fuentes/Tarifas - nueva App/`:
+
+| Documento | Qué es | Cómo se registra |
+|---|---|---|
+| `ESP-TTOO-TARIFAS FS 2027.pdf` | Lo que **MSH os cobra** (lo emite MSH: Frank Araneta, mshub.es) | **De compra, margen 12 %** |
+| `TARIFAS_FUTBOL_2027_CLIENTE MSH GENÉRICO.pdf` | **El anterior + 12 % exacto**, redondeado al euro | **No hace falta cargarlo** |
+| `RATES MSH 2027- DESTINATION-TRAVELCLUB.Pdf` | Lo que **vosotros cobráis** al turoperador suizo (lo emite Velero Azul, firma André Steinauer) | **De venta · Turoperador suizo** |
+
+Que el genérico sea el de compra + 12 % cuadra en las veinte cifras: 65→73,
+70→78, 79→88, 230→258, 170→190, 255→286, 25→28, 40→45, 360→403, 5→6, 34→38.
+Cargar los dos duplicaría los tres alojamientos.
+
+Leerlos destapó **dos fallos que costaban dinero**:
+
+**La ocupación se perdía al publicar.** La IA la lee bien —de las 54 tarifas del
+genérico, la mitad son *Doble* y la mitad *Individual*—, pero
+`AccommodationRate` no tenía el campo. En el catálogo quedaban dos tarifas
+idénticas de Villa Bonita (PC, campo artificial) a 73 € y a 92 €, sin nada que
+las distinguiera. Ahora se publica, la búsqueda ofrece **la compartida** (la de
+los alumnos) y adjunta la individual como tarifa de los profesores.
+
+**Los profesores no se cobraban.** El total era `precio × alumnos × noches`: en
+un grupo de 40 + 4, cuatro personas dormían gratis toda la semana. Ahora
+`totalAlojamiento` los cuenta a su precio —el de uso individual cuando el
+documento lo trae— y el desglose lo dice en la propuesta. Con los números del
+PDF: 16.440 € en vez de 14.600 €.
+
+**Y el canal ya llega a la búsqueda.** El lienzo tiene un campo *Cotizamos para*
+(colegio/club o turoperador suizo). Antes no lo mandaba nadie, así que las
+tarifas pactadas con un canal quedaban cargadas y **muertas**: no aparecían
+nunca.
+
+Lo que **sigue sin cubrir** de estos PDFs:
+
+1. **El suplemento de Miniestadi** (6 €/pax/noche) tiene importe pero nadie ha
+   decidido si se suma solo al cotizar o solo se muestra.
+2. **"Arbitraje: según categoría"** no tiene precio: se omite al publicar.
+3. **El IVA no se registra.** Estas tarifas lo incluyen (10 % hostelería, 21 %
+   deportivas); si un día entra un documento sin IVA, se mezclarán sin aviso.
+4. **La regla de los profesores es una suposición nuestra**: van en individual.
+   Si Javier tiene otra (gratuidades, profesor en doble), hay que preguntársela.
+
+---
+
 ## Cerrar una solicitud se puede reintentar (10/08/2026)
 
 El cierre del lienzo encadena cinco pasos —cliente, solicitud, propuesta, trato
@@ -148,7 +194,7 @@ reparto de tarifas de actividad y que las condiciones se publiquen con estructur
 > _Anteriores (17/06):_ `db2ec9a` workspace Confirmar + Calendario · `7f84425` popup 5 pasos +
 > arreglos CRM · `a652ef9` Mi cuenta · `85d5488` Sidebar v2 + router propio · `c642cc4` tests 21→31.
 >
-> **Estado:** `tsc` limpio, **60/60 tests**, build de producción OK. Los flujos **Nuevo** y
+> **Estado:** `tsc` limpio, **65/65 tests**, build de producción OK. Los flujos **Nuevo** y
 > **Existente** se validaron E2E contra Zoho real en junio; **lo de esta tanda NO se ha validado en
 > vivo contra Zoho** más allá de la lectura de tratos.
 >

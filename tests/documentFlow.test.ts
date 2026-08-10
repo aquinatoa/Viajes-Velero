@@ -296,6 +296,7 @@ async function main() {
         dateFrom: "2026-07-01",
         dateTo: "2026-08-31",
         boardType: "Media pensión",
+        occupancyLabel: "Doble",
         currency: "EUR",
         netAmount: 85.5,
         rawText: "MP 85,50 EUR",
@@ -527,6 +528,21 @@ async function main() {
     const published = live.accommodations[0];
     assert.equal(published.sourceStagingId, accId, "debe conservar el id de staging de origen");
     assert.equal(published.rates[0]?.sourceStagingId, rateWithPrice!.id);
+  });
+
+  await test("publicar conserva la ocupación de la tarifa", async () => {
+    // Se perdía al publicar: en Fútbol Salou, la misma línea vale 73 € en doble
+    // y 92 € en individual, y sin este dato las dos son indistinguibles.
+    const prisma = new PrismaClient();
+    try {
+      const publicada = await prisma.accommodationRate.findFirst({
+        where: { sourceDocumentId: document.id },
+        select: { occupancyLabel: true },
+      });
+      assert.equal(publicada?.occupancyLabel, "Doble");
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 
   // --- trazabilidad en la búsqueda operativa -----------------------------------
@@ -1218,6 +1234,134 @@ async function main() {
       requestStatus: "READY_FOR_SEARCH",
     });
     assert.notEqual(solicitud.id, req.id, "una solicitud ya enviada no se reescribe");
+  });
+
+  // --- ocupación y canal: cotizar la tarifa que toca ---------------------------
+  // Los números salen del PDF real "TARIFAS FUTBOL 2027 CLIENTE MSH GENÉRICO":
+  // Villa Bonita / Aloha, PC con campo artificial, 73 € en doble y 92 € en
+  // individual. Son la misma línea de la tabla, y hasta ahora el catálogo no
+  // sabía distinguirlas.
+  console.log("\nOcupación y canal (la tarifa correcta):");
+
+  const villa = await prisma.accommodation.create({
+    data: {
+      accommodationName: "Villa Bonita / Aloha",
+      locality: "Salou",
+      accommodationType: "Hotel",
+      rates: {
+        create: [
+          {
+            year: 2027,
+            boardType: "PC",
+            includedService: "Campo artificial 1,30 h",
+            occupancyLabel: "Doble",
+            pvpAmount: 73,
+            currency: "EUR",
+          },
+          {
+            year: 2027,
+            boardType: "PC",
+            includedService: "Campo artificial 1,30 h",
+            occupancyLabel: "Individual",
+            pvpAmount: 92,
+            currency: "EUR",
+          },
+          {
+            year: 2027,
+            boardType: "PC",
+            includedService: "Campo artificial 1,30 h",
+            occupancyLabel: "Doble",
+            pvpAmount: 66,
+            currency: "EUR",
+            clientSegment: "SWISS_TTOO",
+          },
+        ],
+      },
+    },
+  });
+
+  const filtrosSalou = {
+    destinationText: "Salou",
+    dateFrom: "2027-04-10",
+    dateTo: "2027-04-15",
+    participants: 40,
+    teachers: 4,
+    boardType: "Pensión completa",
+  };
+
+  await test("al cotizar se ofrece la tarifa compartida, no la individual", async () => {
+    const resultado = await search.searchAccommodationsDb({
+      ...filtrosSalou,
+      clientSegment: "GENERIC",
+    });
+    const match = resultado.matches.find((m) => m.accommodation.id === villa.id);
+    assert.ok(match, "Villa Bonita debe aparecer");
+    assert.equal(match!.rate.pvpAmount, 73, "los alumnos van en doble, no a 92 €");
+    assert.equal(match!.rate.occupancyLabel, "Doble");
+  });
+
+  await test("la tarifa de los profesores viaja con la del grupo", async () => {
+    const resultado = await search.searchAccommodationsDb({
+      ...filtrosSalou,
+      clientSegment: "GENERIC",
+    });
+    const match = resultado.matches.find((m) => m.accommodation.id === villa.id);
+    assert.ok(match!.singleRate, "debe encontrar la de uso individual");
+    assert.equal(match!.singleRate!.pvpAmount, 92);
+    assert.equal(match!.singleRate!.includedService, "Campo artificial 1,30 h", "misma línea de la tabla");
+  });
+
+  await test("una tarifa pactada con un canal no se ofrece a otro cliente", async () => {
+    const paraColegio = await search.searchAccommodationsDb({
+      ...filtrosSalou,
+      clientSegment: "GENERIC",
+    });
+    const colegio = paraColegio.matches.find((m) => m.accommodation.id === villa.id);
+    assert.equal(colegio!.rate.pvpAmount, 73, "al colegio NO se le da el precio del turoperador");
+
+    const paraSuizo = await search.searchAccommodationsDb({
+      ...filtrosSalou,
+      clientSegment: "SWISS_TTOO",
+    });
+    const suizo = paraSuizo.matches.find((m) => m.accommodation.id === villa.id);
+    assert.equal(suizo!.rate.pvpAmount, 66, "el turoperador sí ve la suya, que antes era invisible");
+  });
+
+  await test("el total incluye a los profesores, y a su precio", async () => {
+    const pricingUi = await import("../src/services/pricing.ts");
+    // 40 alumnos a 73 € + 4 profesores a 92 €, cinco noches.
+    assert.equal(
+      pricingUi.totalAlojamiento({
+        unitPrice: 73,
+        teacherPrice: 92,
+        participants: 40,
+        teachers: 4,
+        nights: 5,
+      }),
+      16440,
+    );
+    // Antes los profesores no se cobraban: 14.600 €, 1.840 € menos.
+    assert.equal(
+      pricingUi.totalAlojamiento({
+        unitPrice: 73,
+        teacherPrice: 92,
+        participants: 40,
+        teachers: 0,
+        nights: 5,
+      }),
+      14600,
+    );
+    // Sin tarifa individual en el documento, los profesores van al precio del grupo.
+    assert.equal(
+      pricingUi.totalAlojamiento({
+        unitPrice: 73,
+        teacherPrice: 73,
+        participants: 40,
+        teachers: 4,
+        nights: 5,
+      }),
+      16060,
+    );
   });
 
   await prisma.$disconnect();

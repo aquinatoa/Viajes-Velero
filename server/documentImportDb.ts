@@ -1232,10 +1232,13 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
         boardType: rate.boardType,
         tariffUnit: rate.rateUnit,
         currency: rate.currency,
-        // De qué canal es este precio y qué lleva incluido: sin estos dos, dos
-        // tarifas del mismo hotel y régimen son indistinguibles al cotizar.
+        // De qué canal es este precio, qué lleva incluido y para qué ocupación:
+        // sin los tres, dos tarifas del mismo hotel y régimen son
+        // indistinguibles al cotizar. En Fútbol Salou, la misma línea vale 73 €
+        // en doble y 92 € en individual.
         clientSegment: context.clientSegment ?? null,
         includedService: rate.includedService ?? null,
+        occupancyLabel: rate.occupancyLabel ?? null,
         pvpAmount: salePrice,
         // El coste resuelto, no el campo crudo donde cayó la cifra. En un
         // documento de venta queda a null: ese papel no dice lo que cuesta.

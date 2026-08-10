@@ -29,6 +29,8 @@ export interface BorradorSolicitud {
    * reintento tras recargar crearía otra solicitud y otro trato en el CRM.
    */
   solicitudId?: string | null;
+  /** Para qué cliente se cotiza: cambia qué tarifas se ofrecen. */
+  canal?: "GENERIC" | "SWISS_TTOO";
   mensajes: string[];
   redaccion: string;
   form: ParseTripRequestInput;

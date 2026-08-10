@@ -22,6 +22,7 @@ import {
 } from "../../services/apiClient";
 import isotipoBlanco from "../../assets/oravia-isotipo-blanco.png";
 import { borrarBorrador, guardarBorrador, haceCuanto, leerBorrador, type BorradorSolicitud } from "./draft";
+import type { ClientSegment } from "../../domain/documentImportTypes";
 import type {
   AccommodationSearchMatch,
   FindCandidateOpportunitiesResult,
@@ -117,6 +118,12 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
   const [previas, setPrevias] = useState<FindCandidateOpportunitiesResult | null>(null);
   const [parseResult, setParseResult] = useState<ParseTripRequestResult | null>(null);
 
+  /**
+   * Para qué cliente se cotiza. El mismo hotel tiene tarifa pactada con el
+   * turoperador suizo y tarifa general, y valen distinto. Por defecto, colegio.
+   */
+  const [canal, setCanal] = useState<ClientSegment>("GENERIC");
+
   // Lo que se construye
   const [hoteles, setHoteles] = useState<SearchAccommodationsResult | null>(null);
   const [actividades, setActividades] = useState<SearchActivitiesResult | null>(null);
@@ -164,6 +171,7 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
     guardadoRef.current = window.setTimeout(() => {
       guardarBorrador({
         solicitudId,
+        canal,
         mensajes,
         redaccion: borrador,
         form,
@@ -179,12 +187,13 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
     return () => {
       if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
     };
-  }, [mensajes, borrador, form, entendido, tope, requisitos, elegidos, programaBase, excepciones, solicitudId, enviada]);
+  }, [mensajes, borrador, form, entendido, tope, requisitos, elegidos, programaBase, excepciones, solicitudId, canal, enviada]);
 
   /** Recupera el borrador y vuelve a buscar hoteles: las tarifas pueden haber cambiado. */
   function recuperar() {
     if (!recuperable) return;
     setSolicitudId(recuperable.solicitudId ?? null);
+    setCanal(recuperable.canal ?? "GENERIC");
     setMensajes(recuperable.mensajes);
     setBorrador(recuperable.redaccion);
     setForm(recuperable.form);
@@ -215,7 +224,7 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
   const noches = entendido ? nochesEntre(entendido.dateFrom, entendido.dateTo) : 0;
 
   /** Busca hoteles y actividades para una petición ya entendida. */
-  async function buscarHoteles(datos: NormalizedRequestDraft) {
+  async function buscarHoteles(datos: NormalizedRequestDraft, canalPedido: ClientSegment = canal) {
     setOcupado("buscando");
     try {
       // `boardType` es el nombre que espera la búsqueda; el régimen del mensaje
@@ -229,6 +238,10 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
         teachers: datos.teachers,
         boardType: datos.regimeRequested,
         categoryRequested: datos.categoryRequested,
+        // Para quién se cotiza. Sin decirlo, las tarifas pactadas con un canal
+        // (el turoperador suizo) no aparecían NUNCA: quedaban cargadas y
+        // muertas.
+        clientSegment: canalPedido,
       };
       const [alojamientos, planes] = await Promise.all([
         searchAccommodationsApi(filtros),
@@ -732,6 +745,22 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
                   onChange={(v) => setTope(Number(v) || null)}
                   placeholder="sin tope"
                 />
+                {/* Sin esto no se sabe qué tarifa aplica: el mismo hotel tiene
+                    una pactada con el turoperador suizo y otra general. */}
+                <label className="cv__field">
+                  <span>Cotizamos para</span>
+                  <select
+                    value={canal}
+                    onChange={(evento) => {
+                      const elegido = evento.target.value as ClientSegment;
+                      setCanal(elegido);
+                      if (entendido) void buscarHoteles(entendido, elegido);
+                    }}
+                  >
+                    <option value="GENERIC">Colegio, club o agencia</option>
+                    <option value="SWISS_TTOO">Turoperador suizo</option>
+                  </select>
+                </label>
               </div>
             </div>
           ) : null}

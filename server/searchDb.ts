@@ -273,6 +273,43 @@ function scoreActivityMatch(
   return { score, reasons };
 }
 
+/**
+ * ¿Esta tarifa es de uso individual? Los documentos escriben la ocupación de
+ * muchas formas ("INDIVIDUAL", "1 PAX X HAB", "Single"), y la diferencia vale
+ * dinero: en Villa Bonita, 73 € en doble contra 92 € en individual.
+ */
+function esIndividual(occupancyLabel?: string | null): boolean {
+  const texto = normalizeText(occupancyLabel ?? "");
+  if (!texto) return false;
+  return /individual|single|1 ?pax|uso indiv/.test(texto);
+}
+
+/**
+ * La tarifa de uso individual que acompaña a la elegida: mismo hotel, mismo
+ * régimen y mismo servicio incluido. Sin exigir esas tres coincidencias se
+ * cotizaría a los profesores el precio de otra cosa (con campo natural cuando
+ * el grupo lleva artificial, por ejemplo).
+ */
+function tarifaIndividualHermana(
+  elegida: AccommodationSearchMatch,
+  individuales: AccommodationSearchMatch[],
+): AccommodationSearchMatch["rate"] | null {
+  if (esIndividual(elegida.rate.occupancyLabel)) return null;
+  const hermanas = individuales.filter(
+    (item) =>
+      item.accommodation.id === elegida.accommodation.id &&
+      (item.rate.boardType ?? "") === (elegida.rate.boardType ?? "") &&
+      (item.rate.includedService ?? "") === (elegida.rate.includedService ?? ""),
+  );
+  if (hermanas.length === 0) return null;
+  // A igualdad de criterios, la más barata: no se encarece la propuesta por
+  // haber elegido mal entre dos filas equivalentes.
+  return hermanas.sort(
+    (a, b) =>
+      (a.rate.pvpAmount || a.rate.netSaleAmount) - (b.rate.pvpAmount || b.rate.netSaleAmount),
+  )[0].rate;
+}
+
 export async function searchAccommodationsDb(
   filters: SearchFilters
 ): Promise<SearchAccommodationsResult> {
@@ -353,6 +390,7 @@ export async function searchAccommodationsDb(
             netAzulmarinoAmount: Number(rate.netAzulmarinoAmount ?? 0),
             clientSegment: rate.clientSegment ?? "",
             includedService: rate.includedService ?? "",
+            occupancyLabel: rate.occupancyLabel ?? "",
             sourceFile: rate.sourceFile ?? "",
             sourceSheet: rate.sourceSheet ?? ""
           },
@@ -367,8 +405,24 @@ export async function searchAccommodationsDb(
   // score; a igualdad, la más barata). Antes se devolvía una coincidencia por
   // cada tarifa, lo que inflaba los resultados (p. ej. 192) con el mismo hotel
   // repetido decenas de veces y hacía imposible elegir.
+  //
+  // La tarifa que representa al hotel es la de los ALUMNOS, es decir la de
+  // ocupación compartida: son la mayoría del grupo. Las de uso individual no
+  // compiten por ese puesto —serían más caras y falsearían la comparación—;
+  // se guardan aparte para cotizar a los profesores.
+  const compartidas = perRateMatches.filter((item) => !esIndividual(item.rate.occupancyLabel));
+  const individuales = perRateMatches.filter((item) => esIndividual(item.rate.occupancyLabel));
+
+  // Si un hotel SOLO tiene tarifas individuales, no se le deja fuera: es lo que
+  // hay para ese hotel.
+  const conTarifaCompartida = new Set(compartidas.map((item) => item.accommodation.id));
+  const candidatas = [
+    ...compartidas,
+    ...individuales.filter((item) => !conTarifaCompartida.has(item.accommodation.id)),
+  ];
+
   const bestByAccommodation = new Map<string, AccommodationSearchMatch>();
-  for (const item of perRateMatches) {
+  for (const item of candidatas) {
     const current = bestByAccommodation.get(item.accommodation.id);
     if (
       !current ||
@@ -381,9 +435,9 @@ export async function searchAccommodationsDb(
     }
   }
 
-  const matches: AccommodationSearchMatch[] = [...bestByAccommodation.values()].sort(
-    (a, b) => b.score - a.score
-  );
+  const matches: AccommodationSearchMatch[] = [...bestByAccommodation.values()]
+    .map((item) => ({ ...item, singleRate: tarifaIndividualHermana(item, individuales) }))
+    .sort((a, b) => b.score - a.score);
 
   return {
     filters,

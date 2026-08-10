@@ -153,6 +153,10 @@ model AccommodationRate {
   // Qué va incluido además del alojamiento (campo artificial, natural,
   // ninguno...). Es un eje del precio, no una nota.
   includedService        String?
+  // Doble / Individual. También es un eje del precio: en Fútbol Salou el mismo
+  // hotel, régimen y campo valen 73 € en doble y 92 € en individual. Sin este
+  // dato las dos tarifas son indistinguibles y el cotizador elige a ciegas.
+  occupancyLabel         String?
 
   sourceFile             String?
   sourceSheet            String?

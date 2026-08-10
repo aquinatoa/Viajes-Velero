@@ -178,6 +178,8 @@ export interface AccommodationRate {
   clientSegment: string;
   /** Qué va incluido además del alojamiento (campo artificial, natural...). */
   includedService: string;
+  /** Doble, Individual… Con el mismo régimen y campo, el precio cambia. */
+  occupancyLabel: string;
   sourceFile: string;
   sourceSheet: string;
 }
@@ -212,7 +214,14 @@ export interface ActivityRate {
 
 export interface AccommodationSearchMatch {
   accommodation: Accommodation;
+  /** La tarifa de los alumnos: la de ocupación compartida. */
   rate: AccommodationRate;
+  /**
+   * La misma tarifa en uso individual, si el documento la trae. Es la de los
+   * profesores: en Fútbol Salou duermen solos y cuesta 19 € más por noche. Si
+   * falta, los profesores se cotizan al precio de los alumnos y se avisa.
+   */
+  singleRate?: AccommodationRate | null;
   score: number;
   matchReasons: string[];
 }
