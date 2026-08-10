@@ -16,6 +16,18 @@ import {
   ZohoReauthRequiredError,
 } from "./zoho";
 import { searchAccommodationsDb, searchActivitiesDb } from "./searchDb";
+import fs from "node:fs";
+import path from "node:path";
+import { applyChange, previewChange, type DatosLeidos } from "./proposalChanges";
+import {
+  DEPOSIT_PERCENT,
+  chooseOption,
+  getDelivery,
+  listDeliveries,
+  prepareDelivery,
+  readPublicProposal,
+  sendDelivery,
+} from "./proposalDelivery";
 import {
   addInventoryDocumentExtraction,
   addInventoryDocumentIssue,
@@ -48,6 +60,7 @@ import {
   approveTripProposalDb,
   findClientByEmailDb,
   getClientTripRequestsDb,
+  type SaveTripRequestInput,
   saveTripProposalDb,
   saveTripRequestDb,
   upsertClientFromIntakeDb,
@@ -64,6 +77,7 @@ import {
   logout as authLogout,
   requireAuth,
   requireRole,
+  tripRequestVisibilityWhere,
   updateUser,
   writeAudit,
 } from "./auth";
@@ -97,8 +111,9 @@ app.use(express.json());
 
 // ── Control de acceso por rol (RBAC). El backend es la fuente de verdad ──────
 // /api/auth/* y /api/health quedan públicos (login). Todo lo demás exige sesión;
-// el módulo documental (/api/inventory) es solo para ADMIN.
-app.use("/api/inventory", requireAuth, requireRole("ADMIN"));
+// el módulo documental (/api/inventory) es para administradores (global o de
+// departamento); el rol Cotizador (QUOTER) no gestiona el catálogo de tarifas.
+app.use("/api/inventory", requireAuth, requireRole("ADMIN", "DEPT_ADMIN"));
 app.use("/api/commercial", requireAuth);
 app.use("/api/search", requireAuth);
 app.use("/api/crm", requireAuth);
@@ -1177,7 +1192,9 @@ app.post("/api/commercial/clients", async (request, response) => {
 // Solicitudes previas de un cliente (oportunidades candidatas).
 app.get("/api/commercial/clients/:id/trip-requests", async (request, response) => {
   try {
-    const requests = await getClientTripRequestsDb(String(request.params.id));
+    const req = request as AuthedRequest;
+    const where = req.user ? tripRequestVisibilityWhere(req.user) : {};
+    const requests = await getClientTripRequestsDb(String(request.params.id), where);
     response.json({ requests });
   } catch (error) {
     console.error("Error listing client trip requests", error);
@@ -1188,12 +1205,23 @@ app.get("/api/commercial/clients/:id/trip-requests", async (request, response) =
 // Guardar una solicitud de viaje normalizada.
 app.post("/api/commercial/trip-requests", async (request, response) => {
   try {
-    const body = (request.body ?? {}) as { clientId?: string; originalMessage?: string };
+    const req = request as AuthedRequest;
+    const body = (request.body ?? {}) as {
+      clientId?: string;
+      originalMessage?: string;
+      department?: "GROUPS" | "SPORTS" | null;
+    };
     if (!body.clientId || !body.originalMessage) {
       response.status(400).json({ error: "Faltan datos de la solicitud (clientId/mensaje)." });
       return;
     }
-    const saved = await saveTripRequestDb(request.body as never);
+    // El dueño es SIEMPRE el usuario autenticado (fuente de verdad, no el body);
+    // el departamento se toma del body o, si no, del departamento del usuario.
+    const saved = await saveTripRequestDb({
+      ...(request.body as SaveTripRequestInput),
+      ownerUserId: req.user?.id ?? null,
+      department: body.department ?? req.user?.department ?? null,
+    });
     response.json(saved);
   } catch (error) {
     console.error("Error saving trip request", error);
@@ -1319,18 +1347,22 @@ app.post("/api/auth/users", requireAuth, requireRole("ADMIN"), async (request, r
   try {
     const body = parseBody(createUserSchema, request, response);
     if (!body) return;
-    const role = body.role === "ADMIN" ? "ADMIN" : "USER";
+    const role = body.role ?? "USER";
+    // Un admin de departamento debe llevar su departamento; los roles globales no.
+    const department =
+      role === "DEPT_ADMIN" || role === "QUOTER" ? body.department ?? null : null;
     const user = await createUser({
       email: body.email,
       name: body.name ?? null,
       password: body.password,
       role,
+      department,
     });
     await writeAudit({
       user: req.user,
       action: "USER_CREATE",
       entity: "user",
-      detail: `${user.email} (${role})`,
+      detail: `${user.email} (${role}${department ? `/${department}` : ""})`,
     });
     response.json(user);
   } catch (error) {
@@ -1349,8 +1381,8 @@ app.patch("/api/auth/users/:id", requireAuth, requireRole("ADMIN"), async (reque
     const id = String(request.params.id);
     const body = parseBody(updateUserSchema, request, response);
     if (!body) return;
-    // Evitar que el admin se desactive o se quite el rol a sí mismo (lockout).
-    if (id === req.user?.id && (body.isActive === false || body.role === "USER")) {
+    // Evitar que el admin global se desactive o se degrade a sí mismo (lockout).
+    if (id === req.user?.id && (body.isActive === false || (body.role && body.role !== "ADMIN"))) {
       response.status(400).json({ error: "No puedes quitarte el acceso de administrador a ti mismo." });
       return;
     }
@@ -1375,6 +1407,195 @@ app.get("/api/audit", requireAuth, requireRole("ADMIN"), async (request, respons
   } catch (error) {
     console.error("Error listando auditoría", error);
     response.status(500).json({ error: "No se pudo cargar la auditoría." });
+  }
+});
+
+// ── Envío de propuestas al cliente ──────────────────────────────────────────
+// Preparar deja la entrega lista con su PDF y su referencia, sin que salga
+// nada; enviar es lo que la pone en el buzón. Se separan porque el cotizador
+// querrá revisar el PDF antes de que llegue al colegio.
+
+app.post("/api/proposals/:id/prepare-delivery", requireAuth, async (request, response) => {
+  try {
+    const body = request.body as { recipientEmail?: string; recipientName?: string };
+    const result = await prepareDelivery({
+      proposalId: String(request.params.id),
+      recipientEmail: body?.recipientEmail,
+      recipientName: body?.recipientName,
+      sentByUserId: (request as AuthedRequest).user?.id,
+    });
+    await writeAudit({
+      user: (request as AuthedRequest).user,
+      action: "PROPOSAL_DELIVERY_PREPARE",
+      entity: "proposal",
+      detail: result.reference,
+    });
+    response.json(result);
+  } catch (error) {
+    console.error("Error preparando la entrega", error);
+    response.status(400).json({
+      error: error instanceof Error ? error.message : "No se pudo preparar la propuesta.",
+    });
+  }
+});
+
+app.post("/api/deliveries/:id/send", requireAuth, async (request, response) => {
+  try {
+    const result = await sendDelivery(String(request.params.id));
+    await writeAudit({
+      user: (request as AuthedRequest).user,
+      action: result.simulated ? "PROPOSAL_DELIVERY_SIMULATED" : "PROPOSAL_DELIVERY_SENT",
+      entity: "proposal",
+      detail: `${result.reference} -> ${result.recipientEmail}`,
+    });
+    response.json(result);
+  } catch (error) {
+    console.error("Error enviando la propuesta", error);
+    response.status(400).json({
+      error: error instanceof Error ? error.message : "No se pudo enviar la propuesta.",
+    });
+  }
+});
+
+// El documento tal como lo recibirá el colegio. Sirve para revisarlo ANTES de
+// enviarlo: preparar y enviar son dos gestos distintos a propósito.
+app.get("/api/deliveries/:id/pdf", requireAuth, async (request, response) => {
+  try {
+    const delivery = await getDelivery(String(request.params.id));
+    if (!delivery?.pdfPath) {
+      response.status(404).json({ error: "Esa propuesta no tiene documento generado." });
+      return;
+    }
+    const absoluto = path.resolve(process.cwd(), delivery.pdfPath);
+    if (!fs.existsSync(absoluto)) {
+      response.status(404).json({ error: "El documento ya no está en el servidor." });
+      return;
+    }
+    response.type("application/pdf");
+    response.setHeader("Content-Disposition", `inline; filename="Propuesta-${delivery.reference}.pdf"`);
+    fs.createReadStream(absoluto).pipe(response);
+  } catch (error) {
+    console.error("Error sirviendo el documento", error);
+    response.status(500).json({ error: "No se pudo abrir el documento." });
+  }
+});
+
+app.get("/api/deliveries", requireAuth, async (request, response) => {
+  try {
+    const user = (request as AuthedRequest).user;
+    // Un administrador de departamento solo ve lo suyo; los globales, todo.
+    const department = user?.role === "DEPT_ADMIN" ? user.department : null;
+    response.json({ deliveries: await listDeliveries({ department }) });
+  } catch (error) {
+    console.error("Error listando entregas", error);
+    response.status(500).json({ error: "No se pudieron cargar las propuestas enviadas." });
+  }
+});
+
+// ── Página pública de la propuesta ──────────────────────────────────────────
+// SIN sesión: entra el colegio con el enlace del correo. La única protección es
+// que el token es largo y aleatorio, así que aquí no se expone nada que no
+// estuviera ya en el PDF que el cliente tiene en su bandeja. Nunca datos de
+// alumnos. Se monta fuera de /api para que la ruta del enlace sea corta.
+
+app.get("/api/public/proposals/:token", async (request, response) => {
+  try {
+    const delivery = await readPublicProposal(String(request.params.token));
+    if (!delivery) {
+      response.status(404).json({ error: "Esta propuesta ya no está disponible." });
+      return;
+    }
+    const request_ = delivery.proposal.tripRequest;
+    response.json({
+      reference: delivery.reference,
+      department: delivery.department,
+      tripTitle: request_.opportunityName ?? request_.destinationText ?? "Vuestro viaje",
+      destination: request_.destinationText,
+      dateFrom: request_.dateFrom,
+      dateTo: request_.dateTo,
+      participants: request_.participants,
+      teachers: request_.teachers,
+      chosenOptionNumber: delivery.chosenOptionNumber,
+      depositDueAt: delivery.depositDueAt,
+      options: delivery.proposal.accommodationOptions.map((option) => ({
+        optionNumber: option.optionNumber,
+        accommodationName: option.accommodationNameSnapshot,
+        boardType: option.boardType,
+        nights: option.nights,
+        totalPvpText: option.totalPvpText,
+        priceBreakdownText: option.priceBreakdownText,
+        conditionsText: option.conditionsText,
+      })),
+    });
+  } catch (error) {
+    console.error("Error abriendo la propuesta pública", error);
+    response.status(500).json({ error: "No se pudo abrir la propuesta." });
+  }
+});
+
+app.post("/api/public/proposals/:token/choose", async (request, response) => {
+  try {
+    const optionNumber = Number((request.body as { optionNumber?: number })?.optionNumber);
+    if (!Number.isFinite(optionNumber)) {
+      response.status(400).json({ error: "Falta indicar la opción elegida." });
+      return;
+    }
+    const delivery = await chooseOption(String(request.params.token), optionNumber);
+    if (!delivery) {
+      response.status(404).json({ error: "Esta propuesta ya no está disponible." });
+      return;
+    }
+    response.json({
+      reference: delivery.reference,
+      chosenOptionNumber: delivery.chosenOptionNumber,
+      chosenAt: delivery.chosenAt,
+      depositDueAt: delivery.depositDueAt,
+      depositPercent: DEPOSIT_PERCENT,
+    });
+  } catch (error) {
+    console.error("Error registrando la opción elegida", error);
+    response.status(500).json({ error: "No se pudo registrar la elección." });
+  }
+});
+
+
+// ── Cambios del cliente sobre un viaje ya propuesto ─────────────────────────
+// "Mañana nos dicen que en vez de 48 serán 46". Ver primero, aplicar después:
+// aplicar crea una versión nueva de la propuesta, no pisa la que ya salió.
+
+app.post("/api/proposals/:id/changes/preview", requireAuth, async (request, response) => {
+  try {
+    const body = request.body as { leido?: DatosLeidos };
+    const vista = await previewChange(String(request.params.id), body?.leido ?? {});
+    response.json(vista);
+  } catch (error) {
+    console.error("Error calculando el cambio", error);
+    response.status(400).json({
+      error: error instanceof Error ? error.message : "No se pudo calcular el cambio.",
+    });
+  }
+});
+
+app.post("/api/proposals/:id/changes/apply", requireAuth, async (request, response) => {
+  try {
+    const body = request.body as { leido?: DatosLeidos; mensaje?: string };
+    const resultado = await applyChange(
+      String(request.params.id),
+      body?.leido ?? {},
+      body?.mensaje ?? "",
+    );
+    await writeAudit({
+      user: (request as AuthedRequest).user,
+      action: "PROPOSAL_CHANGE_APPLIED",
+      entity: "proposal",
+      detail: `${request.params.id} → v${resultado.versionNumber} (${resultado.cambios} campos)`,
+    });
+    response.json(resultado);
+  } catch (error) {
+    console.error("Error aplicando el cambio", error);
+    response.status(400).json({
+      error: error instanceof Error ? error.message : "No se pudo aplicar el cambio.",
+    });
   }
 });
 
