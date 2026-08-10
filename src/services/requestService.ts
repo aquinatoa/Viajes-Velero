@@ -577,12 +577,19 @@ export const upsertClientFromRequest = (input: ParseTripRequestInput): Promise<C
   });
 };
 
+/**
+ * Guarda la solicitud. Con `existingId` la actualiza en vez de crear otra: es lo
+ * que hace que reintentar el cierre del lienzo no deje solicitudes (ni tratos)
+ * duplicados.
+ */
 export const saveNormalizedTripRequest = (
   clientId: string,
   source: ParseTripRequestInput,
-  parseResult: ParseTripRequestResult
+  parseResult: ParseTripRequestResult,
+  existingId?: string | null,
 ): Promise<TripRequest> => {
   return saveTripRequestApi({
+    id: existingId ?? null,
     clientId,
     opportunityName: source.opportunityName ?? null,
     originalMessage: source.rawTripRequestText,

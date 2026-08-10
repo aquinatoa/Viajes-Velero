@@ -26,14 +26,12 @@ import type {
   AccommodationSearchMatch,
   FindCandidateOpportunitiesResult,
   ActivitySearchMatch,
-  Client,
   NormalizedRequestDraft,
   ParseTripRequestInput,
   ParseTripRequestResult,
   SearchAccommodationsResult,
   SearchActivitiesResult,
   TripProposal,
-  TripRequest,
 } from "../../domain/types";
 
 /**
@@ -120,8 +118,6 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
   const [parseResult, setParseResult] = useState<ParseTripRequestResult | null>(null);
 
   // Lo que se construye
-  const [client, setClient] = useState<Client | null>(null);
-  const [solicitud, setSolicitud] = useState<TripRequest | null>(null);
   const [hoteles, setHoteles] = useState<SearchAccommodationsResult | null>(null);
   const [actividades, setActividades] = useState<SearchActivitiesResult | null>(null);
   const [elegidos, setElegidos] = useState<string[]>([]);
@@ -130,6 +126,13 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
   const [excepciones, setExcepciones] = useState<Record<number, { fuera: string[]; dentro: string[] }>>({});
 
   // Cierre
+  /**
+   * Solicitud ya creada en la base, si el cierre llegó a crearla. Se guarda en
+   * el borrador del navegador: si la pestaña se recarga a mitad del cierre, es
+   * lo único que impide que el reintento cree una solicitud nueva y, tras ella,
+   * un segundo trato en el CRM.
+   */
+  const [solicitudId, setSolicitudId] = useState<string | null>(null);
   const [propuesta, setPropuesta] = useState<TripProposal | null>(null);
   const [dealId, setDealId] = useState<string | null>(null);
   const [entrega, setEntrega] = useState<ProposalDeliveryResult | null>(null);
@@ -160,6 +163,7 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
     if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
     guardadoRef.current = window.setTimeout(() => {
       guardarBorrador({
+        solicitudId,
         mensajes,
         redaccion: borrador,
         form,
@@ -175,11 +179,12 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
     return () => {
       if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
     };
-  }, [mensajes, borrador, form, entendido, tope, requisitos, elegidos, programaBase, excepciones, enviada]);
+  }, [mensajes, borrador, form, entendido, tope, requisitos, elegidos, programaBase, excepciones, solicitudId, enviada]);
 
   /** Recupera el borrador y vuelve a buscar hoteles: las tarifas pueden haber cambiado. */
   function recuperar() {
     if (!recuperable) return;
+    setSolicitudId(recuperable.solicitudId ?? null);
     setMensajes(recuperable.mensajes);
     setBorrador(recuperable.redaccion);
     setForm(recuperable.form);
@@ -447,14 +452,17 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
 
     setOcupado("enviando");
     try {
-      const cliente = client ?? (await upsertClientFromRequest(form));
-      setClient(cliente);
+      // Los cinco pasos son reintentables: ninguno se salta, todos reescriben lo
+      // que ya crearon. Saltárselos parecía más rápido, pero dejaba fuera las
+      // correcciones hechas entre el fallo y el reintento, y no sobrevivía a una
+      // recarga del navegador, que es cuando de verdad se duplicaba todo.
+      const cliente = await upsertClientFromRequest(form);
 
       const candidatas = await findCandidateOpportunities(cliente, entendido);
       setPrevias(candidatas);
 
-      const guardada = solicitud ?? (await saveNormalizedTripRequest(cliente.id, form, parseResult));
-      setSolicitud(guardada);
+      const guardada = await saveNormalizedTripRequest(cliente.id, form, parseResult, solicitudId);
+      setSolicitudId(guardada.id);
 
       const actividadesPorOpcion: Record<number, string[]> = {};
       elegidos.forEach((_, indice) => {
@@ -480,7 +488,11 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
         proposal: nueva,
         opportunityName: form.opportunityName,
       });
+      // `tripRequestId` es lo que impide que reintentar cree un segundo trato:
+      // el servidor lo mira en la BD, no en esta pantalla, que se pierde al
+      // recargar el navegador.
       const trato = await createZohoOpportunityApi({
+        tripRequestId: guardada.id,
         contact: payload.contact as { email: string; first_name: string; last_name: string; full_name: string },
         account: payload.account as { crm_account_id?: string | null },
         opportunity: payload.opportunity as Record<string, unknown>,
@@ -577,8 +589,12 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
             type="button"
             className={puedeRevisar ? "cv__send" : "cv__send cv__send--off"}
             onClick={() => {
+              // Se prepara siempre, no solo la primera vez: el paso es
+              // reintentable y así lo que se revisa es lo elegido AHORA. Antes,
+              // volver atrás y cambiar de hotel dejaba en pantalla el documento
+              // anterior.
               setRevisando(true);
-              if (!entrega) void prepararParaRevisar();
+              void prepararParaRevisar();
             }}
             disabled={!puedeRevisar || ocupado !== ""}
           >

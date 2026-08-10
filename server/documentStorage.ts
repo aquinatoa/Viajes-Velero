@@ -2,7 +2,13 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const STORAGE_ROOT = path.resolve(process.cwd(), "storage", "inventory-documents");
+// Dónde viven los ficheros. `ORAVIA_STORAGE_DIR` lo mueve entero: lo usan las
+// pruebas para no ensuciar `storage/`, y hará falta en Azure, donde el disco que
+// sobrevive a un despliegue no es el de la aplicación.
+const STORAGE_ROOT = path.resolve(
+  process.env.ORAVIA_STORAGE_DIR ?? path.join(process.cwd(), "storage"),
+  "inventory-documents",
+);
 
 export interface StoredInventoryFile {
   originalFileName: string;

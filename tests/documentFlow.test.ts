@@ -28,6 +28,20 @@ const TEST_DB_RELATIVE = "./test-flow.db";
 const TEST_DB_URL = `file:${TEST_DB_RELATIVE}`;
 const testDbAbsolute = path.join(projectRoot, "prisma", "test-flow.db");
 
+// Los PDFs de las entregas se escriben en disco. Van a un almacén aparte para
+// no pisar los de `storage/`: la primera referencia de la BD temporal es
+// ORV-2026-0001, que en el almacén real es un documento de verdad.
+const testStorage = path.join(projectRoot, "prisma", "test-storage");
+
+function removeTestStorage() {
+  try {
+    rmSync(testStorage, { recursive: true, force: true });
+  } catch {
+    // Mismo caso que la BD: en Windows puede quedar bloqueado. Se borra en la
+    // siguiente corrida.
+  }
+}
+
 function removeTestDb() {
   for (const suffix of ["", "-journal", "-wal", "-shm"]) {
     const target = `${testDbAbsolute}${suffix}`;
@@ -63,9 +77,11 @@ async function main() {
   // 1) Apuntar el cliente Prisma a la BD temporal ANTES de importar los módulos
   //    que instancian PrismaClient (la importación es dinámica más abajo).
   process.env.DATABASE_URL = TEST_DB_URL;
+  process.env.ORAVIA_STORAGE_DIR = testStorage;
 
   // 2) Crear el esquema en la BD temporal desde cero.
   removeTestDb();
+  removeTestStorage();
   console.log("Preparando base de datos temporal (prisma db push)...");
   execFileSync(
     process.execPath,
@@ -1015,6 +1031,195 @@ async function main() {
     assert.equal(approved!.accommodationOptions[0].isSelected, true);
   });
 
+  // --- reintentar el cierre del lienzo -----------------------------------------
+  // El cierre encadena cliente → solicitud → propuesta → trato → documento. Si
+  // revienta a mitad, el operador vuelve a pulsar el botón. Lo que se prueba
+  // aquí es que ese segundo intento NO deja rastro doble: ni solicitudes, ni
+  // propuestas, ni —sobre todo— un segundo trato en el CRM del cliente.
+  console.log("\nReintentar el cierre del lienzo (no duplicar):");
+
+  const delivery = await import("../server/proposalDelivery.ts");
+
+  /** Marca una entrega como ya salida, sin pasar por el correo. */
+  async function marcarComoEnviada(deliveryId: string) {
+    await prisma.proposalDelivery.update({
+      where: { id: deliveryId },
+      data: { status: "SENT", sentAt: new Date() },
+    });
+  }
+
+  async function nuevaSolicitud(mensaje: string) {
+    return commercial.saveTripRequestDb({
+      clientId: commercialClientId,
+      originalMessage: mensaje,
+      destinationText: "Salou",
+      dateFrom: "2027-04-10",
+      dateTo: "2027-04-14",
+      participants: 40,
+      teachers: 4,
+      requestStatus: "READY_FOR_SEARCH",
+    });
+  }
+
+  function opcion(nombre: string, optionNumber = 1) {
+    return {
+      optionNumber,
+      accommodationId: acc.id,
+      accommodationNameSnapshot: nombre,
+      dateFrom: "2027-04-10",
+      dateTo: "2027-04-14",
+      nights: 4,
+      participants: 40,
+      teachers: 4,
+      totalPvpText: "16.000,00 €",
+    };
+  }
+
+  let reintentoRequestId = "";
+
+  await test("reintentar actualiza la solicitud en vez de crear otra", async () => {
+    const antes = await prisma.tripRequest.count({ where: { clientId: commercialClientId } });
+    const primera = await nuevaSolicitud("Fútbol Salou 2027");
+    reintentoRequestId = primera.id;
+
+    // Segundo intento: el operador ha corregido el número de alumnos.
+    const segunda = await commercial.saveTripRequestDb({
+      id: primera.id,
+      clientId: commercialClientId,
+      originalMessage: "Fútbol Salou 2027",
+      destinationText: "Salou",
+      dateFrom: "2027-04-10",
+      dateTo: "2027-04-14",
+      participants: 44,
+      teachers: 4,
+      requestStatus: "READY_FOR_SEARCH",
+    });
+
+    assert.equal(segunda.id, primera.id, "no debe crear una segunda solicitud");
+    assert.equal(segunda.participants, 44, "la corrección debe quedar guardada");
+    const despues = await prisma.tripRequest.count({ where: { clientId: commercialClientId } });
+    assert.equal(despues, antes + 1, "solo una solicitud nueva tras los dos intentos");
+  });
+
+  await test("el trato de Zoho se crea una sola vez por solicitud", async () => {
+    let llamadas = 0;
+    const crear = async () => {
+      llamadas += 1;
+      return { dealId: "ZOHO-DEAL-1", dealUrl: "https://crm.zoho.eu/deal/1", dealName: "Fútbol Salou" };
+    };
+
+    const primero = await commercial.ensureTripRequestDealDb(reintentoRequestId, crear);
+    assert.equal(primero.dealId, "ZOHO-DEAL-1");
+    assert.equal(primero.reused, false);
+
+    const segundo = await commercial.ensureTripRequestDealDb(reintentoRequestId, crear);
+    assert.equal(llamadas, 1, "el segundo intento NO debe llamar a Zoho");
+    assert.equal(segundo.dealId, "ZOHO-DEAL-1");
+    assert.equal(segundo.dealUrl, "https://crm.zoho.eu/deal/1");
+    assert.equal(segundo.reused, true);
+  });
+
+  await test("reintentar reescribe la propuesta y sus opciones, no las acumula", async () => {
+    const req = await nuevaSolicitud("Reintento de propuesta");
+
+    const primera = await commercial.saveTripProposalDb({
+      tripRequestId: req.id,
+      versionNumber: 1,
+      proposalStatus: "READY_FOR_APPROVAL",
+      summaryText: "1 opción",
+      accommodationOptions: [opcion("Hotel A")],
+      activityOptions: [],
+    });
+
+    // Entre el fallo y el reintento, el operador cambia de hotel.
+    const segunda = await commercial.saveTripProposalDb({
+      tripRequestId: req.id,
+      versionNumber: 1,
+      proposalStatus: "READY_FOR_APPROVAL",
+      summaryText: "1 opción (revisada)",
+      accommodationOptions: [opcion("Hotel B")],
+      activityOptions: [],
+    });
+
+    assert.equal(segunda.id, primera.id, "no debe crear una segunda propuesta");
+    assert.equal(segunda.accommodationOptions.length, 1, "las opciones se sustituyen, no se suman");
+    assert.equal(segunda.accommodationOptions[0].accommodationNameSnapshot, "Hotel B");
+    assert.equal(segunda.summaryText, "1 opción (revisada)");
+
+    const propuestas = await prisma.tripProposal.count({ where: { tripRequestId: req.id } });
+    assert.equal(propuestas, 1);
+  });
+
+  await test("preparar dos veces conserva la referencia y no numera de nuevo", async () => {
+    const req = await nuevaSolicitud("Reintento de entrega");
+    const propuesta = await commercial.saveTripProposalDb({
+      tripRequestId: req.id,
+      versionNumber: 1,
+      proposalStatus: "READY_FOR_APPROVAL",
+      accommodationOptions: [opcion("Hotel A")],
+      activityOptions: [],
+    });
+
+    const primera = await delivery.prepareDelivery({
+      proposalId: propuesta.id,
+      recipientEmail: "colegio@example.com",
+      recipientName: "Colegio Test",
+    });
+    const segunda = await delivery.prepareDelivery({
+      proposalId: propuesta.id,
+      recipientEmail: "colegio@example.com",
+      recipientName: "Colegio Test",
+    });
+
+    assert.equal(segunda.id, primera.id, "debe reaprovechar el borrador");
+    assert.equal(segunda.reference, primera.reference, "no debe quemar otra referencia");
+
+    const entregas = await prisma.proposalDelivery.count({ where: { proposalId: propuesta.id } });
+    assert.equal(entregas, 1);
+  });
+
+  await test("lo que ya salió no se reescribe: se abre una propuesta nueva", async () => {
+    const req = await nuevaSolicitud("Ya enviada");
+    const propuesta = await commercial.saveTripProposalDb({
+      tripRequestId: req.id,
+      versionNumber: 1,
+      proposalStatus: "READY_FOR_APPROVAL",
+      accommodationOptions: [opcion("Hotel A")],
+      activityOptions: [],
+    });
+    const entrega = await delivery.prepareDelivery({
+      proposalId: propuesta.id,
+      recipientEmail: "colegio@example.com",
+    });
+    await marcarComoEnviada(entrega.id);
+
+    // La propuesta enviada es historia: guardar otra vez no la pisa.
+    const otra = await commercial.saveTripProposalDb({
+      tripRequestId: req.id,
+      versionNumber: 1,
+      proposalStatus: "READY_FOR_APPROVAL",
+      accommodationOptions: [opcion("Hotel B")],
+      activityOptions: [],
+    });
+    assert.notEqual(otra.id, propuesta.id, "no debe tocar una propuesta ya enviada");
+
+    const original = await prisma.tripProposal.findUnique({
+      where: { id: propuesta.id },
+      include: { accommodationOptions: true },
+    });
+    assert.equal(original!.accommodationOptions[0].accommodationNameSnapshot, "Hotel A");
+
+    // Y la solicitud tampoco: su historia ya viajó al cliente.
+    const solicitud = await commercial.saveTripRequestDb({
+      id: req.id,
+      clientId: commercialClientId,
+      originalMessage: "Ya enviada",
+      participants: 99,
+      requestStatus: "READY_FOR_SEARCH",
+    });
+    assert.notEqual(solicitud.id, req.id, "una solicitud ya enviada no se reescribe");
+  });
+
   await prisma.$disconnect();
 
   // --- resumen -----------------------------------------------------------------
@@ -1031,4 +1236,5 @@ main()
   })
   .finally(() => {
     removeTestDb();
+    removeTestStorage();
   });

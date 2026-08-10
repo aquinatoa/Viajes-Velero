@@ -23,6 +23,12 @@ const CADUCA_EN_DIAS = 7;
 
 export interface BorradorSolicitud {
   guardadoEn: string;
+  /**
+   * Solicitud ya creada en la base por un cierre que no llegó a terminar. Es el
+   * único dato del borrador que no es "lo que ha escrito la persona": sin él, el
+   * reintento tras recargar crearía otra solicitud y otro trato en el CRM.
+   */
+  solicitudId?: string | null;
   mensajes: string[];
   redaccion: string;
   form: ParseTripRequestInput;

@@ -14,7 +14,11 @@ import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
 
-const STORAGE_ROOT = path.resolve(process.cwd(), "storage", "proposal-deliveries");
+// Ver `documentStorage.ts`: `ORAVIA_STORAGE_DIR` mueve todo el almacén.
+const STORAGE_ROOT = path.resolve(
+  process.env.ORAVIA_STORAGE_DIR ?? path.join(process.cwd(), "storage"),
+  "proposal-deliveries",
+);
 const ASSETS = path.resolve(process.cwd(), "src", "assets");
 
 /** Azul y ámbar del logo de Oravia, muestreados del original del cliente. */

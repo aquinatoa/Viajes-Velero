@@ -5,8 +5,8 @@
 
 ## Dónde queda hoy
 
-Seis commits en `feat/documental-review-workspace`, **sin subir a GitHub**.
-`tsc` limpio, 31/31 tests, compila para producción.
+Todo en `feat/documental-review-workspace`, **ya subido a GitHub**.
+`tsc` limpio, 60/60 tests, compila para producción.
 
 Lo que la app ya hace y antes no:
 
@@ -95,14 +95,12 @@ sigue en pie. Antes de enseñar nada a Javier conviene separarlos.
 
 ### Bloque 1 · Cerrar lo que ya está a medias (1-2 semanas)
 
-1. **Actualizar el handoff**, congelado desde el 17 de junio. Sin él, nadie
-   puede continuar este trabajo: ni otra persona ni tú dentro de un mes.
-2. **Tests de lo nuevo**: envío, documento, borrador del lienzo y cambios del
-   cliente. Los 31 que pasan son todos de antes, y el fallo del total contra el
-   precio por alumno se pilló mirando números a mano.
-3. **Reintentar el cierre del lienzo**: hoy crea cliente, solicitud, propuesta,
-   trato y documento en cadena; si falla a mitad, el trato queda creado y
-   repetir lo duplica.
+1. ~~**Actualizar el handoff**~~ — **hecho**.
+2. **Tests de lo nuevo**: quedan los del **envío** y los **cambios del cliente**.
+   Los del cierre y los del flujo documental ya están (60 en total).
+3. ~~**Reintentar el cierre del lienzo**~~ — **hecho**. Un trato por solicitud
+   (guardado en la BD, no en la pantalla), la solicitud y la propuesta se
+   reescriben, y la entrega conserva su referencia. Lo que ya salió no se toca.
 
 ### Bloque 2 · Lo que el cliente pidió y falta (2-3 semanas)
 
@@ -146,5 +144,5 @@ pendientes eran precios, encaje con Zoho, despliegue y formación.
 
 ## Antes de nada, mañana
 
-**Subir los commits.** Seis commits viven solo en el portátil. `git push` y
-dejan de depender de que no se estropee.
+**El neto a la vista al cotizar.** Es lo primero que nota Javier de lo que queda
+por hacer, y la regla del 8 % ya está en el cálculo: falta enseñarla.

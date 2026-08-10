@@ -42,10 +42,17 @@ model TripRequest {
   categoryRequested  String?
   requirementsText   String?
   requestStatus      RequestStatus  @default(RECEIVED)
+  // El trato de Zoho que representa esta solicitud. Se guarda aquí para que
+  // reintentar el cierre no cree un segundo trato: una solicitud, un trato,
+  // aunque la propuesta cambie de versión.
+  crmDealId          String?
+  crmDealUrl         String?
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
   client             Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
   proposals          TripProposal[]
+
+  @@index([crmDealId])
 }
 
 model Accommodation {

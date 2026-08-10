@@ -10,12 +10,47 @@
 > lo que viene, en `PROXIMOS-PASOS.md`.
 >
 > Rama `feat/documental-review-workspace`, remoto `origin` =
-> `https://github.com/aquinatoa/Viajes-Velero` (pendiente de empujar tras la tanda del 10/08).
+> `https://github.com/aquinatoa/Viajes-Velero` (al día).
 >
 > **Cinco pantallas** (menú en dos grupos): *Día a día* → **Propuestas** (inicio) y **Viajes**
 > (+Calendario); *Gestión* → **Tarifas**, **Usuarios**, **Actividad**. **Nueva solicitud** no es una
 > sección: es un botón fijo en la barra superior, porque es una acción, no un sitio.
 >
+## Cerrar una solicitud se puede reintentar (10/08/2026)
+
+El cierre del lienzo encadena cinco pasos —cliente, solicitud, propuesta, trato
+en Zoho, documento— y **cualquiera puede fallar**. Cuando fallaba, el operador
+volvía a pulsar el botón y cada intento dejaba rastro doble: otra propuesta,
+otra referencia quemada (ORV-2026-0185 sin nada detrás) y, lo caro, **otro trato
+en el CRM del cliente**, que desde la app no se puede limpiar.
+
+La guarda estaba en el estado de la pantalla, que es justo lo que se pierde al
+recargar el navegador. Ahora vive en la base de datos:
+
+- **Un trato por solicitud.** La solicitud guarda su `crmDealId`; si ya lo tiene,
+  ni se llama a Zoho. Comprobado en vivo contra el servidor, sin crear nada en el
+  CRM.
+- **La solicitud se reescribe**, no se duplica: el lienzo manda su `id`, que se
+  guarda en el borrador del navegador para sobrevivir a una recarga.
+- **La propuesta se reescribe** con las opciones de ahora, porque entre el fallo
+  y el reintento el operador pudo cambiar de hotel.
+- **La entrega conserva su referencia y su enlace**, y regenera el PDF (que se
+  nombra por la referencia, así que se sobrescribe: no deja huérfanos).
+- **Lo que ya salió es historia**: una solicitud o una propuesta con entrega
+  SENT/SIMULATED no se toca; se abre una nueva.
+
+Efecto lateral buscado: "Revisar y enviar" **prepara siempre**, no solo la
+primera vez. Antes, volver atrás y cambiar de hotel dejaba en pantalla el
+documento anterior.
+
+También: `ORAVIA_STORAGE_DIR` mueve todo el almacén de ficheros. Lo necesitaban
+las pruebas (la primera referencia de una BD limpia es ORV-2026-0001, que en
+`storage/` es un documento de verdad) y hará falta en Azure.
+
+**Pruebas: de 55 a 60.** Las cinco nuevas son las de no duplicar.
+
+---
+
 ## Tanda del 10/08/2026 — el flujo documental, de punta a punta
 
 El día se fue en que **cargar tarifas sea fiable**, porque de ahí salen todas las
@@ -113,7 +148,7 @@ reparto de tarifas de actividad y que las condiciones se publiquen con estructur
 > _Anteriores (17/06):_ `db2ec9a` workspace Confirmar + Calendario · `7f84425` popup 5 pasos +
 > arreglos CRM · `a652ef9` Mi cuenta · `85d5488` Sidebar v2 + router propio · `c642cc4` tests 21→31.
 >
-> **Estado:** `tsc` limpio, **31/31 tests**, build de producción OK. Los flujos **Nuevo** y
+> **Estado:** `tsc` limpio, **60/60 tests**, build de producción OK. Los flujos **Nuevo** y
 > **Existente** se validaron E2E contra Zoho real en junio; **lo de esta tanda NO se ha validado en
 > vivo contra Zoho** más allá de la lectura de tratos.
 >
@@ -125,12 +160,12 @@ reparto de tarifas de actividad y que las condiciones se publiquen con estructur
 > **⚠️ El API no recarga solo:** `tsx` no vigila cambios del servidor. Si tocas `server/*`, hay que
 > reiniciar `npm run dev` o los endpoints nuevos devuelven 404.
 >
-> **Pendientes principales:** actualizar tests (nada de lo nuevo los tiene); hacer **reintentable el
-> cierre del lienzo**; **sanear el año de las tarifas** (313 de 555 tienen un año imposible) antes de
-> construir filtros por año o desactivación automática; **cargar precios de las 264 tarifas de
-> actividad**, todas a 0. Bloqueado por el cliente: **la clave de los buzones** (el envío está en
-> modo simulación) y **Azure** (la página del colegio no puede usarse). Detalle y orden en
-> `PROXIMOS-PASOS.md`.
+> **Pendientes principales:** tests del envío y de los cambios del cliente (los del cierre ya están);
+> el **neto a la vista** al cotizar y el **proveedor en las actividades**; que **el cobro del
+> depósito** avance la fase. Las 555 tarifas y las 264 actividades sin precio son **catálogo de
+> muestra nuestro**: se tiran, no se sanean. Bloqueado por el cliente: **la clave de los buzones** (el
+> envío está en modo simulación) y **Azure** (la página del colegio no puede usarse). Detalle y orden
+> en `PROXIMOS-PASOS.md`.
 
 ## Sesión 2026-08-09/10 — Envío de propuestas, lienzo, mesa y sistema visual
 

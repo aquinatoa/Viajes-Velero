@@ -60,6 +60,7 @@ import { toRateKind } from "./pricing";
 import { updateInventoryDocumentAiUsage } from "./documentImportDb";
 import {
   approveTripProposalDb,
+  ensureTripRequestDealDb,
   findClientByEmailDb,
   getClientTripRequestsDb,
   type SaveTripRequestInput,
@@ -227,6 +228,12 @@ app.post("/api/search/activities", async (request, response) => {
 app.post("/api/crm/opportunities/new", async (request, response) => {
   try {
     const payload = request.body as {
+      /**
+       * Solicitud de la que nace el trato. Si viene, el trato se crea UNA sola
+       * vez por solicitud: reintentar el cierre devuelve el que ya existe en vez
+       * de duplicarlo en el CRM del cliente.
+       */
+      tripRequestId?: string;
       contact: {
         email: string;
         first_name: string;
@@ -249,13 +256,19 @@ app.post("/api/crm/opportunities/new", async (request, response) => {
       proposalOptions: unknown;
     };
 
-    const result = await createZohoOpportunity(payload);
-    await writeAudit({
-      user: (request as AuthedRequest).user,
-      action: "CRM_OPPORTUNITY_CREATE",
-      entity: "crm",
-      detail: payload.contact?.email ?? payload.opportunity?.opportunity_name ?? null,
-    });
+    const result = payload.tripRequestId
+      ? await ensureTripRequestDealDb(payload.tripRequestId, () => createZohoOpportunity(payload))
+      : { ...(await createZohoOpportunity(payload)), reused: false };
+
+    // Solo se audita lo que de verdad ha entrado en Zoho.
+    if (!result.reused) {
+      await writeAudit({
+        user: (request as AuthedRequest).user,
+        action: "CRM_OPPORTUNITY_CREATE",
+        entity: "crm",
+        detail: payload.contact?.email ?? payload.opportunity?.opportunity_name ?? null,
+      });
+    }
     response.json(result);
   } catch (error) {
     crmErrorResponse(error, response, "No se pudo crear el trato en Zoho.");

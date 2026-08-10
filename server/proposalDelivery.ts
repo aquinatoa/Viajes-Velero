@@ -121,6 +121,12 @@ export interface DeliveryResult {
 /**
  * Prepara la entrega: reúne los datos, numera, genera el PDF y la deja lista
  * para enviar. No envía nada todavía, para poder revisar antes de que salga.
+ *
+ * **Preparar dos veces no numera dos veces.** Si la propuesta ya tiene un
+ * borrador (o un intento fallido), se reaprovecha: misma referencia y mismo
+ * enlace público, con el PDF y el texto regenerados por si algo cambió. El
+ * cierre del lienzo se reintenta cuando falla a mitad, y sin esto cada
+ * reintento quemaba un número de referencia y dejaba otro borrador colgando.
  */
 export async function prepareDelivery(input: PrepareDeliveryInput): Promise<DeliveryResult> {
   const proposal = await prisma.tripProposal.findUnique({
@@ -139,8 +145,16 @@ export async function prepareDelivery(input: PrepareDeliveryInput): Promise<Deli
 
   const settings = loadMailSettings();
   const box = mailboxFor(settings, request.department);
-  const reference = await nextReference();
-  const publicToken = newPublicToken();
+
+  // Un borrador previo de esta misma propuesta manda: conserva su número y su
+  // enlace. Lo que ya salió (SENT/SIMULATED) no se toca.
+  const previous = await prisma.proposalDelivery.findFirst({
+    where: { proposalId: proposal.id, status: { in: ["DRAFT", "FAILED"] } },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const reference = previous?.reference ?? (await nextReference());
+  const publicToken = previous?.publicToken ?? newPublicToken();
   const publicUrl = settings.publicBaseUrl ? `${settings.publicBaseUrl}/p/${publicToken}` : null;
 
   const options: PdfOption[] = proposal.accommodationOptions.map((option) => ({
@@ -185,22 +199,24 @@ export async function prepareDelivery(input: PrepareDeliveryInput): Promise<Deli
     signature: box.displayName,
   });
 
-  const delivery = await prisma.proposalDelivery.create({
-    data: {
-      proposalId: proposal.id,
-      reference,
-      department: request.department,
-      recipientEmail,
-      recipientName: input.recipientName ?? client.fullName,
-      replyToEmail: replyToFor(settings, box, reference) || null,
-      subject,
-      bodyText,
-      pdfPath,
-      publicToken,
-      status: "DRAFT",
-      sentByUserId: input.sentByUserId ?? null,
-    },
-  });
+  const content = {
+    department: request.department,
+    recipientEmail,
+    recipientName: input.recipientName ?? client.fullName,
+    replyToEmail: replyToFor(settings, box, reference) || null,
+    subject,
+    bodyText,
+    pdfPath,
+    status: "DRAFT" as const,
+    failureReason: null,
+    sentByUserId: input.sentByUserId ?? null,
+  };
+
+  const delivery = previous
+    ? await prisma.proposalDelivery.update({ where: { id: previous.id }, data: content })
+    : await prisma.proposalDelivery.create({
+        data: { ...content, proposalId: proposal.id, reference, publicToken },
+      });
 
   return {
     id: delivery.id,
