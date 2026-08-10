@@ -16,3 +16,6 @@ rae-zoho-migration/
 storage/
 .claude/
 .gstack/
+
+# Artefactos de compilacion y empaquetado
+dist.zip
