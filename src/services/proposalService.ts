@@ -1,12 +1,11 @@
 import type {
   ApproveProposalInput,
   BuildProposalInput,
-  ProposalActivityOption,
   TripProposal
 } from "../domain/types";
-import { saveTripProposal } from "../data/mockDb";
-import { findAccommodationRate, findActivityRate } from "./searchService";
-import { createId, diffNights, formatCurrency } from "./utils";
+import { approveTripProposalApi, saveTripProposalApi } from "./apiClient";
+import { applyDefaultMarkup, totalAlojamiento } from "./pricing";
+import { diffNights, formatCurrency } from "./utils";
 
 function ensureProposalInputs(input: BuildProposalInput) {
   if (input.builderState.selectedAccommodationIds.length === 0) {
@@ -26,7 +25,7 @@ function ensureProposalInputs(input: BuildProposalInput) {
   }
 }
 
-export const buildProposal = (input: BuildProposalInput): TripProposal => {
+export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> => {
   ensureProposalInputs(input);
 
   const participants = input.normalized.participants as number;
@@ -35,6 +34,8 @@ export const buildProposal = (input: BuildProposalInput): TripProposal => {
   const accommodationMap = new Map(input.accommodationMatches.map((item) => [item.accommodation.id, item]));
   const activityMap = new Map(input.activityMatches.map((item) => [item.activity.id, item]));
 
+  // El precio sale de la tarifa REAL del match de búsqueda (BD). Si la tarifa
+  // trae el importe como neto en vez de PVP, se usa el neto.
   const accommodationOptions = input.builderState.selectedAccommodationIds.slice(0, 3).map((id, index) => {
     const selected = accommodationMap.get(id);
 
@@ -42,20 +43,29 @@ export const buildProposal = (input: BuildProposalInput): TripProposal => {
       throw new Error("Uno de los alojamientos seleccionados ya no está disponible en la búsqueda actual.");
     }
 
-    const rate =
-      findAccommodationRate(selected.accommodation.id, {
-        destinationText: input.normalized.destinationText,
-        destinationCountry: input.normalized.destinationCountry,
-        boardType: input.normalized.regimeRequested,
-        categoryRequested: input.normalized.categoryRequested,
-        dateFrom: input.normalized.dateFrom,
-        dateTo: input.normalized.dateTo
-      }) ?? selected.rate;
+    const rate = selected.rate;
+    // El PVP publicado ya incluye el margen (regla del 8% al publicar). Si por
+    // datos antiguos solo hubiera neto, se aplica el 8% para no vender a coste.
+    const precioDe = (item: { pvpAmount: number; netSaleAmount: number }) =>
+      item.pvpAmount || (item.netSaleAmount ? applyDefaultMarkup(item.netSaleAmount) : 0);
 
-    const total = rate.pvpAmount * participants * nights;
+    const unitPrice = precioDe(rate);
+    // Los profesores duermen en habitación individual y cuestan más. Antes no
+    // se cobraban en absoluto: el total era solo alumnos, y en un grupo de 40 +
+    // 4 profesores eso son cuatro personas alojadas gratis toda la semana.
+    const teacherPrice = selected.singleRate ? precioDe(selected.singleRate) : unitPrice;
+    const total = totalAlojamiento({ unitPrice, teacherPrice, participants, teachers, nights });
+
+    const desglose = [`${formatCurrency(unitPrice)} x ${participants} alumnos`];
+    if (teachers > 0) {
+      desglose.push(
+        selected.singleRate
+          ? `${formatCurrency(teacherPrice)} x ${teachers} profesores (uso individual)`
+          : `${formatCurrency(teacherPrice)} x ${teachers} profesores (sin tarifa individual: mismo precio)`,
+      );
+    }
 
     return {
-      id: createId("pao"),
       optionNumber: index + 1,
       accommodationId: selected.accommodation.id,
       accommodationNameSnapshot: selected.accommodation.accommodationName,
@@ -66,14 +76,14 @@ export const buildProposal = (input: BuildProposalInput): TripProposal => {
       participants,
       teachers,
       totalPvpText: formatCurrency(total),
-      priceBreakdownText: `${formatCurrency(rate.pvpAmount)} por pax y noche x ${participants} participantes x ${nights} noches`,
+      priceBreakdownText: `${desglose.join(" + ")}, por noche x ${nights} noches`,
       conditionsText: selected.accommodation.conditionsText,
       observationsText: selected.accommodation.observations,
       isSelected: false
     };
   });
 
-  const activityOptions: ProposalActivityOption[] = accommodationOptions.flatMap((option) => {
+  const activityOptions = accommodationOptions.flatMap((option) => {
     const activityIds = input.builderState.activitiesByOption[option.optionNumber] ?? [];
 
     return activityIds.map((activityId, index) => {
@@ -83,33 +93,31 @@ export const buildProposal = (input: BuildProposalInput): TripProposal => {
         throw new Error("Una de las actividades seleccionadas ya no es válida para los filtros actuales.");
       }
 
-      const rate =
-        findActivityRate(selected.activity.id, {
-          destinationText: input.normalized.destinationText,
-          destinationCountry: input.normalized.destinationCountry,
-          ageRangeText: input.normalized.ageRangeText,
-          averageAgeText: input.normalized.averageAgeText
-        }) ?? selected.rate;
+      const rate = selected.rate;
 
       return {
-        id: createId("pact"),
         optionNumber: option.optionNumber,
         activityId: selected.activity.id,
         displayOrder: index + 1,
         activityNameSnapshot: selected.activity.activityName,
         providerSnapshot: selected.activity.supplierName,
         durationSnapshot: selected.activity.durationText,
-        pvpSnapshot: formatCurrency(rate.salePvpAmount),
+        pvpSnapshot: rate.salePvpAmount > 0 ? formatCurrency(rate.salePvpAmount) : "A consultar",
         descriptionSnapshot: selected.activity.descriptionText,
         isSelected: false
       };
     });
   });
 
-  const summaryText = `${accommodationOptions.length} opciones, ${nights} noches, ${participants} participantes y ${activityOptions.length} actividades asignadas.`;
+  const uniqueActivities = new Set(activityOptions.map((a) => a.activityId)).size;
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const summaryText = `${plural(accommodationOptions.length, "opción", "opciones")}, ${plural(
+    nights,
+    "noche",
+    "noches",
+  )}, ${participants} participantes y ${plural(uniqueActivities, "actividad", "actividades")}.`;
 
-  return saveTripProposal({
-    id: createId("proposal"),
+  return saveTripProposalApi({
     tripRequestId: input.tripRequestId,
     versionNumber: 1,
     proposalStatus: "READY_FOR_APPROVAL",
@@ -119,22 +127,11 @@ export const buildProposal = (input: BuildProposalInput): TripProposal => {
   });
 };
 
-export const approveProposal = ({ proposal, approvedOptionNumber }: ApproveProposalInput): TripProposal => {
-  const nextProposal = {
-    ...proposal,
-    proposalStatus: "APPROVED" as const,
-    approvedOptionNumber,
-    accommodationOptions: proposal.accommodationOptions.map((option) => ({
-      ...option,
-      isSelected: option.optionNumber === approvedOptionNumber
-    })),
-    activityOptions: proposal.activityOptions.map((activity) => ({
-      ...activity,
-      isSelected: activity.optionNumber === approvedOptionNumber
-    }))
-  };
-
-  return saveTripProposal(nextProposal);
+export const approveProposal = ({
+  proposal,
+  approvedOptionNumber
+}: ApproveProposalInput): Promise<TripProposal> => {
+  return approveTripProposalApi(proposal.id, approvedOptionNumber);
 };
 
 export const confirmFinalSelection = (proposal: TripProposal, optionNumber: number) => {

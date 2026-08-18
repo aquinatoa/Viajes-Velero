@@ -1,5 +1,20 @@
 export type ClientType = "new" | "existing";
 
+/**
+ * Usuario activo que consume la pantalla inicial (HomeLanding).
+ *
+ * Hoy se deriva del usuario autenticado del backend (login propio). El día que
+ * la app viva como widget dentro de Zoho CRM, este mismo objeto se rellenará
+ * desde el SDK de Zoho (usuario conectado) sin tocar la pantalla: solo cambia
+ * la FUENTE que lo construye. La auditoría de cada acción se asocia a este id.
+ */
+export interface CurrentUser {
+  id: string;
+  name: string;
+  email?: string;
+  role?: "admin" | "operativo" | "lectura";
+}
+
 export type RequestStatus =
   | "RECEIVED"
   | "PARSED_WITH_GAPS"
@@ -122,6 +137,12 @@ export interface SearchFilters {
   teachers?: number | null;
   ageRangeText?: string;
   averageAgeText?: string;
+  /**
+   * Para qué cliente se cotiza. Fútbol Salou tiene tarifa pactada con el
+   * turoperador suizo y otra general; sin esto no se sabe cuál coger.
+   * Vacío = cliente general.
+   */
+  clientSegment?: string | null;
 }
 
 export interface Accommodation {
@@ -134,6 +155,9 @@ export interface Accommodation {
   conditionsText: string;
   freePolicy: string;
   sourceFile: string;
+  /** Trazabilidad: documento del que se publicó este alojamiento (si aplica). */
+  sourceDocumentId?: string;
+  sourceDocumentName?: string;
 }
 
 export interface AccommodationRate {
@@ -150,6 +174,12 @@ export interface AccommodationRate {
   pvpAmount: number;
   netSaleAmount: number;
   netAzulmarinoAmount: number;
+  /** Canal al que pertenece este precio. Vacío = vale para cualquier cliente. */
+  clientSegment: string;
+  /** Qué va incluido además del alojamiento (campo artificial, natural...). */
+  includedService: string;
+  /** Doble, Individual… Con el mismo régimen y campo, el precio cambia. */
+  occupancyLabel: string;
   sourceFile: string;
   sourceSheet: string;
 }
@@ -162,6 +192,9 @@ export interface Activity {
   durationText: string;
   descriptionText: string;
   sourceFile: string;
+  /** Trazabilidad: documento del que se publicó esta actividad (si aplica). */
+  sourceDocumentId?: string;
+  sourceDocumentName?: string;
 }
 
 export interface ActivityRate {
@@ -181,7 +214,14 @@ export interface ActivityRate {
 
 export interface AccommodationSearchMatch {
   accommodation: Accommodation;
+  /** La tarifa de los alumnos: la de ocupación compartida. */
   rate: AccommodationRate;
+  /**
+   * La misma tarifa en uso individual, si el documento la trae. Es la de los
+   * profesores: en Fútbol Salou duermen solos y cuesta 19 € más por noche. Si
+   * falta, los profesores se cotizan al precio de los alumnos y se avisa.
+   */
+  singleRate?: AccommodationRate | null;
   score: number;
   matchReasons: string[];
 }
@@ -212,6 +252,8 @@ export interface SearchActivitiesResult {
 export interface ProposalBuilderState {
   selectedAccommodationIds: string[];
   activitiesByOption: Record<number, string[]>;
+  /** Actividades elegidas para todo el viaje (aplican a todas las opciones). */
+  selectedActivityIds: string[];
 }
 
 export interface ProposalAccommodationOption {
@@ -327,4 +369,6 @@ export interface PrepareCrmPayloadInput {
   request: NormalizedRequestDraft;
   proposal: TripProposal;
   opportunityRecommendation?: FindCandidateOpportunitiesResult;
+  /** Nombre de la oportunidad escrito por el operador (se usa tal cual como Deal_Name). */
+  opportunityName?: string;
 }

@@ -11,8 +11,11 @@ import type {
   ValidateTripRequestResult,
   WarningItem
 } from "../domain/types";
-import { findClientByEmail, saveClient, saveTripRequest } from "../data/mockDb";
-import { createId } from "./utils";
+import {
+  getClientTripRequestsApi,
+  saveTripRequestApi,
+  upsertClientApi,
+} from "./apiClient";
 
 const intakeSchema = z.object({
   clientType: z.enum(["new", "existing"]),
@@ -27,7 +30,12 @@ const destinationCatalog = [
   { city: "Valencia", country: "España", aliases: ["valencia"] },
   { city: "Gandia", country: "España", aliases: ["gandia", "gandía"] },
   { city: "Madrid", country: "España", aliases: ["madrid"] },
-  { city: "Barcelona", country: "España", aliases: ["barcelona"] }
+  { city: "Barcelona", country: "España", aliases: ["barcelona"] },
+  { city: "Salou", country: "España", aliases: ["salou"] },
+  { city: "Cambrils", country: "España", aliases: ["cambrils"] },
+  { city: "La Pineda", country: "España", aliases: ["la pineda", "pineda"] },
+  { city: "Tarragona", country: "España", aliases: ["tarragona"] },
+  { city: "Costa Daurada", country: "España", aliases: ["costa daurada", "costa dorada"] }
 ];
 
 const categoryAliases = ["2*", "3*", "4*", "5*", "hostal", "hotel", "residencia"];
@@ -69,25 +77,104 @@ function detectLanguage(text: string) {
 
 function findDestination(text: string) {
   const lower = text.toLowerCase();
-  return destinationCatalog.find((candidate) =>
+  const present = destinationCatalog.filter((candidate) =>
     candidate.aliases.some((alias) => lower.includes(alias))
   );
-}
 
-function extractDates(text: string) {
-  const isoDates = [...text.matchAll(/\b(20\d{2}-\d{2}-\d{2})\b/g)].map((match) => match[1]);
-
-  if (isoDates.length >= 2) {
-    return {
-      dateFrom: isoDates[0],
-      dateTo: isoDates[1]
-    };
+  if (present.length <= 1) {
+    return present[0];
   }
 
-  return {
-    dateFrom: "",
-    dateTo: ""
-  };
+  // Si hay varias ciudades en el texto, preferir la que va tras una preposición de
+  // DESTINO ("a/en/hacia Salou", "destino: Salou") y penalizar la de ORIGEN
+  // ("de Madrid", "colegio de Madrid"), para no confundir el origen con el destino.
+  const scored = present.map((candidate) => {
+    let score = 0;
+    for (const alias of candidate.aliases) {
+      const a = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp(`\\b(?:a|en|hacia|hasta|destino:?)\\s+${a}\\b`).test(lower)) score += 2;
+      if (new RegExp(`\\b(?:de|del|desde)\\s+${a}\\b`).test(lower)) score -= 2;
+    }
+    return { candidate, score };
+  });
+
+  scored.sort((x, y) => y.score - x.score);
+  return scored[0].candidate;
+}
+
+const SPANISH_MONTHS: Record<string, number> = {
+  enero: 1,
+  febrero: 2,
+  marzo: 3,
+  abril: 4,
+  mayo: 5,
+  junio: 6,
+  julio: 7,
+  agosto: 8,
+  septiembre: 9,
+  setiembre: 9,
+  octubre: 10,
+  noviembre: 11,
+  diciembre: 12
+};
+
+function stripAccents(value: string) {
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+function monthNumber(token: string | undefined): number | null {
+  if (!token) return null;
+  return SPANISH_MONTHS[stripAccents(token).toLowerCase()] ?? null;
+}
+
+function toIso(year: number, month: number, day: number): string {
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${year}-${mm}-${dd}`;
+}
+
+/**
+ * Extrae el rango de fechas del texto libre. Reconoce, por orden:
+ *   1. ISO: "2026-05-18 ... 2026-05-22"
+ *   2. Lenguaje natural en español: "del 18 al 22 de mayo de 2026",
+ *      "del 2 de mayo al 6 de junio de 2026", "entre el 18 y el 22 de mayo de 2026".
+ *   3. Numérico DD/MM/AAAA: "18/05/2026 ... 22/05/2026" (también con - o .).
+ */
+function extractDates(text: string) {
+  const empty = { dateFrom: "", dateTo: "" };
+
+  // 1) ISO (AAAA-MM-DD)
+  const isoDates = [...text.matchAll(/\b(20\d{2}-\d{2}-\d{2})\b/g)].map((match) => match[1]);
+  if (isoDates.length >= 2) {
+    return { dateFrom: isoDates[0], dateTo: isoDates[1] };
+  }
+
+  const lower = text.toLowerCase();
+
+  // 2) Español: D1 [de MES1] (al|a|y|hasta|-) [el] D2 de MES2 [de] AAAA
+  const es = lower.match(
+    /(\d{1,2})\s*(?:de\s+([a-záéíóúñ]+)\s+)?(?:al|a|y|hasta|–|-)\s*(?:el\s+)?(\d{1,2})\s+de\s+([a-záéíóúñ]+)\s+(?:de\s+)?(20\d{2})/
+  );
+  if (es) {
+    const day1 = Number(es[1]);
+    const day2 = Number(es[3]);
+    const month2 = monthNumber(es[4]);
+    const month1 = monthNumber(es[2]) ?? month2;
+    const year = Number(es[5]);
+    if (month1 && month2) {
+      return { dateFrom: toIso(year, month1, day1), dateTo: toIso(year, month2, day2) };
+    }
+  }
+
+  // 3) Numérico DD/MM/AAAA (o con - o .)
+  const numeric = [...text.matchAll(/\b(\d{1,2})[/.-](\d{1,2})[/.-](20\d{2})\b/g)].map((m) =>
+    toIso(Number(m[3]), Number(m[2]), Number(m[1]))
+  );
+  if (numeric.length >= 2) {
+    return { dateFrom: numeric[0], dateTo: numeric[1] };
+  }
+
+  return empty;
 }
 
 function extractParticipants(text: string) {
@@ -111,7 +198,10 @@ function extractTeachers(text: string) {
 
 function extractAgeInfo(text: string) {
   const lower = text.toLowerCase();
-  const range = lower.match(/(\d{1,2})\s*[-a]\s*(\d{1,2})\s*años/) ?? lower.match(/ages?\s+(\d{1,2})\s*[-to]+\s*(\d{1,2})/);
+  // Acepta "14-17 años", "15 a 16 años", "entre 15 y 16 años", "de 14 a 17 años".
+  const range =
+    lower.match(/(\d{1,2})\s*(?:-|–|a|y|hasta)\s*(\d{1,2})\s*años/) ??
+    lower.match(/ages?\s+(\d{1,2})\s*(?:-|to)\s*(\d{1,2})/);
   const average = lower.match(/media\s+de\s+(\d{1,2})\s*años/) ?? lower.match(/average age\s+(\d{1,2})/);
 
   return {
@@ -121,13 +211,93 @@ function extractAgeInfo(text: string) {
 }
 
 function extractBoardType(text: string) {
-  const lower = text.toLowerCase();
-  return boardAliases.find((alias) => lower.includes(alias)) ?? "";
+  const lower = stripAccents(text.toLowerCase());
+  return boardAliases.find((alias) => lower.includes(stripAccents(alias))) ?? "";
 }
 
 function extractCategory(text: string) {
   const lower = text.toLowerCase();
+  // "4 estrellas" / "de 4*" → "4*" (prioriza el número de estrellas sobre "hotel").
+  const stars = lower.match(/(\d)\s*(?:\*|estrellas?)/);
+  if (stars) {
+    return `${stars[1]}*`;
+  }
   return categoryAliases.find((alias) => lower.includes(alias.toLowerCase())) ?? "";
+}
+
+export interface ExtractedClientInfo {
+  email: string;
+  firstName: string;
+  lastName: string;
+  opportunityName: string;
+}
+
+/**
+ * Primer análisis del mensaje del cliente para AUTORRELLENAR los datos de contacto
+ * en el paso 1. Heurístico (sin IA, instantáneo). Extrae lo que detecte; lo que no
+ * aparezca queda vacío para que el usuario lo complete.
+ */
+export function extractClientInfo(text: string): ExtractedClientInfo {
+  const email = (text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/)?.[0] ?? "").replace(/[.,;:]+$/, "");
+
+  let firstName = "";
+  let lastName = "";
+  const nameMatch = text.match(
+    /\b(?:[Ss]oy|[Mm]e llamo|[Mm]i nombre es|[Ll]e saluda|[Aa]tentamente,?)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ'’-]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ'’-]+){0,3})/,
+  );
+  if (nameMatch) {
+    const parts = nameMatch[1].trim().split(/\s+/);
+    firstName = parts[0] ?? "";
+    lastName = parts.slice(1).join(" ");
+  }
+
+  // Nombre de la oportunidad sugerido: tipo de viaje + destino + año.
+  const lower = text.toLowerCase();
+  let base = "";
+  if (lower.includes("fin de curso")) base = "Viaje fin de curso";
+  else if (lower.includes("viaje de estudios") || lower.includes("viaje de estudio")) base = "Viaje de estudios";
+  else if (lower.includes("viaje cultural")) base = "Viaje cultural";
+  else if (lower.includes("viaje escolar") || lower.includes("viaje")) base = "Viaje escolar";
+
+  const destination = findDestination(text)?.city ?? "";
+  const year = text.match(/\b(20\d{2})\b/)?.[1] ?? "";
+  const opportunityName = [base, destination, year].filter(Boolean).join(" ").trim();
+
+  return { email, firstName, lastName, opportunityName };
+}
+
+export interface RequestExtras {
+  /** Presupuesto por alumno detectado (€), o null. */
+  budgetPerStudent: number | null;
+  /** Requisitos especiales a confirmar con el alojamiento. */
+  specialRequirements: string[];
+}
+
+/**
+ * Variables adicionales del mensaje útiles para decidir en el paso 3:
+ * presupuesto por alumno y requisitos especiales (dietas, accesibilidad…).
+ * Heurístico; no condiciona la búsqueda, solo informa al operador.
+ */
+export function extractRequestExtras(text: string): RequestExtras {
+  const lower = stripAccents(text.toLowerCase());
+
+  // Presupuesto por alumno: "350 € por alumno", "presupuesto de 350 €", "350€/pax".
+  const perPax = lower.match(/(\d{2,4})\s*(?:€|eur(?:os)?)\s*(?:\/|por)\s*(?:alumno|persona|pax|estudiante|nino)/);
+  const general = lower.match(/presupuesto[^.\n]*?(\d{2,4})\s*(?:€|eur(?:os)?)/);
+  const m = perPax ?? general;
+  const budgetPerStudent = m ? Number(m[1]) : null;
+
+  const specialRequirements: string[] = [];
+  const add = (re: RegExp, label: string) => {
+    if (re.test(lower) && !specialRequirements.includes(label)) specialRequirements.push(label);
+  };
+  add(/alergi|sin gluten|sin lactosa|celiac|intoleran|vegetarian|vegan|halal|dieta/, "Alergias / dietas especiales");
+  add(/movilidad reducida|accesibl|adaptad|silla de ruedas|discapacidad/, "Habitación adaptada / accesibilidad");
+  add(/(habitacion|cuarto)[^.\n]*(cercan|junt|proxim)|profesor[^.\n]*(cercan|junt|proxim)/, "Habitaciones de profesores cercanas");
+  add(/picnic|para llevar/, "Picnic / comida para llevar");
+  add(/autobus|autocar|transporte|bus\b/, "Transporte / autocar");
+
+  return { budgetPerStudent, specialRequirements };
 }
 
 function extractGroupType(text: string) {
@@ -199,7 +369,7 @@ function buildMissingFields(normalized: NormalizedRequestDraft): MissingField[] 
   return missing;
 }
 
-function buildWarnings(input: ParseTripRequestInput, normalized: NormalizedRequestDraft): WarningItem[] {
+function buildWarnings(normalized: NormalizedRequestDraft): WarningItem[] {
   const warnings: WarningItem[] = [];
   const parsedDates = normalized.dateFrom && normalized.dateTo;
 
@@ -227,40 +397,38 @@ function buildWarnings(input: ParseTripRequestInput, normalized: NormalizedReque
     }
   }
 
-  if (input.clientType === "existing" && !findClientByEmail(input.email)) {
-    warnings.push({
-      code: "existing_client_not_found",
-      message: "El cliente se marcó como existente, pero no hay coincidencia previa por email."
-    });
-  }
-
   return warnings;
 }
 
-export const parseTripRequest = (input: ParseTripRequestInput): ParseTripRequestResult => {
-  intakeSchema.parse(input);
-
+/**
+ * Lee el mensaje del cliente y saca lo que se entiende, SIN exigir datos de
+ * contacto. Entender la petición y saber a quién responder son dos cosas
+ * distintas: el correo hace falta para enviar la propuesta, no para leer un
+ * texto. El lienzo usa esta función; el asistente antiguo sigue validando el
+ * alta completa con `parseTripRequest`.
+ */
+export const readTripMessage = (rawTripRequestText: string): ParseTripRequestResult => {
   const normalized = emptyDraft();
-  const destination = findDestination(input.rawTripRequestText);
-  const dates = extractDates(input.rawTripRequestText);
-  const ages = extractAgeInfo(input.rawTripRequestText);
+  const destination = findDestination(rawTripRequestText);
+  const dates = extractDates(rawTripRequestText);
+  const ages = extractAgeInfo(rawTripRequestText);
 
-  normalized.language = detectLanguage(input.rawTripRequestText);
+  normalized.language = detectLanguage(rawTripRequestText);
   normalized.destinationText = destination?.city ?? "";
   normalized.destinationCountry = destination?.country ?? "";
   normalized.dateFrom = dates.dateFrom;
   normalized.dateTo = dates.dateTo;
-  normalized.participants = extractParticipants(input.rawTripRequestText);
-  normalized.teachers = extractTeachers(input.rawTripRequestText);
+  normalized.participants = extractParticipants(rawTripRequestText);
+  normalized.teachers = extractTeachers(rawTripRequestText);
   normalized.ageRangeText = ages.ageRangeText;
   normalized.averageAgeText = ages.averageAgeText;
-  normalized.groupType = extractGroupType(input.rawTripRequestText);
-  normalized.regimeRequested = extractBoardType(input.rawTripRequestText);
-  normalized.categoryRequested = extractCategory(input.rawTripRequestText);
-  normalized.requirementsText = extractRequirements(input.rawTripRequestText);
+  normalized.groupType = extractGroupType(rawTripRequestText);
+  normalized.regimeRequested = extractBoardType(rawTripRequestText);
+  normalized.categoryRequested = extractCategory(rawTripRequestText);
+  normalized.requirementsText = extractRequirements(rawTripRequestText);
 
   const missingFields = buildMissingFields(normalized);
-  const warnings = buildWarnings(input, normalized);
+  const warnings = buildWarnings(normalized);
 
   return {
     normalized,
@@ -270,6 +438,11 @@ export const parseTripRequest = (input: ParseTripRequestInput): ParseTripRequest
       ? "PARSED_WITH_GAPS"
       : "READY_FOR_SEARCH"
   };
+};
+
+export const parseTripRequest = (input: ParseTripRequestInput): ParseTripRequestResult => {
+  intakeSchema.parse(input);
+  return readTripMessage(input.rawTripRequestText);
 };
 
 export const validateTripRequest = (
@@ -314,15 +487,6 @@ export const validateTripRequest = (
         severity: "error"
       });
     }
-  }
-
-  if (input.clientType === "existing" && !findClientByEmail(input.email)) {
-    issues.push({
-      field: "email",
-      label: "Cliente existente",
-      message: "No se encontró un cliente existente con ese email. Revisa el dato o márcalo como nuevo.",
-      severity: "error"
-    });
   }
 
   if (!input.normalized.destinationText.trim()) {
@@ -404,100 +568,85 @@ export const validateTripRequest = (
   };
 };
 
-export const upsertClientFromRequest = (input: ParseTripRequestInput): Client => {
-  const existing = findClientByEmail(input.email);
-
-  if (existing) {
-    return saveClient({
-      ...existing,
-      firstName: input.firstName || existing.firstName,
-      lastName: input.lastName || existing.lastName,
-      fullName: `${input.firstName || existing.firstName} ${input.lastName || existing.lastName}`,
-      isReturningCustomer: true
-    });
-  }
-
-  return saveClient({
-    id: createId("client"),
+export const upsertClientFromRequest = (input: ParseTripRequestInput): Promise<Client> => {
+  return upsertClientApi({
     email: input.email,
     firstName: input.firstName,
     lastName: input.lastName,
-    fullName: `${input.firstName} ${input.lastName}`.trim(),
-    isReturningCustomer: input.clientType === "existing"
+    clientType: input.clientType,
   });
 };
 
+/**
+ * Guarda la solicitud. Con `existingId` la actualiza en vez de crear otra: es lo
+ * que hace que reintentar el cierre del lienzo no deje solicitudes (ni tratos)
+ * duplicados.
+ */
 export const saveNormalizedTripRequest = (
   clientId: string,
   source: ParseTripRequestInput,
-  parseResult: ParseTripRequestResult
-): TripRequest => {
-  return saveTripRequest({
-    id: createId("request"),
+  parseResult: ParseTripRequestResult,
+  existingId?: string | null,
+): Promise<TripRequest> => {
+  return saveTripRequestApi({
+    id: existingId ?? null,
     clientId,
-    opportunityName: source.opportunityName,
+    opportunityName: source.opportunityName ?? null,
     originalMessage: source.rawTripRequestText,
     requestStatus: parseResult.requestStatus,
-    missingFields: parseResult.missingFields,
-    warnings: parseResult.warnings,
-    ...parseResult.normalized
+    ...parseResult.normalized,
   });
 };
 
-export const findCandidateOpportunities = (
+/**
+ * Oportunidades candidatas basadas en datos REALES: las solicitudes previas del
+ * mismo cliente en la BD. Si no hay ninguna, se recomienda crear una nueva.
+ */
+export const findCandidateOpportunities = async (
   client: Client,
   request: NormalizedRequestDraft
-): FindCandidateOpportunitiesResult => {
-  const opportunities = [];
+): Promise<FindCandidateOpportunitiesResult> => {
+  let priorRequests: {
+    id: string;
+    opportunityName: string | null;
+    destinationText: string | null;
+    createdAt: string;
+  }[] = [];
 
-  if (client.isReturningCustomer) {
-    opportunities.push(
-      {
-        id: "opp_open_2026_valencia",
-        name: `Grupo escolar ${request.destinationText || "pendiente"} 2026`,
-        reason: "Mismo contacto y destino similar en una oportunidad abierta reciente.",
-        score: 92,
-        status: "open" as const
-      },
-      {
-        id: "opp_won_2025_spring",
-        name: "Viaje escolar primavera 2025",
-        reason: "Referencia útil para comparar, pero ya está cerrada como ganada.",
-        score: 61,
-        status: "won" as const
-      }
-    );
+  try {
+    priorRequests = (await getClientTripRequestsApi(client.id)).requests;
+  } catch {
+    // Si falla la consulta, se trata como cliente sin historial (crear nueva).
   }
 
-  if (!client.isReturningCustomer && request.destinationText) {
-    opportunities.push({
-      id: "opp_review_destination_only",
-      name: `Nueva oportunidad ${request.destinationText}`,
-      reason: "Solo hay coincidencia por destino; no hay suficiente contexto para actualizar algo existente.",
-      score: 34,
-      status: "open" as const
-    });
-  }
-
-  if (client.isReturningCustomer && opportunities[0]?.status === "open") {
+  if (priorRequests.length === 0) {
     return {
-      recommendation: "update_existing",
-      opportunities,
-      rationale: "Existe una oportunidad abierta razonablemente compatible con este contacto."
+      recommendation: "create_new",
+      opportunities: [],
+      rationale: "El cliente no tiene solicitudes previas: se crea una oportunidad nueva.",
     };
   }
 
-  if (opportunities.length > 0) {
+  const opportunities = priorRequests.slice(0, 5).map((prior) => {
+    const sameDestination =
+      !!prior.destinationText &&
+      !!request.destinationText &&
+      prior.destinationText.toLowerCase() === request.destinationText.toLowerCase();
     return {
-      recommendation: "ask_user",
-      opportunities,
-      rationale: "Hay coincidencias parciales, pero conviene que operaciones confirme si se actualiza o se crea una nueva."
+      id: prior.id,
+      name: prior.opportunityName || `Solicitud previa ${prior.destinationText ?? ""}`.trim(),
+      reason: sameDestination
+        ? `Solicitud previa del mismo cliente al mismo destino (${prior.destinationText}).`
+        : "Solicitud previa del mismo cliente.",
+      score: sameDestination ? 80 : 50,
+      status: "open" as const,
     };
-  }
+  });
 
   return {
-    recommendation: "create_new",
-    opportunities: [],
-    rationale: "No se encontraron oportunidades candidatas suficientemente fiables."
+    recommendation: "ask_user",
+    opportunities,
+    rationale:
+      "El cliente tiene solicitudes previas. Confirma si actualizar una oportunidad existente o crear una nueva.",
   };
 };

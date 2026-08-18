@@ -1,20 +1,32 @@
 import type {
   Client,
-  CrmOpportunityRecord,
   CrmPayload,
   CrmSyncLog,
-  FindCandidateOpportunitiesResult,
   NormalizedRequestDraft,
-  PrepareCrmPayloadInput,
-  TripProposal
+  PrepareCrmPayloadInput
 } from "../domain/types";
-import {
-  findClientByEmail,
-  findCrmOpportunitiesByEmail,
-  saveCrmOpportunity,
-  saveCrmSyncLog
-} from "../data/mockDb";
 import { createId } from "./utils";
+
+/**
+ * Nombre del viaje cuando el operador no escribe uno: "IES Vega Baja · Salou,
+ * mayo 2026". Identifica el viaje de un vistazo en el CRM y en las listas de la
+ * app, que es lo que se pide de un nombre.
+ */
+function nombreDeViaje(client: Client, request: NormalizedRequestDraft): string {
+  const centro = client.fullName?.trim();
+  const destino = request.destinationText?.trim();
+
+  let cuando = "";
+  if (request.dateFrom) {
+    const fecha = new Date(request.dateFrom);
+    if (!Number.isNaN(fecha.getTime())) {
+      cuando = new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric" }).format(fecha);
+    }
+  }
+
+  const partes = [centro, [destino, cuando].filter(Boolean).join(", ")].filter(Boolean);
+  return partes.join(" · ") || "Viaje sin nombre";
+}
 
 function buildCommonContact(client: Client) {
   return {
@@ -91,11 +103,63 @@ export const prepareCrmPayload = ({
   };
 };
 
+/** Importe (€) en número a partir del total formateado de una opción ("6.528 €" → 6528). */
+function amountFromText(text: string | undefined): number | null {
+  if (!text) return null;
+  const digits = text.replace(/[^\d]/g, "");
+  return digits ? Number(digits) : null;
+}
+
+/**
+ * Texto legible del viaje para el campo Description de Zoho (en vez de un JSON
+ * crudo): cabecera con los datos del grupo y, debajo, cada opción con su precio
+ * y actividades.
+ */
+function buildOpportunityDescription(
+  request: PrepareCrmPayloadInput["request"],
+  proposal: PrepareCrmPayloadInput["proposal"]
+): string {
+  const lines: string[] = [];
+  const group = [
+    request.participants ? `${request.participants} alumnos` : null,
+    request.teachers ? `${request.teachers} profesores` : null
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  lines.push("SOLICITUD DE VIAJE");
+  if (request.destinationText) lines.push(`Destino: ${request.destinationText}`);
+  if (request.dateFrom && request.dateTo) lines.push(`Fechas: ${request.dateFrom} → ${request.dateTo}`);
+  if (group) lines.push(`Grupo: ${group}`);
+  if (request.regimeRequested) lines.push(`Régimen: ${request.regimeRequested}`);
+  if (request.categoryRequested) lines.push(`Categoría: ${request.categoryRequested}`);
+  if (request.ageRangeText) lines.push(`Edades: ${request.ageRangeText}`);
+  if (request.requirementsText) lines.push(`Requisitos: ${request.requirementsText}`);
+
+  lines.push("", "OPCIONES DE ALOJAMIENTO");
+  for (const option of proposal.accommodationOptions) {
+    lines.push(
+      `${option.optionNumber}) ${option.accommodationNameSnapshot}` +
+        (option.boardType ? ` (${option.boardType})` : "")
+    );
+    lines.push(`   Total: ${option.totalPvpText} — ${option.priceBreakdownText}`);
+    const acts = proposal.activityOptions.filter((a) => a.optionNumber === option.optionNumber);
+    if (acts.length > 0) {
+      lines.push(
+        `   Actividades: ${acts.map((a) => `${a.activityNameSnapshot} (${a.pvpSnapshot})`).join(", ")}`
+      );
+    }
+  }
+
+  return lines.join("\n");
+}
+
 export const prepareNewOpportunityPayload = ({
   client,
   request,
   proposal,
-  opportunityRecommendation
+  opportunityRecommendation,
+  opportunityName
 }: PrepareCrmPayloadInput): CrmPayload => {
   const groupedActivities = proposal.accommodationOptions.map((option) => ({
     option_number: option.optionNumber,
@@ -113,6 +177,16 @@ export const prepareNewOpportunityPayload = ({
       }))
   }));
 
+  // Deal_Name = cómo se llamará el viaje en el CRM y en las listas de la app.
+  // Antes caía en `summaryText` cuando el operador no escribía nombre, y en el
+  // CRM aparecían filas idénticas del tipo "3 opciones, 4 noches, 45
+  // participantes y 0 actividades": imposible distinguir una de otra. El
+  // respaldo tiene que identificar el viaje, no describirlo.
+  const dealName = opportunityName?.trim() || nombreDeViaje(client, request);
+
+  // Importe del trato = total de la opción 1 (la principal/mejor).
+  const amount = amountFromText(proposal.accommodationOptions[0]?.totalPvpText);
+
   return {
     contact: buildCommonContact(client),
     account: buildCommonAccount(client),
@@ -127,85 +201,26 @@ export const prepareNewOpportunityPayload = ({
       participants: request.participants,
       teachers: request.teachers,
       group_type: request.groupType,
-      opportunity_name:
-        proposal.summaryText || `Grupo ${request.destinationText} ${request.dateFrom || "pendiente"}`
+      opportunity_name: dealName,
+      amount,
+      description: buildOpportunityDescription(request, proposal)
     },
     approved_option: null,
     activities: groupedActivities
   };
 };
 
-export const saveOpportunityToCrmMock = (
-  client: Client,
-  request: NormalizedRequestDraft,
-  proposal: TripProposal,
-  payload: CrmPayload
-) => {
-  const record: CrmOpportunityRecord = {
-    id: createId("crm_opp"),
-    clientEmail: client.email,
-    clientName: client.fullName,
-    opportunityName:
-      `${request.destinationText || "Destino pendiente"} ${request.dateFrom || ""}`.trim() ||
-      "Oportunidad sin nombre",
-    destination: request.destinationText,
-    status: "sent",
-    proposalId: proposal.id,
-    proposalOptions: proposal.accommodationOptions.map((option) => ({
-      optionNumber: option.optionNumber,
-      accommodationName: option.accommodationNameSnapshot,
-      totalPvpText: option.totalPvpText,
-      boardType: option.boardType
-    })),
-    payload: payload as unknown as Record<string, unknown>
-  };
-
-  return saveCrmOpportunity(record);
-};
-
-export const searchExistingOpportunities = (email: string) => {
-  const client = findClientByEmail(email);
-  return {
-    client,
-    opportunities: findCrmOpportunitiesByEmail(email)
-  };
-};
-
-export const prepareExistingOpportunityApprovalPayload = (
-  opportunity: CrmOpportunityRecord,
-  approvedOptionNumber: number
-) => {
-  const selectedOption = opportunity.proposalOptions.find(
-    (option) => option.optionNumber === approvedOptionNumber
-  );
-
-  if (!selectedOption) {
-    throw new Error("La opción seleccionada no existe en la oportunidad.");
-  }
-
-  const updatedOpportunity = {
-    ...opportunity,
-    status: "approved" as const,
-    approvedOptionNumber
-  };
-
-  saveCrmOpportunity(updatedOpportunity);
-
-  return {
-    opportunity_id: opportunity.id,
-    action: "update_existing_opportunity",
-    approved_option: selectedOption,
-    client_email: opportunity.clientEmail
-  };
-};
-
+/**
+ * Registro local del intento de sincronización con CRM (solo en memoria de la
+ * sesión; el envío real lo hace Zoho vía apiClient). No se persiste.
+ */
 export const logCrmSyncAttempt = (payload: CrmPayload | Record<string, unknown>): CrmSyncLog => {
-  return saveCrmSyncLog({
+  return {
     id: createId("crm"),
     entityType: "trip_proposal",
     actionType: "prepare_payload",
     requestPayload: payload as Record<string, unknown>,
     responsePayload: { queued: true },
     syncStatus: "PENDING"
-  });
+  };
 };
