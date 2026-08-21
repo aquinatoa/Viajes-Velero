@@ -20,6 +20,15 @@ const DEFAULT_ACTIVITY_PATH =
   "/Users/anthony/Downloads/Viajes Velero/TARIFAS GRUPOS 2026.xlsx";
 const DEFAULT_IMPORT_DIRECTORY = "/Users/anthony/Downloads/Viajes Velero";
 
+/**
+ * Transacciones que recorren el catalogo entero fila a fila. Con SQLite cada
+ * consulta era un acceso a fichero local y sobraba el limite de 5 s que Prisma
+ * pone por defecto a las transacciones interactivas; contra PostgreSQL cada una
+ * es una ida y vuelta por red, y con unos cientos de tarifas el import se pasa
+ * del limite y muere con P2028.
+ */
+const BULK_TX_OPTIONS = { timeout: 120_000, maxWait: 10_000 };
+
 export interface ImportRatesOptions {
   accommodationPath?: string;
   activityPath?: string;
@@ -445,7 +454,7 @@ export async function importRatesFromExcel(
         }
       });
     }
-  });
+  }, BULK_TX_OPTIONS);
 
   const totalAccommodationRates = accommodationData.reduce((sum, item) => sum + item.rates.length, 0);
   const totalActivityRates = activityData.reduce((sum, item) => sum + item.rates.length, 0);

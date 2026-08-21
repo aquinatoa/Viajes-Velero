@@ -96,7 +96,10 @@ import {
 } from "./validation";
 
 const app = express();
-const port = 8787;
+// Puerto de la API. Deliberadamente API_PORT y no PORT: `npm run dev` levanta
+// API y Vite con el mismo entorno, y muchas herramientas definen PORT por su
+// cuenta, con lo que ambos procesos pelearian por el mismo puerto.
+const port = Number(process.env.API_PORT ?? 8787);
 
 /**
  * Recupera los acentos del nombre de un fichero subido.
@@ -135,9 +138,17 @@ const upload = multer({
   },
 });
 
+// Detras de nginx el front y la API comparten origen, asi que no hay preflight
+// que atender. CORS_ORIGINS (lista separada por comas) queda para cuando la
+// API se sirva desde otro dominio; por defecto, los origenes de desarrollo.
+const corsOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:5173,http://localhost:5174")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://localhost:5174"],
+    origin: corsOrigins,
   }),
 );
 

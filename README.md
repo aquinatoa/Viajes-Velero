@@ -14,7 +14,7 @@ Aplicación interna de operaciones para recibir solicitudes de viajes en grupo, 
 ## Stack
 
 - React + TypeScript + Vite
-- Prisma + SQLite como base relacional
+- Prisma + PostgreSQL como base relacional
 - capa de servicios modular lista para integración MCP y Zoho futura
 - repositorio mock en memoria y datos semilla estructurados para esta fase
 
@@ -53,7 +53,7 @@ npm run dev
 - la UI en `http://localhost:5173`
 - la API local Prisma en `http://localhost:8787`
 
-La búsqueda de alojamientos y actividades ya consulta la SQLite real vía API local.
+La búsqueda de alojamientos y actividades ya consulta la base real vía API local.
 
 ## Base de datos
 
@@ -70,15 +70,25 @@ El esquema Prisma está en `prisma/schema.prisma` e incluye:
 - `proposal_activity_options`
 - `crm_sync_logs`
 
-Para inicializar SQLite local:
+Hace falta un PostgreSQL. Para levantar uno local en Docker:
+
+```bash
+docker run -d --name oravia-pg -e POSTGRES_USER=oravia -e POSTGRES_PASSWORD=oravia \
+  -e POSTGRES_DB=oravia -p 5433:5432 postgres:16-alpine
+```
+
+Con `DATABASE_URL` apuntando a él, inicializar es:
 
 ```bash
 npm run prisma:generate
-npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > /tmp/viajes_velero_schema.sql
-sqlite3 prisma/dev.db < /tmp/viajes_velero_schema.sql
+npm run prisma:migrate      # aplica prisma/migrations/
 npm run prisma:seed
 npm run prisma:import-rates
 ```
+
+Las pruebas crean su propio esquema temporal y lo eliminan al terminar, así que
+no tocan los datos de trabajo. Toman la conexión de `TEST_DATABASE_URL` si
+existe y, si no, de `DATABASE_URL`.
 
 ## Extracción de texto de documentos PDF
 

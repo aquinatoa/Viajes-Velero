@@ -19,7 +19,10 @@ import type {
 } from "../domain/documentImportTypes";
 import type { Client, SearchFilters, TripProposal, TripRequest } from "../domain/types";
 
-const API_BASE_URL = "http://localhost:8787";
+// Mismo origen: en dev lo resuelve el proxy de Vite (`/api` -> :8787) y en
+// produccion nginx hace de proxy al Node. VITE_API_BASE_URL solo hace falta
+// si algun dia el backend vive en otro dominio.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export class ApiAuthError extends Error {
   code?: string;
