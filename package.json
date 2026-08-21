@@ -11,6 +11,7 @@
     "api": "node --import tsx server/index.ts",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
+    "prisma:migrate": "prisma migrate deploy",
     "prisma:seed": "node --import tsx prisma/seed.ts",
     "prisma:import-rates": "node --import tsx prisma/importRates.ts"
   },

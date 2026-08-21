@@ -1,8 +1,8 @@
 /**
  * Prueba de integración del flujo documental (sin frameworks externos).
  *
- * Ejercita la cadena completa contra una base SQLite TEMPORAL y aislada
- * (prisma/test-flow.db), nunca contra dev.db:
+ * Ejercita la cadena completa contra un esquema PostgreSQL TEMPORAL y
+ * aislado, nunca contra el esquema de trabajo:
  *
  *   crear documento → crear candidatos staging → aprobar en lote →
  *   dry-run de publicación → publicar → trazabilidad (incl. búsqueda operativa
@@ -11,22 +11,42 @@
  * Cómo correrla:  npm run test
  * (equivale a: node --import tsx tests/documentFlow.test.ts)
  *
- * La BD temporal se crea con `prisma db push` y se borra al terminar, así que
- * la prueba es repetible y no deja residuos. No toca dev.db ni storage/.
+ * El esquema temporal se crea con `prisma db push` y se elimina al terminar,
+ * así que la prueba es repetible y no deja residuos. Al vivir en su propio
+ * esquema no puede tocar los datos de trabajo, y dos corridas simultáneas no
+ * se pisan.
+ *
+ * Necesita un PostgreSQL accesible: se toma de TEST_DATABASE_URL si existe y,
+ * si no, de DATABASE_URL (solo se le cambia el esquema).
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
 
-// BD temporal junto a dev.db (Prisma resuelve `file:` relativo a prisma/).
-const TEST_DB_RELATIVE = "./test-flow.db";
-const TEST_DB_URL = `file:${TEST_DB_RELATIVE}`;
-const testDbAbsolute = path.join(projectRoot, "prisma", "test-flow.db");
+// Un esquema propio por corrida. Nombrarlo con el PID evita que dos pruebas
+// lanzadas a la vez (o una corrida anterior que muriera a medias) se estorben.
+const TEST_SCHEMA = `test_${process.pid}_${Date.now().toString(36)}`;
+
+const baseDbUrl = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
+if (!baseDbUrl) {
+  throw new Error(
+    "Falta TEST_DATABASE_URL (o DATABASE_URL) apuntando a un PostgreSQL para las pruebas.",
+  );
+}
+
+/** Reapunta una URL de PostgreSQL al esquema indicado, sin tocar el resto. */
+function withSchema(url: string, schema: string): string {
+  const parsed = new URL(url);
+  parsed.searchParams.set("schema", schema);
+  return parsed.toString();
+}
+
+const TEST_DB_URL = withSchema(baseDbUrl, TEST_SCHEMA);
 
 // Los PDFs de las entregas se escriben en disco. Van a un almacén aparte para
 // no pisar los de `storage/`: la primera referencia de la BD temporal es
@@ -42,18 +62,16 @@ function removeTestStorage() {
   }
 }
 
-function removeTestDb() {
-  for (const suffix of ["", "-journal", "-wal", "-shm"]) {
-    const target = `${testDbAbsolute}${suffix}`;
-    if (existsSync(target)) {
-      try {
-        rmSync(target, { force: true });
-      } catch {
-        // En Windows el cliente Prisma mantiene el archivo SQLite bloqueado
-        // mientras el proceso vive (EPERM). No pasa nada: el residuo se borra
-        // al inicio de la siguiente corrida, cuando ya no hay handle abierto.
-      }
-    }
+async function dropTestSchema() {
+  const { PrismaClient } = await import("@prisma/client");
+  const prisma = new PrismaClient({ datasources: { db: { url: TEST_DB_URL } } });
+  try {
+    // El nombre lo generamos nosotros a partir del PID, no llega de fuera.
+    await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${TEST_SCHEMA}" CASCADE`);
+  } catch (error) {
+    console.warn(`No se pudo eliminar el esquema ${TEST_SCHEMA}:`, error);
+  } finally {
+    await prisma.$disconnect();
   }
 }
 
@@ -80,9 +98,8 @@ async function main() {
   process.env.ORAVIA_STORAGE_DIR = testStorage;
 
   // 2) Crear el esquema en la BD temporal desde cero.
-  removeTestDb();
   removeTestStorage();
-  console.log("Preparando base de datos temporal (prisma db push)...");
+  console.log(`Preparando esquema temporal ${TEST_SCHEMA} (prisma db push)...`);
   execFileSync(
     process.execPath,
     [path.join(projectRoot, "node_modules", "prisma", "build", "index.js"), "db", "push", "--skip-generate", "--accept-data-loss"],
@@ -1496,7 +1513,7 @@ main()
     console.error("\nError no controlado en la prueba:", error);
     process.exitCode = 1;
   })
-  .finally(() => {
-    removeTestDb();
+  .finally(async () => {
+    await dropTestSchema();
     removeTestStorage();
   });

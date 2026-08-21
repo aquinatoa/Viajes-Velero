@@ -23,17 +23,18 @@ Sustituye a lo largo del documento:
 - **Node.js 20 o superior.** El proyecto arranca con `node --import tsx`, que
   necesita 20.6+. En local se probó con 24.14.1.
 - **nginx**
+- **PostgreSQL 14 o superior**
 - Acceso `sudo`
 - El dominio apuntando ya a la IP del servidor (si no, certbot falla)
 
 ```bash
-node -v && nginx -v && echo OK
+node -v && nginx -v && psql --version && echo OK
 ```
 
 ## 1. Usuario y directorios
 
-La app no debe correr como root ni escribir dentro del directorio de código: la
-base de datos y los documentos subidos tienen que sobrevivir a cada despliegue.
+La app no debe correr como root ni escribir dentro del directorio de código: los
+documentos subidos tienen que sobrevivir a cada despliegue.
 
 ```bash
 sudo useradd --system --create-home --shell /bin/bash deploy
@@ -41,7 +42,7 @@ sudo mkdir -p /opt/oravia/{releases,datos,storage}
 sudo chown -R deploy:deploy /opt/oravia
 ```
 
-- `/opt/oravia/datos` → SQLite (`oravia.db`)
+- `/opt/oravia/datos` → volcados de `pg_dump` (la base la gestiona PostgreSQL)
 - `/opt/oravia/storage` → documentos de tarifas subidos
 - `/opt/oravia/current` → enlace simbólico a la release activa
 
@@ -55,6 +56,20 @@ cd /opt/oravia/current
 npm ci
 ```
 
+## 2b. La base de datos
+
+Un rol y una base propios; nunca el superusuario `postgres`.
+
+```bash
+sudo -u postgres psql <<'SQL'
+CREATE ROLE oravia WITH LOGIN PASSWORD 'una-clave-larga';
+CREATE DATABASE oravia OWNER oravia;
+SQL
+```
+
+Si PostgreSQL corre en el mismo servidor, no lo expongas a la red: que escuche
+solo en `localhost`. La app se conecta por ahí.
+
 ## 3. El `.env` de producción
 
 **No copies el `.env` de desarrollo.** Cambia la contraseña de admin y revisa las
@@ -66,8 +81,9 @@ chmod 600 /opt/oravia/current/.env
 ```
 
 ```ini
-# Rutas absolutas: fuera del directorio de código para que el despliegue no las pise
-DATABASE_URL="file:/opt/oravia/datos/oravia.db"
+DATABASE_URL="postgresql://oravia:una-clave-larga@localhost:5432/oravia?schema=public"
+
+# Ruta absoluta y fuera del directorio de código, para que el despliegue no la pise
 ORAVIA_STORAGE_DIR="/opt/oravia/storage"
 
 API_PORT=8787
@@ -115,7 +131,7 @@ edítalos a mano en el servidor por SSH. Nunca por correo ni chat.
 ```bash
 cd /opt/oravia/current
 npm run prisma:generate
-npm run prisma:push      # crea el esquema en /opt/oravia/datos/oravia.db
+npm run prisma:migrate   # aplica prisma/migrations/ (nunca db push en producción)
 npm run build            # genera dist/
 ```
 
@@ -133,7 +149,8 @@ npm run prisma:import-rates
 ```ini
 [Unit]
 Description=Oravia API
-After=network.target
+After=network.target postgresql.service
+Wants=postgresql.service
 
 [Service]
 Type=simple
@@ -149,7 +166,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/oravia/datos /opt/oravia/storage
+ReadWritePaths=/opt/oravia/storage /opt/oravia/datos
 
 [Install]
 WantedBy=multi-user.target
@@ -231,8 +248,8 @@ exit
 sudo systemctl restart oravia-api
 ```
 
-`prisma:push` solo si cambió el esquema. Ojo: puede pedir borrar datos (ver
-"Pendientes").
+Si el esquema cambió, `npm run prisma:migrate` antes de reiniciar: aplica solo
+las migraciones pendientes y no destruye datos.
 
 ## 9. Comprobación
 
@@ -257,12 +274,13 @@ sudo journalctl -u oravia-api -f
 
 1. **Falta `OK TARIFAS Costes.xlsx`** — sin él, `prisma:import-rates` aborta y el
    catálogo de alojamientos queda vacío.
-2. **No hay migraciones de Prisma.** `prisma/` no tiene carpeta `migrations/`, así
-   que el despliegue depende de `db push`, que ante un cambio de esquema puede
-   pedir descartar datos. Antes de que entren datos reales conviene generar la
-   migración inicial y pasar a `prisma migrate deploy`.
-3. **Copias de seguridad.** Nadie respalda `/opt/oravia/datos` ni
-   `/opt/oravia/storage`. Un `cron` diario con `sqlite3 .backup` y rotación.
+2. **Copias de seguridad.** Nadie respalda la base ni `/opt/oravia/storage`. Un
+   `cron` diario, con rotación:
+
+   ```bash
+   pg_dump -Fc -U oravia oravia > /opt/oravia/datos/oravia-$(date +%F).dump
+   tar czf /opt/oravia/datos/storage-$(date +%F).tgz -C /opt/oravia storage
+   ```
 4. **Tres vulnerabilidades en la ruta de subida de documentos:** `pdfjs-dist`
    (ejecución de JS al abrir un PDF malicioso) y `multer` (DoS) tienen arreglo
    actualizando; `xlsx` 0.18.5 no lo tiene en npm porque SheetJS salió del

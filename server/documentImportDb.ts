@@ -242,6 +242,15 @@ export async function listInventoryDocuments() {
  * JSON exponga importes numéricos (no strings) y los tipos del dominio se
  * cumplan. Preserva fechas y el resto de valores.
  */
+/**
+ * Transacciones que recorren el catalogo entero fila a fila. Con SQLite cada
+ * consulta era un acceso a fichero local y sobraba el limite de 5 s que Prisma
+ * pone por defecto a las transacciones interactivas; contra PostgreSQL cada una
+ * es una ida y vuelta por red, y con unos cientos de tarifas el import se pasa
+ * del limite y muere con P2028.
+ */
+const BULK_TX_OPTIONS = { timeout: 120_000, maxWait: 10_000 };
+
 function decimalsToNumbers<T>(value: T): T {
   if (value instanceof Prisma.Decimal) {
     return Number(value) as unknown as T;
@@ -705,7 +714,7 @@ export async function createInventoryDocumentStaging(
     }
 
     return { accommodationsCount, activitiesCount };
-  });
+  }, BULK_TX_OPTIONS);
 
   return {
     accommodations: counts.accommodationsCount,
@@ -1592,7 +1601,7 @@ export async function publishApprovedInventoryDocument(
     for (const data of plan.activitiesToCreate) {
       await tx.activity.create({ data: data as never });
     }
-  });
+  }, BULK_TX_OPTIONS);
 
   return {
     accommodations: plan.accommodationsToCreate.length,
