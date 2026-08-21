@@ -38,7 +38,10 @@ interface PublicProposal {
   options: PublicOption[];
 }
 
-const API_BASE_URL = "http://localhost:8787";
+// Mismo origen: en dev lo resuelve el proxy de Vite (`/api` -> :8787) y en
+// produccion nginx hace de proxy al Node. VITE_API_BASE_URL solo hace falta
+// si algun dia el backend vive en otro dominio.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "";
