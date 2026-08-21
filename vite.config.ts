@@ -11,5 +11,17 @@ export default defineConfig({
         changeOrigin: true
       }
     }
+  },
+  // `npm run preview` sirve el dist/ compilado con el mismo reparto que hara
+  // nginx en el servidor. Sirve para probar el bundle de produccion sin
+  // desplegar: es lo unico que detecta un dist/ viejo o mal construido.
+  preview: {
+    port: 4173,
+    proxy: {
+      "/api": {
+        target: "http://localhost:8787",
+        changeOrigin: true
+      }
+    }
   }
 });

@@ -1,0 +1,7 @@
+# Los scripts de shell van al servidor: con finales CRLF, Linux responde
+# "bad interpreter" y no arrancan. Se guardan y se sacan siempre en LF.
+*.sh text eol=lf
+
+# Igual para lo que consume el servidor directamente.
+*.service text eol=lf
+*.conf    text eol=lf

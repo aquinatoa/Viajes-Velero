@@ -253,12 +253,36 @@ las migraciones pendientes y no destruye datos.
 
 ## 9. Comprobación
 
+No lo compruebes a mano: hay un script que pasa todas las comprobaciones de
+aceptación y devuelve 0 o 1, así que sirve igual en el terminal que en un cron
+o un pipeline.
+
 ```bash
-curl -s https://midominio.com/api/health                      # {"ok":true}
-curl -sI https://midominio.com/tarifas | head -1              # 200, no 404
-curl -s -X POST https://midominio.com/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@midominio.com","password":"..."}'       # devuelve token
+./scripts/verificar-despliegue.sh https://midominio.com
+```
+
+Comprueba que la API responde, que las rutas del router resuelven (el fallo más
+típico: falta el `try_files` y `/tarifas` da 404), que el bundle desplegado no
+apunta a `localhost` (el segundo más típico: se subió un `dist/` viejo), que los
+endpoints privados exigen sesión, y que HTTP redirige a HTTPS.
+
+Para incluir además el login y una lectura real contra PostgreSQL:
+
+```bash
+export VERIFY_EMAIL=admin@midominio.com
+export VERIFY_PASSWORD='...'
+./scripts/verificar-despliegue.sh https://midominio.com
+```
+
+Sin esas dos variables esas comprobaciones salen como omitidas, no como fallo:
+el script no guarda credenciales.
+
+Antes de dar por bueno el despliegue puedes ensayarlo en local, que sirve el
+mismo `dist/` que ira al servidor:
+
+```bash
+npm run build && npm run preview   # http://localhost:4173
+./scripts/verificar-despliegue.sh http://localhost:4173
 ```
 
 En el navegador, con las herramientas de desarrollo abiertas: ninguna petición
