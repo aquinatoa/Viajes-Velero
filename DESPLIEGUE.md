@@ -294,18 +294,51 @@ sudo journalctl -u oravia-api -f
 
 ---
 
+## Estado del despliegue actual
+
+Desplegado el 21/08/2026 en `195.20.235.4` (Ubuntu 26.04, nginx 1.28.3,
+PostgreSQL 18.6, Node 22.22.1). El script de verificación da 12 comprobaciones
+en verde y un fallo conocido: no hay TLS.
+
+```bash
+/opt/oravia/current/scripts/verificar-despliegue.sh http://195.20.235.4
+```
+
 ## Pendientes antes de considerarlo productivo
 
-1. **Falta `OK TARIFAS Costes.xlsx`** — sin él, `prisma:import-rates` aborta y el
+Los dos primeros son de seguridad y están asumidos a sabiendas mientras el
+cliente valida. No deberían sobrevivir a esa validación.
+
+1. **El administrador usa las credenciales de desarrollo.** `admin@viajesvelero.com`
+   con la contraseña que aparece escrita en `handoff.md`, que está en el
+   repositorio público. Cualquiera que lea el repo puede entrar. Se cambia desde
+   la propia aplicación (Ajustes → Mi cuenta), sin tocar la base: `ensureAdminFromEnv`
+   no sobrescribe la contraseña de un usuario que ya existe, así que editar el
+   `.env` por sí solo no cambia nada. Después conviene limpiar `handoff.md`.
+2. **No hay TLS.** Sin dominio no se pudo emitir certificado, así que el token de
+   sesión viaja en claro. Cuando el dominio apunte aquí:
+
+   ```bash
+   sudo certbot --nginx -d el-dominio
+   ```
+
+   Y después cambiar `PUBLIC_BASE_URL` en el `.env` al dominio y reiniciar, o los
+   enlaces públicos de las propuestas seguirán llevando la IP dentro.
+
+   Mientras tanto, `ufw` está inactivo y el puerto 80 abierto a Internet. Se puede
+   limitar a las IP que vayan a probar sin tocar nada más.
+3. **Sin configuración de correo.** Faltan las `MAIL_*`: la aplicación funciona
+   pero no puede enviar propuestas, que es su razón de ser.
+4. **Falta `OK TARIFAS Costes.xlsx`** — sin él, `prisma:import-rates` aborta y el
    catálogo de alojamientos queda vacío.
-2. **Copias de seguridad.** Nadie respalda la base ni `/opt/oravia/storage`. Un
+5. **Copias de seguridad.** Nadie respalda la base ni `/opt/oravia/storage`. Un
    `cron` diario, con rotación:
 
    ```bash
    pg_dump -Fc -U oravia oravia > /opt/oravia/datos/oravia-$(date +%F).dump
    tar czf /opt/oravia/datos/storage-$(date +%F).tgz -C /opt/oravia storage
    ```
-4. **Tres vulnerabilidades en la ruta de subida de documentos:** `pdfjs-dist`
+6. **Tres vulnerabilidades en la ruta de subida de documentos:** `pdfjs-dist`
    (ejecución de JS al abrir un PDF malicioso) y `multer` (DoS) tienen arreglo
    actualizando; `xlsx` 0.18.5 no lo tiene en npm porque SheetJS salió del
    registro — habría que migrar a su distribución propia o cambiar de librería.
