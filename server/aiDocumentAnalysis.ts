@@ -26,7 +26,7 @@ export interface AnalyzeDocumentTextInput {
    * equivocado. Viendo el PDF sabe qué precio está en qué fila y en qué
    * columna. El texto se sigue enviando como apoyo, no como única fuente.
    */
-  pdfFilePath?: string | null;
+  attachmentPath?: string | null;
   /** Contexto de control del SourceDocument para guiar el análisis. */
   context: {
     targetType: string;
@@ -86,15 +86,24 @@ const CONSERVATIVE_OUTPUT_CEILING = 64000;
 function outputCeilingFor(model: string): number {
   return MODEL_OUTPUT_CEILINGS[model] ?? CONSERVATIVE_OUTPUT_CEILING;
 }
-const MAX_TEXT_CHARS = 30000;
 /**
- * Techo del PDF que se adjunta. La API admite 32 MB por petición contando el
+ * Cuánto texto del documento se le manda al modelo.
+ *
+ * Los 30.000 de antes eran para la capa de texto de un PDF. Una hoja de cálculo
+ * es otra cosa: el maestro de hoteles de Oravia son 646 filas y 731.000
+ * caracteres, y con el techo viejo se habría leído el 4% de la temporada sin
+ * más aviso que una nota al pie. El modelo tiene 1M de contexto; el límite está
+ * para que un fichero absurdo no reviente la petición, no para recortar trabajo.
+ */
+const MAX_TEXT_CHARS = 900000;
+/**
+ * Techo del fichero que se adjunta (PDF o imagen). La API admite 32 MB por petición contando el
  * base64, que infla el fichero un tercio; con 20 MB de PDF quedan ~27 MB y
  * sobra sitio para el prompt. Un documento de tarifas real pesa cientos de KB
  * (el de PortAventura, 253 KB), así que este límite no lo toca nadie: está
  * para que un PDF absurdo degrade a solo texto en vez de reventar la petición.
  */
-const MAX_PDF_BYTES = 20 * 1024 * 1024;
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 /**
  * Techo de salida por lectura: el máximo que admita el modelo configurado, no
  * una cifra elegida. Un documento de tarifas real no cabía en los 16.000 de
@@ -175,47 +184,22 @@ export async function analyzeDocumentText(
 // Proveedor real: Anthropic (Messages API, SDK oficial)
 // ----------------------------------------------------------------------------
 
-/**
- * Lee el PDF original y lo devuelve en base64 para adjuntarlo a la petición.
- *
- * Nunca lanza: si el fichero no está, no es un PDF o pesa demasiado, devuelve
- * un aviso y el análisis sigue con el texto extraído. Perder la maquetación
- * empeora la lectura, pero quedarse sin analizar el documento es peor.
- */
-async function readPdfForModel(
-  filePath: string | null | undefined,
-): Promise<{ base64: string | null; warning: string | null }> {
-  if (!filePath) {
-    return { base64: null, warning: null };
-  }
-
-  if (!/\.pdf$/i.test(filePath)) {
-    return { base64: null, warning: null };
-  }
-
-  try {
-    const buffer = await fs.readFile(filePath);
-
-    if (buffer.byteLength > MAX_PDF_BYTES) {
-      return {
-        base64: null,
-        warning:
-          `El PDF pesa ${Math.round(buffer.byteLength / 1024 / 1024)} MB y no se le pudo enviar al modelo ` +
-          "(máximo 20 MB). Se analizó solo el texto extraído, que en documentos con tablas pierde la " +
-          "correspondencia entre filas y columnas. Revisa las tarifas con especial cuidado.",
-      };
-    }
-
-    return { base64: buffer.toString("base64"), warning: null };
-  } catch {
-    return {
-      base64: null,
-      warning:
-        "No se pudo leer el PDF original para enviárselo al modelo. Se analizó solo el texto extraído; " +
-        "si el documento trae tablas, revisa las tarifas con especial cuidado.",
-    };
-  }
+/** Lo que se le adjunta al modelo: el fichero en base64 y de qué tipo es. */
+interface AdjuntoParaModelo {
+  base64: string | null;
+  /** Tipo MIME, para decidir si va como documento (PDF) o como imagen. */
+  mediaType: string | null;
+  warning: string | null;
 }
+
+const MEDIA_POR_EXTENSION: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+};
 
 /** Un producto del documento: un alojamiento o una actividad con tabla propia. */
 interface ProductoDelDocumento {
@@ -223,6 +207,13 @@ interface ProductoDelDocumento {
   name: string;
   /** Cuántas tarifas dice el modelo que tiene. Sirve para detectar si falta algo. */
   expectedRateCount: number | null;
+  /**
+   * En qué filas de la hoja de cálculo está este producto, cuando el documento
+   * es un Excel. Permite mandarle al modelo solo su trozo en vez de las 646
+   * filas enteras del maestro de hoteles: menos ruido y muchísimo menos gasto.
+   */
+  sourceRowFrom: number | null;
+  sourceRowTo: number | null;
 }
 
 /** Lo que devuelve una llamada al modelo, ya parseado y con su consumo. */
@@ -238,21 +229,56 @@ interface RespuestaModelo {
 const PRODUCT_CONCURRENCY = 4;
 
 /**
- * Lectura del documento con Anthropic, en dos fases.
+ * Lee el fichero original y lo prepara para adjuntarlo a la petición.
  *
- * El porqué de las dos fases: una tarifa de grupos real trae cientos de precios,
- * y pedirlos todos en una respuesta no cabe. Con la de PortAventura (386
- * importes) la respuesta se cortaba por el límite de longitud y el JSON quedaba
- * inválido; cuando cabía por los pelos, el modelo repartía mal los precios entre
- * productos porque estaba atendiendo a ocho tablas a la vez.
+ * Solo tiene sentido con lo que el modelo puede MIRAR: PDF e imágenes. Una hoja
+ * de cálculo no se adjunta, porque ya se convierte a texto tabulado y ese texto
+ * es mejor fuente que una captura de la hoja.
  *
- * Fase 1: qué hay en el documento (productos, condiciones generales) — respuesta
- * corta. Fase 2: una lectura por producto, mirando solo su tabla. Cada respuesta
- * es pequeña, no se trunca, y el modelo tiene una sola cosa entre manos.
- *
- * El PDF se envía en todas las llamadas, pero marcado como cacheable: se paga
- * entero una vez y las demás lo reutilizan.
+ * Nunca lanza: si el fichero no está, no es de un tipo que se pueda mirar o pesa
+ * demasiado, devuelve un aviso y el análisis sigue con el texto extraído. Leer
+ * peor es malo; no leer es peor.
  */
+async function readAttachmentForModel(
+  filePath: string | null | undefined,
+): Promise<AdjuntoParaModelo> {
+  if (!filePath) {
+    return { base64: null, mediaType: null, warning: null };
+  }
+
+  const extension = (filePath.match(/\.[a-z0-9]+$/i)?.[0] ?? "").toLowerCase();
+  const mediaType = MEDIA_POR_EXTENSION[extension];
+  if (!mediaType) {
+    // Hoja de cálculo, CSV, texto: no se adjuntan, y no es un problema.
+    return { base64: null, mediaType: null, warning: null };
+  }
+
+  try {
+    const buffer = await fs.readFile(filePath);
+
+    if (buffer.byteLength > MAX_ATTACHMENT_BYTES) {
+      return {
+        base64: null,
+        mediaType: null,
+        warning:
+          `El archivo pesa ${Math.round(buffer.byteLength / 1024 / 1024)} MB y no se le pudo enviar al modelo ` +
+          "(máximo 20 MB). Se analizó solo el texto extraído, que en documentos con tablas pierde la " +
+          "correspondencia entre filas y columnas. Revisa las tarifas con especial cuidado.",
+      };
+    }
+
+    return { base64: buffer.toString("base64"), mediaType, warning: null };
+  } catch {
+    return {
+      base64: null,
+      mediaType: null,
+      warning:
+        "No se pudo leer el archivo original para enviárselo al modelo. Se analizó solo el texto extraído; " +
+        "si el documento trae tablas, revisa las tarifas con especial cuidado.",
+    };
+  }
+}
+
 async function analyzeWithAnthropic(
   input: AnalyzeDocumentTextInput,
   config: ProviderCallConfig,
@@ -271,11 +297,11 @@ async function analyzeWithAnthropic(
   const model = config.model || DEFAULT_ANTHROPIC_MODEL;
 
   // El PDF, cuando lo hay, va delante del texto: es la fuente buena.
-  const pdf = await readPdfForModel(input.pdfFilePath);
-  if (pdf.warning) {
-    extraWarnings.push(pdf.warning);
+  const adjunto = await readAttachmentForModel(input.attachmentPath);
+  if (adjunto.warning) {
+    extraWarnings.push(adjunto.warning);
   }
-  const hasPdf = Boolean(pdf.base64);
+  const hasPdf = Boolean(adjunto.base64);
 
   const uso = { inputTokens: 0, outputTokens: 0 };
   const acumular = (r: RespuestaModelo) => {
@@ -285,7 +311,7 @@ async function analyzeWithAnthropic(
 
   // ── Fase 1: el índice del documento ──────────────────────────────────────
   const indice = await callAnthropic(client, model, {
-    pdfBase64: pdf.base64,
+    adjunto,
     system: buildSystemPrompt(hasPdf),
     prompt: buildInventoryPrompt(input, text, hasPdf),
   });
@@ -297,7 +323,7 @@ async function analyzeWithAnthropic(
   // lee entero de una vez, que además sale más barato.
   if (productos.length <= 1) {
     const completo = await callAnthropic(client, model, {
-      pdfBase64: pdf.base64,
+      adjunto,
       system: buildSystemPrompt(hasPdf),
       prompt: buildUserPrompt(input, text, hasPdf),
     });
@@ -317,9 +343,15 @@ async function analyzeWithAnthropic(
 
   const porProducto = await mapWithConcurrency(productos, PRODUCT_CONCURRENCY, async (producto) => {
     const respuesta = await callAnthropic(client, model, {
-      pdfBase64: pdf.base64,
+      adjunto,
       system: buildSystemPrompt(hasPdf),
-      prompt: buildProductPrompt(input, text, hasPdf, producto, productos),
+      prompt: buildProductPrompt(
+        input,
+        recortarTextoAlProducto(text, producto),
+        hasPdf,
+        producto,
+        productos,
+      ),
     });
     return { producto, respuesta };
   });
@@ -356,8 +388,65 @@ async function analyzeWithAnthropic(
   }
 
   base.warnings.push(...avisosDeProductosDuplicados(base));
+  base.warnings.push(...avisosDePreciosEnConflicto(base));
   base.usage = { ...uso, model };
   return base;
+}
+
+/**
+ * Avisa cuando una misma combinacion vuelve con varios precios distintos.
+ *
+ * Un alojamiento con un regimen, una ocupacion, un servicio incluido y una
+ * temporada tiene UN precio. Si salen varios, el documento no es una tarifa:
+ * suele ser una hoja de control con varios escenarios (coste, venta a un canal,
+ * venta a otro) o con el desglose por proveedor. Publicar eso deja al cotizador
+ * eligiendo a ciegas entre precios que no son alternativas.
+ *
+ * Paso el 26/08/2026 con el desglose COSTE-VENTA de MSH: Villa Bonita en
+ * artificial/doble/pension completa salio con nueve importes (43, 22, 65, 44,
+ * 22, 66, 51, 22, 73) donde solo hay uno. La lectura era correcta; el documento,
+ * no. Y sin este aviso eso entra al catalogo sin que nadie lo note.
+ */
+function avisosDePreciosEnConflicto(analisis: AiDocumentAnalysisResult): string[] {
+  const grupos = new Map<string, { etiqueta: string; importes: Set<number> }>();
+
+  for (const tarifa of analisis.candidateRates) {
+    const importe = tarifa.pvpAmount ?? tarifa.netAmount ?? tarifa.costAmount;
+    const nombre = (tarifa.accommodationName ?? "").trim();
+    if (!nombre || importe === null || importe === undefined) continue;
+
+    const ejes = [
+      nombre,
+      tarifa.boardType ?? "",
+      tarifa.occupancyLabel ?? "",
+      tarifa.includedService ?? "",
+      tarifa.seasonName ?? "",
+      tarifa.dateFrom ?? "",
+      tarifa.unitName ?? "",
+    ];
+    const clave = ejes.join("|").toLowerCase();
+    const grupo = grupos.get(clave) ?? {
+      etiqueta: ejes.filter(Boolean).join(" · "),
+      importes: new Set<number>(),
+    };
+    grupo.importes.add(Number(importe));
+    grupos.set(clave, grupo);
+  }
+
+  const conflictivos = [...grupos.values()].filter((g) => g.importes.size > 1);
+  if (conflictivos.length === 0) return [];
+
+  const muestra = conflictivos
+    .slice(0, 3)
+    .map((g) => `${g.etiqueta} → ${[...g.importes].sort((a, b) => a - b).join(", ")}`);
+
+  return [
+    `Hay ${conflictivos.length} combinacion(es) con varios precios distintos para lo mismo. ` +
+      `Por ejemplo: ${muestra.join(" ; ")}. ` +
+      "Suele significar que el documento no es una tarifa sino una hoja con varios escenarios " +
+      "(coste y venta, o varios canales) o con el desglose por proveedor. Antes de publicar, " +
+      "comprueba que cada alojamiento se queda con UN precio por regimen y ocupacion.",
+  ];
 }
 
 /**
@@ -418,19 +507,35 @@ function avisosDeProductosDuplicados(analisis: AiDocumentAnalysisResult): string
 async function callAnthropic(
   client: Anthropic,
   model: string,
-  opciones: { pdfBase64: string | null; system: string; prompt: string },
+  opciones: { adjunto: AdjuntoParaModelo; system: string; prompt: string },
   esReintento = false,
 ): Promise<RespuestaModelo> {
   const content: Anthropic.ContentBlockParam[] = [];
-  if (opciones.pdfBase64) {
+  const { base64, mediaType } = opciones.adjunto;
+
+  if (base64 && mediaType === "application/pdf") {
     content.push({
       type: "document",
-      source: { type: "base64", media_type: "application/pdf", data: opciones.pdfBase64 },
-      // El PDF es idéntico en todas las llamadas de este documento: se marca
+      source: { type: "base64", media_type: "application/pdf", data: base64 },
+      // El fichero es idéntico en todas las llamadas de este documento: se marca
       // como cacheable para pagarlo entero una vez y no en cada producto.
       cache_control: { type: "ephemeral" },
     });
+  } else if (base64 && mediaType) {
+    // Una tarifa que llega como foto o captura de pantalla. El modelo la lee
+    // igual que un PDF; sin esto, ese documento no se podia cargar de ninguna
+    // manera.
+    content.push({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+        data: base64,
+      },
+      cache_control: { type: "ephemeral" },
+    });
   }
+
   content.push({ type: "text", text: opciones.prompt });
 
   let message;
@@ -501,6 +606,64 @@ async function callAnthropic(
   }
 }
 
+/**
+ * Recorta el texto de una hoja de cálculo a las filas de un producto.
+ *
+ * El maestro de hoteles de Oravia son 646 filas y 731.000 caracteres. Mandarlas
+ * enteras en cada una de las 29 lecturas por hotel es lento y caro, y encima
+ * mete ruido: el modelo tiene delante 28 tablas que no le tocan. Con el rango
+ * de filas que dio la fase 1 recibe solo la suya, mas la cabecera, que es lo
+ * que da sentido a las columnas.
+ *
+ * Si el rango no viene o no cuadra, se devuelve el texto entero: mejor gastar
+ * de mas que leer de menos.
+ */
+function recortarTextoAlProducto(text: string, producto: ProductoDelDocumento): string {
+  const { sourceRowFrom, sourceRowTo } = producto;
+  if (sourceRowFrom === null || sourceRowTo === null || sourceRowTo < sourceRowFrom) {
+    return text;
+  }
+
+  const lineas = text.split("\n");
+  const esFila = (linea: string) => /^\s*(\d+)\s\|/.exec(linea);
+  if (!lineas.some(esFila)) {
+    return text;
+  }
+
+  // Un margen por si el bloque empieza o acaba una fila antes o despues de lo
+  // que dijo la fase 1: perder la primera fila de precios seria peor que leer
+  // dos de mas.
+  const MARGEN = 2;
+  const desde = Math.max(1, sourceRowFrom - MARGEN);
+  const hasta = sourceRowTo + MARGEN;
+
+  const salida: string[] = [];
+  for (const linea of lineas) {
+    const coincidencia = esFila(linea);
+    if (!coincidencia) {
+      // Cabeceras de hoja y notas de formato: se conservan siempre.
+      salida.push(linea);
+      continue;
+    }
+    const numero = Number(coincidencia[1]);
+    // La fila 1 es la cabecera de columnas: sin ella los valores no significan nada.
+    if (numero === 1 || (numero >= desde && numero <= hasta)) {
+      salida.push(linea);
+    }
+  }
+
+  const recortado = salida.join("\n").trim();
+  if (recortado.length === 0) {
+    return text;
+  }
+
+  return [
+    recortado,
+    "",
+    `(Se han dejado solo las filas ${desde}-${hasta} de la hoja, que son las de este producto.)`,
+  ].join("\n");
+}
+
 /** Saca de la fase 1 la lista de productos a leer uno a uno. */
 function readProductIndex(parsed: unknown): ProductoDelDocumento[] {
   const root = (parsed ?? {}) as Record<string, unknown>;
@@ -514,10 +677,14 @@ function readProductIndex(parsed: unknown): ProductoDelDocumento[] {
     vistos.add(name);
 
     const esperadas = toNum(fila.expectedRateCount);
+    const desde = toNum(fila.sourceRowFrom);
+    const hasta = toNum(fila.sourceRowTo);
     productos.push({
       kind: toStr(fila.kind) === "ACTIVITY" ? "ACTIVITY" : "ACCOMMODATION",
       name,
       expectedRateCount: esperadas !== null && esperadas > 0 ? Math.round(esperadas) : null,
+      sourceRowFrom: desde !== null && desde > 0 ? Math.round(desde) : null,
+      sourceRowTo: hasta !== null && hasta > 0 ? Math.round(hasta) : null,
     });
   }
 
@@ -757,7 +924,7 @@ function buildInventoryPrompt(
     '  "detectedActivities": [ { "activityName": string, "supplierName": string|null, "locationMain": string|null, "activityType": string|null, "durationText": string|null, "descriptionText": string|null } ],',
     '  "candidatePolicies": [ { "policyType": string|null, "policyText": string, "rawText": string|null } ],',
     '  "candidateBlackoutDates": [ { "dateFrom": string|null, "dateTo": string|null, "availabilityStatus": string|null, "reason": string|null, "rawText": string|null } ],',
-    '  "productIndex": [ { "kind": "ACCOMMODATION"|"ACTIVITY", "name": string, "expectedRateCount": number|null } ],',
+    '  "productIndex": [ { "kind": "ACCOMMODATION"|"ACTIVITY", "name": string, "expectedRateCount": number|null, "sourceRowFrom": number|null, "sourceRowTo": number|null } ],',
     '  "warnings": [ string ],',
     '  "confidence": number',
     "}",
@@ -770,6 +937,10 @@ function buildInventoryPrompt(
     "- 'expectedRateCount': CUENTA los importes del bloque de ese producto (filas x columnas con precio,",
     "  sin contar las celdas vacías ni las marcadas con asterisco). Es una cuenta, no una estimación",
     "  redondeada. Si de verdad no puedes contarlas, pon null.",
+    "- 'sourceRowFrom' y 'sourceRowTo': SOLO si el documento es una hoja de cálculo (las lineas del texto",
+    "  empiezan por el numero de fila del Excel). Son la primera y la ultima fila de ESE producto. Se usan",
+    "  para mandarte despues solo su trozo de la hoja, asi que si te equivocas se leeran las filas de otro.",
+    "  En un PDF, deja los dos a null.",
     "- 'candidatePolicies' son las condiciones GENERALES del documento (IVA, tasas, depósitos, gratuidades,",
     "  cancelaciones, mínimos de grupo, formas de pago). Las que apliquen a un solo producto déjalas para",
     "  después.",

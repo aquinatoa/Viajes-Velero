@@ -85,7 +85,7 @@ import {
   updateUser,
   writeAudit,
 } from "./auth";
-import { extractPdfText } from "./pdfTextExtraction";
+import { extractDocumentText, isNativelyReadable } from "./documentTextExtraction";
 import { analyzeDocumentText, AiAnalysisError } from "./aiDocumentAnalysis";
 import {
   parseBody,
@@ -587,9 +587,7 @@ app.post("/api/inventory/documents/:id/analyze", async (request, response) => {
     const document = await getInventoryDocumentDetail(documentId);
 
     if (!document) {
-      response.status(404).json({
-        error: "Documento no encontrado.",
-      });
+      response.status(404).json({ error: "Documento no encontrado." });
       return;
     }
 
@@ -597,25 +595,6 @@ app.post("/api/inventory/documents/:id/analyze", async (request, response) => {
       response.status(400).json({
         error: "El documento no tiene un archivo asociado. Sube un archivo antes de analizarlo.",
       });
-      return;
-    }
-
-    const mimeType = (document.fileMimeType ?? "").toLowerCase();
-    const fileName = (document.originalFileName ?? "").toLowerCase();
-    const isPdf = mimeType.includes("pdf") || fileName.endsWith(".pdf");
-
-    if (!isPdf) {
-      await addInventoryDocumentIssue({
-        sourceDocumentId: documentId,
-        severity: "INFO",
-        issueType: "EXTRACTION_PENDING_FOR_TYPE",
-        message: `La extracción automática para archivos de tipo "${
-          document.fileMimeType ?? "desconocido"
-        }" queda pendiente. Por ahora solo se procesan documentos PDF.`,
-      });
-
-      const updatedDocument = await updateInventoryDocumentStatus(documentId, "PENDING_REVIEW");
-      response.json(updatedDocument);
       return;
     }
 
@@ -628,8 +607,7 @@ app.post("/api/inventory/documents/:id/analyze", async (request, response) => {
         sourceDocumentId: documentId,
         severity: "INFO",
         issueType: "TEXT_ALREADY_EXTRACTED",
-        message:
-          "El documento ya tenía texto extraído. No se creó una extracción duplicada.",
+        message: "El documento ya tenía texto extraído. No se creó una extracción duplicada.",
       });
 
       const updatedDocument = await updateInventoryDocumentStatus(
@@ -642,13 +620,66 @@ app.post("/api/inventory/documents/:id/analyze", async (request, response) => {
     }
 
     try {
-      const extraction = await extractPdfText(document.storedFilePath);
+      const extraction = await extractDocumentText(
+        document.storedFilePath,
+        document.originalFileName,
+        document.fileMimeType,
+      );
+
+      // Formato desconocido: se dice por qué, en vez de dejar el documento
+      // muerto con una nota de "pendiente por tipo" que no lleva a ningún sitio.
+      if (extraction.kind === "unsupported") {
+        await addInventoryDocumentIssue({
+          sourceDocumentId: documentId,
+          severity: "ERROR",
+          issueType: "UNSUPPORTED_FILE_TYPE",
+          message: extraction.unsupportedReason ?? extraction.detail,
+        });
+        const updatedDocument = await updateInventoryDocumentStatus(documentId, "PENDING_REVIEW");
+        response.status(400).json({
+          error: extraction.unsupportedReason ?? extraction.detail,
+          document: updatedDocument,
+        });
+        return;
+      }
 
       if (extraction.hasText) {
         await addInventoryDocumentExtraction({
           sourceDocumentId: documentId,
           extractionMethod: "TEXT",
           rawText: extraction.text,
+        });
+
+        await addInventoryDocumentIssue({
+          sourceDocumentId: documentId,
+          severity: "INFO",
+          issueType: "TEXT_EXTRACTED",
+          message: extraction.detail,
+        });
+
+        const updatedDocument = await updateInventoryDocumentStatus(
+          documentId,
+          "PENDING_REVIEW",
+          "EXTRACTED",
+        );
+        response.json(updatedDocument);
+        return;
+      }
+
+      // Sin texto pero legible por el modelo (imagen, o PDF escaneado): no es un
+      // fallo. Se deja constancia y la lectura con IA sigue adelante mirándolo.
+      if (isNativelyReadable(extraction.kind)) {
+        await addInventoryDocumentExtraction({
+          sourceDocumentId: documentId,
+          extractionMethod: "TEXT",
+          rawText: `(Sin capa de texto. ${extraction.detail})`,
+        });
+
+        await addInventoryDocumentIssue({
+          sourceDocumentId: documentId,
+          severity: "INFO",
+          issueType: "NO_TEXT_LAYER_READ_AS_IMAGE",
+          message: `${extraction.detail} La lectura con IA se hará mirando el documento, sin apoyo de texto.`,
         });
 
         const updatedDocument = await updateInventoryDocumentStatus(
@@ -663,25 +694,8 @@ app.post("/api/inventory/documents/:id/analyze", async (request, response) => {
       await addInventoryDocumentIssue({
         sourceDocumentId: documentId,
         severity: "WARNING",
-        issueType: "NO_TEXT_LAYER",
-        message:
-          "No se pudo extraer texto del PDF. Puede tratarse de un documento escaneado que requiere OCR en una fase posterior.",
-      });
-
-      const updatedDocument = await updateInventoryDocumentStatus(
-        documentId,
-        "PENDING_REVIEW",
-        "NEEDS_OCR",
-      );
-      response.json(updatedDocument);
-    } catch (extractionError) {
-      console.error("Error extracting PDF text", extractionError);
-
-      await addInventoryDocumentIssue({
-        sourceDocumentId: documentId,
-        severity: "ERROR",
-        issueType: "PDF_EXTRACTION_FAILED",
-        message: "No se pudo procesar el PDF para extraer su texto. Revisa el archivo subido.",
+        issueType: "NO_TEXT_FOUND",
+        message: extraction.unsupportedReason ?? `${extraction.detail} No se encontró contenido legible.`,
       });
 
       const updatedDocument = await updateInventoryDocumentStatus(
@@ -690,12 +704,26 @@ app.post("/api/inventory/documents/:id/analyze", async (request, response) => {
         "FAILED",
       );
       response.json(updatedDocument);
+      return;
+    } catch (error) {
+      console.error("Error extrayendo el texto del documento", error);
+      await addInventoryDocumentIssue({
+        sourceDocumentId: documentId,
+        severity: "ERROR",
+        issueType: "TEXT_EXTRACTION_FAILED",
+        message:
+          "No se pudo leer el archivo. Puede estar dañado o protegido con contraseña. Prueba a volver a exportarlo y subirlo de nuevo.",
+      });
+      const updatedDocument = await updateInventoryDocumentStatus(documentId, "PENDING_REVIEW", "FAILED");
+      response.status(500).json({
+        error: "No se pudo leer el archivo del documento.",
+        document: updatedDocument,
+      });
+      return;
     }
   } catch (error) {
     console.error("Error analyzing inventory document", error);
-    response.status(500).json({
-      error: "No se pudo analizar el documento de inventario.",
-    });
+    response.status(500).json({ error: "No se pudo analizar el documento de inventario." });
   }
 });
 
@@ -731,7 +759,7 @@ app.post("/api/inventory/documents/:id/ai-analyze", async (request, response) =>
       text: textExtraction.rawText,
       // El PDF original va con el texto: la maquetación es la que dice qué
       // precio está en qué fila y en qué columna.
-      pdfFilePath: document.storedFilePath,
+      attachmentPath: document.storedFilePath,
       context: {
         targetType: document.targetType,
         controlName: document.controlName,
@@ -807,7 +835,7 @@ async function leerDocumentoConIa(documentId: string, regenerando: boolean): Pro
       text: textExtraction.rawText,
       // El PDF original va con el texto: la maquetación es la que dice qué
       // precio está en qué fila y en qué columna.
-      pdfFilePath: document.storedFilePath,
+      attachmentPath: document.storedFilePath,
       context: {
         targetType: document.targetType,
         controlName: document.controlName,

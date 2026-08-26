@@ -1611,7 +1611,7 @@ export function DocumentWorkspace({
                   {replaceFile ? `Elegido: ${replaceFile.name}` : "Elegir otro archivo"}
                   <input
                     type="file"
-                    accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,image/*"
+                    accept=".pdf,.xls,.xlsx,.xlsm,.csv,.txt,.md,image/*"
                     onChange={(event) => {
                       const file = event.target.files?.[0];
                       setReplaceFile(file);

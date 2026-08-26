@@ -221,7 +221,7 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
             ref={inputRef}
             type="file"
             className="alta__file"
-            accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,image/*"
+            accept=".pdf,.xls,.xlsx,.xlsm,.csv,.txt,.md,image/*"
             onChange={(event) => aceptarArchivo(event.target.files?.[0])}
           />
         </div>
