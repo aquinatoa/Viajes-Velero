@@ -606,61 +606,99 @@ async function callAnthropic(
   }
 }
 
+/** Deja solo letras y números, para comparar nombres sin pelearse con tildes ni puntuación. */
+function huellaDeNombre(valor: string): string {
+  return valor
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
 /**
- * Recorta el texto de una hoja de cálculo a las filas de un producto.
+ * Recorta el texto de una hoja de calculo a las filas de un producto.
  *
  * El maestro de hoteles de Oravia son 646 filas y 731.000 caracteres. Mandarlas
  * enteras en cada una de las 29 lecturas por hotel es lento y caro, y encima
- * mete ruido: el modelo tiene delante 28 tablas que no le tocan. Con el rango
- * de filas que dio la fase 1 recibe solo la suya, mas la cabecera, que es lo
- * que da sentido a las columnas.
+ * mete ruido: el modelo tiene delante 28 tablas que no le tocan.
  *
- * Si el rango no viene o no cuadra, se devuelve el texto entero: mejor gastar
- * de mas que leer de menos.
+ * Se queda con una fila si menciona al producto O si cae en el rango que dio la
+ * fase 1. Lo primero es lo que de verdad manda: en el maestro de Oravia, las
+ * filas del Hotel California Garden estan en DOS tramos separados (2-11 y
+ * 337-356), y pidiendo solo un rango se leyeron 10 de sus 30 tarifas. Una hoja
+ * de calculo no tiene por que estar ordenada por producto, y suponerlo cuesta
+ * dos tercios de la tarifa de un hotel.
+ *
+ * Si no se reconoce ninguna fila, se devuelve el texto entero: mejor gastar de
+ * mas que leer de menos.
  */
 function recortarTextoAlProducto(text: string, producto: ProductoDelDocumento): string {
-  const { sourceRowFrom, sourceRowTo } = producto;
-  if (sourceRowFrom === null || sourceRowTo === null || sourceRowTo < sourceRowFrom) {
-    return text;
-  }
-
   const lineas = text.split("\n");
   const esFila = (linea: string) => /^\s*(\d+)\s\|/.exec(linea);
   if (!lineas.some(esFila)) {
     return text;
   }
 
-  // Un margen por si el bloque empieza o acaba una fila antes o despues de lo
-  // que dijo la fase 1: perder la primera fila de precios seria peor que leer
-  // dos de mas.
-  const MARGEN = 2;
-  const desde = Math.max(1, sourceRowFrom - MARGEN);
-  const hasta = sourceRowTo + MARGEN;
+  const huellaProducto = huellaDeNombre(producto.name);
+  // Un prefijo basta y sobra: el modelo puede haber acortado o reescrito el
+  // nombre respecto a la celda. Con menos de 8 caracteres no se distingue un
+  // hotel de otro, asi que ahi se renuncia a buscar por nombre.
+  const prefijo = huellaProducto.slice(0, 20);
+  const buscarPorNombre = prefijo.length >= 8;
 
-  const salida: string[] = [];
-  for (const linea of lineas) {
-    const coincidencia = esFila(linea);
-    if (!coincidencia) {
-      // Cabeceras de hoja y notas de formato: se conservan siempre.
-      salida.push(linea);
-      continue;
+  const { sourceRowFrom, sourceRowTo } = producto;
+  const hayRango = sourceRowFrom !== null && sourceRowTo !== null && sourceRowTo >= sourceRowFrom;
+
+  /** Recorre la hoja quedandose con las filas que decida `quieroEstaFila`. */
+  function filtrar(quieroEstaFila: (numero: number, linea: string) => boolean) {
+    const salida: string[] = [];
+    let filasIncluidas = 0;
+    for (const linea of lineas) {
+      const coincidencia = esFila(linea);
+      if (!coincidencia) {
+        // Cabeceras de hoja y notas de formato: se conservan siempre.
+        salida.push(linea);
+        continue;
+      }
+      const numero = Number(coincidencia[1]);
+      // La fila 1 es la cabecera de columnas: sin ella los valores no significan nada.
+      if (numero === 1) {
+        salida.push(linea);
+        continue;
+      }
+      if (quieroEstaFila(numero, linea)) {
+        salida.push(linea);
+        filasIncluidas += 1;
+      }
     }
-    const numero = Number(coincidencia[1]);
-    // La fila 1 es la cabecera de columnas: sin ella los valores no significan nada.
-    if (numero === 1 || (numero >= desde && numero <= hasta)) {
-      salida.push(linea);
-    }
+    return { salida, filasIncluidas };
   }
 
-  const recortado = salida.join("\n").trim();
-  if (recortado.length === 0) {
+  // Primero por nombre, que es exacto: coge todas las filas del producto esten
+  // donde esten, y ninguna del de al lado.
+  let resultado = buscarPorNombre
+    ? filtrar((_numero, linea) => huellaDeNombre(linea).includes(prefijo))
+    : { salida: [] as string[], filasIncluidas: 0 };
+
+  // Solo si el nombre no reconoce nada se tira del rango de la fase 1, con un
+  // margen por si el bloque empieza o acaba una fila mas alla de lo que dijo.
+  if (resultado.filasIncluidas === 0 && hayRango) {
+    const MARGEN = 2;
+    const desde = Math.max(1, (sourceRowFrom as number) - MARGEN);
+    const hasta = (sourceRowTo as number) + MARGEN;
+    resultado = filtrar((numero) => numero >= desde && numero <= hasta);
+  }
+
+  if (resultado.filasIncluidas === 0) {
     return text;
   }
 
+  const { salida, filasIncluidas } = resultado;
+
   return [
-    recortado,
+    salida.join("\n").trim(),
     "",
-    `(Se han dejado solo las filas ${desde}-${hasta} de la hoja, que son las de este producto.)`,
+    `(De la hoja se han dejado solo las ${filasIncluidas} fila(s) de este producto, mas la cabecera de columnas.)`,
   ].join("\n");
 }
 
@@ -968,7 +1006,7 @@ function buildProductPrompt(
   const esActividad = producto.kind === "ACTIVITY";
   const cuantas =
     producto.expectedRateCount !== null
-      ? `Deberían salir exactamente ${producto.expectedRateCount}. Si te salen menos, te has dejado parte de la tabla; si te salen más, te has traído filas de otro producto. En los dos casos, vuelve a mirar el bloque.`
+      ? `Como orientación, en el índice se contaron unas ${producto.expectedRateCount} tarifas para este producto. Es una ESTIMACIÓN, no un cupo: si ves más, extráelas TODAS. Si ves bastantes menos, comprueba que no te estés dejando parte de la tabla.`
       : "";
 
   // Decirle cuáles son los otros bloques evita el fallo que de verdad ocurre:
@@ -995,6 +1033,11 @@ function buildProductPrompt(
     esActividad
       ? `- Este producto es una ACTIVIDAD. Sus precios van en 'candidateActivityRates' con "activityName": "${producto.name}" EXACTO en todas. Deja 'candidateRates' vacío.`
       : `- Este producto es un ALOJAMIENTO. Sus precios van en 'candidateRates' con "accommodationName": "${producto.name}" EXACTO en todas. Deja 'candidateActivityRates' vacío.`,
+    "- EXTRAE TODAS SUS FILAS. Si el documento es una hoja de cálculo, las filas que se te muestran ya",
+    "  están filtradas: son solo las de este producto, aunque en la hoja original estuvieran en tramos",
+    "  separados. No dejes ninguna fuera por parecerte repetida o por superar una cuenta previa: en el",
+    "  maestro de Oravia, el Hotel California Garden tiene sus 30 filas en dos tramos (2-11 y 337-356), y",
+    "  quedarse en el primero pierde dos tercios de sus tarifas.",
     "- UNA ENTRADA POR CADA IMPORTE de su tabla. Si el precio cambia según periodo, temporada, régimen,",
     "  ocupación, tipo de entrada o edad, son tarifas distintas, no una sola: recorre la tabla celda a celda.",
     "- Di en qué variante estás: 'ageLabel' (edad, tipo de entrada, periodo) para actividades;",
