@@ -7,8 +7,8 @@ import type {
 import { DEFAULT_MARGIN_PERCENT } from "../../domain/documentImportTypes";
 import {
   analyzeInventoryDocumentApi,
-  analyzeInventoryDocumentWithAiApi,
   createInventoryDocumentApi,
+  esperarLecturaDeDocumento,
   createInventoryDocumentStagingApi,
   uploadInventoryDocumentFileApi,
 } from "../../services/apiClient";
@@ -28,8 +28,7 @@ const PASOS = [
   { key: "creando", label: "Registrando el documento" },
   { key: "subiendo", label: "Subiendo el archivo" },
   { key: "texto", label: "Sacando el texto" },
-  { key: "ia", label: "Entendiendo las tarifas" },
-  { key: "revision", label: "Preparando la revisión" },
+  { key: "revision", label: "Entendiendo las tarifas y preparando la revisión" },
 ] as const;
 
 type PasoKey = (typeof PASOS)[number]["key"];
@@ -91,6 +90,7 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
   const [cliente, setCliente] = useState<ClientSegment>("GENERIC");
 
   const [paso, setPaso] = useState<PasoKey | null>(null);
+  const [segundosLeyendo, setSegundosLeyendo] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const trabajando = paso !== null;
@@ -152,11 +152,17 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
       setPaso("texto");
       await analyzeInventoryDocumentApi(documento.id);
 
-      setPaso("ia");
-      await analyzeInventoryDocumentWithAiApi(documento.id);
-
+      // Una sola lectura con IA. Antes se llamaba también a `ai-analyze`, que
+      // hace exactamente el mismo análisis y no guarda nada: solo deja una nota
+      // de que se ejecutó. Cada lectura de un documento de tarifas son varios
+      // minutos y decenas de miles de tokens, así que hacerla dos veces
+      // duplicaba la espera y la factura para no obtener nada.
       setPaso("revision");
       await createInventoryDocumentStagingApi(documento.id);
+
+      // La lectura sigue en el servidor: aquí solo se espera preguntando. Son
+      // varios minutos y ninguna petición HTTP aguanta abierta tanto rato.
+      await esperarLecturaDeDocumento(documento.id, setSegundosLeyendo);
 
       await onDone(documento.id);
     } catch (caught) {
@@ -393,6 +399,12 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
                   className={index < pasoActual ? "is-done" : index === pasoActual ? "is-now" : ""}
                 >
                   {p.label}
+                  {/* Leer las tarifas son minutos, no segundos: sin un
+                      contador la pantalla parece colgada y se acaba
+                      recargando a mitad. */}
+                  {p.key === "revision" && index === pasoActual && segundosLeyendo > 0
+                    ? ` · ${segundosLeyendo}s`
+                    : ""}
                 </li>
               ))}
             </ol>
@@ -400,7 +412,7 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
 
           <div className="alta__go">
             <button type="button" className="primary" disabled={!puedeEnviar} onClick={() => void handleSubmit()}>
-              {trabajando ? "Trabajando…" : "Subir y leer"}
+              {paso === "revision" ? "Leyendo el documento…" : trabajando ? "Trabajando…" : "Subir y leer"}
             </button>
             <button type="button" disabled={trabajando} onClick={onCancel}>
               Cancelar

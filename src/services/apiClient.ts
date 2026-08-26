@@ -2,7 +2,7 @@ import type {
   AiDocumentAnalysisResult,
   CreateSourceDocumentInput,
   BulkReviewResult,
-  CreateStagingResult,
+  StagingJobStarted,
   DeleteDocumentResult,
   DryRunDeleteDocumentResult,
   DryRunPublishResult,
@@ -401,12 +401,53 @@ export function analyzeInventoryDocumentWithAiApi(documentId: string) {
   );
 }
 
+/**
+ * Lanza la lectura del documento con IA. Vuelve al momento, no espera.
+ *
+ * El servidor deja el documento en ANALYZING y sigue leyendo por su cuenta: son
+ * varios minutos y ninguna petición HTTP aguanta eso. Para saber cuándo ha
+ * terminado, usa `esperarLecturaDeDocumento`.
+ */
 export function createInventoryDocumentStagingApi(documentId: string) {
-  return postJson<CreateStagingResult>(
+  return postJson<StagingJobStarted>(
     `/api/inventory/documents/${encodeURIComponent(documentId)}/create-staging`,
     {},
-    "No se pudieron crear los candidatos revisables del documento.",
+    "No se pudo lanzar la lectura del documento.",
   );
+}
+
+/**
+ * Pregunta por el documento hasta que deja de estar en ANALYZING.
+ *
+ * @param onTick se llama en cada consulta con los segundos transcurridos, para
+ *   que la pantalla pueda decir algo mientras tanto.
+ */
+export async function esperarLecturaDeDocumento(
+  documentId: string,
+  onTick?: (segundos: number) => void,
+): Promise<InventoryDocumentDetail> {
+  const INTERVALO_MS = 5000;
+  // Una tarifa densa puede tardar bastante; a los 30 minutos es que algo va mal.
+  const LIMITE_MS = 30 * 60 * 1000;
+  const inicio = Date.now();
+
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, INTERVALO_MS));
+
+    const transcurrido = Date.now() - inicio;
+    onTick?.(Math.round(transcurrido / 1000));
+
+    const detalle = await getInventoryDocumentApi(documentId);
+    if (detalle.status !== "ANALYZING") {
+      return detalle;
+    }
+
+    if (transcurrido > LIMITE_MS) {
+      throw new Error(
+        "La lectura lleva más de 30 minutos. Sigue en marcha en el servidor: vuelve a abrir el documento más tarde para ver el resultado.",
+      );
+    }
+  }
 }
 
 export function patchInventoryStagingApi(
@@ -444,11 +485,12 @@ export function confirmAssignmentApi(documentId: string, accommodationIds: strin
   );
 }
 
+/** Como `createInventoryDocumentStagingApi`, descartando antes los candidatos actuales. */
 export function regenerateInventoryDocumentStagingApi(documentId: string) {
-  return postJson<CreateStagingResult>(
+  return postJson<StagingJobStarted>(
     `/api/inventory/documents/${encodeURIComponent(documentId)}/regenerate-staging`,
     {},
-    "No se pudieron regenerar los candidatos del documento.",
+    "No se pudo lanzar la relectura del documento.",
   );
 }
 

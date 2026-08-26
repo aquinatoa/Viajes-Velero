@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import type {
-  AiDocumentAnalysisResult,
   DocumentExtraction,
   DryRunPublishResult,
   DryRunUnpublishResult,
@@ -15,7 +14,7 @@ import type {
 } from "../../domain/documentImportTypes";
 import {
   analyzeInventoryDocumentApi,
-  analyzeInventoryDocumentWithAiApi,
+  esperarLecturaDeDocumento,
   bulkUpdateInventoryStagingApi,
   createInventoryDocumentStagingApi,
   dryRunPublishApprovedInventoryDocumentApi,
@@ -661,8 +660,6 @@ export function DocumentWorkspace({
 
   const [workspaceTab, setWorkspaceTab] = useState<string>(initialTab);
   const [actionInProgress, setActionInProgress] = useState<DocumentActionKey | null>(null);
-  const [aiResult, setAiResult] = useState<AiDocumentAnalysisResult | null>(null);
-  const [aiAnalyzing, setAiAnalyzing] = useState(false);
   // Paso actual de "Leer el documento": null = parado.
   const [readingStep, setReadingStep] = useState<"extract" | "ai" | "staging" | null>(null);
   const [stagingCreating, setStagingCreating] = useState(false);
@@ -814,24 +811,6 @@ export function DocumentWorkspace({
     }
   }
 
-  async function handleAiAnalyze() {
-    setErrorMessage(null);
-    setFeedbackMessage(null);
-    setAiAnalyzing(true);
-
-    try {
-      const result = await analyzeInventoryDocumentWithAiApi(documentId);
-      setAiResult(result);
-      setFeedbackMessage(
-        `Análisis IA ejecutado (modo ${result.mode}). Candidatos preliminares listos para revisión.`,
-      );
-      await refreshDetail();
-    } catch (error) {
-      setErrorMessage(getErrorMessage(error, "No se pudo ejecutar el análisis IA del documento."));
-    } finally {
-      setAiAnalyzing(false);
-    }
-  }
 
   async function handleCreateStaging() {
     setErrorMessage(null);
@@ -839,13 +818,21 @@ export function DocumentWorkspace({
     setStagingCreating(true);
 
     try {
-      const result = await createInventoryDocumentStagingApi(documentId);
-      const mockNote =
-        result.aiMode === "mock"
-          ? " ⚠ Análisis en modo MOCK (sin IA real): los candidatos son de ejemplo; configura la clave del proveedor (p. ej. ANTHROPIC_API_KEY) y regenera."
-          : "";
+      await createInventoryDocumentStagingApi(documentId);
       setFeedbackMessage(
-        `Candidatos revisables creados: ${result.accommodations} alojamiento(s), ${result.rates} tarifa(s), ${result.adjustments} suplemento(s), ${result.policies} política(s), ${result.blackoutDates} fecha(s) especial(es) y ${result.activities} actividad(es).${mockNote}`,
+        "Leyendo el documento… Puedes cerrar esta pantalla: sigue en marcha en el servidor.",
+      );
+
+      const detalle = await esperarLecturaDeDocumento(documentId, (segundos) => {
+        setFeedbackMessage(`Leyendo el documento… (${segundos}s) Puedes cerrar esta pantalla.`);
+      });
+
+      const candidatos =
+        detalle.stagingAccommodations.length + detalle.stagingActivities.length;
+      setFeedbackMessage(
+        candidatos > 0
+          ? `Lectura terminada: ${detalle.stagingAccommodations.length} alojamiento(s) y ${detalle.stagingActivities.length} actividad(es) esperando tu revisión. Mira las incidencias antes de aprobar.`
+          : "La lectura terminó sin candidatos. Revisa las incidencias del documento.",
       );
       await refreshDetail();
     } catch (error) {
@@ -873,22 +860,23 @@ export function DocumentWorkspace({
     try {
       await analyzeInventoryDocumentApi(documentId);
 
-      setReadingStep("ai");
-      const ai = await analyzeInventoryDocumentWithAiApi(documentId);
-      setAiResult(ai);
-
+      // Una sola lectura con IA: `create-staging` hace el análisis y guarda los
+      // candidatos. Llamar antes a `ai-analyze` repetía el mismo trabajo —varios
+      // minutos y decenas de miles de tokens— sin guardar nada.
       setReadingStep("staging");
-      const staging = await createInventoryDocumentStagingApi(documentId);
+      await createInventoryDocumentStagingApi(documentId);
+
+      const detalle = await esperarLecturaDeDocumento(documentId, (segundos) => {
+        setFeedbackMessage(
+          `Entendiendo las tarifas… (${segundos}s) Puedes cerrar esta pantalla: sigue en marcha en el servidor.`,
+        );
+      });
 
       await refreshDetail();
       await onChanged();
 
-      const mockNote =
-        staging.aiMode === "mock"
-          ? " Ojo: se ha usado el modo de ejemplo, sin IA real. Configura la clave del proveedor y vuelve a leerlo."
-          : "";
       setFeedbackMessage(
-        `Documento leído: ${staging.accommodations} alojamiento(s) y ${staging.rates} tarifa(s) esperando tu revisión.${mockNote}`,
+        `Documento leído: ${detalle.stagingAccommodations.length} alojamiento(s) y ${detalle.stagingActivities.length} actividad(es) esperando tu revisión. Revisa las incidencias antes de aprobar nada.`,
       );
     } catch (error) {
       setErrorMessage(
@@ -1167,9 +1155,14 @@ export function DocumentWorkspace({
     setRegenerating(true);
 
     try {
-      const result = await regenerateInventoryDocumentStagingApi(documentId);
+      await regenerateInventoryDocumentStagingApi(documentId);
+      const detalle = await esperarLecturaDeDocumento(documentId, (segundos) => {
+        setFeedbackMessage(
+          `Releyendo el documento… (${segundos}s) Puedes cerrar esta pantalla: sigue en marcha en el servidor.`,
+        );
+      });
       setFeedbackMessage(
-        `Candidatos regenerados (se descartó la revisión previa): ${result.accommodations} alojamiento(s), ${result.rates} tarifa(s), ${result.adjustments} suplemento(s), ${result.policies} política(s) y ${result.activities} actividad(es).`,
+        `Candidatos regenerados (se descartó la revisión previa): ${detalle.stagingAccommodations.length} alojamiento(s) y ${detalle.stagingActivities.length} actividad(es).`,
       );
       setDryRunResult(null);
       setAwaitingPublishConfirm(false);
@@ -1674,7 +1667,6 @@ export function DocumentWorkspace({
                   disabled={
                     readingStep !== null ||
                     actionInProgress !== null ||
-                    aiAnalyzing ||
                     stagingCreating ||
                     !detail.originalFileName
                   }
@@ -1710,7 +1702,7 @@ export function DocumentWorkspace({
                 <div className="stack compact actions-row">
                   <button
                     type="button"
-                    disabled={actionInProgress !== null || aiAnalyzing || readingStep !== null}
+                    disabled={actionInProgress !== null || readingStep !== null}
                     onClick={() => void handleDocumentAction("analyze")}
                   >
                     {actionInProgress === "analyze" ? "Sacando texto…" : "1 · Sacar el texto"}
@@ -1719,19 +1711,6 @@ export function DocumentWorkspace({
                     type="button"
                     disabled={
                       actionInProgress !== null ||
-                      aiAnalyzing ||
-                      stagingCreating ||
-                      readingStep !== null
-                    }
-                    onClick={() => void handleAiAnalyze()}
-                  >
-                    {aiAnalyzing ? "Entendiendo…" : "2 · Entender con IA"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={
-                      actionInProgress !== null ||
-                      aiAnalyzing ||
                       stagingCreating ||
                       readingStep !== null ||
                       detail.stagingAccommodations.length > 0 ||
@@ -1745,7 +1724,7 @@ export function DocumentWorkspace({
                     }
                     onClick={() => void handleCreateStaging()}
                   >
-                    {stagingCreating ? "Preparando…" : "3 · Preparar la revisión"}
+                    {stagingCreating ? "Leyendo…" : "2 · Leer las tarifas con IA"}
                   </button>
                 </div>
               </details>
@@ -2878,76 +2857,6 @@ export function DocumentWorkspace({
             </>
           ) : null}
 
-          {workspaceTab === "resumen" && aiResult ? (
-            <div className="ai-result">
-              <div className="section-card__header compact">
-                <div>
-                  <h4>Análisis IA (candidatos preliminares)</h4>
-                  <p>
-                    Modo {aiResult.mode} · Confianza {Math.round(aiResult.confidence * 100)}% ·
-                    Sin guardar en staging
-                  </p>
-                </div>
-              </div>
-
-              {aiResult.mode === "mock" ? (
-                <div className="alert alert--warning" role="status">
-                  Análisis en modo MOCK: no se usó IA real (falta configurar la clave del
-                  proveedor, p. ej. <code>ANTHROPIC_API_KEY</code>). Los candidatos son de
-                  ejemplo y no reflejan el contenido del documento. Configura la clave en el{" "}
-                  <code>.env</code> y vuelve a analizar para extraer datos reales.
-                </div>
-              ) : null}
-
-              <div className="field">
-                <span>Resumen</span>
-                <strong>{aiResult.documentSummary}</strong>
-              </div>
-
-              <div className="grid two">
-                <div className="field">
-                  <span>Alojamiento detectado</span>
-                  <strong>
-                    {aiResult.detectedAccommodation?.accommodationName ?? "No detectado"}
-                  </strong>
-                </div>
-                <div className="field">
-                  <span>Actividades detectadas</span>
-                  <strong>{aiResult.detectedActivities.length}</strong>
-                </div>
-                <div className="field">
-                  <span>Tarifas candidatas</span>
-                  <strong>{aiResult.candidateRates.length}</strong>
-                </div>
-                <div className="field">
-                  <span>Suplementos candidatos</span>
-                  <strong>{aiResult.candidateSupplements.length}</strong>
-                </div>
-                <div className="field">
-                  <span>Políticas candidatas</span>
-                  <strong>{aiResult.candidatePolicies.length}</strong>
-                </div>
-                <div className="field">
-                  <span>Fechas especiales candidatas</span>
-                  <strong>{aiResult.candidateBlackoutDates.length}</strong>
-                </div>
-              </div>
-
-              {aiResult.warnings.length > 0 ? (
-                <>
-                  <span className="ai-result__label">Advertencias</span>
-                  <ul className="detail-list">
-                    {aiResult.warnings.map((warning, index) => (
-                      <li key={index}>{warning}</li>
-                    ))}
-                  </ul>
-                </>
-              ) : null}
-
-              <span className="ai-result__label">JSON devuelto</span>
-              <pre className="extraction-text">{JSON.stringify(aiResult, null, 2)}</pre>
-            </div>
-          ) : null}
 
           {workspaceTab === "incidencias" ? (
             <>

@@ -729,6 +729,9 @@ app.post("/api/inventory/documents/:id/ai-analyze", async (request, response) =>
 
     const result = await analyzeDocumentText({
       text: textExtraction.rawText,
+      // El PDF original va con el texto: la maquetación es la que dice qué
+      // precio está en qué fila y en qué columna.
+      pdfFilePath: document.storedFilePath,
       context: {
         targetType: document.targetType,
         controlName: document.controlName,
@@ -764,43 +767,47 @@ app.post("/api/inventory/documents/:id/ai-analyze", async (request, response) =>
   }
 });
 
-app.post("/api/inventory/documents/:id/create-staging", async (request, response) => {
-  try {
-    const documentId = String(request.params.id);
-    const document = await getInventoryDocumentDetail(documentId);
+// ----------------------------------------------------------------------------
+// Lectura del documento con IA, en segundo plano
+// ----------------------------------------------------------------------------
+// Leer una tarifa de verdad son varios minutos: el documento se parte en una
+// llamada por producto y cada una tarda lo suyo. Con la petición HTTP abierta
+// todo ese rato, el navegador se rendía antes de que el servidor contestara y
+// la pantalla daba error mientras el trabajo seguía y acababa bien — pasó el
+// 26/08/2026 con la tarifa de PortAventura, dos veces. Ahora la petición vuelve
+// al momento, el documento queda en ANALYZING, y la pantalla va preguntando.
 
-    if (!document) {
-      response.status(404).json({
-        error: "Documento no encontrado.",
-      });
-      return;
-    }
+/** Documentos que se están leyendo ahora mismo: evita lanzar dos lecturas a la vez. */
+const lecturasEnCurso = new Set<string>();
+
+/**
+ * Lee el documento con IA y guarda los candidatos. Se llama sin esperarla.
+ *
+ * No lanza nunca: lo que falle queda como incidencia del documento, que es
+ * donde el usuario lo va a buscar. Y pase lo que pase saca al documento de
+ * ANALYZING, porque un documento colgado en "leyendo…" no se puede ni reintentar.
+ */
+async function leerDocumentoConIa(documentId: string, regenerando: boolean): Promise<void> {
+  try {
+    const document = await getInventoryDocumentDetail(documentId);
+    if (!document) return;
 
     const textExtraction = document.extractions.find(
       (extraction) =>
         (extraction.extractionMethod === "TEXT" || extraction.extractionMethod === "OCR") &&
         (extraction.rawText ?? "").trim().length > 0,
     );
+    if (!textExtraction?.rawText) return;
 
-    if (!textExtraction?.rawText) {
-      response.status(400).json({
-        error:
-          "El documento no tiene texto extraído. Ejecuta primero el análisis de texto del PDF antes de crear candidatos.",
-      });
-      return;
-    }
-
-    const existingStaging = await countInventoryDocumentStaging(documentId);
-
-    if (existingStaging.total > 0) {
-      response.status(409).json({
-        error: "Ya existen candidatos revisables para este documento.",
-      });
-      return;
+    if (regenerando) {
+      await deleteInventoryDocumentStaging(documentId);
     }
 
     const analysis = await analyzeDocumentText({
       text: textExtraction.rawText,
+      // El PDF original va con el texto: la maquetación es la que dice qué
+      // precio está en qué fila y en qué columna.
+      pdfFilePath: document.storedFilePath,
       context: {
         targetType: document.targetType,
         controlName: document.controlName,
@@ -809,12 +816,12 @@ app.post("/api/inventory/documents/:id/create-staging", async (request, response
         controlCategory: document.controlCategory,
       },
     });
+
     // Registrar lo que costó esta lectura. Es la única forma de saber cuánto
     // cuesta cargar una temporada entera.
     if (analysis?.usage) {
       await recordAiUsage(documentId, analysis.usage);
     }
-
 
     const result = await createInventoryDocumentStaging(documentId, analysis, {
       targetType: document.targetType,
@@ -824,8 +831,12 @@ app.post("/api/inventory/documents/:id/create-staging", async (request, response
     await addInventoryDocumentIssue({
       sourceDocumentId: documentId,
       severity: "INFO",
-      issueType: "STAGING_CANDIDATES_CREATED",
-      message: `Se crearon candidatos revisables: ${result.accommodations} alojamiento(s), ${result.rates} tarifa(s), ${result.adjustments} suplemento(s), ${result.policies} política(s), ${result.blackoutDates} fecha(s) especial(es) y ${result.activities} actividad(es). Pendientes de revisión humana; no se publicó nada.`,
+      issueType: regenerando ? "STAGING_REGENERATED" : "STAGING_CANDIDATES_CREATED",
+      message: `${
+        regenerando
+          ? "Se regeneraron los candidatos (se descartó la revisión previa):"
+          : "Se crearon candidatos revisables:"
+      } ${result.accommodations} alojamiento(s), ${result.rates} tarifa(s), ${result.adjustments} suplemento(s), ${result.policies} política(s), ${result.blackoutDates} fecha(s) especial(es) y ${result.activities} actividad(es). Pendientes de revisión humana; no se publicó nada.`,
     });
 
     for (const warning of result.warnings) {
@@ -848,20 +859,98 @@ app.post("/api/inventory/documents/:id/create-staging", async (request, response
           "El análisis IA corrió en modo MOCK (no se usó IA real): falta configurar la clave del proveedor (p. ej. ANTHROPIC_API_KEY). Los candidatos generados son de ejemplo y no reflejan el documento.",
       });
     }
-
-    // Reconciliar el estado del documento: al existir candidatos revisables y
-    // texto extraído (TEXT/OCR), el documento debe quedar como pendiente de
-    // revisión y con la extracción marcada como completada. No se publica nada.
-    if (document.status !== "PUBLISHED") {
-      await updateInventoryDocumentStatus(documentId, "PENDING_REVIEW", "EXTRACTED");
-    }
-
-    response.json({ ...result, aiMode: analysis.mode });
   } catch (error) {
-    if (error instanceof AiAnalysisError) {
-      response.status(502).json({ error: error.message });
+    console.error("Error leyendo el documento de inventario con IA", error);
+    await addInventoryDocumentIssue({
+      sourceDocumentId: documentId,
+      severity: "ERROR",
+      issueType: "AI_ANALYSIS_FAILED",
+      message:
+        error instanceof AiAnalysisError
+          ? `No se pudo leer el documento: ${error.message}`
+          : "No se pudo leer el documento con IA. Revisa el registro del servidor e inténtalo de nuevo.",
+    }).catch(() => undefined);
+  } finally {
+    // Sacar al documento de ANALYZING pase lo que pase.
+    try {
+      const actual = await getInventoryDocumentDetail(documentId);
+      if (actual && actual.status !== "PUBLISHED") {
+        await updateInventoryDocumentStatus(documentId, "PENDING_REVIEW", "EXTRACTED");
+      }
+    } catch (error) {
+      console.error("No se pudo reconciliar el estado del documento tras la lectura", error);
+    }
+    lecturasEnCurso.delete(documentId);
+  }
+}
+
+/**
+ * Deja el documento en ANALYZING y lanza la lectura sin esperarla.
+ * Devuelve el error a contestar, o null si arrancó bien.
+ */
+async function encolarLecturaConIa(
+  documentId: string,
+  regenerando: boolean,
+): Promise<string | null> {
+  if (lecturasEnCurso.has(documentId)) {
+    return "Este documento ya se está leyendo. Espera a que termine.";
+  }
+
+  lecturasEnCurso.add(documentId);
+  try {
+    await updateInventoryDocumentStatus(documentId, "ANALYZING");
+  } catch (error) {
+    lecturasEnCurso.delete(documentId);
+    throw error;
+  }
+
+  void leerDocumentoConIa(documentId, regenerando);
+  return null;
+}
+
+app.post("/api/inventory/documents/:id/create-staging", async (request, response) => {
+  try {
+    const documentId = String(request.params.id);
+    const document = await getInventoryDocumentDetail(documentId);
+
+    if (!document) {
+      response.status(404).json({ error: "Documento no encontrado." });
       return;
     }
+
+    const tieneTexto = document.extractions.some(
+      (extraction) =>
+        (extraction.extractionMethod === "TEXT" || extraction.extractionMethod === "OCR") &&
+        (extraction.rawText ?? "").trim().length > 0,
+    );
+
+    if (!tieneTexto) {
+      response.status(400).json({
+        error:
+          "El documento no tiene texto extraído. Ejecuta primero el análisis de texto del PDF antes de crear candidatos.",
+      });
+      return;
+    }
+
+    const existingStaging = await countInventoryDocumentStaging(documentId);
+
+    if (existingStaging.total > 0) {
+      response.status(409).json({
+        error: "Ya existen candidatos revisables para este documento.",
+      });
+      return;
+    }
+
+    const problema = await encolarLecturaConIa(documentId, false);
+    if (problema) {
+      response.status(409).json({ error: problema });
+      return;
+    }
+
+    // 202: aceptado y en marcha. El resultado se consulta en la ficha del
+    // documento, que queda en ANALYZING hasta que la lectura termina.
+    response.status(202).json({ started: true, documentId });
+  } catch (error) {
     console.error("Error creating inventory document staging", error);
     response.status(500).json({
       error: "No se pudieron crear los candidatos revisables del documento.",
@@ -882,13 +971,13 @@ app.post("/api/inventory/documents/:id/regenerate-staging", async (request, resp
       return;
     }
 
-    const textExtraction = document.extractions.find(
+    const tieneTexto = document.extractions.some(
       (extraction) =>
         (extraction.extractionMethod === "TEXT" || extraction.extractionMethod === "OCR") &&
         (extraction.rawText ?? "").trim().length > 0,
     );
 
-    if (!textExtraction?.rawText) {
+    if (!tieneTexto) {
       response.status(400).json({
         error:
           "El documento no tiene texto extraído. Ejecuta primero el análisis de texto del PDF antes de regenerar candidatos.",
@@ -896,47 +985,14 @@ app.post("/api/inventory/documents/:id/regenerate-staging", async (request, resp
       return;
     }
 
-    await deleteInventoryDocumentStaging(documentId);
-
-    const analysis = await analyzeDocumentText({
-      text: textExtraction.rawText,
-      context: {
-        targetType: document.targetType,
-        controlName: document.controlName,
-        controlLocation: document.controlLocation,
-        controlYear: document.controlYear,
-        controlCategory: document.controlCategory,
-      },
-    });
-    // Registrar lo que costó esta lectura. Es la única forma de saber cuánto
-    // cuesta cargar una temporada entera.
-    if (analysis?.usage) {
-      await recordAiUsage(documentId, analysis.usage);
-    }
-
-
-    const result = await createInventoryDocumentStaging(documentId, analysis, {
-      targetType: document.targetType,
-      controlName: document.controlName,
-    });
-
-    await addInventoryDocumentIssue({
-      sourceDocumentId: documentId,
-      severity: "INFO",
-      issueType: "STAGING_REGENERATED",
-      message: `Se regeneraron los candidatos (se descartó la revisión previa): ${result.accommodations} alojamiento(s), ${result.rates} tarifa(s), ${result.adjustments} suplemento(s), ${result.policies} política(s) y ${result.activities} actividad(es).`,
-    });
-
-    if (document.status !== "PUBLISHED") {
-      await updateInventoryDocumentStatus(documentId, "PENDING_REVIEW", "EXTRACTED");
-    }
-
-    response.json(result);
-  } catch (error) {
-    if (error instanceof AiAnalysisError) {
-      response.status(502).json({ error: error.message });
+    const problema = await encolarLecturaConIa(documentId, true);
+    if (problema) {
+      response.status(409).json({ error: problema });
       return;
     }
+
+    response.status(202).json({ started: true, documentId });
+  } catch (error) {
     console.error("Error regenerating inventory document staging", error);
     response.status(500).json({
       error: "No se pudieron regenerar los candidatos del documento.",
@@ -1780,5 +1836,39 @@ app.post("/api/proposals/:id/changes/apply", requireAuth, async (request, respon
 
 app.listen(port, async () => {
   await ensureAdminFromEnv();
+  await rescatarLecturasInterrumpidas();
   console.log(`Viajes Velero API escuchando en http://localhost:${port}`);
 });
+
+/**
+ * Devuelve a la cola los documentos que se quedaron en ANALYZING.
+ *
+ * Si el servidor se reinicia (un despliegue, un reinicio del servicio) mientras
+ * lee un documento, ese documento se queda marcado como "leyendo…" para
+ * siempre: la pantalla espera un final que ya no va a llegar y el botón de
+ * releer está bloqueado. Al arrancar se devuelven a pendiente de revisión, con
+ * una incidencia que explica por qué, para que se puedan reintentar.
+ */
+async function rescatarLecturasInterrumpidas() {
+  try {
+    const documentos = await listInventoryDocuments();
+    const colgados = documentos.filter((documento) => documento.status === "ANALYZING");
+
+    for (const documento of colgados) {
+      await updateInventoryDocumentStatus(documento.id, "PENDING_REVIEW", "EXTRACTED");
+      await addInventoryDocumentIssue({
+        sourceDocumentId: documento.id,
+        severity: "WARNING",
+        issueType: "AI_ANALYSIS_INTERRUPTED",
+        message:
+          "La lectura con IA se interrumpió al reiniciarse el servidor. No se guardaron candidatos de esa lectura; vuelve a lanzarla cuando quieras.",
+      });
+    }
+
+    if (colgados.length > 0) {
+      console.log(`Lecturas interrumpidas devueltas a pendiente: ${colgados.length}`);
+    }
+  } catch (error) {
+    console.error("No se pudieron rescatar las lecturas interrumpidas", error);
+  }
+}
