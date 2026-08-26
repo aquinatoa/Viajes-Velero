@@ -19,3 +19,7 @@ storage/
 
 # Artefactos de compilacion y empaquetado
 dist.zip
+
+# Entornos: solo .env esta ignorado por nombre exacto, cubrimos el resto
+.env.*
+!.env.example
