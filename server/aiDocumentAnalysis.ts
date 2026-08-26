@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import fs from "node:fs/promises";
 import type {
   AiDocumentAnalysisResult,
   AiAnalysisMode,
@@ -14,6 +15,18 @@ import type {
 export interface AnalyzeDocumentTextInput {
   /** Texto extraído del documento (TEXT u OCR). */
   text: string;
+  /**
+   * Ruta del PDF original, cuando la haya. Se le manda al modelo tal cual.
+   *
+   * El porqué: la capa de texto de un PDF se lee en el orden interno del
+   * fichero, no en el orden en que se ve. En una tabla eso destruye la
+   * información — en la tarifa de grupos de PortAventura (26/08/2026) los
+   * precios salían intercalados con los días del calendario, y de los 386
+   * importes de la página el modelo colocó 128, la mayoría bajo el producto
+   * equivocado. Viendo el PDF sabe qué precio está en qué fila y en qué
+   * columna. El texto se sigue enviando como apoyo, no como única fuente.
+   */
+  pdfFilePath?: string | null;
   /** Contexto de control del SourceDocument para guiar el análisis. */
   context: {
     targetType: string;
@@ -46,17 +59,58 @@ interface ProviderCallConfig {
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
-const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5";
+const DEFAULT_ANTHROPIC_MODEL = "claude-opus-5";
+
+/**
+ * Techo de salida de cada modelo, en tokens.
+ *
+ * No es una preferencia: pedir más de lo que el modelo admite es un error 400 y
+ * el documento no se lee. Producción arrancó con `AI_MODEL=claude-sonnet-4-5`,
+ * que admite 64.000; los modelos actuales admiten 128.000. Con esta tabla se
+ * puede cambiar el modelo por el `.env` sin tocar código y sin romper nada: lo
+ * que no esté aquí usa el techo conservador.
+ */
+const MODEL_OUTPUT_CEILINGS: Record<string, number> = {
+  "claude-opus-5": 128000,
+  "claude-fable-5": 128000,
+  "claude-sonnet-5": 128000,
+  "claude-opus-4-8": 128000,
+  "claude-opus-4-7": 128000,
+  "claude-opus-4-6": 128000,
+  "claude-sonnet-4-6": 128000,
+  "claude-sonnet-4-5": 64000,
+  "claude-haiku-4-5": 64000,
+};
+const CONSERVATIVE_OUTPUT_CEILING = 64000;
+
+function outputCeilingFor(model: string): number {
+  return MODEL_OUTPUT_CEILINGS[model] ?? CONSERVATIVE_OUTPUT_CEILING;
+}
 const MAX_TEXT_CHARS = 30000;
 /**
- * Techo de salida por lectura. Son los 64.000 del modelo, no una cifra elegida:
- * un documento de tarifas real (tres hoteles x tres regímenes x seis columnas =
- * 54 tarifas, cada una con su fragmento de origen) no cabía en los 16.000 de
- * antes y la respuesta se cortaba a media frase — el JSON quedaba inválido y el
- * documento no se podía leer en absoluto. A esta altura hay que ir en
- * streaming: una petición normal se cae por timeout antes de terminar.
+ * Techo del PDF que se adjunta. La API admite 32 MB por petición contando el
+ * base64, que infla el fichero un tercio; con 20 MB de PDF quedan ~27 MB y
+ * sobra sitio para el prompt. Un documento de tarifas real pesa cientos de KB
+ * (el de PortAventura, 253 KB), así que este límite no lo toca nadie: está
+ * para que un PDF absurdo degrade a solo texto en vez de reventar la petición.
  */
-const AI_MAX_OUTPUT_TOKENS = 64000;
+const MAX_PDF_BYTES = 20 * 1024 * 1024;
+/**
+ * Techo de salida por lectura: el máximo que admita el modelo configurado, no
+ * una cifra elegida. Un documento de tarifas real no cabía en los 16.000 de
+ * antes y la respuesta se cortaba a media frase — el JSON quedaba inválido y el
+ * documento no se podía leer en absoluto. Con la tarifa de grupos de
+ * PortAventura (386 importes en una página) volvió a pasar con 64.000. A esta
+ * altura hay que ir en streaming: una petición normal se cae por timeout antes
+ * de terminar.
+ *
+ * Aun así el techo no es la solución al volumen: para eso está la lectura por
+ * bloques (fase 2 de `analyzeWithAnthropic`), que parte el documento en varias
+ * pequeñas. Esto es solo el margen de cada una.
+ */
+function maxOutputTokensFor(model: string): number {
+  return outputCeilingFor(model);
+}
 
 /**
  * Lee la configuración de IA desde variables de entorno.
@@ -76,7 +130,7 @@ function getAiProviderConfig(): AiProviderConfig {
  *
  * - Si AI_PROVIDER=anthropic y hay ANTHROPIC_API_KEY, llama a la Messages API de
  *   Anthropic (Claude) mediante el SDK oficial. Modelo por defecto:
- *   claude-sonnet-4-5 (configurable con AI_MODEL).
+ *   el de DEFAULT_ANTHROPIC_MODEL (configurable con AI_MODEL).
  * - Si AI_PROVIDER=openai y hay AI_API_KEY, llama a la Responses API de OpenAI.
  * - En cualquier otro caso (sin proveedor o sin clave) usa el modo mock
  *   controlado, que no inventa tarifas ni políticas.
@@ -121,6 +175,84 @@ export async function analyzeDocumentText(
 // Proveedor real: Anthropic (Messages API, SDK oficial)
 // ----------------------------------------------------------------------------
 
+/**
+ * Lee el PDF original y lo devuelve en base64 para adjuntarlo a la petición.
+ *
+ * Nunca lanza: si el fichero no está, no es un PDF o pesa demasiado, devuelve
+ * un aviso y el análisis sigue con el texto extraído. Perder la maquetación
+ * empeora la lectura, pero quedarse sin analizar el documento es peor.
+ */
+async function readPdfForModel(
+  filePath: string | null | undefined,
+): Promise<{ base64: string | null; warning: string | null }> {
+  if (!filePath) {
+    return { base64: null, warning: null };
+  }
+
+  if (!/\.pdf$/i.test(filePath)) {
+    return { base64: null, warning: null };
+  }
+
+  try {
+    const buffer = await fs.readFile(filePath);
+
+    if (buffer.byteLength > MAX_PDF_BYTES) {
+      return {
+        base64: null,
+        warning:
+          `El PDF pesa ${Math.round(buffer.byteLength / 1024 / 1024)} MB y no se le pudo enviar al modelo ` +
+          "(máximo 20 MB). Se analizó solo el texto extraído, que en documentos con tablas pierde la " +
+          "correspondencia entre filas y columnas. Revisa las tarifas con especial cuidado.",
+      };
+    }
+
+    return { base64: buffer.toString("base64"), warning: null };
+  } catch {
+    return {
+      base64: null,
+      warning:
+        "No se pudo leer el PDF original para enviárselo al modelo. Se analizó solo el texto extraído; " +
+        "si el documento trae tablas, revisa las tarifas con especial cuidado.",
+    };
+  }
+}
+
+/** Un producto del documento: un alojamiento o una actividad con tabla propia. */
+interface ProductoDelDocumento {
+  kind: "ACCOMMODATION" | "ACTIVITY";
+  name: string;
+  /** Cuántas tarifas dice el modelo que tiene. Sirve para detectar si falta algo. */
+  expectedRateCount: number | null;
+}
+
+/** Lo que devuelve una llamada al modelo, ya parseado y con su consumo. */
+interface RespuestaModelo {
+  parsed: unknown;
+  rawOutput: string;
+  inputTokens: number;
+  outputTokens: number;
+  truncated: boolean;
+}
+
+/** Cuántas lecturas de producto van a la vez. */
+const PRODUCT_CONCURRENCY = 4;
+
+/**
+ * Lectura del documento con Anthropic, en dos fases.
+ *
+ * El porqué de las dos fases: una tarifa de grupos real trae cientos de precios,
+ * y pedirlos todos en una respuesta no cabe. Con la de PortAventura (386
+ * importes) la respuesta se cortaba por el límite de longitud y el JSON quedaba
+ * inválido; cuando cabía por los pelos, el modelo repartía mal los precios entre
+ * productos porque estaba atendiendo a ocho tablas a la vez.
+ *
+ * Fase 1: qué hay en el documento (productos, condiciones generales) — respuesta
+ * corta. Fase 2: una lectura por producto, mirando solo su tabla. Cada respuesta
+ * es pequeña, no se trunca, y el modelo tiene una sola cosa entre manos.
+ *
+ * El PDF se envía en todas las llamadas, pero marcado como cacheable: se paga
+ * entero una vez y las demás lo reutilizan.
+ */
 async function analyzeWithAnthropic(
   input: AnalyzeDocumentTextInput,
   config: ProviderCallConfig,
@@ -136,16 +268,129 @@ async function analyzeWithAnthropic(
   }
 
   const client = new Anthropic({ apiKey: config.apiKey });
+  const model = config.model || DEFAULT_ANTHROPIC_MODEL;
+
+  // El PDF, cuando lo hay, va delante del texto: es la fuente buena.
+  const pdf = await readPdfForModel(input.pdfFilePath);
+  if (pdf.warning) {
+    extraWarnings.push(pdf.warning);
+  }
+  const hasPdf = Boolean(pdf.base64);
+
+  const uso = { inputTokens: 0, outputTokens: 0 };
+  const acumular = (r: RespuestaModelo) => {
+    uso.inputTokens += r.inputTokens;
+    uso.outputTokens += r.outputTokens;
+  };
+
+  // ── Fase 1: el índice del documento ──────────────────────────────────────
+  const indice = await callAnthropic(client, model, {
+    pdfBase64: pdf.base64,
+    system: buildSystemPrompt(hasPdf),
+    prompt: buildInventoryPrompt(input, text, hasPdf),
+  });
+  acumular(indice);
+
+  const productos = readProductIndex(indice.parsed);
+
+  // Un solo producto (o ninguno reconocible) no se gana nada troceándolo: se
+  // lee entero de una vez, que además sale más barato.
+  if (productos.length <= 1) {
+    const completo = await callAnthropic(client, model, {
+      pdfBase64: pdf.base64,
+      system: buildSystemPrompt(hasPdf),
+      prompt: buildUserPrompt(input, text, hasPdf),
+    });
+    acumular(completo);
+    if (completo.truncated) {
+      extraWarnings.push(
+        "La respuesta de la IA alcanzó el límite de longitud; algunos candidatos pueden faltar.",
+      );
+    }
+    const unico = normalizeAnalysis(completo.parsed, "ai", completo.rawOutput, extraWarnings);
+    unico.usage = { ...uso, model };
+    return unico;
+  }
+
+  // ── Fase 2: una lectura por producto ─────────────────────────────────────
+  const base = normalizeAnalysis(indice.parsed, "ai", indice.rawOutput, extraWarnings);
+
+  const porProducto = await mapWithConcurrency(productos, PRODUCT_CONCURRENCY, async (producto) => {
+    const respuesta = await callAnthropic(client, model, {
+      pdfBase64: pdf.base64,
+      system: buildSystemPrompt(hasPdf),
+      prompt: buildProductPrompt(input, text, hasPdf, producto),
+    });
+    return { producto, respuesta };
+  });
+
+  for (const { producto, respuesta } of porProducto) {
+    acumular(respuesta);
+    const trozo = normalizeAnalysis(respuesta.parsed, "ai", respuesta.rawOutput, []);
+
+    base.candidateRates.push(...trozo.candidateRates);
+    base.candidateActivityRates.push(...trozo.candidateActivityRates);
+    base.candidateSupplements.push(...trozo.candidateSupplements);
+    base.candidateBlackoutDates.push(...trozo.candidateBlackoutDates);
+    for (const aviso of trozo.warnings) {
+      base.warnings.push(`${producto.name}: ${aviso}`);
+    }
+
+    if (respuesta.truncated) {
+      base.warnings.push(
+        `${producto.name}: la respuesta se cortó por longitud, pueden faltar tarifas de este producto.`,
+      );
+    }
+
+    // Contraste con lo que el propio modelo dijo que había en la fase 1. Es la
+    // única comprobación automática de que no se ha dejado media tabla.
+    const obtenidas = trozo.candidateRates.length + trozo.candidateActivityRates.length;
+    if (producto.expectedRateCount !== null && obtenidas < producto.expectedRateCount) {
+      base.warnings.push(
+        `${producto.name}: se esperaban ${producto.expectedRateCount} tarifas y se extrajeron ${obtenidas}. Revisa este producto contra el documento.`,
+      );
+    }
+  }
+
+  base.usage = { ...uso, model };
+  return base;
+}
+
+/**
+ * Una llamada al modelo: monta el mensaje, lo pide en streaming y parsea.
+ *
+ * Si la respuesta se corta por longitud, reintenta UNA vez pidiéndola compacta
+ * (sin las citas de origen, que es lo que más ocupa). Antes esto era un error
+ * duro y el documento se quedaba sin leer; más vale una lectura sin citas que
+ * ninguna lectura.
+ */
+async function callAnthropic(
+  client: Anthropic,
+  model: string,
+  opciones: { pdfBase64: string | null; system: string; prompt: string },
+  esReintento = false,
+): Promise<RespuestaModelo> {
+  const content: Anthropic.ContentBlockParam[] = [];
+  if (opciones.pdfBase64) {
+    content.push({
+      type: "document",
+      source: { type: "base64", media_type: "application/pdf", data: opciones.pdfBase64 },
+      // El PDF es idéntico en todas las llamadas de este documento: se marca
+      // como cacheable para pagarlo entero una vez y no en cada producto.
+      cache_control: { type: "ephemeral" },
+    });
+  }
+  content.push({ type: "text", text: opciones.prompt });
 
   let message;
   try {
     // En streaming, no por gusto: con un techo de salida alto una petición
     // normal se queda esperando y revienta por timeout antes de contestar.
     const stream = client.messages.stream({
-      model: config.model || DEFAULT_ANTHROPIC_MODEL,
-      max_tokens: AI_MAX_OUTPUT_TOKENS,
-      system: buildSystemPrompt(),
-      messages: [{ role: "user", content: buildUserPrompt(input, text) }],
+      model,
+      max_tokens: maxOutputTokensFor(model),
+      system: opciones.system,
+      messages: [{ role: "user", content }],
     });
     message = await stream.finalMessage();
   } catch (error) {
@@ -153,51 +398,100 @@ async function analyzeWithAnthropic(
   }
 
   const stopReason = (message as { stop_reason?: string | null })?.stop_reason ?? null;
+  const truncated = stopReason === "max_tokens";
   const blocks = (message?.content ?? []) as Array<{ type?: string; text?: string }>;
-  const outputText = blocks
+  const rawOutput = blocks
     .map((block) => (block.type === "text" ? block.text ?? "" : ""))
     .join("");
 
-  if (!outputText.trim()) {
+  const usage = (message as { usage?: { input_tokens?: number; output_tokens?: number } })?.usage;
+  const inputTokens = Number(usage?.input_tokens ?? 0);
+  const outputTokens = Number(usage?.output_tokens ?? 0);
+
+  if (!rawOutput.trim()) {
     console.error("Análisis IA Anthropic: respuesta sin texto.", { stopReason });
     throw new AiAnalysisError("La respuesta del proveedor IA no contenía texto analizable.");
   }
 
-  if (stopReason === "max_tokens") {
-    extraWarnings.push(
-      "La respuesta de la IA alcanzó el límite de longitud; algunos candidatos pueden faltar.",
-    );
-  }
-
-  let parsed: unknown;
   try {
-    parsed = parseModelJson(outputText);
+    return { parsed: parseModelJson(rawOutput), rawOutput, inputTokens, outputTokens, truncated };
   } catch (parseError) {
     // Log de diagnóstico (no contiene secretos): estado y vista previa de la salida.
     console.error("Análisis IA Anthropic: JSON inválido del proveedor.", {
       stopReason,
-      outputLength: outputText.length,
-      preview: outputText.slice(0, 600),
+      outputLength: rawOutput.length,
+      preview: rawOutput.slice(0, 600),
     });
-    if (stopReason === "max_tokens") {
+
+    if (truncated && !esReintento) {
+      const compacto = await callAnthropic(
+        client,
+        model,
+        {
+          ...opciones,
+          prompt: `${opciones.prompt}\n\nAVISO: tu respuesta anterior se cortó por longitud. Repítela COMPACTA: deja 'rawText' a null en todos los candidatos y no repitas texto innecesario. No te dejes tarifas por el camino.`,
+        },
+        true,
+      );
+      // El consumo del intento fallido también se pagó: se suma.
+      return {
+        ...compacto,
+        inputTokens: compacto.inputTokens + inputTokens,
+        outputTokens: compacto.outputTokens + outputTokens,
+      };
+    }
+
+    if (truncated) {
       throw new AiAnalysisError(
-        "La respuesta de la IA se truncó por longitud (límite de tokens). Reduce el documento o inténtalo de nuevo.",
+        "La respuesta de la IA se truncó por longitud incluso pidiéndola compacta. El documento es demasiado denso para leerlo de una vez.",
       );
     }
     throw parseError;
   }
+}
 
-  const analisis = normalizeAnalysis(parsed, "ai", outputText, extraWarnings);
-  // El coste de leer un documento sale de aquí: sin guardarlo no hay control.
-  const uso = (message as { usage?: { input_tokens?: number; output_tokens?: number } })?.usage;
-  analisis.usage = uso
-    ? {
-        inputTokens: Number(uso.input_tokens ?? 0),
-        outputTokens: Number(uso.output_tokens ?? 0),
-        model: config.model || DEFAULT_ANTHROPIC_MODEL,
-      }
-    : null;
-  return analisis;
+/** Saca de la fase 1 la lista de productos a leer uno a uno. */
+function readProductIndex(parsed: unknown): ProductoDelDocumento[] {
+  const root = (parsed ?? {}) as Record<string, unknown>;
+  const productos: ProductoDelDocumento[] = [];
+  const vistos = new Set<string>();
+
+  for (const item of asArray(root.productIndex)) {
+    const fila = (item ?? {}) as Record<string, unknown>;
+    const name = toStr(fila.name);
+    if (!name || vistos.has(name)) continue;
+    vistos.add(name);
+
+    const esperadas = toNum(fila.expectedRateCount);
+    productos.push({
+      kind: toStr(fila.kind) === "ACTIVITY" ? "ACTIVITY" : "ACCOMMODATION",
+      name,
+      expectedRateCount: esperadas !== null && esperadas > 0 ? Math.round(esperadas) : null,
+    });
+  }
+
+  return productos;
+}
+
+/** Ejecuta `tarea` sobre todos los elementos, como mucho `limite` a la vez. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limite: number,
+  tarea: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const resultados = new Array<R>(items.length);
+  let siguiente = 0;
+
+  const trabajadores = Array.from({ length: Math.min(limite, items.length) }, async () => {
+    for (;;) {
+      const indice = siguiente++;
+      if (indice >= items.length) return;
+      resultados[indice] = await tarea(items[indice]);
+    }
+  });
+
+  await Promise.all(trabajadores);
+  return resultados;
 }
 
 function mapAnthropicError(error: unknown): AiAnalysisError {
@@ -328,17 +622,26 @@ function extractFirstJsonObject(text: string): string | null {
 // Proveedor real: OpenAI (Responses API)
 // ----------------------------------------------------------------------------
 
-function buildSystemPrompt(): string {
+function buildSystemPrompt(hasPdf: boolean): string {
   return [
     "Eres un analista experto en extracción de datos de documentos de tarifas turísticas",
     "(alojamientos y actividades) para un operador de viajes de grupos.",
-    "Extrae ÚNICAMENTE datos presentes en el texto. No inventes nada.",
-    "Cuando un dato no aparezca en el texto, usa null (o un array vacío).",
+    "Extrae ÚNICAMENTE datos presentes en el documento. No inventes nada.",
+    "Cuando un dato no aparezca en el documento, usa null (o un array vacío).",
+    hasPdf
+      ? "El PDF adjunto es la fuente buena: léelo como una página, respetando su maquetación."
+      : "",
     "Responde solo con un objeto JSON válido, sin texto adicional ni explicaciones.",
-  ].join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
-function buildUserPrompt(input: AnalyzeDocumentTextInput, text: string): string {
+function buildUserPrompt(
+  input: AnalyzeDocumentTextInput,
+  text: string,
+  hasPdf: boolean,
+): string {
   const { context } = input;
 
   return [
@@ -376,6 +679,124 @@ function buildUserPrompt(input: AnalyzeDocumentTextInput, text: string): string 
     "- Fechas bloqueadas o de disponibilidad especial van en candidateBlackoutDates.",
     "- 'confidence' es un número entre 0 y 1 que refleja tu seguridad global.",
     "",
+    buildContextAndSources(input, text, hasPdf),
+  ].join("\n");
+}
+
+/**
+ * Fase 1: qué hay en el documento. No pide ni una tarifa.
+ *
+ * Es una respuesta corta a propósito. De aquí sale la lista de productos que se
+ * leerán uno a uno, y el número de tarifas que el modelo dice que tiene cada
+ * uno — que luego se contrasta con lo que realmente se extrajo. Sin esa cifra
+ * no habría forma automática de saber si se dejó media tabla sin leer.
+ */
+function buildInventoryPrompt(
+  input: AnalyzeDocumentTextInput,
+  text: string,
+  hasPdf: boolean,
+): string {
+  return [
+    "Haz el ÍNDICE de este documento de tarifas. NO extraigas todavía ninguna tarifa.",
+    "Devuelve un objeto JSON con esta estructura exacta:",
+    "",
+    "{",
+    '  "documentSummary": string,',
+    '  "detectedAccommodations": [ { "accommodationName": string, "providerName": string|null, "locality": string|null, "province": string|null, "country": string|null, "categoryType": string|null, "accommodationType": string|null } ],',
+    '  "detectedActivities": [ { "activityName": string, "supplierName": string|null, "locationMain": string|null, "activityType": string|null, "durationText": string|null, "descriptionText": string|null } ],',
+    '  "candidatePolicies": [ { "policyType": string|null, "policyText": string, "rawText": string|null } ],',
+    '  "candidateBlackoutDates": [ { "dateFrom": string|null, "dateTo": string|null, "availabilityStatus": string|null, "reason": string|null, "rawText": string|null } ],',
+    '  "productIndex": [ { "kind": "ACCOMMODATION"|"ACTIVITY", "name": string, "expectedRateCount": number|null } ],',
+    '  "warnings": [ string ],',
+    '  "confidence": number',
+    "}",
+    "",
+    "Reglas:",
+    "- 'productIndex' es la lista de PRODUCTOS con tabla de precios propia: un alojamiento o una actividad",
+    "  por cada bloque con nombre propio. 'name' debe ser IDÉNTICO al de 'detectedAccommodations' o",
+    "  'detectedActivities'. Es la lista que se va a leer después, producto a producto: si falta uno, sus",
+    "  tarifas no se cargarán.",
+    "- 'expectedRateCount': CUENTA los importes del bloque de ese producto (filas x columnas con precio,",
+    "  sin contar las celdas vacías ni las marcadas con asterisco). Es una cuenta, no una estimación",
+    "  redondeada. Si de verdad no puedes contarlas, pon null.",
+    "- 'candidatePolicies' son las condiciones GENERALES del documento (IVA, tasas, depósitos, gratuidades,",
+    "  cancelaciones, mínimos de grupo, formas de pago). Las que apliquen a un solo producto déjalas para",
+    "  después.",
+    "- No inventes. Lo que no aparezca, null o array vacío.",
+    "",
+    buildContextAndSources(input, text, hasPdf),
+  ].join("\n");
+}
+
+/**
+ * Fase 2: las tarifas de UN producto. El resto del documento se ignora.
+ *
+ * Acotar la petición a un producto es lo que arregla el reparto: leyendo ocho
+ * tablas a la vez, el modelo colgaba los precios del producto de al lado —en la
+ * tarifa de PortAventura el bloque de «1 día PortAventura Park» acabó bajo «1
+ * día, 2 parques»—. Con una sola tabla delante no hay a qué confundirse.
+ */
+function buildProductPrompt(
+  input: AnalyzeDocumentTextInput,
+  text: string,
+  hasPdf: boolean,
+  producto: ProductoDelDocumento,
+): string {
+  const esActividad = producto.kind === "ACTIVITY";
+  const cuantas =
+    producto.expectedRateCount !== null
+      ? `Deberían salir unas ${producto.expectedRateCount}. Si sacas bastantes menos, es que te has dejado parte de la tabla: vuelve a mirarla.`
+      : "";
+
+  return [
+    `Extrae TODAS las tarifas de UN SOLO producto de este documento: «${producto.name}».`,
+    "Ignora por completo los demás productos. Devuelve un objeto JSON con esta estructura exacta:",
+    "",
+    "{",
+    '  "candidateRates": [ { "accommodationName": string|null, "seasonName": string|null, "year": number|null, "dateFrom": string|null, "dateTo": string|null, "boardType": string|null, "unitName": string|null, "rateUnit": string|null, "occupancyLabel": string|null, "includedService": string|null, "minNights": number|null, "currency": string|null, "pvpAmount": number|null, "netAmount": number|null, "costAmount": number|null, "rawText": string|null } ],',
+    '  "candidateActivityRates": [ { "activityName": string, "rateUnit": string|null, "year": number|null, "currency": string|null, "salePvpAmount": number|null, "costNetAmount": number|null, "durationText": string|null, "ageLabel": string|null, "minPax": number|null, "maxPax": number|null, "rawText": string|null } ],',
+    '  "candidateSupplements": [ { "accommodationName": string|null, "adjustmentType": string|null, "concept": string, "amountType": string|null, "amount": number|null, "appliesPer": string|null, "conditionText": string|null, "rawText": string|null } ],',
+    '  "candidateBlackoutDates": [ { "dateFrom": string|null, "dateTo": string|null, "availabilityStatus": string|null, "reason": string|null, "rawText": string|null } ],',
+    '  "warnings": [ string ]',
+    "}",
+    "",
+    "Reglas:",
+    esActividad
+      ? `- Este producto es una ACTIVIDAD. Sus precios van en 'candidateActivityRates' con "activityName": "${producto.name}" EXACTO en todas. Deja 'candidateRates' vacío.`
+      : `- Este producto es un ALOJAMIENTO. Sus precios van en 'candidateRates' con "accommodationName": "${producto.name}" EXACTO en todas. Deja 'candidateActivityRates' vacío.`,
+    "- UNA ENTRADA POR CADA IMPORTE de su tabla. Si el precio cambia según periodo, temporada, régimen,",
+    "  ocupación, tipo de entrada o edad, son tarifas distintas, no una sola: recorre la tabla celda a celda.",
+    "- Di en qué variante estás: 'ageLabel' (edad, tipo de entrada, periodo) para actividades;",
+    "  'boardType', 'occupancyLabel', 'includedService', 'seasonName' y las fechas para alojamientos.",
+    "- Una celda vacía o marcada con asterisco NO es una tarifa: se omite y se explica en 'warnings'.",
+    "- Precios: 'pvpAmount' venta, 'netAmount' neto, 'costAmount' coste, 'salePvpAmount'/'costNetAmount' en",
+    "  actividades. No conviertas ni sumes nada: copia el número tal cual está impreso.",
+    "- 'year' es la temporada de vigencia. Si no está clara, null: no uses números sueltos de la tabla.",
+    "- 'rawText' BREVE, 60 caracteres como mucho ('Adulto · Periodo B · 44 €').",
+    "- Suplementos y notas de ESTE producto en 'candidateSupplements'; las condiciones generales del",
+    "  documento no, que ya están recogidas.",
+    cuantas,
+    "",
+    buildContextAndSources(input, text, hasPdf),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * Contexto de control y las fuentes (PDF + texto). Es idéntico en las tres
+ * peticiones —índice, producto y lectura completa—, así que va aparte: si se
+ * duplicara, cualquier ajuste habría que hacerlo en tres sitios y el prefijo
+ * dejaría de ser el mismo, que es de lo que vive la caché.
+ */
+function buildContextAndSources(
+  input: AnalyzeDocumentTextInput,
+  text: string,
+  hasPdf: boolean,
+): string {
+  const { context } = input;
+
+  return [
     "Contexto de control (referencia, no es el documento):",
     `- Tipo de registro: ${context.targetType}`,
     `- Nombre de control: ${context.controlName}`,
@@ -383,7 +804,39 @@ function buildUserPrompt(input: AnalyzeDocumentTextInput, text: string): string 
     `- Año/temporada: ${context.controlYear ?? "(desconocido)"}`,
     `- Categoría: ${context.controlCategory ?? "(desconocida)"}`,
     "",
-    "Texto del documento:",
+    hasPdf
+      ? [
+          "FUENTES. Tienes dos, y NO valen lo mismo:",
+          "1. El PDF adjunto. Es la fuente buena. Léelo mirando la página: qué precio está en qué fila y en qué columna.",
+          "2. El texto de abajo, extraído de ese mismo PDF. Va en el orden interno del fichero, no en el que se ve.",
+          "   En una tabla ese orden está roto: los importes se mezclan con lo que tengan al lado (números de un",
+          "   calendario, referencias, días del mes). Úsalo solo para copiar literales en 'rawText' y para leer",
+          "   párrafos de condiciones. SI EL TEXTO Y EL PDF NO COINCIDEN, MANDA EL PDF.",
+          "",
+          "TABLAS. Cuando el documento sea una rejilla de precios:",
+          "- Recórrela celda a celda. Cada celda es UNA tarifa: fila x columna.",
+          "- Las cabeceras de columna (tipo de entrada, periodo, temporada, ocupación, régimen) NO son productos.",
+          "  No crees un alojamiento ni una actividad a partir de una cabecera de columna.",
+          "- Pero cada BLOQUE de filas con nombre propio SÍ es un producto distinto: un alojamiento o una",
+          "  actividad por cada uno ('1 día PortAventura Park', '2 días, 3 parques', 'Hotel Planas'...).",
+          "  No los fusiones en uno solo. Las variantes de precio dentro del bloque (periodo, tipo de entrada,",
+          "  edad, régimen, ocupación) son tarifas de ese producto, y cada una lleva en 'ageLabel' o en",
+          "  'occupancyLabel' de qué variante es.",
+          "- CUIDADO AL EMPAREJAR NOMBRE Y BLOQUE: el nombre del producto suele ir en una celda combinada a la",
+          "  izquierda, centrada verticalmente respecto a SUS filas, de modo que cae a media altura del bloque",
+          "  y no en su primera fila. Asígnalo al bloque que lo contiene, mirando las líneas de la tabla, no a",
+          "  la fila que tenga enfrente ni al bloque siguiente. Si un producto se te queda sin tarifas o con",
+          "  muchas menos de las que ves en su bloque, es que has corrido los nombres: vuelve a emparejarlos.",
+          "- Una celda vacía es una celda vacía: no la rellenes con el valor de al lado ni corras los precios.",
+          "- Antes de responder, cuenta los importes que has extraído y compáralos con los que ves en la tabla.",
+          "  Si te faltan, di cuántos en 'warnings'.",
+          "- 'rawText' BREVE, 60 caracteres como mucho: la celda y sus cabeceras ('Adulto · Periodo B · 44 €'),",
+          "  no el párrafo entero. Con cientos de tarifas, un 'rawText' largo agota el límite de respuesta y",
+          "  se pierde la lectura completa: es preferible una tarifa más y una cita más corta.",
+          "",
+          "Texto extraído del PDF (apoyo, puede venir desordenado):",
+        ].join("\n")
+      : "Texto del documento:",
     '"""',
     text,
     '"""',
@@ -407,8 +860,9 @@ async function analyzeWithOpenAi(
   const body = {
     model: config.model || DEFAULT_OPENAI_MODEL,
     input: [
-      { role: "system", content: buildSystemPrompt() },
-      { role: "user", content: buildUserPrompt(input, text) },
+      // La rama de OpenAI sigue siendo solo texto: no se le adjunta el PDF.
+      { role: "system", content: buildSystemPrompt(false) },
+      { role: "user", content: buildUserPrompt(input, text, false) },
     ],
     text: { format: { type: "json_object" } },
   };
