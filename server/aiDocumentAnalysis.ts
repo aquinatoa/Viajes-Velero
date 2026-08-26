@@ -319,7 +319,7 @@ async function analyzeWithAnthropic(
     const respuesta = await callAnthropic(client, model, {
       pdfBase64: pdf.base64,
       system: buildSystemPrompt(hasPdf),
-      prompt: buildProductPrompt(input, text, hasPdf, producto),
+      prompt: buildProductPrompt(input, text, hasPdf, producto, productos),
     });
     return { producto, respuesta };
   });
@@ -342,18 +342,69 @@ async function analyzeWithAnthropic(
       );
     }
 
-    // Contraste con lo que el propio modelo dijo que había en la fase 1. Es la
-    // única comprobación automática de que no se ha dejado media tabla.
+    // Contraste con lo que el propio modelo dijo que había en la fase 1. Va en
+    // los dos sentidos: que falten tarifas significa media tabla sin leer, y que
+    // sobren, que se ha traído filas de otro producto. El 26/08/2026 «1 día
+    // Caribe Aquatic Park» volvió con 32 tarifas en vez de 27, y las 32 eran las
+    // de Ferrari Land. Mirando solo si faltaban, aquello pasaba desapercibido.
     const obtenidas = trozo.candidateRates.length + trozo.candidateActivityRates.length;
-    if (producto.expectedRateCount !== null && obtenidas < producto.expectedRateCount) {
+    if (producto.expectedRateCount !== null && obtenidas !== producto.expectedRateCount) {
       base.warnings.push(
         `${producto.name}: se esperaban ${producto.expectedRateCount} tarifas y se extrajeron ${obtenidas}. Revisa este producto contra el documento.`,
       );
     }
   }
 
+  base.warnings.push(...avisosDeProductosDuplicados(base));
   base.usage = { ...uso, model };
   return base;
+}
+
+/**
+ * Avisa cuando dos productos vuelven con exactamente los mismos precios.
+ *
+ * Que dos productos distintos cuesten lo mismo importe a importe no es
+ * imposible, pero es raro; que uno se haya leído en el sitio del otro, no. Y es
+ * el error que más caro sale: un precio plausible bajo el nombre equivocado se
+ * publica sin que nadie lo mire dos veces. Pasó con Caribe Aquatic Park, que
+ * volvió con la tabla entera de Ferrari Land.
+ */
+function avisosDeProductosDuplicados(analisis: AiDocumentAnalysisResult): string[] {
+  const huella = new Map<string, string[]>();
+
+  const registrar = (nombre: string | null | undefined, importes: Array<number | null>) => {
+    const limpio = (nombre ?? "").trim();
+    if (!limpio || importes.length < 3) return;
+    const clave = importes.map((n) => (n === null ? "-" : String(n))).join(",");
+    const productos = huella.get(clave) ?? [];
+    if (!productos.includes(limpio)) productos.push(limpio);
+    huella.set(clave, productos);
+  };
+
+  const agrupar = <T,>(filas: T[], nombreDe: (f: T) => string | null | undefined, importeDe: (f: T) => number | null) => {
+    const porProducto = new Map<string, Array<number | null>>();
+    for (const fila of filas) {
+      const nombre = (nombreDe(fila) ?? "").trim();
+      if (!nombre) continue;
+      const lista = porProducto.get(nombre) ?? [];
+      lista.push(importeDe(fila));
+      porProducto.set(nombre, lista);
+    }
+    for (const [nombre, importes] of porProducto) registrar(nombre, importes);
+  };
+
+  agrupar(analisis.candidateActivityRates, (r) => r.activityName, (r) => r.salePvpAmount ?? r.costNetAmount ?? null);
+  agrupar(analisis.candidateRates, (r) => r.accommodationName, (r) => r.pvpAmount ?? r.netAmount ?? r.costAmount ?? null);
+
+  const avisos: string[] = [];
+  for (const productos of huella.values()) {
+    if (productos.length > 1) {
+      avisos.push(
+        `${productos.join(" y ")} han salido con exactamente los mismos precios. Casi seguro que uno se ha leído en el sitio del otro: compruébalos contra el documento antes de aprobar nada.`,
+      );
+    }
+  }
+  return avisos;
 }
 
 /**
@@ -741,12 +792,21 @@ function buildProductPrompt(
   text: string,
   hasPdf: boolean,
   producto: ProductoDelDocumento,
+  todos: ProductoDelDocumento[],
 ): string {
   const esActividad = producto.kind === "ACTIVITY";
   const cuantas =
     producto.expectedRateCount !== null
-      ? `Deberían salir unas ${producto.expectedRateCount}. Si sacas bastantes menos, es que te has dejado parte de la tabla: vuelve a mirarla.`
+      ? `Deberían salir exactamente ${producto.expectedRateCount}. Si te salen menos, te has dejado parte de la tabla; si te salen más, te has traído filas de otro producto. En los dos casos, vuelve a mirar el bloque.`
       : "";
+
+  // Decirle cuáles son los otros bloques evita el fallo que de verdad ocurre:
+  // leer el bloque de al lado y devolverlo con este nombre. El 26/08/2026 «1 día
+  // Caribe Aquatic Park» volvió con la tabla entera de «1 día Ferrari Land».
+  const otros = todos
+    .filter((p) => p.name !== producto.name)
+    .map((p) => `  · ${p.name}`)
+    .join("\n");
 
   return [
     `Extrae TODAS las tarifas de UN SOLO producto de este documento: «${producto.name}».`,
@@ -777,6 +837,18 @@ function buildProductPrompt(
     "  documento no, que ya están recogidas.",
     cuantas,
     "",
+    otros
+      ? [
+          "NO TE CONFUNDAS DE BLOQUE. En este mismo documento hay estos otros productos, que NO son el tuyo:",
+          otros,
+          "",
+          `Localiza primero el bloque titulado «${producto.name}» y asegúrate de que las filas que estás`,
+          "leyendo caen dentro de ese bloque y no en el de otro. Antes de responder, comprueba que los",
+          "importes que devuelves no son los de ninguno de los productos de esa lista: si coinciden, te has",
+          "equivocado de bloque y hay que volver a buscarlo.",
+          "",
+        ].join("\n")
+      : "",
     buildContextAndSources(input, text, hasPdf),
   ]
     .filter(Boolean)
