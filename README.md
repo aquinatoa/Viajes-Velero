@@ -70,7 +70,36 @@ El esquema Prisma está en `prisma/schema.prisma` e incluye:
 - `proposal_activity_options`
 - `crm_sync_logs`
 
-Hace falta un PostgreSQL. Para levantar uno local en Docker:
+Hace falta un PostgreSQL.
+
+### Base local sin Docker (recomendado)
+
+```bash
+npm run db:local -- --seed
+```
+
+Levanta un PostgreSQL embebido en `localhost:5433`, aplica las migraciones y
+siembra datos de ejemplo. No instala nada en el sistema ni pide permisos de
+administrador: los datos viven en `.pg-local/` (ignorado por git) y se conservan
+entre arranques. Se queda escuchando; Ctrl+C lo para.
+
+Despues, en **otra terminal**, `npm run dev`. En el `.env`:
+
+```
+DATABASE_URL="postgresql://oravia:oravia@localhost:5433/oravia"
+```
+
+Para empezar de cero (borra los datos): `npm run db:local:reset`.
+
+> **Codificacion.** El script crea el cluster en UTF-8 a proposito. `initdb`
+> hereda la configuracion regional del sistema y en un Windows en espanol crea
+> la base en WIN1252; produccion es UTF-8, asi que la base local fallaria donde
+> produccion funciona. Un simple caracter como el de "mayor o igual" en las
+> condiciones de un hotel basta para reventar la carga con `22P05`.
+
+### Alternativa con Docker
+
+Si tienes Docker, tambien vale:
 
 ```bash
 docker run -d --name oravia-pg -e POSTGRES_USER=oravia -e POSTGRES_PASSWORD=oravia \
