@@ -450,6 +450,15 @@ export interface AiDocumentAnalysisResult {
   rawModelOutput?: string | null;
 }
 
+/**
+ * Respuesta de lanzar una lectura con IA. No trae resultados: la lectura acaba
+ * de empezar y tarda minutos. El documento queda en ANALYZING hasta que termina.
+ */
+export interface StagingJobStarted {
+  started: boolean;
+  documentId: string;
+}
+
 export interface CreateStagingResult {
   accommodations: number;
   rates: number;

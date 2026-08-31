@@ -19,3 +19,10 @@ storage/
 
 # Artefactos de compilacion y empaquetado
 dist.zip
+
+# Entornos: solo .env esta ignorado por nombre exacto, cubrimos el resto
+.env.*
+!.env.example
+
+# Base de datos local de desarrollo (scripts/dev-db.mjs)
+.pg-local/
