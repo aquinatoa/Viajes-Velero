@@ -1,0 +1,55 @@
+name: Pruebas
+
+# Solo en PR. En main las ejecuta el flujo de despliegue, que ademas es el que
+# decide si sale o no: repetirlas aqui seria pagar dos veces por lo mismo.
+on:
+  pull_request:
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+
+    services:
+      # La suite necesita un PostgreSQL de verdad: crea su propio esquema por
+      # corrida y lo elimina al terminar.
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: oravia
+          POSTGRES_PASSWORD: oravia
+          POSTGRES_DB: oravia
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://oravia:oravia@localhost:5432/oravia
+      TEST_DATABASE_URL: postgresql://oravia:oravia@localhost:5432/oravia
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # La aplicacion arranca con `node --import tsx`, que necesita 20.6+.
+          # El servidor va con 22.
+          node-version: '22'
+          cache: npm
+
+      - name: Dependencias
+        run: npm ci --no-audit --no-fund
+
+      - name: Cliente Prisma
+        # Antes del build: sin el, los tipos de las consultas quedan en `any` y
+        # `tsc` falla con errores que no tienen que ver con el cambio.
+        run: npm run prisma:generate
+
+      - name: Compilar
+        run: npm run build
+
+      - name: Pruebas
+        run: npm test

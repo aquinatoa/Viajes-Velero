@@ -1,0 +1,83 @@
+name: Desplegar
+
+# Solo lo que ya esta en main. Los PR se prueban (pruebas.yml) pero no
+# despliegan: una rama a medias no debe sustituir lo que el cliente usa.
+on:
+  push:
+    branches: [main]
+  # Y a mano, para volver a desplegar sin empujar un commit vacio.
+  workflow_dispatch:
+
+# Un despliegue a la vez: dos a la par se pisarian el symlink `current`.
+concurrency:
+  group: despliegue-produccion
+  cancel-in-progress: false
+
+jobs:
+  # Las pruebas se repiten aqui aunque ya pasaran en el PR. No es redundancia
+  # inutil: lo que se despliega es el resultado de la fusion, que no es
+  # exactamente lo que se probo en la rama.
+  pruebas:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: oravia
+          POSTGRES_PASSWORD: oravia
+          POSTGRES_DB: oravia
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://oravia:oravia@localhost:5432/oravia
+      TEST_DATABASE_URL: postgresql://oravia:oravia@localhost:5432/oravia
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run prisma:generate
+      - run: npm run build
+      - run: npm test
+
+  desplegar:
+    needs: pruebas
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar SSH
+        # La clave privada y la huella del servidor van como secrets del
+        # repositorio. La huella evita aceptar a ciegas un host desconocido, que
+        # es lo que deja la puerta abierta a un intermediario.
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_CLAVE_PRIVADA }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.SSH_HUELLA_SERVIDOR }}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Desplegar
+        # El script viaja por la tuberia desde ESTE commit, no desde una copia
+        # que envejece en el servidor: se despliega con la version del script que
+        # corresponde al codigo que se despliega.
+        run: |
+          ssh -i ~/.ssh/id_ed25519 \
+              -o BatchMode=yes \
+              "${{ secrets.SSH_USUARIO }}@${{ secrets.SSH_SERVIDOR }}" \
+              'bash -s' -- "${{ github.sha }}" < scripts/desplegar.sh
+
+      - name: Limpiar la clave
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519
