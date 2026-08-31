@@ -46,11 +46,28 @@ printf 'Verificando %s\n' "$BASE"
 # ── 1. La API responde ────────────────────────────────────────────────────────
 titulo "API"
 
-salud="$(curl -sS --max-time 30 "$BASE/api/health" 2>/dev/null)"
+# Reintenta hasta 30 s. Tras un `systemctl restart` el control vuelve en cuanto
+# systemd lanza el proceso, no cuando la aplicacion escucha: preguntar en ese
+# hueco da un 502 de nginx y un falso negativo. Si de verdad esta caida, 30 s no
+# la van a resucitar.
+salud=""
+for intento in $(seq 1 30); do
+  salud="$(curl -sS --max-time 10 "$BASE/api/health" 2>/dev/null)"
+  [ "$salud" = '{"ok":true}' ] && break
+  [ "$intento" -eq 1 ] && printf '  ... esperando a que la API responda'
+  printf '.'
+  sleep 1
+done
+[ "$intento" -gt 1 ] && echo
+
 if [ "$salud" = '{"ok":true}' ]; then
-  pasa "/api/health responde ok"
+  if [ "$intento" -gt 1 ]; then
+    pasa "/api/health responde ok (tras ${intento}s)"
+  else
+    pasa "/api/health responde ok"
+  fi
 else
-  falla "/api/health no responde como se espera" "recibido: ${salud:-<vacio>}"
+  falla "/api/health no responde tras 30s" "recibido: ${salud:-<vacio>}"
 fi
 
 # ── 2. El front y sus rutas ───────────────────────────────────────────────────
