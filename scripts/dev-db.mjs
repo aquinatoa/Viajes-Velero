@@ -5,8 +5,8 @@
  * trabajo sin Docker (ni permisos para instalarlo) eso deja la app sin forma de
  * arrancar en local: desde que la base pasó de SQLite a PostgreSQL, no había
  * manera de probar nada sin tocar producción. Esto usa un PostgreSQL embebido
- * que se descarga con las dependencias, vive en `.pg-local/` y no se registra
- * como servicio del sistema.
+ * que se descarga con las dependencias y no se registra como servicio del
+ * sistema. Los datos viven FUERA del proyecto (ver `DIR`, mas abajo).
  *
  *   npm run db:local          arranca (y crea la base la primera vez)
  *   npm run db:local -- --seed    además siembra datos de ejemplo
@@ -17,9 +17,26 @@
  */
 import EmbeddedPostgres from "embedded-postgres";
 import { spawnSync } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, rmSync, mkdirSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
-const DIR = ".pg-local";
+/**
+ * Dónde viven los datos: FUERA del proyecto, a propósito.
+ *
+ * Al principio estaban en `.pg-local/` dentro del repositorio, y el repositorio
+ * vive en OneDrive. PostgreSQL crea y borra continuamente ficheros internos, así
+ * que OneDrive se pasaba el día sincronizando una base de datos viva y acabó
+ * preguntando si se querían borrar 700 elementos con nombres como «29631» — que
+ * eran sus ficheros de datos. Además de asustar, sincronizar un clúster en
+ * marcha puede corromperlo: OneDrive bloquea y sube ficheros a medio escribir.
+ *
+ * `.gitignore` no sirve aquí: eso es cosa de git, no de OneDrive. La única
+ * solución es sacarlos de la carpeta sincronizada.
+ */
+const DIR =
+  process.env.VELERO_DB_DIR ??
+  path.join(os.homedir(), "AppData", "Local", "viajes-velero", "pg-local");
 const PUERTO = 5433;
 const USUARIO = "oravia";
 const CLAVE = "oravia";
@@ -36,6 +53,9 @@ if (reiniciar && existsSync(DIR)) {
 }
 
 const primeraVez = !existsSync(DIR);
+if (primeraVez) {
+  mkdirSync(path.dirname(DIR), { recursive: true });
+}
 
 const pg = new EmbeddedPostgres({
   databaseDir: DIR,
@@ -65,7 +85,7 @@ const pg = new EmbeddedPostgres({
 });
 
 if (primeraVez) {
-  console.log("Creando el clúster (solo la primera vez, tarda unos segundos)…");
+  console.log(`Creando el clúster en ${DIR} (solo la primera vez, tarda unos segundos)…`);
   await pg.initialise();
 }
 
@@ -111,6 +131,9 @@ console.log(`
   DATABASE_URL="${URL}"
 
   Ponlo en tu .env y, en OTRA terminal:   npm run dev
+
+  Datos en: ${DIR}
+  (fuera del proyecto a propósito: OneDrive no debe sincronizar una base viva)
 
   Ctrl+C para pararlo. Los datos se conservan.
 ────────────────────────────────────────────────────────────
