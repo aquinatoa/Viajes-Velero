@@ -1499,6 +1499,108 @@ async function main() {
     );
   });
 
+  // --- condiciones de un documento de actividades ------------------------------
+  // Las gratuidades de una entrada de grupo (una gratis por profesor cada 10
+  // escolares) cambian el precio de un presupuesto. Antes iban a un alojamiento
+  // inventado con el nombre del documento -en produccion eso metio al catalogo
+  // un "hotel" con cero tarifas- y al publicar se plegaban dentro de la
+  // descripcion como una cadena de texto.
+  console.log("\nCondiciones de un documento de actividades:");
+
+  const POL_DOC = "Entradas de parque con condiciones";
+  const polDocumento = await db.createInventoryDocument({
+    targetType: "ACTIVITY",
+    controlName: POL_DOC,
+    controlYear: CONTROL_YEAR,
+  });
+
+  const polAnalisis = {
+    mode: "mock" as const,
+    documentSummary: "Entradas de grupo con gratuidades",
+    detectedAccommodation: null,
+    detectedAccommodations: [],
+    detectedActivities: [
+      { activityName: "Entrada 1 día", supplierName: "Parque", locationMain: LOCALITY,
+        activityType: "Parque", durationText: "1 día", descriptionText: "Entrada de un día." },
+      { activityName: "Entrada 2 días", supplierName: "Parque", locationMain: LOCALITY,
+        activityType: "Parque", durationText: "2 días", descriptionText: "Entrada de dos días." },
+    ],
+    candidateRates: [],
+    candidateActivityRates: [
+      { activityName: "Entrada 1 día", year: CONTROL_YEAR, currency: "EUR", salePvpAmount: 32, ageLabel: "Adulto" },
+      { activityName: "Entrada 2 días", year: CONTROL_YEAR, currency: "EUR", salePvpAmount: 59, ageLabel: "Adulto" },
+    ],
+    candidateSupplements: [],
+    candidatePolicies: [
+      { policyType: "FREE_PLACES", policyText: "Una entrada gratis por profesor cada 10 escolares de pago." },
+      { policyType: "MIN_GROUP_SIZE", policyText: "Mínimo 20 personas de pago." },
+    ],
+    candidateBlackoutDates: [],
+    warnings: [],
+    confidence: 0.9,
+  };
+
+  const polCreado = await db.createInventoryDocumentStaging(polDocumento.id, polAnalisis as never, {
+    targetType: "ACTIVITY",
+    controlName: POL_DOC,
+  });
+
+  await test("las condiciones no inventan un alojamiento", () => {
+    assert.equal(polCreado.accommodations, 0);
+    assert.equal(polCreado.activities, 2);
+  });
+
+  const polDetalle = await db.getInventoryDocumentDetail(polDocumento.id);
+  await test("cada actividad se queda con las condiciones del documento", () => {
+    assert.equal(polDetalle!.stagingAccommodations.length, 0);
+    for (const actividad of polDetalle!.stagingActivities) {
+      assert.equal(actividad.policies.length, 2, `${actividad.activityName} sin condiciones`);
+    }
+  });
+
+  // Aprobar todo y publicar.
+  for (const actividad of polDetalle!.stagingActivities) {
+    await db.updateStagingEntity("activities", actividad.id, { reviewStatus: "APPROVED" });
+    for (const tarifa of actividad.rates) {
+      await db.updateStagingEntity("activity-rates", tarifa.id, { reviewStatus: "APPROVED" });
+    }
+    for (const politica of actividad.policies) {
+      await db.updateStagingEntity("activity-policies", politica.id, { reviewStatus: "APPROVED" });
+    }
+  }
+  await db.publishApprovedInventoryDocument(polDocumento.id, {
+    controlLocation: LOCALITY,
+    controlYear: CONTROL_YEAR,
+    rateKind: "SALE",
+  });
+
+  const catalogoPol = await db.getPublishedInventoryCatalog();
+  await test("las condiciones se publican como tales, no plegadas en la descripción", () => {
+    const publicadas = catalogoPol.activities.filter((a) =>
+      a.activityName.startsWith("Entrada "),
+    );
+    assert.equal(publicadas.length, 2);
+    for (const actividad of publicadas) {
+      assert.equal(actividad.policies?.length, 2, `${actividad.activityName} publicada sin condiciones`);
+      const textos = (actividad.policies ?? []).map((p) => p.policyText).join(" ");
+      assert.ok(textos.includes("por profesor cada 10"), "falta la gratuidad");
+      assert.ok(textos.includes("Mínimo 20 personas"), "falta el mínimo de grupo");
+    }
+  });
+
+  await test("las condiciones viajan con la actividad al cotizar", async () => {
+    const { searchActivitiesDb } = await import("../server/searchDb");
+    // La busqueda de actividades exige un rango de edad: sin el no devuelve nada.
+    const resultado = await searchActivitiesDb({
+      destinationText: LOCALITY,
+      participants: 40,
+      ageRangeText: "12-17",
+    } as never);
+    const match = resultado.matches.find((m) => m.activity.activityName.startsWith("Entrada "));
+    assert.ok(match, "la actividad debe aparecer al buscar");
+    assert.ok(match!.activity.policies.length >= 2, "sus condiciones deben viajar con ella");
+  });
+
   await prisma.$disconnect();
 
   // --- resumen -----------------------------------------------------------------

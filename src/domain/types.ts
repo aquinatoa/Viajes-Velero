@@ -184,6 +184,13 @@ export interface AccommodationRate {
   sourceSheet: string;
 }
 
+/** Una condicion publicada de una actividad: gratuidades, minimo de grupo, edades... */
+export interface ActivityPolicy {
+  id: string;
+  policyType: string;
+  policyText: string;
+}
+
 export interface Activity {
   id: string;
   activityName: string;
@@ -191,6 +198,14 @@ export interface Activity {
   locationMain: string;
   durationText: string;
   descriptionText: string;
+  /**
+   * Condiciones de la actividad. Viajan con ella al cotizar porque cambian el
+   * precio: en las entradas de grupo de PortAventura son las gratuidades (una
+   * entrada gratis por profesor cada 10 escolares) y el minimo de 20 personas
+   * de pago. Antes iban plegadas dentro de `descriptionText`, en una sola
+   * cadena de la que no se podia sacar nada.
+   */
+  policies: ActivityPolicy[];
   sourceFile: string;
   /** Trazabilidad: documento del que se publicó esta actividad (si aplica). */
   sourceDocumentId?: string;

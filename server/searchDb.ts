@@ -84,6 +84,23 @@ const ZONES: Record<string, string[]> = {
   pirineo: ["jaca", "caspe", "mequinenza", "vall d'aran", "vielha", "baqueira"],
   barcelona: ["barcelona", "sitges", "castelldefels"],
 };
+/**
+ * Una tarifa sin canal, o marcada como «cualquier cliente», se ofrece siempre.
+ *
+ * El filtro anterior era `!rate.clientSegment || rate.clientSegment === wantedSegment`,
+ * y con eso una tarifa guardada como GENERIC solo aparecia si la busqueda pedia
+ * GENERIC explicitamente. Como el cotizador no manda canal salvo que sea el
+ * turoperador suizo, "cualquier cliente" acababa significando "ningun cliente":
+ * las 386 tarifas de PortAventura se publicaron asi y no salian al cotizar.
+ *
+ * Solo las tarifas de un canal concreto (p. ej. SWISS_TTOO) siguen reservadas a
+ * ese canal, que es justo lo que hay que proteger.
+ */
+function esParaCualquierCliente(segment?: string | null): boolean {
+  const valor = (segment ?? "").trim();
+  return valor === "" || valor === "GENERIC";
+}
+
 function zoneOf(loc?: string | null): string {
   const n = normalizeText(loc ?? "");
   if (!n) return "";
@@ -330,7 +347,7 @@ export async function searchAccommodationsDb(
   // es el caso de todo lo que se cargó antes de existir esta distinción.
   const wantedSegment = (filters.clientSegment ?? "").trim() || null;
   const matchesSegment = (rate: { clientSegment?: string | null }) =>
-    !rate.clientSegment || rate.clientSegment === wantedSegment;
+    esParaCualquierCliente(rate.clientSegment) || rate.clientSegment === wantedSegment;
 
   const documentNames = await loadSourceDocumentNames(
     accommodations.map((accommodation) => accommodation.sourceDocumentId)
@@ -477,14 +494,15 @@ export async function searchActivitiesDb(
 
   const activities = await prisma.activity.findMany({
     include: {
-      rates: true
+      rates: true,
+      policies: true
     }
   });
 
   // Mismo criterio que en alojamientos: sin canal vale para todos.
   const wantedSegment = (filters.clientSegment ?? "").trim() || null;
   const matchesSegment = (rate: { clientSegment?: string | null }) =>
-    !rate.clientSegment || rate.clientSegment === wantedSegment;
+    esParaCualquierCliente(rate.clientSegment) || rate.clientSegment === wantedSegment;
 
   const documentNames = await loadSourceDocumentNames(
     activities.map((activity) => activity.sourceDocumentId)
@@ -502,6 +520,11 @@ export async function searchActivitiesDb(
             locationMain: activity.locationMain ?? "",
             durationText: activity.durationText ?? "",
             descriptionText: activity.descriptionText ?? "",
+            policies: activity.policies.map((policy) => ({
+              id: policy.id,
+              policyType: policy.policyType,
+              policyText: policy.policyText
+            })),
             sourceFile: activity.sourceFile ?? "",
             sourceDocumentId: activity.sourceDocumentId ?? "",
             sourceDocumentName: activity.sourceDocumentId

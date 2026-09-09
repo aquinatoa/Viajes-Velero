@@ -180,8 +180,31 @@ model Activity {
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
   rates            ActivityRate[]
+  policies         ActivityPolicy[]
   proposalOptions  ProposalActivityOption[]
 
+  @@index([sourceDocumentId])
+}
+
+/// Condiciones publicadas de una actividad (gratuidades, minimo de grupo,
+/// edades, cancelacion...).
+///
+/// Antes no existia esta tabla y al publicar se plegaban todas dentro de
+/// `descriptionText` como una cadena de texto, con un aviso reconociendo que se
+/// perdia su estructura. En las entradas de grupo de PortAventura eso son las
+/// gratuidades -una entrada gratis por profesor cada 10 escolares- y el minimo
+/// de 20 personas de pago: datos que cambian el precio de un presupuesto y que
+/// asi no se podian ni consultar ni razonar.
+model ActivityPolicy {
+  id                String   @id @default(cuid())
+  activityId        String
+  policyType        String   @default("UNKNOWN")
+  policyText        String
+  sourceDocumentId  String?
+  sourceStagingId   String?
+  activity          Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@index([activityId])
   @@index([sourceDocumentId])
 }
 
