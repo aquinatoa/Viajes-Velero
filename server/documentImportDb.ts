@@ -456,13 +456,31 @@ export async function createInventoryDocumentStaging(
   const warnings: string[] = [];
   const confidence = analysis.confidence ?? null;
 
+  /**
+   * Un documento de SOLO actividades: hay actividades y ni un alojamiento.
+   *
+   * En ese caso las condiciones generales pertenecen a las actividades, no a un
+   * alojamiento. Antes iban a uno inventado con el nombre del documento, y en
+   * PortAventura eso metio al catalogo de alojamientos un "hotel" llamado
+   * "PortAventura · Entradas grupos parques 2027" con cero tarifas y las quince
+   * condiciones colgando. Un hotel que no existe, y unas gratuidades que nadie
+   * encuentra al cotizar una entrada.
+   */
+  const soloActividades =
+    analysis.detectedActivities.length > 0 &&
+    (analysis.detectedAccommodations?.length ?? 0) === 0 &&
+    analysis.detectedAccommodation == null;
+
   const hasAccommodationData =
     analysis.detectedAccommodations?.length > 0 ||
     analysis.detectedAccommodation != null ||
     analysis.candidateRates.length > 0 ||
-    analysis.candidateSupplements.length > 0 ||
-    analysis.candidatePolicies.length > 0 ||
-    analysis.candidateBlackoutDates.length > 0;
+    // Con solo actividades, tener condiciones o suplementos no justifica
+    // inventarse un alojamiento: son del documento y van a las actividades.
+    (!soloActividades &&
+      (analysis.candidateSupplements.length > 0 ||
+        analysis.candidatePolicies.length > 0 ||
+        analysis.candidateBlackoutDates.length > 0));
 
   const rateData = analysis.candidateRates.map((rate) => {
     if (rate.pvpAmount != null && !rate.currency) {
@@ -528,6 +546,21 @@ export async function createInventoryDocumentStaging(
   }));
 
   const policyData = analysis.candidatePolicies.map((policy) => ({
+    policyType: policy.policyType ?? "UNKNOWN",
+    policyText: policy.policyText,
+    structuredJson: policy.rawText ? { rawText: policy.rawText } : undefined,
+    confidenceScore: confidence,
+    reviewStatus: "PENDING",
+  }));
+
+  /**
+   * Las mismas condiciones, con la forma que pide StagingActivityPolicy.
+   *
+   * Se calcula aparte y no se reutiliza `policyData` porque las dos tablas no
+   * tienen las mismas columnas: la de alojamiento guarda `structuredJson` y la
+   * de actividad no.
+   */
+  const politicasDeActividad = analysis.candidatePolicies.map((policy) => ({
     policyType: policy.policyType ?? "UNKNOWN",
     policyText: policy.policyText,
     structuredJson: policy.rawText ? { rawText: policy.rawText } : undefined,
@@ -695,6 +728,14 @@ export async function createInventoryDocumentStaging(
           confidenceScore: confidence,
           reviewStatus: "PENDING",
           rates: rates.length > 0 ? { create: rates } : undefined,
+          // Las condiciones generales van a TODAS las actividades, no solo a la
+          // primera: aplican a cada producto del documento, y quien cotiza una
+          // entrada de un dia necesita ver las gratuidades igual que quien
+          // cotiza la de tres. Repetirlas es barato; que no aparezcan, no.
+          policies:
+            soloActividades && politicasDeActividad.length > 0
+              ? { create: politicasDeActividad }
+              : undefined,
         },
       });
 
@@ -1480,32 +1521,47 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
       });
     }
 
+    // Las condiciones de una actividad se publican como tales.
+    //
+    // Antes se plegaban dentro de `descriptionText` en una sola cadena, con un
+    // aviso reconociendo que se perdia su estructura. En las entradas de grupo
+    // de PortAventura eso son las gratuidades (una entrada gratis por profesor
+    // cada 10 escolares) y el minimo de 20 personas de pago: datos que cambian
+    // el precio de un presupuesto. Metidos en un parrafo no se pueden ni
+    // consultar ni razonar, y al cotizar no aparecen.
     const approvedPolicies = activity.policies.filter((policy) =>
       isApprovedStatus(policy.reviewStatus),
     );
-    const policyText = approvedPolicies
-      .map((policy) => `[${policy.policyType}] ${policy.policyText}`)
-      .join(" | ");
 
-    if (approvedPolicies.length > 0) {
-      warnings.push(
-        `En la actividad "${activity.activityName}" se plegaron ${approvedPolicies.length} política(s) a la descripción; se pierde su estructura.`,
-      );
-    }
+    const policyPayloads = approvedPolicies.map((policy) => ({
+      policyType: policy.policyType ?? "UNKNOWN",
+      policyText: policy.policyText,
+      sourceDocumentId,
+      sourceStagingId: policy.id,
+    }));
 
-    const descriptionText =
-      [activity.descriptionText, policyText].filter(Boolean).join(" | ") || null;
+    // Si la IA no dijo dónde está, se usa la ubicación del documento — igual que
+    // en los alojamientos. Sin ella la actividad es INENCONTRABLE al cotizar: la
+    // búsqueda puntúa por ubicación y sin coincidencia no pasa el umbral. En
+    // producción, las 386 tarifas de PortAventura se publicaron con
+    // `locationMain` a null y no aparecían al buscar para Salou. Para eso está
+    // el campo «Dónde está» del formulario de alta.
+    const locationMain =
+      (activity.locationMain && activity.locationMain.trim()) ||
+      (context.controlLocation ?? "") ||
+      null;
 
     activitiesToCreate.push({
       activityName: activity.activityName,
       supplierName: activity.supplierName,
-      locationMain: activity.locationMain,
+      locationMain,
       durationText: activity.durationText,
-      descriptionText,
+      descriptionText: activity.descriptionText ?? null,
       sourceFile: null,
       sourceDocumentId,
       sourceStagingId: activity.id,
       rates: { create: ratePayloads },
+      policies: policyPayloads.length > 0 ? { create: policyPayloads } : undefined,
     });
   }
 
@@ -1982,7 +2038,7 @@ export async function getPublishedInventoryCatalog(): Promise<PublishedInventory
       orderBy: [{ locality: "asc" }, { accommodationName: "asc" }],
     }),
     prisma.activity.findMany({
-      include: { rates: { orderBy: [{ year: "asc" }] } },
+      include: { rates: { orderBy: [{ year: "asc" }] }, policies: true },
       orderBy: [{ locationMain: "asc" }, { activityName: "asc" }],
     }),
   ]);
@@ -2038,6 +2094,11 @@ export async function getPublishedInventoryCatalog(): Promise<PublishedInventory
       period: catalogPeriod({ dateFrom: null, dateTo: null }),
       currency: rate.currency,
       amount: decimalToNumber(rate.salePvpAmount),
+    })),
+    policies: activity.policies.map((policy) => ({
+      id: policy.id,
+      policyType: policy.policyType,
+      policyText: policy.policyText,
     })),
   }));
 

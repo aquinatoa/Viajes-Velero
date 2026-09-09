@@ -80,8 +80,13 @@ npm run db:local -- --seed
 
 Levanta un PostgreSQL embebido en `localhost:5433`, aplica las migraciones y
 siembra datos de ejemplo. No instala nada en el sistema ni pide permisos de
-administrador: los datos viven en `.pg-local/` (ignorado por git) y se conservan
-entre arranques. Se queda escuchando; Ctrl+C lo para.
+administrador. Se queda escuchando; Ctrl+C lo para.
+
+Los datos NO viven en el proyecto, sino en `%LOCALAPPDATA%\viajes-velero\pg-local`,
+y se conservan entre arranques. Es a proposito: el repositorio esta en OneDrive y
+sincronizar una base de datos viva la puede corromper, ademas de provocar avisos
+de "quiere eliminar 700 elementos" con los ficheros internos de PostgreSQL.
+Para ponerlos en otro sitio, `VELERO_DB_DIR`.
 
 Despues, en **otra terminal**, `npm run dev`. En el `.env`:
 

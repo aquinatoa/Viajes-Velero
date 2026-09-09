@@ -704,6 +704,8 @@ export interface CatalogActivity {
   sourceDocumentId?: string | null;
   sourceDocumentName?: string | null;
   rates: CatalogRate[];
+  /** Condiciones publicadas de la actividad (gratuidades, minimos, edades...). */
+  policies?: Array<{ id: string; policyType: string; policyText: string }>;
 }
 
 export interface PublishedInventoryCatalog {
