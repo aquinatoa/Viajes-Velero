@@ -294,6 +294,83 @@ sudo journalctl -u oravia-api -f
 
 ---
 
+## 10. Despliegue continuo
+
+Al fusionar a `main`, GitHub ejecuta las pruebas y, si pasan, entra por SSH y
+despliega. Los PR solo se prueban: no despliegan nada.
+
+El despliegue crea una release nueva en su propio directorio mientras la vieja
+sigue sirviendo, y solo al final mueve el symlink `current` y reinicia. Si la
+verificacion falla, devuelve el symlink a la release anterior.
+
+### Preparacion del servidor (una sola vez)
+
+**1. Sacar el `.env` de la release.** Ahora vive dentro de `releases/v1`, asi que
+una release nueva no lo tendria:
+
+```bash
+sudo mkdir -p /opt/oravia/shared
+sudo mv /opt/oravia/current/.env /opt/oravia/shared/.env
+sudo chown -R deploy:deploy /opt/oravia/shared
+sudo chmod 600 /opt/oravia/shared/.env
+sudo -u deploy ln -sfn /opt/oravia/shared/.env /opt/oravia/current/.env
+```
+
+**2. Permitir a `deploy` reiniciar el servicio, y solo eso.** Sin esto el script
+no puede completar el despliegue; con un `sudo` sin restringir, quien controle el
+secret de GitHub controlaria el servidor entero:
+
+```bash
+echo 'deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart oravia-api' \
+  | sudo tee /etc/sudoers.d/oravia-deploy
+sudo chmod 440 /etc/sudoers.d/oravia-deploy
+sudo visudo -c
+```
+
+**3. Clave SSH dedicada.** Se genera en el servidor, sin passphrase (nadie va a
+teclearla en un flujo automatico):
+
+```bash
+sudo -u deploy ssh-keygen -t ed25519 -N '' -C 'github-actions' \
+  -f /home/deploy/.ssh/github_actions
+sudo -u deploy bash -c 'cat /home/deploy/.ssh/github_actions.pub >> /home/deploy/.ssh/authorized_keys'
+sudo -u deploy chmod 600 /home/deploy/.ssh/authorized_keys
+```
+
+**4. Los cuatro secrets del repositorio** (Settings → Secrets and variables →
+Actions → New repository secret):
+
+| Secret | De donde sale |
+|---|---|
+| `SSH_CLAVE_PRIVADA` | `sudo cat /home/deploy/.ssh/github_actions` (entera, con las lineas BEGIN y END) |
+| `SSH_HUELLA_SERVIDOR` | `ssh-keyscan -H <ip-del-servidor>` |
+| `SSH_SERVIDOR` | La IP o el dominio |
+| `SSH_USUARIO` | `deploy` |
+
+La huella no es opcional: sin ella habria que aceptar el host a ciegas, que es
+justo lo que permite a un intermediario colarse en medio.
+
+**5. Comprobar que funciona antes de fiarse**, a mano y desde el servidor:
+
+```bash
+sudo -u deploy /opt/oravia/current/scripts/desplegar.sh main
+```
+
+Si eso termina en verde, el flujo de GitHub hara exactamente lo mismo.
+
+### Volver atras
+
+```bash
+ls -1dt /opt/oravia/releases/*/          # releases disponibles, la mas nueva arriba
+sudo -u deploy ln -sfn /opt/oravia/releases/<la-que-sea> /opt/oravia/current
+sudo systemctl restart oravia-api
+```
+
+**Las migraciones no se deshacen solas.** El script las aplica antes de cambiar
+el symlink, y volver atras deja la base con el esquema nuevo. Si una migracion
+rompe el codigo anterior, la reversion no sirve: en ese caso, migracion y
+despliegue van en pasos separados.
+
 ## Estado del despliegue actual
 
 Desplegado el 21/08/2026 en `195.20.235.4` (Ubuntu 26.04, nginx 1.28.3,
