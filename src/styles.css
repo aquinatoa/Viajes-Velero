@@ -9138,6 +9138,13 @@ tr.is-selected {
   overflow-x: auto;
   border-radius: var(--radius);
   background: var(--surface);
+  /* Sin esto la tabla no scrollea: la matriz de tarifas vive dentro de
+     contenedores flex y grid, y un hijo de flex/grid no se encoge por debajo de
+     su contenido salvo que se le fije min-width. Con muchas temporadas -el
+     Hotel Viella tiene seis- la tabla ensanchaba el bloque entero y empujaba el
+     boton de aprobar fuera de la pantalla, sin forma de llegar a el. */
+  min-width: 0;
+  max-width: 100%;
 }
 
 table.rate-mx {
