@@ -30,7 +30,10 @@ const zohoConfig = {
   contactsModule: process.env.ZOHO_CONTACTS_MODULE ?? "Contacts",
   accountsModule: process.env.ZOHO_ACCOUNTS_MODULE ?? "Accounts",
   dealsModule: process.env.ZOHO_DEALS_MODULE ?? "Deals",
-  dealStage: process.env.ZOHO_DEAL_STAGE ?? "Nueva",
+  // Primera fase del embudo de Oravia. Antes ponía «Nueva», que NO existe en su
+  // picklist: los tratos nacían con una fase inventada y se quedaban ahí.
+  // El resto del recorrido lo mueve `crmPipeline.ts`.
+  dealStage: process.env.ZOHO_DEAL_STAGE ?? "Preparando Presupuesto",
   dealOptionsField: process.env.ZOHO_DEAL_OPTIONS_FIELD ?? "Description",
   approvedOptionField: process.env.ZOHO_APPROVED_OPTION_FIELD ?? ""
 };
@@ -517,6 +520,21 @@ export async function getZohoDealStages(): Promise<string[]> {
   return (stageField?.pick_list_values ?? [])
     .map((p) => String(p.display_value ?? ""))
     .filter(Boolean);
+}
+
+/**
+ * La fase en la que está HOY un trato.
+ *
+ * Hace falta para no moverlo hacia atrás: sin leer antes, reenviar una
+ * propuesta de un viaje ya ganado lo devolvería a «Presupuesto Enviado».
+ * Devuelve cadena vacía si el trato no tiene fase o ya no existe.
+ */
+export async function getZohoDealStage(dealId: string): Promise<string> {
+  const result = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
+    `${zohoConfig.dealsModule}/${dealId}?fields=Stage`,
+    { method: "GET" }
+  );
+  return String(result.data?.[0]?.Stage ?? "");
 }
 
 const CHOSEN_OPTION_PREFIX = "▸ Opción elegida por el cliente:";
