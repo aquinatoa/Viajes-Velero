@@ -22,7 +22,13 @@ import type { Client, SearchFilters, TripProposal, TripRequest } from "../domain
 // Mismo origen: en dev lo resuelve el proxy de Vite (`/api` -> :8787) y en
 // produccion nginx hace de proxy al Node. VITE_API_BASE_URL solo hace falta
 // si algun dia el backend vive en otro dominio.
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+//
+// El `?.` no es defensa contra nada del navegador: ahi `import.meta.env` existe
+// siempre. Es para poder importar los servicios desde una prueba de Node, donde
+// no existe. Sin el, importar requestService.ts -que no llama a la API, solo
+// comparte modulo- reventaba aqui, y por eso el bloque de solicitud no tenia
+// ninguna prueba.
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL ?? "";
 
 export class ApiAuthError extends Error {
   code?: string;

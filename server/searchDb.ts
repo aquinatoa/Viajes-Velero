@@ -101,6 +101,32 @@ function esParaCualquierCliente(segment?: string | null): boolean {
   return valor === "" || valor === "GENERIC";
 }
 
+/**
+ * Un alojamiento puede estar en varias localidades a la vez.
+ *
+ * En el maestro de Oravia hay «4R Hotels 3* – Salou & Calafell», «Hotel Cesar
+ * Augustus (Salou/Cambrils)» o «PortAventura World Roulette (Vila-seca/Salou)»:
+ * cadenas con establecimientos repartidos por la costa. La localidad que se
+ * guarda es fiel al documento —«Salou / Calafell»— pero comparada entera nunca
+ * es igual a «Salou», asi que esos hoteles NO aparecian al cotizar para Salou.
+ * Siete de treinta y cinco, con 128 tarifas entre ellos.
+ *
+ * Se parte por los separadores habituales y se compara cada trozo.
+ */
+function localidadesDe(loc?: string | null): string[] {
+  return String(loc ?? "")
+    .split(/[/,&·+]|\s+y\s+|\s+-\s+|\s+–\s+/)
+    .map((parte) => normalizeText(parte))
+    .filter(Boolean);
+}
+
+/** Si el destino buscado es una de las localidades del alojamiento. */
+function coincideLocalidad(loc: string | null | undefined, destino: string): boolean {
+  const buscado = normalizeText(destino);
+  if (!buscado) return false;
+  return localidadesDe(loc).includes(buscado);
+}
+
 function zoneOf(loc?: string | null): string {
   const n = normalizeText(loc ?? "");
   if (!n) return "";
@@ -175,7 +201,7 @@ function scoreAccommodationMatch(
   // — Destino: exacto pesa mucho; misma zona/comarca, parcial.
   const locA = normalizeText(accommodation.locality);
   const locF = normalizeText(filters.destinationText);
-  if (locA && locA === locF) {
+  if (locA && coincideLocalidad(accommodation.locality, filters.destinationText)) {
     score += 40;
     reasons.push(`Destino: ${accommodation.locality}.`);
   } else {
@@ -260,7 +286,7 @@ function scoreActivityMatch(
   // actividades de otra comarca, p. ej. el Pirineo en un viaje a Salou).
   const locA = normalizeText(activity.locationMain ?? "");
   const locF = normalizeText(filters.destinationText);
-  if (locA && locA === locF) {
+  if (locA && coincideLocalidad(activity.locationMain, filters.destinationText)) {
     score += 50;
     reasons.push(`Ubicación coincidente: ${activity.locationMain}.`);
   } else if (locA && zoneOf(activity.locationMain) && zoneOf(activity.locationMain) === zoneOf(filters.destinationText)) {
@@ -368,8 +394,13 @@ export async function searchAccommodationsDb(
         return [];
       }
       if (destNorm && destZone) {
-        const locNorm = normalizeText(accommodation.locality);
-        if (locNorm !== destNorm && zoneOf(accommodation.locality) !== destZone) {
+        // El descarte mira cada localidad del alojamiento por separado: los que
+        // estan en varias -«Salou / Calafell», «Vila-seca/Salou»- se caian aqui
+        // antes incluso de puntuarse, y no aparecian al cotizar para Salou.
+        if (
+          !coincideLocalidad(accommodation.locality, filters.destinationText) &&
+          zoneOf(accommodation.locality) !== destZone
+        ) {
           return [];
         }
       }

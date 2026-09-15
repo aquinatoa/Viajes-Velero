@@ -176,7 +176,10 @@ export async function prepareDelivery(input: PrepareDeliveryInput): Promise<Deli
     reference,
     department: request.department,
     clientName: client.fullName,
-    centreName: request.opportunityName,
+    // El nombre de la oportunidad YA es el título del viaje. Pasarlo tambien
+    // como centro lo imprimia dos veces seguidas, una debajo de la otra. Bajo
+    // el titulo va para quien es la propuesta, que es la persona que escribio.
+    centreName: null,
     tripTitle,
     destination: request.destinationText,
     dateFrom: request.dateFrom,

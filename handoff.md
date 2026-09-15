@@ -1,21 +1,30 @@
 # Handoff - Oravia (antes Viajes Velero Ops)
 
 > Documento de compactación de contexto para continuar el trabajo en una conversación nueva
-> sin arrastrar todo el historial. Última actualización: **2026-08-10**.
+> sin arrastrar todo el historial. Última actualización: **2026-09-15**.
+>
+> **Lo último está AL FINAL**, en «Septiembre de 2026». Lo anterior a esa sección se conservó
+> tal cual se escribió y hay partes caducadas: donde ponga «31/31 tests» hoy son **75**, y la
+> rama `feat/documental-review-workspace` se fusionó hace tiempo.
 >
 > **App**: consola interna de operaciones de **Oravia Travel Group** (React+TS+Vite / Express /
-> Prisma+SQLite). Convierte el mensaje de un colegio en una propuesta de hasta tres opciones, la
+> Prisma+PostgreSQL). Convierte el mensaje de un colegio en una propuesta de hasta tres opciones, la
 > **envía** con su documento, crea el trato en Zoho y persigue el depósito. **No es un CRM**: Zoho lo
 > es, y compite mejor. Qué es la app y para quién, en `PRODUCT.md`; el sistema visual, en `DESIGN.md`;
 > lo que viene, en `PROXIMOS-PASOS.md`.
 >
-> Rama `feat/documental-review-workspace`, remoto `origin` =
-> `https://github.com/aquinatoa/Viajes-Velero` (al día).
+> Remoto `origin` = `https://github.com/aquinatoa/Viajes-Velero`. Es una **cuenta personal**,
+> no la organización de Neointec: queda pendiente decidir si se mueve. La rama de trabajo es
+> **`main`**; `feat/documental-review-workspace` está fusionada y obsoleta.
+>
+> **La base ya no es SQLite, es PostgreSQL.** Para levantarla en local, `npm run db:local`
+> (ver «Entorno local» al final).
 >
 > **Cinco pantallas** (menú en dos grupos): *Día a día* → **Propuestas** (inicio) y **Viajes**
 > (+Calendario); *Gestión* → **Tarifas**, **Usuarios**, **Actividad**. **Nueva solicitud** no es una
 > sección: es un botón fijo en la barra superior, porque es una acción, no un sitio.
 >
+
 ## Cargar tarifas, auditado contra el PDF real (10/08/2026)
 
 Se pasó el documento de compra por el proceso entero —registrar, subir, extraer,
@@ -1230,3 +1239,239 @@ ejecutar un script node ESM con
 verificar layout/responsive (probado a 1440px y 390px). No hace falta permiso extra: solo arrancar
 los servidores y ejecutar Edge headless. (Así se cazó y corrigió una regresión de `white-space` que
 desbordaba el sidebar.)
+
+---
+
+# Septiembre de 2026
+
+> Tres semanas sobre el módulo documental y el principio del comercial. Todo lo de aquí abajo es
+> posterior al 26/08/2026 y **manda sobre lo anterior**.
+
+## En una línea
+
+La lectura de tarifas se rehízo entera porque **leía mal los precios**, y al publicarlos en
+producción salieron cuatro fallos más en la cadena. Hoy hay **1.184 tarifas publicadas** que
+todavía **no se ofrecen al cotizar**, porque el despliegue lleva desde el 31/08 sin funcionar.
+
+## El módulo documental, rehecho
+
+Siete cambios, todos nacidos de un fallo medido con los documentos reales de Oravia.
+
+**La IA no veía el documento.** Se le mandaba solo el texto extraído del PDF, que sale en el orden
+interno del fichero y no en el que se ve. En una tabla eso destruye la correspondencia entre filas y
+columnas: en la tarifa de grupos de PortAventura los precios llegaban intercalados con los días del
+calendario. De 386 importes colocaba 128, y los del primer bloque quedaban bajo el producto de al
+lado. Ahora el PDF se adjunta a la petición y el modelo lo lee viendo la página.
+
+**Un documento denso no cabe en una respuesta.** Pidiendo los 386 precios de una vez se agotaba el
+límite de longitud y el JSON quedaba a medias. La lectura va ahora en dos fases: primero el índice
+—qué productos hay— y después **una lectura por producto**, mirando solo su tabla. El fichero viaja
+en todas las llamadas marcado como cacheable.
+
+**Se lee el documento que manda el proveedor, no solo PDF.** El selector ofrecía Excel, Word, CSV e
+imágenes pero por detrás solo se sabía leer PDF: se subía un `.xlsx` y el documento se quedaba
+muerto sin explicar nada. Ahora se leen PDF, Excel (`.xlsx/.xls/.xlsm`), CSV, texto e imágenes. Word
+y ZIP siguen sin poder leerse y se han quitado del selector. El techo de texto subió de 30.000 a
+900.000 caracteres: el maestro de hoteles son 731.000.
+
+**Una hoja de cálculo no viene ordenada por producto.** El recorte por rango de filas fallaba con
+los dos hoteles California, cuyas filas están en dos tramos separados (2-11 y 337-356) y solo se
+veía el primero. Ahora se recorta **buscando por nombre**, y el rango queda como plan B.
+
+**Una comprobación provocaba el fallo que debía detectar.** El prompt decía «deberían salir
+exactamente N tarifas», y esa cifra se convertía en un tope: el modelo veía 30 filas y se paraba en
+10. Ahora la cuenta es orientativa, y el aviso de descuadre mira en los dos sentidos: si faltan y si
+sobran. Antes solo miraba si faltaban, y por eso Caribe Aquatic Park se publicó con las 32 tarifas
+de Ferrari Land sin que saltara nada.
+
+**Leer ya no depende de que el navegador aguante.** Con la petición abierta varios minutos el
+navegador se rendía antes que el servidor: la pantalla daba error mientras el trabajo seguía y
+terminaba bien, y al morir la petición no se llegaba a guardar los candidatos. Ahora contesta 202 al
+momento, el documento queda en `ANALYZING` y la pantalla pregunta cada cinco segundos. Si el
+servidor se reinicia a media lectura, al arrancar los rescata.
+
+**Fuera la lectura duplicada.** El asistente llamaba a `ai-analyze` y después a `create-staging`,
+que hace el mismo análisis. La primera no guardaba nada. Cada documento costaba el doble de tiempo y
+de tokens para nada. El asistente pasó de cinco pasos a cuatro.
+
+**Modelo y techo de salida** salen ahora de una tabla por modelo (`MODEL_OUTPUT_CEILINGS`): pedir
+más de lo que admite es un 400. `AI_MODEL` vacío usa `claude-opus-5`, que es el validado. En
+producción hay que ponerlo **explícito**, para que un cambio de código no cambie solo lo que corre
+en el servidor del cliente. Sin probar: `claude-sonnet-5`, la mitad de precio, que desde el reparto
+por producto podría bastar.
+
+### Medido con la tarifa de grupos de PortAventura
+
+| | Antes | Ahora |
+|---|---|---|
+| Tarifas extraídas | 128 de 386 | **386 de 386** |
+| Reparto entre los 8 productos | corrido un bloque | **exacto** |
+| Maestro de 29 hoteles | no se podía subir | **646 de 646** |
+
+Las 646 del maestro están contrastadas una a una contra la columna `neto venta` del Excel. Los dos
+únicos desajustes son medio céntimo de redondeo (239,625: el Excel muestra 239,62 y se publica
+239,63, que es la regla de la app).
+
+### Ficheros que cambiaron
+
+- `server/aiDocumentAnalysis.ts` — el grueso: adjunto nativo, dos fases, recorte por nombre, avisos.
+- `server/documentTextExtraction.ts` (nuevo) — clasifica el documento y elige cómo leerlo.
+- `server/spreadsheetTextExtraction.ts` (nuevo) — vuelca las hojas conservando **el número de fila
+  del Excel**, para que «mira la fila 214» sea una instrucción y no un gesto.
+- `server/index.ts` — lectura en segundo plano, cola, rescate al arrancar.
+- `src/services/apiClient.ts` — `esperarLecturaDeDocumento()`, sondeo cada 5 s con tope de 30 min.
+- `src/components/inventory/NewDocumentDropzone.tsx` y `DocumentWorkspace.tsx` — los pasos.
+
+## Lo que salió al publicar en producción
+
+Publicar destapó cuatro fallos que la lectura no enseña.
+
+**No existía `ActivityPolicy`.** Las condiciones de una actividad se plegaban dentro de
+`descriptionText` como una cadena, con un aviso en el propio código que admitía que se perdía su
+estructura. En PortAventura eso son **las gratuidades** (una entrada gratis por profesor cada 10
+escolares) y el mínimo de 20 personas de pago: datos que cambian el precio de un presupuesto. Hay
+tabla nueva y migración `20260909224750_politicas_de_actividad`.
+
+**Se inventaba un alojamiento.** En un documento de solo actividades las condiciones generales iban
+a un alojamiento fabricado con el nombre del documento. En producción eso metió al catálogo un
+«hotel» llamado *PortAventura · Entradas grupos parques 2027* con cero tarifas.
+
+**Las actividades se publicaban sin ubicación.** No se heredaba la del documento, como sí se hace
+con los alojamientos. Las 386 tarifas de PortAventura quedaron con `locationMain` a null, y la
+búsqueda puntúa por ubicación: sin ella la actividad es **inencontrable**.
+
+**«Cualquier cliente» significaba «ningún cliente».** El filtro era `!rate.clientSegment ||
+rate.clientSegment === wantedSegment`, así que una tarifa guardada como `GENERIC` solo aparecía si
+la búsqueda pedía `GENERIC` explícitamente. Como el cotizador no manda canal salvo para el
+turoperador suizo, esas tarifas no se ofrecían nunca. **Afecta a alojamientos y actividades**, o sea
+a las 1.184 publicadas. Es el fallo más caro de los cuatro y el que justifica que el despliegue
+corra prisa.
+
+`scripts/mover-condiciones-a-actividades.mjs` arregla los documentos ya publicados sin volver a
+pagar una lectura de IA: recoloca las condiciones, repone la ubicación y retira el alojamiento
+falso. Tiene ensayo en seco por defecto y `--aplicar` para escribir. **Pendiente de ejecutar en
+producción** sobre el documento `cmtliiton0009fhkj2iy4cjkg`, y necesita el despliegue antes porque
+escribe en la tabla nueva.
+
+## Búsqueda y cotización (empezado)
+
+**Un hotel puede estar en varias localidades.** En el maestro hay cadenas repartidas por la costa:
+`4R Hotels 3* – Salou & Calafell`, `Cesar Augustus (Salou/Cambrils)`, `PortAventura World Roulette
+(Vila-seca/Salou)`. La búsqueda comparaba la cadena entera, y no fallaba en la puntuación sino en un
+**descarte previo**: se caían sin dejar rastro. Siete de los treinta y cinco publicados, **128
+tarifas invisibles**. Ahora la localidad se parte por sus separadores y se compara cada trozo.
+Buscando Salou se pasa de 8 alojamientos a 12.
+
+**Dos hoteles no tienen localidad ninguna** —`Hotel California Garden` y `Hotel California Palace`—:
+sus nombres en el Excel no la llevan y el documento se subió sin «Dónde está», que era lo correcto
+con 29 sitios distintos. **Hay que editarlos a mano** y ponerles Salou. Son 60 tarifas.
+
+**La tabla ancha tapaba el botón de aprobar.** Con muchas temporadas —el Hotel Viella tiene seis— la
+matriz se hacía más ancha que la ventana y empujaba el botón fuera de la pantalla, sin forma de
+llegar a él. `.mx-scroll` ya tenía `overflow-x: auto`, pero vive dentro de flex y grid, donde eso no
+basta sin `min-width: 0`.
+
+## Entorno local
+
+Desde que la base pasó a PostgreSQL no había forma de probar nada que no fuera contra producción,
+porque el arranque documentado exigía Docker.
+
+```bash
+npm run db:local -- --seed     # PostgreSQL embebido, sin Docker ni permisos de administrador
+npm run dev                    # en otra terminal
+```
+
+Dos detalles que no son cosméticos:
+
+- **El clúster se crea en UTF-8 a propósito.** `initdb` hereda la configuración regional y en un
+  Windows en español lo crearía en WIN1252; producción es UTF-8, así que la base local fallaría
+  justo donde producción funciona. Un «≥» en las condiciones de un hotel tumbaba la carga entera
+  con `22P05`.
+- **Los datos viven FUERA del proyecto**, en `%LOCALAPPDATA%\viajes-velero\pg-local`. Estaban en
+  `.pg-local/` dentro del repositorio, que está en OneDrive: sincronizaba 81 MB de base viva y llegó
+  a preguntar si se querían borrar 700 de sus ficheros internos. `.gitignore` no sirve de nada ahí,
+  eso es cosa de git y no de OneDrive. Se puede mover con `VELERO_DB_DIR`.
+
+`scripts/sembrar-catalogo-local.mjs` vuelca el maestro de hoteles a la base local sin pasar por la
+IA, para tener datos con los que ejercitar búsqueda y cotización sin pagar lecturas. Comprueba que
+`DATABASE_URL` sea localhost antes de escribir nada.
+
+El servidor de desarrollo fija su puerto con `strictPort`: si el 5173 está ocupado **falla
+diciéndolo**, en vez de irse a otro en silencio. No es opcional: `ZOHO_REDIRECT_URI` está dado de
+alta apuntando a `http://localhost:5173/callback`.
+
+**Cuidado con Zoho en local**: el `.env` local lleva las credenciales **reales de Oravia**. Cerrar
+una solicitud de prueba crea un trato de verdad en su CRM.
+
+## Estado real a 15/09/2026
+
+**Catálogo en producción**: 35 alojamientos con 782 tarifas y 20 actividades con 402, de cinco
+documentos. Pero **no se ofrecen al cotizar** hasta que entre el arreglo del canal de cliente.
+
+**El despliegue automático no ha funcionado nunca.** `main` lleva 15 commits sin salir desde el
+31/08 y producción corre código viejo. Se comprueba en un segundo: el catálogo público devuelve las
+actividades **sin** la clave `policies`. Faltaba el secreto `SSH_SERVIDOR` —ya creado— y
+**`SSH_CLAVE_PRIVADA` está corrupta**: el log da `Load key: error in libcrypto` y cae en
+`Permission denied (publickey)`. Los otros tres secretos funcionan —llega al servidor y valida la
+huella—, así que es solo esa clave. Se arregla volviendo a pegarla entera con sus saltos de línea, o
+generando un par nuevo y poniendo la pública en el `authorized_keys` del servidor. Después,
+*Actions → Desplegar → Re-run all jobs*.
+
+Cuando entre desplegará los 15 commits de golpe, incluida la migración. El script de despliegue ya
+ejecuta `prisma migrate deploy`.
+
+**Sobra `ESTIDIANTES 4R27 3E`**: es un 4R Hotels 3* de una prueba antigua, con errata en el nombre y
+sin temporada, y el maestro ya trae ese hotel. Está duplicado en el catálogo.
+
+## Bloques pendientes de revisar
+
+El recorrido de la app tiene siete bloques. Solo el primero está trabajado.
+
+**1 · Tarifas y documental — HECHO.** Queda: deduplicar los suplementos dentro de un mismo
+alojamiento (el Excel repite las condiciones en cada fila y se generan cientos casi idénticos que
+hay que revisar uno a uno), y las tareas de datos de más abajo.
+
+**2 · Solicitud — SIN TOCAR.** `RequestCanvas.tsx`, 1.238 líneas, el componente más grande de la
+app. Se pega el correo del colegio, la IA lo interpreta y salen destino, fechas, participantes,
+edades y régimen. Nunca se ha ejecutado.
+
+**3 · Búsqueda y cotización — EMPEZADO.** Arreglados el canal de cliente y las localidades
+compuestas. Falta mirar la puntuación por ubicación y las zonas turísticas, la elección de tarifa
+por edad, y el **500 de `POST /api/search/accommodations`** cuando el cuerpo no trae
+`destinationText` (debería ser un 400 que diga qué falta).
+
+**4 · Propuesta y PDF — SIN TOCAR.** `proposalPdf.ts`. Nunca se ha visto un PDF generado.
+
+**5 · Envío y seguimiento — SIN TOCAR.** `proposalDelivery.ts`: referencia `ORV-2026-####`, página
+pública, si el cliente la abrió, qué opción eligió, y el reloj de 40 días del depósito. En local el
+correo sale **simulado** (sin variables `MAIL_*`), así que se puede recorrer entero sin que le
+llegue nada a nadie.
+
+**6 · Cierre al CRM — SIN TOCAR.** `zoho.ts`, 573 líneas. Con el aviso de las credenciales reales.
+
+**7 · Usuarios, roles y auditoría — SIN TOCAR.**
+
+Orden sugerido: terminar **3** y seguir con **4**, que van juntos y son el momento de la verdad de
+todo lo anterior —si esas 1.184 tarifas no se pueden cotizar, no sirven de nada—. Después el **2**,
+y al final el **5** y el **6**.
+
+### Tareas sueltas, por orden
+
+1. Arreglar `SSH_CLAVE_PRIVADA` y desplegar. **Bloquea todo lo demás.**
+2. Ejecutar `scripts/mover-condiciones-a-actividades.mjs cmtliiton0009fhkj2iy4cjkg`, primero en seco.
+3. Borrar `ESTIDIANTES 4R27 3E` del catálogo.
+4. Editar `Hotel California Garden` y `Hotel California Palace`: localidad Salou. Son 60 tarifas.
+5. Decidir si el repositorio se mueve de la cuenta personal a la organización de Neointec.
+
+## Ramas y pruebas
+
+`main` está en `be63898`. Sin fusionar, en `fix/tabla-ancha-tapa-el-boton`:
+
+```
+1fe1015  Un hotel puede estar en varias localidades
+62a5dee  La tabla ancha ya no empuja el boton de aprobar fuera de la pantalla
+```
+
+**75 pruebas** (`npm test`), no 31. Necesitan un PostgreSQL: toman `TEST_DATABASE_URL` o, si no,
+`DATABASE_URL`, y crean su propio esquema temporal. Donde el documento diga «31/31» o «BD SQLite
+temporal», está caducado.

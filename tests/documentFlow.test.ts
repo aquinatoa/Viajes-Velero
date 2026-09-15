@@ -19,6 +19,12 @@
  * Necesita un PostgreSQL accesible: se toma de TEST_DATABASE_URL si existe y,
  * si no, de DATABASE_URL (solo se le cambia el esquema).
  */
+// Lee el .env como lo hace el servidor, para que `npm test` funcione recién
+// clonado el repositorio. Antes había que exportar DATABASE_URL a mano y el
+// fallo era «falta TEST_DATABASE_URL», que no dice que el dato ya está en el
+// .env de al lado. Lo que venga del entorno manda: en CI lo pone el runner.
+import "../server/loadEnv";
+
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
@@ -1599,6 +1605,47 @@ async function main() {
     const match = resultado.matches.find((m) => m.activity.activityName.startsWith("Entrada "));
     assert.ok(match, "la actividad debe aparecer al buscar");
     assert.ok(match!.activity.policies.length >= 2, "sus condiciones deben viajar con ella");
+  });
+
+  // --- un hotel puede estar en varias localidades --------------------------
+  // En el maestro de Oravia hay cadenas repartidas por la costa: "4R Hotels 3* -
+  // Salou & Calafell", "Cesar Augustus (Salou/Cambrils)", "PortAventura World
+  // Roulette (Vila-seca/Salou)". La localidad guardada es fiel al documento, pero
+  // comparada entera nunca es igual a "Salou", y esos hoteles no aparecian al
+  // cotizar. Siete de treinta y cinco, con 128 tarifas entre ellos.
+  console.log("\nAlojamientos en varias localidades:");
+
+  const multi = await prisma.accommodation.create({
+    data: {
+      accommodationName: "Cadena de prueba - Salou & Calafell",
+      locality: "Salou / Calafell",
+      rates: {
+        create: [{
+          rateSource: "prueba", year: CONTROL_YEAR, currency: "EUR",
+          pvpAmount: 42, boardType: "MP", occupancyLabel: "Múltiple",
+          tariffUnit: "pax/noche", clientSegment: "GENERIC",
+        }],
+      },
+    },
+  });
+
+  await test("un hotel en varias localidades aparece al buscar cualquiera de ellas", async () => {
+    const { searchAccommodationsDb } = await import("../server/searchDb");
+    for (const destino of ["Salou", "Calafell"]) {
+      const r = await searchAccommodationsDb({
+        destinationText: destino, participants: 40, teachers: 4,
+      } as never);
+      const encontrado = r.matches.some((m) => m.accommodation.id === multi.id);
+      assert.ok(encontrado, `buscando "${destino}" deberia salir el hotel de Salou / Calafell`);
+    }
+  });
+
+  await test("y no aparece al buscar una localidad que no es suya", async () => {
+    const { searchAccommodationsDb } = await import("../server/searchDb");
+    const r = await searchAccommodationsDb({
+      destinationText: "Benidorm", participants: 40, teachers: 4,
+    } as never);
+    assert.ok(!r.matches.some((m) => m.accommodation.id === multi.id));
   });
 
   await prisma.$disconnect();

@@ -139,8 +139,12 @@ function toIso(year: number, month: number, day: number): string {
  *   2. Lenguaje natural en español: "del 18 al 22 de mayo de 2026",
  *      "del 2 de mayo al 6 de junio de 2026", "entre el 18 y el 22 de mayo de 2026".
  *   3. Numérico DD/MM/AAAA: "18/05/2026 ... 22/05/2026" (también con - o .).
+ *   4. Español SIN año: "del 10 al 14 de mayo" → el próximo mayo que llegue.
+ *
+ * `hoy` se recibe en vez de mirar el reloj para que el caso 4 sea comprobable:
+ * una prueba que dependa de la fecha del día caduca sola.
  */
-function extractDates(text: string) {
+function extractDates(text: string, hoy: Date) {
   const empty = { dateFrom: "", dateTo: "" };
 
   // 1) ISO (AAAA-MM-DD)
@@ -174,51 +178,147 @@ function extractDates(text: string) {
     return { dateFrom: numeric[0], dateTo: numeric[1] };
   }
 
+  // 4) Español SIN año: "del 10 al 14 de mayo".
+  //
+  // Un colegio que escribe en septiembre para el viaje de mayo casi nunca pone
+  // el año: es obvio para quien escribe. Antes esto no daba fecha ninguna y la
+  // solicitud se quedaba con dos huecos críticos.
+  const sinAnio = lower.match(
+    /(\d{1,2})\s*(?:de\s+([a-záéíóúñ]+)\s+)?(?:al|a|y|hasta|–|-)\s*(?:el\s+)?(\d{1,2})\s+de\s+([a-záéíóúñ]+)\b/
+  );
+  if (sinAnio) {
+    const day1 = Number(sinAnio[1]);
+    const day2 = Number(sinAnio[3]);
+    const month2 = monthNumber(sinAnio[4]);
+    const month1 = monthNumber(sinAnio[2]) ?? month2;
+    if (month1 && month2) {
+      const year = proximoAnioCon(month1, day1, hoy);
+      // Si el viaje cruza el fin de año ("del 28 de diciembre al 3 de enero"),
+      // la vuelta cae en el año siguiente.
+      const yearFin = month2 < month1 ? year + 1 : year;
+      return { dateFrom: toIso(year, month1, day1), dateTo: toIso(yearFin, month2, day2) };
+    }
+  }
+
   return empty;
 }
 
+/**
+ * El primer año en el que ese día y ese mes aún no han pasado.
+ *
+ * Nadie pide presupuesto para un viaje que ya ocurrió, así que ante una fecha
+ * sin año la lectura correcta es la próxima vez que llegue.
+ */
+function proximoAnioCon(month: number, day: number, referencia: Date): number {
+  const year = referencia.getUTCFullYear();
+  const esteAnio = Date.UTC(year, month - 1, day);
+  const hoySinHora = Date.UTC(
+    referencia.getUTCFullYear(),
+    referencia.getUTCMonth(),
+    referencia.getUTCDate()
+  );
+  return esteAnio >= hoySinHora ? year : year + 1;
+}
+
 function extractParticipants(text: string) {
-  const lower = text.toLowerCase();
+  const lower = stripAccents(text.toLowerCase());
   const match =
-    lower.match(/(\d{1,3})\s+(estudiantes|alumnos|participantes|students|pax)/) ??
+    lower.match(
+      /(\d{1,3})\s+(estudiantes|alumnos|alumnas|escolares|participantes|ninos|ninas|chicos|chicas|chavales|jovenes|students|pupils|pax)\b/
+    ) ??
+    lower.match(/\b(?:somos|seriamos|iriamos|vamos)\s+(\d{1,3})\b/) ??
     lower.match(/grupo\s+de\s+(\d{1,3})/) ??
-    lower.match(/for\s+(\d{1,3})\s+(students|participants)/);
+    lower.match(/(?:for|of)\s+(\d{1,3})\s+(students|participants|pupils)/);
 
   return match ? Number(match[1]) : null;
 }
 
+/**
+ * Los acompañantes. La lista corta se quedaba fuera de lo que escribe un
+ * colegio: «4 profes» y «3 acompañantes» no se reconocían, y sin ellos la
+ * solicitud se queda con un hueco crítico aunque el dato esté en el correo.
+ */
 function extractTeachers(text: string) {
-  const lower = text.toLowerCase();
+  const lower = stripAccents(text.toLowerCase());
   const match =
-    lower.match(/(\d{1,2})\s+(profesores|profesoras|teachers|monitores|adultos acompañantes)/) ??
-    lower.match(/(\d{1,2})\s+(adults|staff)/);
+    lower.match(
+      /(\d{1,2})\s+(profesores|profesoras|profes|docentes|maestros|maestras|tutores|monitores|monitoras|acompanantes|adultos|teachers|adults|staff|chaperones)\b/
+    ) ?? lower.match(/\b(?:van|vamos|iran|iriamos|mas)\s+(\d{1,2})\s+(?:profes|profesores|adultos)\b/);
 
   return match ? Number(match[1]) : null;
 }
 
+/**
+ * La edad, que es campo crítico: sin ella no se pueden filtrar las actividades.
+ *
+ * Se reconocen tres formas, por orden de preferencia:
+ *   rango    "de 15 a 17 años", "14-17 años", "aged 14 to 16"
+ *   media    "media de 15 años", "average age 15"
+ *   una sola "50 alumnos de 15 años", "tienen 14 años", "15 years old"
+ *
+ * La edad única iba sin reconocer y es la forma más común: de seis correos
+ * reales, cuatro se quedaban sin edad y por tanto sin poder buscar actividades.
+ * Se rellenan los DOS campos a propósito: `ageRangeText` es lo que se ve y lo
+ * que viaja al CRM, y `averageAgeText` es de donde `parseAgeRange` saca el
+ * número cuando no hay guion, que es justo este caso.
+ *
+ * También estaba mal `ages?`, que no casa con «aged» y dejaba sin edad todos
+ * los correos en inglés.
+ */
 function extractAgeInfo(text: string) {
-  const lower = text.toLowerCase();
-  // Acepta "14-17 años", "15 a 16 años", "entre 15 y 16 años", "de 14 a 17 años".
-  const range =
-    lower.match(/(\d{1,2})\s*(?:-|–|a|y|hasta)\s*(\d{1,2})\s*años/) ??
-    lower.match(/ages?\s+(\d{1,2})\s*(?:-|to)\s*(\d{1,2})/);
-  const average = lower.match(/media\s+de\s+(\d{1,2})\s*años/) ?? lower.match(/average age\s+(\d{1,2})/);
+  const lower = stripAccents(text.toLowerCase());
 
-  return {
-    ageRangeText: range ? `${range[1]}-${range[2]}` : "",
-    averageAgeText: average ? `${average[1]} años` : ""
-  };
+  const range =
+    lower.match(/(\d{1,2})\s*(?:-|–|a|y|hasta)\s*(\d{1,2})\s*anos/) ??
+    lower.match(/\bage[ds]?\s+(?:from\s+)?(\d{1,2})\s*(?:-|–|to|and)\s*(\d{1,2})/);
+  if (range) {
+    return { ageRangeText: `${range[1]}-${range[2]}`, averageAgeText: "" };
+  }
+
+  const average =
+    lower.match(/media\s+de\s+(\d{1,2})\s*anos/) ?? lower.match(/average\s+age\s+(?:of\s+)?(\d{1,2})/);
+  if (average) {
+    return { ageRangeText: "", averageAgeText: `${average[1]} años` };
+  }
+
+  const single =
+    lower.match(/\b(?:de|con|tienen|edad(?:es)?\s+de)\s+(\d{1,2})\s*anos\b/) ??
+    lower.match(/\b(\d{1,2})\s*anos\s+de\s+edad\b/) ??
+    lower.match(/\b(\d{1,2})\s+years\s+old\b/) ??
+    lower.match(/\bage[ds]?\s+(\d{1,2})\b/);
+  if (single) {
+    return { ageRangeText: single[1], averageAgeText: `${single[1]} años` };
+  }
+
+  return { ageRangeText: "", averageAgeText: "" };
 }
 
+/**
+ * El régimen. Se devuelve siempre con la etiqueta española, que es la que
+ * entiende la búsqueda, venga el correo en el idioma que venga: el turoperador
+ * suizo escribe «half board» y antes eso se quedaba en blanco.
+ */
 function extractBoardType(text: string) {
   const lower = stripAccents(text.toLowerCase());
+
+  const enIngles: [RegExp, string][] = [
+    [/\bfull board\b|\ball[- ]inclusive\b/, "pensión completa"],
+    [/\bhalf board\b/, "media pensión"],
+    [/\bbed and breakfast\b|\bb&b\b|\bbreakfast included\b/, "alojamiento y desayuno"],
+    [/\broom only\b|\bself[- ]catering\b/, "solo alojamiento"],
+  ];
+  for (const [patron, etiqueta] of enIngles) {
+    if (patron.test(lower)) return etiqueta;
+  }
+
   return boardAliases.find((alias) => lower.includes(stripAccents(alias))) ?? "";
 }
 
 function extractCategory(text: string) {
   const lower = text.toLowerCase();
-  // "4 estrellas" / "de 4*" → "4*" (prioriza el número de estrellas sobre "hotel").
-  const stars = lower.match(/(\d)\s*(?:\*|estrellas?)/);
+  // "4 estrellas" / "de 4*" / "3-star" → "4*" (prioriza las estrellas sobre "hotel",
+  // que si no se llevaba la categoría en todo correo en inglés).
+  const stars = lower.match(/(\d)\s*[-–\s]?\s*(?:\*|estrellas?|stars?\b)/);
   if (stars) {
     return `${stars[1]}*`;
   }
@@ -230,6 +330,41 @@ export interface ExtractedClientInfo {
   firstName: string;
   lastName: string;
   opportunityName: string;
+}
+
+/** Palabras que aparecen en una firma pero no son el nombre de nadie. */
+const NO_ES_NOMBRE =
+  /^(?:gracias|saludos|atentamente|cordialmente|colegio|instituto|escuela|departamento|secretar|direcci|ampa|tel|m[oó]vil|movil|www|http)/i;
+
+/**
+ * El nombre de quien firma, tomado de alrededor de la dirección de correo.
+ *
+ * Los patrones de presentación («soy X», «me llamo X») cubren un correo de
+ * cada tres. El resto firma como se firma de verdad, con el nombre pegado a la
+ * dirección: «Luis Peña, lpena@carmen.es» o el nombre en la línea de encima.
+ * Sin esto el operador tenía que teclear el contacto a mano casi siempre.
+ */
+function nombreDeLaFirma(text: string): string {
+  const lineas = text.split(/\r?\n/);
+  const indice = lineas.findIndex((linea) => /[\w.+-]+@[\w-]+\.[\w.-]+/.test(linea));
+  if (indice < 0) return "";
+
+  const enLaMismaLinea = lineas[indice].split(/[\w.+-]+@[\w-]+\.[\w.-]+/)[0];
+  const candidatos = [enLaMismaLinea, lineas[indice - 1] ?? ""];
+
+  for (const candidato of candidatos) {
+    const limpio = candidato.replace(/[<(\[]/g, " ").replace(/[-–—,;:|]+\s*$/, "").trim();
+    if (!limpio || NO_ES_NOMBRE.test(limpio)) continue;
+
+    // Dos a cuatro palabras que empiezan por mayúscula: un nombre y sus
+    // apellidos. Con una sola no se arriesga: «Gracias» también lo cumpliría.
+    const nombre = limpio.match(
+      /\b([A-ZÁÉÍÓÚÑ][a-záéíóúñ'’-]+(?:\s+(?:de|del|la|las|los)\s+)?(?:\s*[A-ZÁÉÍÓÚÑ][a-záéíóúñ'’-]+){1,3})\s*$/
+    );
+    if (nombre) return nombre[1].trim();
+  }
+
+  return "";
 }
 
 /**
@@ -245,8 +380,9 @@ export function extractClientInfo(text: string): ExtractedClientInfo {
   const nameMatch = text.match(
     /\b(?:[Ss]oy|[Mm]e llamo|[Mm]i nombre es|[Ll]e saluda|[Aa]tentamente,?)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ'’-]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ'’-]+){0,3})/,
   );
-  if (nameMatch) {
-    const parts = nameMatch[1].trim().split(/\s+/);
+  const nombre = nameMatch ? nameMatch[1] : nombreDeLaFirma(text);
+  if (nombre) {
+    const parts = nombre.trim().split(/\s+/);
     firstName = parts[0] ?? "";
     lastName = parts.slice(1).join(" ");
   }
@@ -259,7 +395,10 @@ export function extractClientInfo(text: string): ExtractedClientInfo {
   else if (lower.includes("viaje cultural")) base = "Viaje cultural";
   else if (lower.includes("viaje escolar") || lower.includes("viaje")) base = "Viaje escolar";
 
-  const destination = findDestination(text)?.city ?? "";
+  // Si el destino no está en el catálogo se usa el que diga el correo: el
+  // nombre de la oportunidad es para que una persona la reconozca en el CRM,
+  // no para buscar inventario.
+  const destination = findDestination(text)?.city ?? destinoFueraDeCatalogo(text);
   const year = text.match(/\b(20\d{2})\b/)?.[1] ?? "";
   const opportunityName = [base, destination, year].filter(Boolean).join(" ").trim();
 
@@ -300,34 +439,104 @@ export function extractRequestExtras(text: string): RequestExtras {
   return { budgetPerStudent, specialRequirements };
 }
 
+/**
+ * Los centros españoles se llaman de muchas formas y solo se miraba «colegio».
+ * El propio correo de ejemplo de la demo, que empieza por «IES», se quedaba sin
+ * tipo de grupo.
+ */
 function extractGroupType(text: string) {
-  const lower = text.toLowerCase();
+  const lower = stripAccents(text.toLowerCase());
 
-  if (lower.includes("colegio") || lower.includes("school")) {
-    return "Grupo escolar";
+  if (/\buniversidad\b|\buniversitari|\buniversity\b|\bfacultad\b/.test(lower)) {
+    return "Grupo universitario";
   }
 
-  if (lower.includes("universidad") || lower.includes("university")) {
-    return "Grupo universitario";
+  if (
+    /\bcolegio\b|\binstituto\b|\bies\b|\bceip\b|\bcpi\b|\bescuela\b|\bescola\b|\bcentro educativo\b|\bschool\b|\bschule\b|\balumn|\bescolar/.test(
+      lower
+    )
+  ) {
+    return "Grupo escolar";
   }
 
   return "";
 }
 
-function extractRequirements(text: string) {
-  const sentences = text
-    .split(/[.!?]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+/** Fórmulas de cierre: lo que va detrás es la firma, no la petición. */
+const CIERRES =
+  /^\s*(?:un\s+)?(?:saludos?|cordiales\s+saludos|muchas\s+gracias|gracias|atentamente|atte\.?|un\s+abrazo|best\s+regards|kind\s+regards|regards|thanks|thank\s+you|sincerely)\b/i;
 
-  if (sentences.length <= 1) {
-    return "";
+/**
+ * Quita la firma del final del mensaje.
+ *
+ * Se corta en la fórmula de cierre y, si no hay ninguna, se descartan las
+ * últimas líneas que solo son nombre y dirección de correo. Sin esto el texto
+ * de requisitos acababa siendo la firma: la solicitud guardada de un correo
+ * real decía «Marta Sanz, msanz@colegio. cat».
+ */
+function quitarFirma(text: string): string {
+  const lineas = text.split(/\r?\n/);
+
+  const cierre = lineas.findIndex((linea) => CIERRES.test(linea));
+  const utiles = cierre >= 0 ? lineas.slice(0, cierre) : [...lineas];
+
+  while (utiles.length > 0) {
+    const ultima = utiles[utiles.length - 1].trim();
+    // Una línea corta con un correo dentro es la firma, no un requisito.
+    if (ultima === "" || (/[\w.+-]+@[\w-]+\.[\w.-]+/.test(ultima) && ultima.length <= 90)) {
+      utiles.pop();
+      continue;
+    }
+    break;
   }
 
-  return sentences.slice(1).join(". ");
+  return utiles.join("\n").trim();
 }
 
-function buildMissingFields(normalized: NormalizedRequestDraft): MissingField[] {
+/** Saludos de apertura: no son parte de la petición. */
+const SALUDOS =
+  /^\s*(?:hola|buenas|buenos\s+d[ií]as|buenas\s+tardes|estimad[oa]s?|estimad[oa]s?\s+se[ñn]ores|apreciad[oa]s?|hello|hi|dear\s+\w+|good\s+morning)\b/i;
+
+/**
+ * El resto del mensaje, que es lo que el operador tiene que leer con sus ojos.
+ *
+ * Antes era «todas las frases menos la primera», partiendo por cualquier punto.
+ * Eso metía la firma dentro y rompía las direcciones de correo por su punto
+ * («colegio. cat»). Ahora se quita la firma, se parte solo donde una frase
+ * termina de verdad —punto y mayúscula— y se descarta la primera únicamente si
+ * es un saludo.
+ */
+function extractRequirements(text: string) {
+  const cuerpo = quitarFirma(text);
+  if (!cuerpo) return "";
+
+  const frases = cuerpo
+    .split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])/)
+    .map((item) => item.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  if (frases.length === 0) return "";
+
+  const sinSaludo = SALUDOS.test(frases[0]) ? frases.slice(1) : frases;
+  return sinSaludo.join(" ").trim();
+}
+
+/**
+ * El sitio al que dicen que quieren ir, aunque no lo operemos.
+ *
+ * El catálogo de destinos son nueve ciudades escritas a mano. Si un colegio
+ * pide Benidorm, el destino se quedaba vacío y el aviso decía «no se detectó un
+ * destino», que es falso y no ayuda: el destino está en el correo, lo que pasa
+ * es que no está en la lista. Nombrarlo convierte el aviso en una decisión.
+ */
+function destinoFueraDeCatalogo(text: string): string {
+  const match = text.match(
+    /\b(?:a|hacia|hasta|destino:?|trip to|travel to)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ'’-]+(?:\s+(?:de|del|la|las|los)\s+[A-ZÁÉÍÓÚÑa-záéíóúñ'’-]+)?)/
+  );
+  return match ? match[1].trim() : "";
+}
+
+function buildMissingFields(normalized: NormalizedRequestDraft, rawText = ""): MissingField[] {
   const missing: MissingField[] = [];
 
   const add = (field: string, label: string, reason: string, severity: "critical" | "warning") => {
@@ -335,7 +544,15 @@ function buildMissingFields(normalized: NormalizedRequestDraft): MissingField[] 
   };
 
   if (!normalized.destinationText) {
-    add("destinationText", "Destino", "No se detectó un destino de forma fiable.", "critical");
+    const mencionado = destinoFueraDeCatalogo(rawText);
+    add(
+      "destinationText",
+      "Destino",
+      mencionado
+        ? `Se pide «${mencionado}», que no está entre los destinos que operamos. Confírmalo o cámbialo.`
+        : "No se detectó un destino de forma fiable.",
+      "critical",
+    );
   }
 
   if (!normalized.dateFrom) {
@@ -407,10 +624,13 @@ function buildWarnings(normalized: NormalizedRequestDraft): WarningItem[] {
  * texto. El lienzo usa esta función; el asistente antiguo sigue validando el
  * alta completa con `parseTripRequest`.
  */
-export const readTripMessage = (rawTripRequestText: string): ParseTripRequestResult => {
+export const readTripMessage = (
+  rawTripRequestText: string,
+  hoy: Date = new Date(),
+): ParseTripRequestResult => {
   const normalized = emptyDraft();
   const destination = findDestination(rawTripRequestText);
-  const dates = extractDates(rawTripRequestText);
+  const dates = extractDates(rawTripRequestText, hoy);
   const ages = extractAgeInfo(rawTripRequestText);
 
   normalized.language = detectLanguage(rawTripRequestText);
@@ -427,7 +647,7 @@ export const readTripMessage = (rawTripRequestText: string): ParseTripRequestRes
   normalized.categoryRequested = extractCategory(rawTripRequestText);
   normalized.requirementsText = extractRequirements(rawTripRequestText);
 
-  const missingFields = buildMissingFields(normalized);
+  const missingFields = buildMissingFields(normalized, rawTripRequestText);
   const warnings = buildWarnings(normalized);
 
   return {
