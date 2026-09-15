@@ -213,7 +213,60 @@ app.post("/api/crm/auth/exchange", async (request, response) => {
   }
 });
 
+/**
+ * Comprueba que el cuerpo sea unos filtros de búsqueda antes de usarlos.
+ *
+ * El cuerpo se convertía a `SearchFilters` con un `as` y ya está, que no
+ * comprueba nada en tiempo de ejecución. Una petición sin `destinationText`
+ * reventaba dentro con «Cannot read properties of undefined (reading trim)» y
+ * salía como un 500: un error del servidor por un cuerpo mal formado, y con un
+ * mensaje que no dice qué falta. Devuelve el texto del problema, o null si está
+ * bien.
+ */
+function problemaEnLosFiltros(body: unknown): string | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return "El cuerpo de la petición debe ser un objeto con los filtros de búsqueda.";
+  }
+
+  const filtros = body as Record<string, unknown>;
+  // Que el destino venga VACÍO no es un error: la búsqueda responde 200 con
+  // `insufficient_filters` y la pantalla lo pinta como un hueco por rellenar.
+  // Lo que no puede faltar es el campo.
+  if (typeof filtros.destinationText !== "string") {
+    return "Falta «destinationText»: es el único filtro obligatorio.";
+  }
+
+  for (const campo of [
+    "destinationCountry",
+    "boardType",
+    "categoryRequested",
+    "dateFrom",
+    "dateTo",
+    "ageRangeText",
+    "averageAgeText",
+  ]) {
+    if (filtros[campo] !== undefined && typeof filtros[campo] !== "string") {
+      return `«${campo}» debe ser texto.`;
+    }
+  }
+
+  for (const campo of ["participants", "teachers"]) {
+    const valor = filtros[campo];
+    if (valor !== undefined && valor !== null && typeof valor !== "number") {
+      return `«${campo}» debe ser un número.`;
+    }
+  }
+
+  return null;
+}
+
 app.post("/api/search/accommodations", async (request, response) => {
+  const problema = problemaEnLosFiltros(request.body);
+  if (problema) {
+    response.status(400).json({ error: problema });
+    return;
+  }
+
   try {
     const filters = request.body as SearchFilters;
     const result = await searchAccommodationsDb(filters);
@@ -226,6 +279,12 @@ app.post("/api/search/accommodations", async (request, response) => {
 });
 
 app.post("/api/search/activities", async (request, response) => {
+  const problema = problemaEnLosFiltros(request.body);
+  if (problema) {
+    response.status(400).json({ error: problema });
+    return;
+  }
+
   try {
     const filters = request.body as SearchFilters;
     const result = await searchActivitiesDb(filters);
