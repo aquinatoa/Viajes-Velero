@@ -19,6 +19,12 @@
  * Necesita un PostgreSQL accesible: se toma de TEST_DATABASE_URL si existe y,
  * si no, de DATABASE_URL (solo se le cambia el esquema).
  */
+// Lee el .env como lo hace el servidor, para que `npm test` funcione recién
+// clonado el repositorio. Antes había que exportar DATABASE_URL a mano y el
+// fallo era «falta TEST_DATABASE_URL», que no dice que el dato ya está en el
+// .env de al lado. Lo que venga del entorno manda: en CI lo pone el runner.
+import "../server/loadEnv";
+
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
