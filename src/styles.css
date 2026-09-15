@@ -6562,7 +6562,12 @@ tr.is-selected {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  /* Sin `overflow: hidden` a proposito.
+     El detalle (.cv__pop) se coloca a `top: 100%`, es decir ENTERO por debajo
+     del borde de esta tarjeta, y esta es su referencia de posicion. Recortando
+     aqui no se veia recortado: no se veia en absoluto, y el boton "Detalle"
+     parecia estropeado. El recorte solo estaba para redondear el fondo del
+     boton de dentro al pasar el raton, y eso se resuelve en el propio boton. */
 }
 
 .cv__hotel.is-on {
@@ -6579,6 +6584,8 @@ tr.is-selected {
   background: none;
   border: 0;
   text-align: left;
+  /* Redondea su propio fondo, ya que la tarjeta ya no recorta por el. */
+  border-radius: inherit;
 }
 
 .cv__hotelmain:hover {
