@@ -5,7 +5,7 @@ import type {
 } from "../domain/types";
 import { approveTripProposalApi, saveTripProposalApi } from "./apiClient";
 import { applyDefaultMarkup, totalAlojamiento } from "./pricing";
-import { diffNights, formatCurrency } from "./utils";
+import { diffNights, formatCurrency, formatCurrencyExact } from "./utils";
 
 function ensureProposalInputs(input: BuildProposalInput) {
   if (input.builderState.selectedAccommodationIds.length === 0) {
@@ -56,12 +56,12 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
     const teacherPrice = selected.singleRate ? precioDe(selected.singleRate) : unitPrice;
     const total = totalAlojamiento({ unitPrice, teacherPrice, participants, teachers, nights });
 
-    const desglose = [`${formatCurrency(unitPrice)} x ${participants} alumnos`];
+    const desglose = [`${formatCurrencyExact(unitPrice)} x ${participants} alumnos`];
     if (teachers > 0) {
       desglose.push(
         selected.singleRate
-          ? `${formatCurrency(teacherPrice)} x ${teachers} profesores (uso individual)`
-          : `${formatCurrency(teacherPrice)} x ${teachers} profesores (sin tarifa individual: mismo precio)`,
+          ? `${formatCurrencyExact(teacherPrice)} x ${teachers} profesores (uso individual)`
+          : `${formatCurrencyExact(teacherPrice)} x ${teachers} profesores (sin tarifa individual: mismo precio)`,
       );
     }
 
@@ -75,7 +75,7 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
       nights,
       participants,
       teachers,
-      totalPvpText: formatCurrency(total),
+      totalPvpText: formatCurrencyExact(total),
       priceBreakdownText: `${desglose.join(" + ")}, por noche x ${nights} noches`,
       conditionsText: selected.accommodation.conditionsText,
       observationsText: selected.accommodation.observations,
