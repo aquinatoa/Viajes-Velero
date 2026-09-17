@@ -143,6 +143,15 @@ function parseAgeRange(filters: SearchFilters) {
     if (range) {
       return { min: Number(range[1]), max: Number(range[2]) };
     }
+    // Una edad sola, sin guion. Antes caia aqui sin coincidir y el filtro de
+    // edad se quedaba sin aplicar: el aviso de "falta la edad" desaparecia
+    // porque el campo tenia texto, pero las actividades no se filtraban por
+    // edad. Un hueco que no se ve.
+    const unica = raw.match(/^(\d{1,2})$/);
+    if (unica) {
+      const edad = Number(unica[1]);
+      return { min: edad, max: edad };
+    }
   }
 
   const average = filters.averageAgeText?.match(/(\d{1,2})/);

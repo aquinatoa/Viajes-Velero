@@ -87,6 +87,34 @@ function euros(valor: number): string {
   return new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(valor);
 }
 
+function sinAcentos(valor: string): string {
+  return valor
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Si este alojamiento NO está en el pueblo que pidió el colegio.
+ *
+ * La búsqueda trae a propósito los de la misma comarca: pidiendo Cambrils
+ * aparecen los de Salou, que están a diez minutos, y muchas veces son la mejor
+ * opción. Pero la lista no lo decía, y leída de corrido parecía que el destino
+ * no se estaba aplicando. Un hotel puede estar en varias localidades
+ * («Salou / Calafell»), así que se comparan todas.
+ */
+function esDeOtraLocalidad(localidad: string | null | undefined, destino: string): boolean {
+  const pedido = sinAcentos(destino ?? "");
+  const suya = (localidad ?? "").trim();
+  if (!pedido || !suya) return false;
+  return !suya
+    .split(/[/,;&]|\s+y\s+/)
+    .map(sinAcentos)
+    .filter(Boolean)
+    .includes(pedido);
+}
+
 
 /** Convierte cualquier error (incluidos los de validación) en una frase legible. */
 function mensajeDeError(error: unknown, porDefecto: string): string {
@@ -734,16 +762,41 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
                 <Campo etiqueta="Hasta" valor={entendido.dateTo} onChange={(v) => setEntendido({ ...entendido, dateTo: v })} placeholder="2026-10-19" />
                 <Campo etiqueta="Alumnos" valor={entendido.participants?.toString() ?? ""} onChange={(v) => setEntendido({ ...entendido, participants: Number(v) || null })} />
                 <Campo etiqueta="Profesores" valor={entendido.teachers?.toString() ?? ""} onChange={(v) => setEntendido({ ...entendido, teachers: Number(v) || null })} />
+                {/* La edad no estaba y la busqueda la exige: el aviso "hace falta
+                    una edad o rango de edad" no tenia donde contestarse y dejaba
+                    la solicitud atascada. Se escriben los DOS campos porque el
+                    buscador saca el numero de `averageAgeText` cuando no hay
+                    guion; solo con `ageRangeText` la edad se veria pero no
+                    filtraria nada. */}
+                <Campo
+                  etiqueta="Edades"
+                  valor={entendido.ageRangeText}
+                  onChange={(v) => {
+                    const limpio = v.trim();
+                    const suelta = limpio.match(/^(\d{1,2})$/);
+                    setEntendido({
+                      ...entendido,
+                      ageRangeText: v,
+                      averageAgeText: suelta ? `${suelta[1]} años` : "",
+                    });
+                  }}
+                  placeholder="15-17, o 15"
+                  resaltar={!entendido.ageRangeText.trim() && !entendido.averageAgeText.trim()}
+                />
                 <Campo etiqueta="Régimen" valor={entendido.regimeRequested} onChange={(v) => setEntendido({ ...entendido, regimeRequested: v })} />
                 <Campo etiqueta="Correo del centro" valor={form.email} onChange={(v) => setForm({ ...form, email: v })} placeholder="direccion@colegio.es" resaltar={!form.email.trim()} />
                 <Campo etiqueta="Contacto · nombre" valor={form.firstName} onChange={(v) => setForm({ ...form, firstName: v })} placeholder="Javier" resaltar={!form.firstName.trim()} />
                 <Campo etiqueta="Contacto · apellidos" valor={form.lastName} onChange={(v) => setForm({ ...form, lastName: v })} placeholder="Martínez" resaltar={!form.lastName.trim()} />
                 <Campo etiqueta="Nombre del viaje" valor={form.opportunityName ?? ""} onChange={(v) => setForm({ ...form, opportunityName: v })} placeholder="Fin de curso Roma 2026" />
+                {/* «Tope por alumno» no se entendia. Es el presupuesto que dice
+                    el colegio, y solo sirve para marcar en la lista lo que se
+                    pasa: no descarta nada ni cambia ningun precio. */}
                 <Campo
-                  etiqueta="Tope por alumno"
+                  etiqueta="Presupuesto por alumno"
                   valor={tope?.toString() ?? ""}
                   onChange={(v) => setTope(Number(v) || null)}
                   placeholder="sin tope"
+                  ayuda="Lo que dice el colegio que puede pagar. Solo marca en la lista lo que se pasa: no descarta nada."
                 />
                 {/* Sin esto no se sabe qué tarifa aplica: el mismo hotel tiene
                     una pactada con el turoperador suizo y otra general. */}
@@ -808,6 +861,7 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
               matchActividad={matchActividad}
               programaBase={programaBase}
               onAlternar={alternarHotel}
+              destinoPedido={entendido?.destinationText ?? ""}
               detalle={detalle}
               onDetalle={(id) => setDetalle((actual) => (actual === id ? null : id))}
             />
@@ -1009,17 +1063,21 @@ function Campo({
   onChange,
   placeholder,
   resaltar,
+  ayuda,
 }: {
   etiqueta: string;
   valor: string;
   onChange: (valor: string) => void;
   placeholder?: string;
   resaltar?: boolean;
+  /** Una frase bajo el campo, para lo que la etiqueta sola no explica. */
+  ayuda?: string;
 }) {
   return (
     <label className={resaltar ? "cv__field cv__field--miss" : "cv__field"}>
       <span>{etiqueta}</span>
       <input value={valor} onChange={(evento) => onChange(evento.target.value)} placeholder={placeholder} />
+      {ayuda ? <small className="cv__ayuda">{ayuda}</small> : null}
     </label>
   );
 }
@@ -1033,6 +1091,7 @@ function ListaOpciones({
   matchActividad,
   programaBase,
   onAlternar,
+  destinoPedido,
   detalle,
   onDetalle,
 }: {
@@ -1044,6 +1103,7 @@ function ListaOpciones({
   matchActividad: (id: string) => ActivitySearchMatch | undefined;
   programaBase: string[];
   onAlternar: (id: string) => void;
+  destinoPedido: string;
   detalle: string | null;
   onDetalle: (id: string) => void;
 }) {
@@ -1069,6 +1129,13 @@ function ListaOpciones({
                   {[item.accommodation.categoryType, item.rate.boardType, item.accommodation.locality]
                     .filter(Boolean)
                     .join(" · ")}
+                  {/* Un hotel de otro pueblo de la misma comarca tambien sale, a
+                      proposito: pidiendo Cambrils aparece Salou, que esta a diez
+                      minutos. Lo que faltaba era decirlo. Sin esta marca la
+                      lista parecia ignorar el destino. */}
+                  {esDeOtraLocalidad(item.accommodation.locality, destinoPedido) ? (
+                    <span className="cv__cerca">cerca</span>
+                  ) : null}
                 </span>
               </span>
               <span className="cv__hotelp">

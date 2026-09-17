@@ -6628,6 +6628,23 @@ tr.is-selected {
   color: var(--muted);
 }
 
+/* Alojamiento de otro pueblo de la misma comarca. Sale a proposito -pidiendo
+   Cambrils, Salou esta a diez minutos- pero hay que decirlo: sin esta marca la
+   lista parecia estar ignorando el destino. */
+.cv__cerca {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  vertical-align: 1px;
+}
+
 .cv__hotelp {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
   font-size: 14px;
@@ -9632,3 +9649,13 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 }
 
 .acts-sum--warn { background: var(--highlight-bg); color: var(--highlight-ink); font-weight: 600; }
+
+/* Una frase bajo un campo del lienzo. "Tope por alumno" no se entendia y no
+   habia donde explicarlo sin alargar la etiqueta. */
+.cv__ayuda {
+  display: block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
