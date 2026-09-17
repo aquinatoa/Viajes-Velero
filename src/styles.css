@@ -9659,3 +9659,21 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
   line-height: 1.45;
   color: var(--muted);
 }
+
+/* El contacto encontrado en Zoho. Se marca para que el operador sepa que esos
+   datos son los del CRM y no algo que adivino la app del mensaje. */
+.cv__crmhit {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--cv-navy);
+  background: var(--surface-2);
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.cv__crmhit b {
+  color: var(--text);
+}

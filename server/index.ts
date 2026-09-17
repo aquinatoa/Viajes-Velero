@@ -11,6 +11,7 @@ import {
   getZohoAuthUrl,
   getZohoDealStages,
   listZohoDeals,
+  buscarContactoEnCrm,
   searchZohoOpportunitiesByEmail,
   updateZohoDeal,
   ZohoReauthRequiredError,
@@ -81,6 +82,7 @@ import {
   logout as authLogout,
   requireAuth,
   requireRole,
+  deliveryVisibilityWhere,
   tripRequestVisibilityWhere,
   updateUser,
   writeAudit,
@@ -343,6 +345,32 @@ app.post("/api/crm/opportunities/new", async (request, response) => {
     response.json(result);
   } catch (error) {
     crmErrorResponse(error, response, "No se pudo crear el trato en Zoho.");
+  }
+});
+
+/**
+ * El contacto que ya está en el CRM, buscado por su correo.
+ *
+ * Lo pidió Oravia: si el colegio está en Zoho, sus datos son los buenos y no
+ * hay que volver a teclearlos en cada solicitud. 404 significa «no está», que
+ * es un colegio nuevo y no un problema.
+ */
+app.get("/api/crm/contacts/lookup", async (request, response) => {
+  const email = String(request.query.email ?? "").trim();
+  if (!email) {
+    response.status(400).json({ error: "Falta el correo que hay que buscar." });
+    return;
+  }
+
+  try {
+    const contacto = await buscarContactoEnCrm(email);
+    if (!contacto) {
+      response.status(404).json({ error: "Ese correo no está en el CRM.", code: "not_found" });
+      return;
+    }
+    response.json({ contact: contacto });
+  } catch (error) {
+    crmErrorResponse(error, response, "No se pudo consultar el contacto en el CRM.");
   }
 });
 
@@ -1805,9 +1833,11 @@ app.get("/api/deliveries/:id/pdf", requireAuth, async (request, response) => {
 app.get("/api/deliveries", requireAuth, async (request, response) => {
   try {
     const user = (request as AuthedRequest).user;
-    // Un administrador de departamento solo ve lo suyo; los globales, todo.
-    const department = user?.role === "DEPT_ADMIN" ? user.department : null;
-    response.json({ deliveries: await listDeliveries({ department }) });
+    // La regla de quién ve qué vive en un solo sitio, no escrita a mano aquí:
+    // la de antes solo filtraba a los administradores de departamento, así que
+    // un cotizador de Groups veía las propuestas de Sports.
+    const where = user ? deliveryVisibilityWhere(user) : {};
+    response.json({ deliveries: await listDeliveries(where) });
   } catch (error) {
     console.error("Error listando entregas", error);
     response.status(500).json({ error: "No se pudieron cargar las propuestas enviadas." });

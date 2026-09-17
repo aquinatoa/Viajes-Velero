@@ -233,6 +233,67 @@ async function searchContactByEmail(email: string) {
   return result.data?.[0] ?? null;
 }
 
+export interface ContactoDelCrm {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  accountName: string;
+  phone: string;
+  /** Tratos abiertos de ese contacto, para no crear uno repetido. */
+  deals: { id: string; dealName: string; stage: string }[];
+}
+
+/**
+ * El contacto tal y como está en el CRM, con sus tratos.
+ *
+ * Oravia pidió no volver a teclear el contacto en cada solicitud: si el colegio
+ * ya está en Zoho, sus datos son los buenos y escribirlos a mano solo sirve
+ * para crear una segunda ficha con el nombre puesto de otra manera.
+ *
+ * Devuelve null si no está, que no es un error: es un colegio nuevo.
+ */
+export async function buscarContactoEnCrm(email: string): Promise<ContactoDelCrm | null> {
+  const contacto = await searchContactByEmail(email);
+  if (!contacto?.id) return null;
+
+  const id = String(contacto.id);
+  const firstName = String(contacto.First_Name ?? "").trim();
+  const lastName = String(contacto.Last_Name ?? "").trim();
+
+  const cuenta = contacto.Account_Name as { name?: string } | undefined;
+
+  let deals: ContactoDelCrm["deals"] = [];
+  try {
+    const criteria = `(Contact_Name.id:equals:${id})`;
+    const result = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
+      `${zohoConfig.dealsModule}/search?criteria=${encodeURIComponent(criteria)}`,
+      { method: "GET" }
+    );
+    deals =
+      result.data?.map((deal) => ({
+        id: String(deal.id),
+        dealName: String(deal.Deal_Name ?? ""),
+        stage: String(deal.Stage ?? ""),
+      })) ?? [];
+  } catch {
+    // Que no se puedan leer los tratos no invalida el contacto, que es lo que
+    // se ha venido a buscar.
+  }
+
+  return {
+    id,
+    email: String(contacto.Email ?? email),
+    firstName,
+    lastName,
+    fullName: String(contacto.Full_Name ?? `${firstName} ${lastName}`).trim(),
+    accountName: String(cuenta?.name ?? "").trim(),
+    phone: String(contacto.Phone ?? contacto.Mobile ?? "").trim(),
+    deals,
+  };
+}
+
 async function createContact(payload: {
   email: string;
   firstName: string;

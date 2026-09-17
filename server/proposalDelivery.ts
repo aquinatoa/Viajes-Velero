@@ -444,10 +444,16 @@ export async function getDelivery(id: string) {
   return prisma.proposalDelivery.findUnique({ where: { id } });
 }
 
-/** Las entregas vivas, para la pantalla de inicio. */
-export async function listDeliveries(filter?: { department?: string | null }) {
+/**
+ * Las entregas vivas, para la pantalla de inicio.
+ *
+ * El filtro llega ya resuelto desde `deliveryVisibilityWhere`: quién ve qué lo
+ * decide el módulo de acceso, no esta consulta. Antes la regla estaba escrita a
+ * mano en el endpoint y solo cubría a los administradores de departamento.
+ */
+export async function listDeliveries(where: Record<string, unknown> = {}) {
   return prisma.proposalDelivery.findMany({
-    where: filter?.department ? { department: filter.department as never } : {},
+    where: where as never,
     orderBy: [{ createdAt: "desc" }],
     take: 200,
     include: { proposal: { include: { tripRequest: true } } },

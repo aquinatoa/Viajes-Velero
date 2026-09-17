@@ -13,11 +13,13 @@ import {
 } from "../../services/mcpTools";
 import {
   abrirProposalPdf,
+  buscarContactoCrmApi,
   createZohoOpportunityApi,
   prepareProposalDeliveryApi,
   searchAccommodationsApi,
   searchActivitiesApi,
   sendProposalDeliveryApi,
+  type ContactoDelCrm,
   type ProposalDeliveryResult,
 } from "../../services/apiClient";
 import isotipoBlanco from "../../assets/oravia-isotipo-blanco.png";
@@ -176,6 +178,8 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
   /** Borrador encontrado al entrar: se ofrece, no se aplica a la fuerza. */
   const [recuperable, setRecuperable] = useState<BorradorSolicitud | null>(null);
   const [guardadoEn, setGuardadoEn] = useState<string | null>(null);
+  /** El contacto tal y como está en el CRM, si ese correo ya estaba. */
+  const [contactoCrm, setContactoCrm] = useState<ContactoDelCrm | null>(null);
   /** Hotel cuyo detalle se está mirando. Popover, no modal: no interrumpe. */
   const [detalle, setDetalle] = useState<string | null>(null);
   const [revisando, setRevisando] = useState(false);
@@ -385,6 +389,32 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
     setBorrador("");
   }
 
+  /**
+   * Trae el contacto del CRM y rellena lo que falte.
+   *
+   * Nunca pisa lo que haya escrito el operador: solo completa los huecos. Si el
+   * correo no está en Zoho no pasa nada, es un colegio nuevo. Y si Zoho no
+   * contesta, tampoco: la solicitud se puede terminar sin el CRM.
+   */
+  async function traerContactoDelCrm(email: string): Promise<void> {
+    try {
+      const contacto = await buscarContactoCrmApi(email.trim());
+      if (!contacto) {
+        setContactoCrm(null);
+        return;
+      }
+      setContactoCrm(contacto);
+      setForm((actual) => ({
+        ...actual,
+        firstName: actual.firstName.trim() || contacto.firstName,
+        lastName: actual.lastName.trim() || contacto.lastName,
+      }));
+    } catch {
+      // Sin CRM se sigue trabajando: el contacto se escribe a mano, como antes.
+      setContactoCrm(null);
+    }
+  }
+
   /** Lee el mensaje, saca los datos y busca hoteles: es un solo gesto para quien cotiza. */
   async function leerYBuscar() {
     const texto = [...mensajes, borrador].map((m) => m.trim()).filter(Boolean).join("\n\n");
@@ -405,6 +435,12 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
         rawTripRequestText: texto,
       };
       setForm(entrada);
+
+      // Si ese correo ya está en el CRM, sus datos mandan sobre lo que
+      // adivinemos del mensaje. Teclear el contacto en cada solicitud acaba
+      // creando una segunda ficha del mismo colegio con el nombre escrito de
+      // otra manera. No bloquea: si Zoho no contesta, se sigue igual.
+      if (entrada.email) void traerContactoDelCrm(entrada.email);
 
       // Leer NO exige datos de contacto: el correo hace falta para enviar.
       const resultado = readTripMessage(texto);
@@ -787,6 +823,20 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
                 <Campo etiqueta="Correo del centro" valor={form.email} onChange={(v) => setForm({ ...form, email: v })} placeholder="direccion@colegio.es" resaltar={!form.email.trim()} />
                 <Campo etiqueta="Contacto · nombre" valor={form.firstName} onChange={(v) => setForm({ ...form, firstName: v })} placeholder="Javier" resaltar={!form.firstName.trim()} />
                 <Campo etiqueta="Contacto · apellidos" valor={form.lastName} onChange={(v) => setForm({ ...form, lastName: v })} placeholder="Martínez" resaltar={!form.lastName.trim()} />
+                {/* Que el contacto venga del CRM hay que decirlo: si no, el
+                    operador no sabe si lo escribió él o si son los datos buenos
+                    de Zoho, y vuelve a teclearlo por si acaso. */}
+                {contactoCrm ? (
+                  <p className="cv__crmhit">
+                    <b>{contactoCrm.fullName}</b> ya está en el CRM
+                    {contactoCrm.accountName ? ` · ${contactoCrm.accountName}` : ""}
+                    {contactoCrm.deals.length
+                      ? ` · ${contactoCrm.deals.length} oportunidad(es): ${contactoCrm.deals
+                          .map((d) => `${d.dealName} (${d.stage})`)
+                          .join(", ")}`
+                      : " · sin oportunidades abiertas"}
+                  </p>
+                ) : null}
                 <Campo etiqueta="Nombre del viaje" valor={form.opportunityName ?? ""} onChange={(v) => setForm({ ...form, opportunityName: v })} placeholder="Fin de curso Roma 2026" />
                 {/* «Tope por alumno» no se entendia. Es el presupuesto que dice
                     el colegio, y solo sirve para marcar en la lista lo que se
