@@ -42,10 +42,41 @@ export function isQuoter(user: AuthedUser): boolean {
 export function tripRequestVisibilityWhere(user: AuthedUser): Record<string, unknown> {
   if (user.role === "ADMIN" || user.role === "USER") return {};
   if (user.role === "DEPT_ADMIN") {
-    return user.department ? { department: user.department } : {};
+    // Tambien las que no tienen departamento asignado. Filtrando solo por el
+    // suyo, una solicitud creada por un administrador global -que no tiene
+    // departamento, asi que la solicitud tampoco- se volvia invisible para el
+    // departamento que en realidad la lleva. Desaparecer no es filtrar.
+    return user.department
+      ? { OR: [{ department: user.department }, { department: null }] }
+      : {};
   }
   // QUOTER
   return { ownerUserId: user.id };
+}
+
+/**
+ * Lo mismo, para las propuestas enviadas de la pantalla de inicio.
+ *
+ * La entrega tiene departamento propio, pero no dueño: `sentByUserId` esta
+ * vacio hasta que sale, y una propuesta preparada y sin enviar tambien tiene
+ * que verse. Asi que el dueño se mira donde de verdad esta, en la solicitud de
+ * la que nace.
+ *
+ * Esta pantalla llevaba su propia regla escrita a mano, y solo filtraba a los
+ * administradores de departamento: un cotizador de Groups veia las propuestas
+ * de Sports. Es lo que nos reporto Oravia.
+ */
+export function deliveryVisibilityWhere(user: AuthedUser): Record<string, unknown> {
+  if (user.role === "ADMIN" || user.role === "USER") return {};
+
+  if (user.role === "DEPT_ADMIN") {
+    return user.department
+      ? { OR: [{ department: user.department }, { department: null }] }
+      : {};
+  }
+
+  // QUOTER: las suyas, por la solicitud que las origino.
+  return { proposal: { tripRequest: { ownerUserId: user.id } } };
 }
 
 export interface AuthedRequest extends Request {

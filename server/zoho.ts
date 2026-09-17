@@ -30,7 +30,10 @@ const zohoConfig = {
   contactsModule: process.env.ZOHO_CONTACTS_MODULE ?? "Contacts",
   accountsModule: process.env.ZOHO_ACCOUNTS_MODULE ?? "Accounts",
   dealsModule: process.env.ZOHO_DEALS_MODULE ?? "Deals",
-  dealStage: process.env.ZOHO_DEAL_STAGE ?? "Nueva",
+  // Primera fase del embudo de Oravia. Antes ponía «Nueva», que NO existe en su
+  // picklist: los tratos nacían con una fase inventada y se quedaban ahí.
+  // El resto del recorrido lo mueve `crmPipeline.ts`.
+  dealStage: process.env.ZOHO_DEAL_STAGE ?? "Preparando Presupuesto",
   dealOptionsField: process.env.ZOHO_DEAL_OPTIONS_FIELD ?? "Description",
   approvedOptionField: process.env.ZOHO_APPROVED_OPTION_FIELD ?? ""
 };
@@ -228,6 +231,67 @@ async function searchContactByEmail(email: string) {
     { method: "GET" }
   );
   return result.data?.[0] ?? null;
+}
+
+export interface ContactoDelCrm {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  accountName: string;
+  phone: string;
+  /** Tratos abiertos de ese contacto, para no crear uno repetido. */
+  deals: { id: string; dealName: string; stage: string }[];
+}
+
+/**
+ * El contacto tal y como está en el CRM, con sus tratos.
+ *
+ * Oravia pidió no volver a teclear el contacto en cada solicitud: si el colegio
+ * ya está en Zoho, sus datos son los buenos y escribirlos a mano solo sirve
+ * para crear una segunda ficha con el nombre puesto de otra manera.
+ *
+ * Devuelve null si no está, que no es un error: es un colegio nuevo.
+ */
+export async function buscarContactoEnCrm(email: string): Promise<ContactoDelCrm | null> {
+  const contacto = await searchContactByEmail(email);
+  if (!contacto?.id) return null;
+
+  const id = String(contacto.id);
+  const firstName = String(contacto.First_Name ?? "").trim();
+  const lastName = String(contacto.Last_Name ?? "").trim();
+
+  const cuenta = contacto.Account_Name as { name?: string } | undefined;
+
+  let deals: ContactoDelCrm["deals"] = [];
+  try {
+    const criteria = `(Contact_Name.id:equals:${id})`;
+    const result = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
+      `${zohoConfig.dealsModule}/search?criteria=${encodeURIComponent(criteria)}`,
+      { method: "GET" }
+    );
+    deals =
+      result.data?.map((deal) => ({
+        id: String(deal.id),
+        dealName: String(deal.Deal_Name ?? ""),
+        stage: String(deal.Stage ?? ""),
+      })) ?? [];
+  } catch {
+    // Que no se puedan leer los tratos no invalida el contacto, que es lo que
+    // se ha venido a buscar.
+  }
+
+  return {
+    id,
+    email: String(contacto.Email ?? email),
+    firstName,
+    lastName,
+    fullName: String(contacto.Full_Name ?? `${firstName} ${lastName}`).trim(),
+    accountName: String(cuenta?.name ?? "").trim(),
+    phone: String(contacto.Phone ?? contacto.Mobile ?? "").trim(),
+    deals,
+  };
 }
 
 async function createContact(payload: {
@@ -517,6 +581,21 @@ export async function getZohoDealStages(): Promise<string[]> {
   return (stageField?.pick_list_values ?? [])
     .map((p) => String(p.display_value ?? ""))
     .filter(Boolean);
+}
+
+/**
+ * La fase en la que está HOY un trato.
+ *
+ * Hace falta para no moverlo hacia atrás: sin leer antes, reenviar una
+ * propuesta de un viaje ya ganado lo devolvería a «Presupuesto Enviado».
+ * Devuelve cadena vacía si el trato no tiene fase o ya no existe.
+ */
+export async function getZohoDealStage(dealId: string): Promise<string> {
+  const result = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
+    `${zohoConfig.dealsModule}/${dealId}?fields=Stage`,
+    { method: "GET" }
+  );
+  return String(result.data?.[0]?.Stage ?? "");
 }
 
 const CHOSEN_OPTION_PREFIX = "▸ Opción elegida por el cliente:";

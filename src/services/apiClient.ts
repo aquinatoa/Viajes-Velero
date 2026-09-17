@@ -326,6 +326,34 @@ export function fetchZohoDealStagesApi() {
   );
 }
 
+export interface ContactoDelCrm {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  accountName: string;
+  phone: string;
+  deals: { id: string; dealName: string; stage: string }[];
+}
+
+/**
+ * El contacto que ya está en el CRM. `null` si no está: es un colegio nuevo,
+ * no un error, y quien llama no tiene que distinguirlo de un fallo de red.
+ */
+export async function buscarContactoCrmApi(email: string): Promise<ContactoDelCrm | null> {
+  try {
+    const { contact } = await getJson<{ contact: ContactoDelCrm }>(
+      `/api/crm/contacts/lookup?email=${encodeURIComponent(email)}`,
+      "No se pudo consultar el contacto en el CRM.",
+    );
+    return contact;
+  } catch (error) {
+    if (error instanceof Error && /no está en el CRM/i.test(error.message)) return null;
+    throw error;
+  }
+}
+
 export function updateZohoOpportunityApi(
   id: string,
   payload: { stage?: string; chosenOption?: number | null; note?: string },

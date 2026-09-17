@@ -1250,8 +1250,9 @@ desbordaba el sidebar.)
 ## En una línea
 
 La lectura de tarifas se rehízo entera porque **leía mal los precios**, y al publicarlos en
-producción salieron cuatro fallos más en la cadena. Hoy hay **1.184 tarifas publicadas** que
-todavía **no se ofrecen al cotizar**, porque el despliegue lleva desde el 31/08 sin funcionar.
+producción salieron cuatro fallos más en la cadena. Hay **1.184 tarifas publicadas** y el
+catálogo se cotiza bien para el cliente general; lo que no se puede cotizar hoy son las
+**actividades**, y para el turoperador suizo solo se ve una parte del catálogo.
 
 ## El módulo documental, rehecho
 
@@ -1340,12 +1341,22 @@ a un alojamiento fabricado con el nombre del documento. En producción eso meti�
 con los alojamientos. Las 386 tarifas de PortAventura quedaron con `locationMain` a null, y la
 búsqueda puntúa por ubicación: sin ella la actividad es **inencontrable**.
 
-**«Cualquier cliente» significaba «ningún cliente».** El filtro era `!rate.clientSegment ||
+**«Cualquier cliente» no valía para el cliente suizo.** El filtro era `!rate.clientSegment ||
 rate.clientSegment === wantedSegment`, así que una tarifa guardada como `GENERIC` solo aparecía si
-la búsqueda pedía `GENERIC` explícitamente. Como el cotizador no manda canal salvo para el
-turoperador suizo, esas tarifas no se ofrecían nunca. **Afecta a alojamientos y actividades**, o sea
-a las 1.184 publicadas. Es el fallo más caro de los cuatro y el que justifica que el despliegue
-corra prisa.
+la búsqueda pedía `GENERIC`. El lienzo manda siempre el canal —por defecto `GENERIC`—, así que la
+cotización normal nunca estuvo rota. Lo que rompía es cotizar para el **turoperador suizo**: al
+pedir `SWISS_TTOO` desaparecía todo el catálogo general y solo quedaba lo pactado con ellos.
+
+Medido en el mismo Salou, 18-22/05/2027:
+
+| Canal | Servidor (código viejo) | Con el arreglo |
+|---|---|---|
+| Cliente general | 12 alojamientos | 12 |
+| Turoperador suizo | **2** | 12 |
+
+Ojo con lo que decía la primera versión de esta sección: «las 1.184 tarifas no se ofrecen al
+cotizar». Es falso, y salió de probar la API a mano sin mandar `clientSegment`, que es algo que la
+app no hace nunca. Comprobar por la API está bien; comprobar con un cuerpo que la app no manda, no.
 
 `scripts/mover-condiciones-a-actividades.mjs` arregla los documentos ya publicados sin volver a
 pagar una lectura de IA: recoloca las condiciones, repone la ubicación y retira el alojamiento
@@ -1406,7 +1417,8 @@ una solicitud de prueba crea un trato de verdad en su CRM.
 ## Estado real a 15/09/2026
 
 **Catálogo en producción**: 35 alojamientos con 782 tarifas y 20 actividades con 402, de cinco
-documentos. Pero **no se ofrecen al cotizar** hasta que entre el arreglo del canal de cliente.
+documentos. Los alojamientos se cotizan bien. Las **402 tarifas de actividad no aparecen nunca**,
+porque se publicaron sin ubicacion y la busqueda descarta por ahi antes de puntuar.
 
 **El despliegue automático no ha funcionado nunca.** `main` lleva 15 commits sin salir desde el
 31/08 y producción corre código viejo. Se comprueba en un segundo: el catálogo público devuelve las
@@ -1452,7 +1464,7 @@ llegue nada a nadie.
 **7 · Usuarios, roles y auditoría — SIN TOCAR.**
 
 Orden sugerido: terminar **3** y seguir con **4**, que van juntos y son el momento de la verdad de
-todo lo anterior —si esas 1.184 tarifas no se pueden cotizar, no sirven de nada—. Después el **2**,
+todo lo anterior. Después el **2**,
 y al final el **5** y el **6**.
 
 ### Tareas sueltas, por orden

@@ -6562,7 +6562,12 @@ tr.is-selected {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  /* Sin `overflow: hidden` a proposito.
+     El detalle (.cv__pop) se coloca a `top: 100%`, es decir ENTERO por debajo
+     del borde de esta tarjeta, y esta es su referencia de posicion. Recortando
+     aqui no se veia recortado: no se veia en absoluto, y el boton "Detalle"
+     parecia estropeado. El recorte solo estaba para redondear el fondo del
+     boton de dentro al pasar el raton, y eso se resuelve en el propio boton. */
 }
 
 .cv__hotel.is-on {
@@ -6579,6 +6584,8 @@ tr.is-selected {
   background: none;
   border: 0;
   text-align: left;
+  /* Redondea su propio fondo, ya que la tarjeta ya no recorta por el. */
+  border-radius: inherit;
 }
 
 .cv__hotelmain:hover {
@@ -6619,6 +6626,23 @@ tr.is-selected {
   display: block;
   font-size: 12.5px;
   color: var(--muted);
+}
+
+/* Alojamiento de otro pueblo de la misma comarca. Sale a proposito -pidiendo
+   Cambrils, Salou esta a diez minutos- pero hay que decirlo: sin esta marca la
+   lista parecia estar ignorando el destino. */
+.cv__cerca {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  vertical-align: 1px;
 }
 
 .cv__hotelp {
@@ -9625,3 +9649,31 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 }
 
 .acts-sum--warn { background: var(--highlight-bg); color: var(--highlight-ink); font-weight: 600; }
+
+/* Una frase bajo un campo del lienzo. "Tope por alumno" no se entendia y no
+   habia donde explicarlo sin alargar la etiqueta. */
+.cv__ayuda {
+  display: block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* El contacto encontrado en Zoho. Se marca para que el operador sepa que esos
+   datos son los del CRM y no algo que adivino la app del mensaje. */
+.cv__crmhit {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--cv-navy);
+  background: var(--surface-2);
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.cv__crmhit b {
+  color: var(--text);
+}

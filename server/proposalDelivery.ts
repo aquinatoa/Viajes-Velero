@@ -19,6 +19,7 @@ import { PrismaClient, type DeliveryStatus } from "@prisma/client";
 import nodemailer from "nodemailer";
 import { buildProposalPdf, type PdfOption } from "./proposalPdf";
 import { canSend, loadMailSettings, mailboxFor, replyToFor } from "./mailConfig";
+import { marcarHito, type Hito } from "./crmPipeline";
 
 const prisma = new PrismaClient();
 
@@ -261,6 +262,11 @@ export async function sendDelivery(deliveryId: string): Promise<DeliveryResult> 
       where: { id: delivery.id },
       data: { status: "SIMULATED", sentAt: new Date() },
     });
+    // A propósito NO se mueve la fase del trato: el correo no ha salido de
+    // aquí. Poner «Presupuesto Enviado» sería mentirle al CRM.
+    console.info(
+      `[crm] ${delivery.reference}: simulada, sin clave de buzón. La fase del trato se queda como está.`,
+    );
     return { ...base, status: updated.status, simulated: true };
   }
 
@@ -295,7 +301,45 @@ export async function sendDelivery(deliveryId: string): Promise<DeliveryResult> 
     where: { id: delivery.id },
     data: { status: "SENT", sentAt: new Date(), failureReason: null },
   });
+
+  await reflejarEnElCrm(
+    delivery.id,
+    "presupuesto_enviado",
+    `Propuesta ${delivery.reference} enviada a ${delivery.recipientEmail}.`,
+  );
+
   return { ...base, status: updated.status, simulated: false };
+}
+
+/**
+ * El trato de Zoho al que pertenece una entrega.
+ *
+ * La entrega cuelga de la propuesta, la propuesta de la solicitud, y es la
+ * solicitud la que guarda el trato: una solicitud, un trato, aunque la
+ * propuesta cambie de versión.
+ */
+async function tratoDeLaEntrega(deliveryId: string): Promise<string | null> {
+  const fila = await prisma.proposalDelivery.findUnique({
+    where: { id: deliveryId },
+    select: { proposal: { select: { tripRequest: { select: { crmDealId: true } } } } },
+  });
+  return fila?.proposal?.tripRequest?.crmDealId ?? null;
+}
+
+/**
+ * Refleja en el CRM lo que acaba de pasar, sin dejar que lo estropee.
+ *
+ * Deliberadamente no se espera el resultado ni se propaga el fallo: enviar una
+ * propuesta o atender al colegio en su página no puede depender de que Zoho
+ * conteste.
+ */
+async function reflejarEnElCrm(deliveryId: string, hito: Hito, nota?: string): Promise<void> {
+  try {
+    const dealId = await tratoDeLaEntrega(deliveryId);
+    await marcarHito(dealId, hito, nota);
+  } catch (error) {
+    console.error("[crm] no se pudo reflejar el hito", hito, error);
+  }
 }
 
 /** Prepara y envía de una vez: es lo que hace el botón "Enviar propuesta". */
@@ -320,6 +364,8 @@ export async function readPublicProposal(token: string) {
   if (!delivery) return null;
 
   const now = new Date();
+  const esLaPrimeraVez = !delivery.firstViewedAt;
+
   await prisma.proposalDelivery.update({
     where: { id: delivery.id },
     data: {
@@ -328,6 +374,16 @@ export async function readPublicProposal(token: string) {
       firstViewedAt: delivery.firstViewedAt ?? now,
     },
   });
+
+  // Solo la primera vez. Un colegio que vuelve a mirar la propuesta cinco veces
+  // no cambia nada en el CRM, y no hay por qué escribir cinco notas.
+  if (esLaPrimeraVez) {
+    await reflejarEnElCrm(
+      delivery.id,
+      "presupuesto_visto",
+      `El colegio abrió la propuesta ${delivery.reference}.`,
+    );
+  }
 
   return delivery;
 }
@@ -345,10 +401,42 @@ export async function chooseOption(token: string, optionNumber: number) {
   const depositDueAt = new Date(chosenAt);
   depositDueAt.setDate(depositDueAt.getDate() + DEPOSIT_DEADLINE_DAYS);
 
-  return prisma.proposalDelivery.update({
+  const elegida = await prisma.proposalDelivery.update({
     where: { id: delivery.id },
     data: { chosenOptionNumber: optionNumber, chosenAt, depositDueAt },
   });
+
+  await reflejarEnElCrm(
+    delivery.id,
+    "opcion_elegida",
+    `El colegio eligió la opción ${optionNumber}. Depósito hasta el ${depositDueAt
+      .toISOString()
+      .slice(0, 10)}.`,
+  );
+
+  return elegida;
+}
+
+/**
+ * El depósito ha entrado: el viaje está vendido.
+ *
+ * Todavía no hay pantalla que lo registre —la de inicio solo lee
+ * `depositPaidAt`—, así que esto está aquí esperando a que exista, y para que
+ * quien la construya no tenga que acordarse de tocar el CRM.
+ */
+export async function marcarDepositoCobrado(deliveryId: string, cuando = new Date()) {
+  const actualizada = await prisma.proposalDelivery.update({
+    where: { id: deliveryId },
+    data: { depositPaidAt: cuando },
+  });
+
+  await reflejarEnElCrm(
+    deliveryId,
+    "deposito_cobrado",
+    `Depósito cobrado de la propuesta ${actualizada.reference}.`,
+  );
+
+  return actualizada;
 }
 
 /** Una entrega concreta: la usa la descarga del documento. */
@@ -356,10 +444,16 @@ export async function getDelivery(id: string) {
   return prisma.proposalDelivery.findUnique({ where: { id } });
 }
 
-/** Las entregas vivas, para la pantalla de inicio. */
-export async function listDeliveries(filter?: { department?: string | null }) {
+/**
+ * Las entregas vivas, para la pantalla de inicio.
+ *
+ * El filtro llega ya resuelto desde `deliveryVisibilityWhere`: quién ve qué lo
+ * decide el módulo de acceso, no esta consulta. Antes la regla estaba escrita a
+ * mano en el endpoint y solo cubría a los administradores de departamento.
+ */
+export async function listDeliveries(where: Record<string, unknown> = {}) {
   return prisma.proposalDelivery.findMany({
-    where: filter?.department ? { department: filter.department as never } : {},
+    where: where as never,
     orderBy: [{ createdAt: "desc" }],
     take: 200,
     include: { proposal: { include: { tripRequest: true } } },
