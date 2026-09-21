@@ -572,7 +572,15 @@ function buildMissingFields(normalized: NormalizedRequestDraft, rawText = ""): M
   }
 
   if (!normalized.ageRangeText && !normalized.averageAgeText) {
-    add("ageRangeText", "Edad o rango de edad", "Hace falta la edad para filtrar actividades.", "critical");
+    // Aviso, no bloqueo: muchas veces el colegio pide precio antes de tener
+    // cerrado qué curso viaja. Sin edad se puede cotizar igual, solo que las
+    // actividades salen todas y hay que descartar a mano.
+    add(
+      "ageRangeText",
+      "Edad o rango de edad",
+      "Sin edad no se pueden descartar las actividades que no correspondan.",
+      "warning",
+    );
   }
 
   if (!normalized.regimeRequested) {
@@ -754,12 +762,15 @@ export const validateTripRequest = (
     });
   }
 
+  // La edad NO impide enviar una propuesta. Este mensaje en rojo, con
+  // `severity: "error"`, era lo que dejaba la solicitud parada por un dato que
+  // el colegio muchas veces todavía no tiene decidido.
   if (!input.normalized.ageRangeText.trim() && !input.normalized.averageAgeText.trim()) {
     issues.push({
       field: "ageRangeText",
       label: "Edad o rango de edad",
-      message: "Hace falta una edad o rango de edad para filtrar actividades.",
-      severity: "error"
+      message: "Sin edad, las actividades salen todas: revisa que encajen antes de enviar.",
+      severity: "warning"
     });
   }
 

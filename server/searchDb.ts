@@ -520,11 +520,20 @@ export async function searchActivitiesDb(
   const { missingFields, warnings } = buildGuard(filters);
 
   if (!filters.ageRangeText?.trim() && !filters.averageAgeText?.trim()) {
+    // Aviso, no bloqueo. Un colegio pide presupuesto antes de saber qué curso
+    // va: exigir la edad para poder enseñar NADA dejaba la solicitud parada por
+    // un dato que todavía no existe. Sin edad se ofrecen todas las actividades
+    // y quien cotiza descarta las que no encajen, que es lo que hacía a mano.
+    warnings.push({
+      code: "age_missing",
+      message:
+        "Sin edad se muestran todas las actividades, incluidas las que quizá no encajen por edad.",
+    });
     missingFields.push({
       field: "ageRangeText",
       label: "Edad o rango de edad",
-      reason: "Hace falta la edad para filtrar actividades en la base real.",
-      severity: "critical"
+      reason: "Sin edad no se pueden descartar las actividades que no correspondan.",
+      severity: "warning"
     });
   }
 

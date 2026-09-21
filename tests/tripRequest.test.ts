@@ -303,5 +303,39 @@ prueba("uno a un destino que no operamos, no: hace falta decidir", () => {
 // Cuando se entienda el mensaje con IA, estas pruebas siguen valiendo: lo
 // heurístico se queda como relleno instantáneo y como red si la IA falla.
 
+// ── La edad no puede parar una solicitud ──────────────────────────────────────
+//
+// Lo pidió Javier: «a veces no sabemos la edad al principio, no debería ser un
+// requisito obligatorio». Un colegio pide precio antes de tener cerrado qué
+// curso viaja, y la app le dejaba la solicitud parada por ese dato.
+
+console.log("\nUn mensaje sin edad se puede seguir trabajando");
+
+const SIN_EDAD = `Hola, somos el IES Jaume Balmes. Queremos ir a Cambrils del 16 al 18 de junio
+de 2027, 25 alumnos y 2 profesores, hotel de 3 estrellas en pensión completa.
+Todavía no sabemos qué cursos van.
+Un saludo,
+Ruth Soler
+rsoler@jaumebalmes.cat`;
+
+prueba("sin edad, la solicitud queda lista para buscar", () => {
+  assert.equal(readTripMessage(SIN_EDAD, HOY).requestStatus, "READY_FOR_SEARCH");
+});
+
+prueba("la edad se sigue pidiendo, pero como aviso", () => {
+  const resultado = readTripMessage(SIN_EDAD, HOY);
+  const edad = resultado.missingFields.find((f) => f.field === "ageRangeText");
+  assert.ok(edad, "debería seguir apareciendo como dato que falta");
+  assert.equal(edad.severity, "warning");
+});
+
+prueba("el resto del mensaje se entiende igual", () => {
+  const { normalized } = readTripMessage(SIN_EDAD, HOY);
+  assert.equal(normalized.destinationText, "Cambrils");
+  assert.equal(normalized.dateFrom, "2027-06-16");
+  assert.equal(normalized.participants, 25);
+  assert.equal(normalized.teachers, 2);
+});
+
 console.log(`\n${pasadas} pasadas, ${fallidas} fallidas\n`);
 process.exit(fallidas > 0 ? 1 : 0);

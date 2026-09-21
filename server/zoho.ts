@@ -225,12 +225,30 @@ async function zohoRequest<T>(path: string, init?: RequestInit, retry = true): P
   return json;
 }
 
+/**
+ * Busca un contacto por su correo, mirando también el secundario.
+ *
+ * `search?email=` de Zoho solo mira el campo Email. Un colegio que tenga la
+ * dirección buena en «Correo secundario» no se encontraba, y el contacto se
+ * creaba otra vez. Por eso se reintenta por criterio explícito sobre los dos
+ * campos.
+ */
 async function searchContactByEmail(email: string) {
-  const result = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
-    `${zohoConfig.contactsModule}/search?email=${encodeURIComponent(email)}`,
+  const limpio = email.trim();
+  if (!limpio) return null;
+
+  const porEmail = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
+    `${zohoConfig.contactsModule}/search?email=${encodeURIComponent(limpio)}`,
     { method: "GET" }
   );
-  return result.data?.[0] ?? null;
+  if (porEmail.data?.[0]) return porEmail.data[0];
+
+  const criteria = `((Email:equals:${limpio})or(Secondary_Email:equals:${limpio}))`;
+  const porCriterio = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
+    `${zohoConfig.contactsModule}/search?criteria=${encodeURIComponent(criteria)}`,
+    { method: "GET" }
+  );
+  return porCriterio.data?.[0] ?? null;
 }
 
 export interface ContactoDelCrm {
@@ -323,7 +341,24 @@ async function upsertContact(payload: {
   firstName: string;
   lastName: string;
 }) {
-  const existing = await searchContactByEmail(payload.email).catch(() => null);
+  // Antes esto era `.catch(() => null)`: si la busqueda fallaba por cualquier
+  // motivo -un limite de peticiones de Zoho, un corte de un segundo- se tomaba
+  // por "no existe" y se creaba un contacto nuevo. Un error tragado se
+  // convertia en un duplicado en el CRM del cliente, y nadie se enteraba.
+  //
+  // Ahora un fallo de busqueda para la operacion. Es preferible que quien
+  // cotiza lo reintente a ensuciar su base de contactos.
+  let existing: Record<string, unknown> | null;
+  try {
+    existing = await searchContactByEmail(payload.email);
+  } catch (error) {
+    const motivo = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `No se ha podido comprobar si ${payload.email} ya está en el CRM, así que no se crea ` +
+        `nada para no duplicarlo. Vuelve a intentarlo. (${motivo})`,
+    );
+  }
+
   if (existing?.id) {
     return String(existing.id);
   }
