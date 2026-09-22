@@ -9677,3 +9677,80 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 .cv__crmhit b {
   color: var(--text);
 }
+
+/* ── Borradores a medias ──────────────────────────────────────────────────
+   Antes solo habia UNO y vivia en este navegador. Ahora son una lista: los
+   tuyos y los de tu departamento, y se pueden continuar. Puntos 4 y 5 de
+   Ruth. Se apoya en los mismos tokens que el resto del lienzo. */
+.cv__drafts {
+  margin: var(--sp-3) var(--sp-5) 0;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.cv__draftsh {
+  margin: 0 0 8px;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.cv__draftsh span {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.cv__drafts ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.cv__draft {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 8px 10px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cv__draft:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+.cv__draft:focus-visible {
+  outline: 2px solid var(--cv-navy);
+  outline-offset: -2px;
+}
+
+.cv__draftt {
+  font-size: var(--fs-body);
+  color: var(--text);
+  /* Un titulo largo se recorta, no empuja la fecha fuera de la caja. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cv__draftm {
+  font-size: var(--fs-small);
+  color: var(--muted);
+  white-space: nowrap;
+}

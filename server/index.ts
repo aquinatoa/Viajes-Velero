@@ -17,6 +17,13 @@ import {
   ZohoReauthRequiredError,
 } from "./zoho";
 import { searchAccommodationsDb, searchActivitiesDb } from "./searchDb";
+import {
+  borrarBorradorDb,
+  guardarBorradorDb,
+  leerBorradorDb,
+  listarBorradoresDb,
+  tomarBorradorDb,
+} from "./draftsDb";
 import fs from "node:fs";
 import path from "node:path";
 import { applyChange, previewChange, type DatosLeidos } from "./proposalChanges";
@@ -83,6 +90,7 @@ import {
   requireAuth,
   requireRole,
   deliveryVisibilityWhere,
+  draftVisibilityWhere,
   tripRequestVisibilityWhere,
   updateUser,
   writeAudit,
@@ -1561,6 +1569,93 @@ app.get("/api/commercial/clients/:id/trip-requests", async (request, response) =
 });
 
 // Guardar una solicitud de viaje normalizada.
+// ── Borradores de solicitud ──────────────────────────────────────────────────
+//
+// Antes vivían en el navegador de cada persona, bajo una sola clave: solo había
+// uno, no se podía volver a él y nadie podía continuar el de un compañero.
+// Puntos 4 y 5 de Ruth.
+
+app.get("/api/commercial/drafts", async (request, response) => {
+  try {
+    const user = (request as AuthedRequest).user;
+    const where = user ? draftVisibilityWhere(user) : {};
+    response.json({ drafts: await listarBorradoresDb(where) });
+  } catch (error) {
+    console.error("Error listando borradores", error);
+    response.status(500).json({ error: "No se pudieron cargar los borradores." });
+  }
+});
+
+app.get("/api/commercial/drafts/:id", async (request, response) => {
+  try {
+    const borrador = await leerBorradorDb(request.params.id);
+    if (!borrador) {
+      response.status(404).json({ error: "Ese borrador ya no existe." });
+      return;
+    }
+    response.json({ draft: borrador });
+  } catch (error) {
+    console.error("Error leyendo borrador", error);
+    response.status(500).json({ error: "No se pudo abrir el borrador." });
+  }
+});
+
+app.post("/api/commercial/drafts", async (request, response) => {
+  try {
+    const user = (request as AuthedRequest).user;
+    const body = (request.body ?? {}) as {
+      id?: string | null;
+      title?: string;
+      payload?: unknown;
+      tripRequestId?: string | null;
+    };
+    if (!body.title?.trim()) {
+      response.status(400).json({ error: "El borrador necesita un título para reconocerlo." });
+      return;
+    }
+    const guardado = await guardarBorradorDb({
+      id: body.id ?? null,
+      title: body.title,
+      payload: body.payload ?? {},
+      tripRequestId: body.tripRequestId ?? null,
+      // El dueño y el departamento son SIEMPRE los del usuario autenticado, no
+      // los del cuerpo: si no, cualquiera podría escribir un borrador a nombre
+      // de otro departamento y hacerlo invisible para quien le toca.
+      ownerUserId: user?.id ?? null,
+      department: user?.department ?? null,
+      userId: user?.id ?? null,
+    });
+    response.json({ draft: guardado });
+  } catch (error) {
+    console.error("Error guardando borrador", error);
+    response.status(500).json({ error: "No se pudo guardar el borrador." });
+  }
+});
+
+app.post("/api/commercial/drafts/:id/claim", async (request, response) => {
+  try {
+    const user = (request as AuthedRequest).user;
+    response.json({ draft: await tomarBorradorDb(request.params.id, user?.id ?? null) });
+  } catch (error) {
+    console.error("Error tomando borrador", error);
+    response.status(500).json({ error: "No se pudo tomar el borrador." });
+  }
+});
+
+app.delete("/api/commercial/drafts/:id", async (request, response) => {
+  try {
+    const borrado = await borrarBorradorDb(request.params.id);
+    if (!borrado) {
+      response.status(404).json({ error: "Ese borrador ya no existe." });
+      return;
+    }
+    response.json({ ok: true });
+  } catch (error) {
+    console.error("Error borrando borrador", error);
+    response.status(500).json({ error: "No se pudo borrar el borrador." });
+  }
+});
+
 app.post("/api/commercial/trip-requests", async (request, response) => {
   try {
     const req = request as AuthedRequest;

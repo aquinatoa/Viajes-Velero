@@ -823,3 +823,68 @@ export function applyChangeApi(proposalId: string, leido: DatosLeidosCambio, men
     "No se pudo aplicar el cambio.",
   );
 }
+
+// ── Borradores de solicitud ──────────────────────────────────────────────────
+//
+// Antes vivían en el navegador de cada persona, bajo una sola clave: solo había
+// uno y nadie podía continuar el de un compañero. Puntos 4 y 5 de Ruth.
+
+export interface BorradorEnLista {
+  id: string;
+  title: string;
+  ownerUserId: string | null;
+  department: string | null;
+  tripRequestId: string | null;
+  /** Quién lo tiene abierto ahora mismo, si alguien lo tiene. */
+  lockedByUserId: string | null;
+  updatedAt: string;
+}
+
+export interface BorradorCompleto extends BorradorEnLista {
+  payload: unknown;
+  lockedAt: string | null;
+  createdAt: string;
+}
+
+export function listarBorradoresApi() {
+  return getJson<{ drafts: BorradorEnLista[] }>(
+    "/api/commercial/drafts",
+    "No se pudieron cargar los borradores.",
+  );
+}
+
+export function leerBorradorApi(id: string) {
+  return getJson<{ draft: BorradorCompleto }>(
+    `/api/commercial/drafts/${encodeURIComponent(id)}`,
+    "No se pudo abrir el borrador.",
+  );
+}
+
+export function guardarBorradorApi(input: {
+  id?: string | null;
+  title: string;
+  payload: unknown;
+  tripRequestId?: string | null;
+}) {
+  return postJson<{ draft: BorradorEnLista }>(
+    "/api/commercial/drafts",
+    input,
+    "No se pudo guardar el borrador.",
+  );
+}
+
+/** Tomar uno que otra persona tenía abierto. No hay cerrojo duro: solo aviso. */
+export function tomarBorradorApi(id: string) {
+  return postJson<{ draft: BorradorEnLista }>(
+    `/api/commercial/drafts/${encodeURIComponent(id)}/claim`,
+    {},
+    "No se pudo tomar el borrador.",
+  );
+}
+
+export function borrarBorradorApi(id: string) {
+  return deleteJson<{ ok: true }>(
+    `/api/commercial/drafts/${encodeURIComponent(id)}`,
+    "No se pudo borrar el borrador.",
+  );
+}

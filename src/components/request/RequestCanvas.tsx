@@ -15,6 +15,11 @@ import {
   abrirProposalPdf,
   buscarContactoCrmApi,
   upsertClientApi,
+  guardarBorradorApi,
+  leerBorradorApi,
+  listarBorradoresApi,
+  tomarBorradorApi,
+  type BorradorEnLista,
   createZohoOpportunityApi,
   prepareProposalDeliveryApi,
   searchAccommodationsApi,
@@ -24,7 +29,15 @@ import {
   type ProposalDeliveryResult,
 } from "../../services/apiClient";
 import isotipoBlanco from "../../assets/oravia-isotipo-blanco.png";
-import { borrarBorrador, guardarBorrador, haceCuanto, leerBorrador, type BorradorSolicitud } from "./draft";
+import {
+  borrarBorrador,
+  estaVacio,
+  guardarBorrador,
+  haceCuanto,
+  leerBorrador,
+  tituloDelBorrador,
+  type BorradorSolicitud,
+} from "./draft";
 import type { ClientSegment } from "../../domain/documentImportTypes";
 import type {
   AccommodationSearchMatch,
@@ -217,6 +230,10 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
   const [entrega, setEntrega] = useState<ProposalDeliveryResult | null>(null);
   const [enviada, setEnviada] = useState(false);
 
+  /** El borrador que se está escribiendo, ya en el servidor. */
+  const [borradorId, setBorradorId] = useState<string | null>(null);
+  /** Los borradores a medias que este usuario puede continuar. */
+  const [borradores, setBorradores] = useState<BorradorEnLista[]>([]);
   /** Borrador encontrado al entrar: se ofrece, no se aplica a la fuerza. */
   const [recuperable, setRecuperable] = useState<BorradorSolicitud | null>(null);
   const [guardadoEn, setGuardadoEn] = useState<string | null>(null);
@@ -237,13 +254,79 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
     if (encontrado) setRecuperable(encontrado);
   }, []);
 
+  // Y los borradores del servidor, que son los que se pueden continuar desde
+  // otro ordenador o los que dejó un compañero.
+  useEffect(() => {
+    let vivo = true;
+    listarBorradoresApi()
+      .then(({ drafts }) => {
+        if (vivo) setBorradores(drafts);
+      })
+      .catch(() => {
+        // Sin lista se sigue trabajando: se empieza una solicitud nueva.
+      });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  /**
+   * Continuar un borrador del servidor, sea de quien sea.
+   *
+   * Si lo tenía abierto otra persona se avisa y se toma: no hay cerrojo duro a
+   * propósito, porque si alguien se va de vacaciones con un borrador abierto su
+   * compañera tiene que poder seguirlo. Lo que no puede pasar es que se lo
+   * encuentre sin enterarse.
+   */
+  async function continuarBorrador(id: string) {
+    setError("");
+    setOcupado("leyendo");
+    try {
+      const { draft } = await leerBorradorApi(id);
+      const estado = draft.payload as BorradorSolicitud | null;
+      if (!estado) {
+        setError("Ese borrador no se puede leer. Empieza una solicitud nueva.");
+        return;
+      }
+
+      if (draft.lockedByUserId) {
+        setAviso("Otra persona lo tenía abierto. Lo has tomado tú: avísale para que no trabajéis los dos.");
+      }
+      await tomarBorradorApi(id).catch(() => {});
+
+      setBorradorId(draft.id);
+      setSolicitudId(estado.solicitudId ?? null);
+      setCanal(estado.canal ?? "GENERIC");
+      setMensajes(estado.mensajes ?? []);
+      setBorrador(estado.redaccion ?? "");
+      setForm(estado.form);
+      setEntendido(estado.entendido);
+      setTope(estado.tope ?? null);
+      setRequisitos(estado.requisitos ?? []);
+      setElegidos(estado.elegidos ?? []);
+      setProgramaBase(estado.programaBase ?? []);
+      setExcepciones(estado.excepciones ?? {});
+      setRecuperable(null);
+
+      // Las tarifas pueden haber cambiado desde que se guardó: se vuelve a
+      // buscar en vez de enseñar precios viejos.
+      if (estado.entendido?.destinationText) {
+        await buscarHoteles(estado.entendido, estado.canal ?? "GENERIC");
+      }
+    } catch (err) {
+      setError(mensajeDeError(err, "No se pudo abrir el borrador."));
+    } finally {
+      setOcupado("");
+    }
+  }
+
   // Guardado continuo, con un respiro para no escribir en cada tecla.
   const guardadoRef = useRef<number | null>(null);
   useEffect(() => {
     if (enviada) return;
     if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
     guardadoRef.current = window.setTimeout(() => {
-      guardarBorrador({
+      const estado = {
         solicitudId,
         canal,
         mensajes,
@@ -255,8 +338,29 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
         elegidos,
         programaBase,
         excepciones,
-      });
+      };
+
+      // En el navegador, siempre: es la red que salva lo escrito si se cae la
+      // red justo ahora o se recarga la pestaña.
+      guardarBorrador(estado);
       setGuardadoEn(new Date().toISOString());
+
+      // Y en el servidor, que es donde vive de verdad y lo que permite
+      // retomarlo desde otro ordenador o que lo continúe un compañero.
+      if (estaVacio(estado)) return;
+      void guardarBorradorApi({
+        id: borradorId,
+        title: tituloDelBorrador(estado),
+        payload: estado,
+        tripRequestId: solicitudId,
+      })
+        .then(({ draft }) => {
+          if (!borradorId) setBorradorId(draft.id);
+        })
+        .catch(() => {
+          // Sin servidor se sigue trabajando: lo del navegador ya está guardado
+          // y el siguiente guardado reintentará.
+        });
     }, 600);
     return () => {
       if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
@@ -768,6 +872,31 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
               Seguir con ella
             </button>
           </span>
+        </div>
+      ) : null}
+
+      {/* Los borradores del servidor. Antes solo había UNO y vivía en este
+          navegador: empezar otra solicitud pisaba la anterior y nadie podía
+          continuar la de un compañero. Puntos 4 y 5 de Ruth. */}
+      {borradores.length > 0 && !entendido && mensajes.length === 0 ? (
+        <div className="cv__drafts">
+          <p className="cv__draftsh">
+            Solicitudes a medias · {borradores.length}
+            <span>Tuyas y de tu departamento. Se pueden continuar.</span>
+          </p>
+          <ul>
+            {borradores.slice(0, 8).map((d) => (
+              <li key={d.id}>
+                <button type="button" className="cv__draft" onClick={() => void continuarBorrador(d.id)}>
+                  <span className="cv__draftt">{d.title}</span>
+                  <span className="cv__draftm">
+                    {haceCuanto(d.updatedAt)}
+                    {d.lockedByUserId ? " · alguien la tiene abierta" : ""}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 

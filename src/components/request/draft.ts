@@ -3,14 +3,16 @@ import type { NormalizedRequestDraft, ParseTripRequestInput } from "../../domain
 /**
  * Borrador del lienzo.
  *
- * El asistente antiguo perdía el trabajo al cerrarse; el lienzo lo perdía al
- * recargar. Aquí se guarda lo que la persona ha escrito o elegido, para poder
- * recuperarlo tal cual.
+ * Vive en el SERVIDOR, y en el navegador solo como red de seguridad.
  *
- * Se guarda en el navegador, no en el servidor: cubre el caso real (recargar,
- * cerrar la pestaña sin querer, que se cierre el portátil) sin inventar un
- * modelo de datos nuevo. Lo que NO cubre es seguir en otro ordenador; para eso
- * haría falta guardarlo en la base de datos, y es el paso siguiente.
+ * Antes era al revés: una sola clave en `localStorage`. Eso significaba que
+ * solo había un borrador —empezar otra solicitud pisaba la anterior—, que no se
+ * podía volver a uno que ya existía, y que nadie podía continuar el de un
+ * compañero. Ruth lo reportó como dos puntos distintos, el 4 y el 5, y son la
+ * misma causa.
+ *
+ * Lo que queda en el navegador es solo el último estado, para sobrevivir a una
+ * recarga o a un corte de red sin perder lo escrito. Manda el servidor.
  *
  * No se guardan los resultados de búsqueda: al recuperar se vuelven a buscar,
  * porque las tarifas pueden haber cambiado y un precio viejo es peor que
@@ -99,4 +101,30 @@ export function haceCuanto(iso: string): string {
   if (horas < 24) return `hace ${horas} ${horas === 1 ? "hora" : "horas"}`;
   const dias = Math.floor(horas / 24);
   return dias === 1 ? "ayer" : `hace ${dias} días`;
+}
+
+/**
+ * Un nombre con el que reconocer el borrador en la lista sin abrirlo.
+ *
+ * Se compone de lo que ya se sabe: el centro, el destino y las fechas. Si no se
+ * sabe nada todavía, las primeras palabras del mensaje pegado. Un borrador que
+ * se llame «Borrador» no sirve de nada en una lista de quince.
+ */
+export function tituloDelBorrador(borrador: Omit<BorradorSolicitud, "guardadoEn">): string {
+  const centro = borrador.form.centreName?.trim();
+  const destino = borrador.entendido?.destinationText?.trim();
+  const desde = borrador.entendido?.dateFrom?.trim();
+
+  const partes = [centro, destino, desde].filter(Boolean);
+  if (partes.length > 0) return partes.join(" · ");
+
+  const primerMensaje = (borrador.mensajes[0] ?? borrador.redaccion ?? "").trim();
+  if (primerMensaje) return `${primerMensaje.split(/\s+/).slice(0, 8).join(" ")}…`;
+
+  return "Solicitud sin empezar";
+}
+
+/** Si no hay nada escrito, no hay borrador que guardar ni que listar. */
+export function estaVacio(borrador: Omit<BorradorSolicitud, "guardadoEn">): boolean {
+  return borrador.mensajes.length === 0 && !borrador.redaccion.trim() && !borrador.entendido;
 }

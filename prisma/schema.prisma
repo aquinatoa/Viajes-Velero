@@ -764,3 +764,38 @@ model ProposalDelivery {
   @@index([status])
   @@index([depositDueAt])
 }
+
+/// Un borrador de solicitud a medias.
+///
+/// Antes vivía en el navegador de cada persona, bajo UNA sola clave: empezar
+/// otra solicitud pisaba la anterior, no se podía volver a una que ya existía, y
+/// nadie podía continuar la de un compañero. Lo pidió Ruth (puntos 4 y 5).
+///
+/// Aquí ya es una fila: tiene dueño, departamento y se puede listar. El
+/// contenido va en JSON a propósito: es lo que la persona lleva escrito en el
+/// lienzo, cambia con la pantalla y no tiene por qué ser un esquema.
+model RequestDraft {
+  id          String   @id @default(cuid())
+  /// Para reconocerlo en la lista sin abrirlo: centro, destino y fechas.
+  title       String
+  /// Quién lo empezó. No es quién puede abrirlo: eso lo decide el departamento.
+  ownerUserId String?
+  department  Department?
+  /// El estado del lienzo, tal cual. Ver `BorradorSolicitud` en el navegador.
+  payload     String
+  /// Solicitud ya creada por un cierre que no llegó a terminar. Sin esto, el
+  /// reintento crearía otra solicitud y, tras ella, otro trato en el CRM.
+  tripRequestId String?
+
+  /// Quién lo tiene abierto ahora mismo, para que dos personas no se pisen.
+  /// No es un cerrojo duro: se puede tomar. Solo avisa.
+  lockedByUserId String?
+  lockedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerUserId])
+  @@index([department])
+  @@index([updatedAt])
+}

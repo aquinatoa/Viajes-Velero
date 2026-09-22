@@ -79,6 +79,29 @@ export function deliveryVisibilityWhere(user: AuthedUser): Record<string, unknow
   return { proposal: { tripRequest: { ownerUserId: user.id } } };
 }
 
+/**
+ * Lo mismo, para los borradores a medias.
+ *
+ * Aqui la regla del cotizador es MAS ABIERTA que en las propuestas, y es a
+ * proposito. Ruth lo pidio asi: «todos los borradores deben ser editables por
+ * otros usuarios si fuera necesario». Un borrador no es trabajo terminado de
+ * nadie: es trabajo a medias que alguien puede tener que continuar porque quien
+ * lo empezo esta de vacaciones o de baja.
+ *
+ * Asi que un cotizador ve los de SU DEPARTAMENTO, no solo los suyos. Si no
+ * tiene departamento, solo los suyos, que es lo unico que se puede decir de el
+ * con certeza.
+ */
+export function draftVisibilityWhere(user: AuthedUser): Record<string, unknown> {
+  if (user.role === "ADMIN" || user.role === "USER") return {};
+
+  if (user.department) {
+    return { OR: [{ department: user.department }, { ownerUserId: user.id }] };
+  }
+
+  return { ownerUserId: user.id };
+}
+
 export interface AuthedRequest extends Request {
   user?: AuthedUser;
   authToken?: string;
