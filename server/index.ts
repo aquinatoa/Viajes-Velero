@@ -1521,6 +1521,9 @@ app.post("/api/commercial/clients", async (request, response) => {
       firstName?: string;
       lastName?: string;
       clientType?: "new" | "existing";
+      centreName?: string | null;
+      crmContactId?: string | null;
+      crmAccountId?: string | null;
     };
     if (!body.email?.trim()) {
       response.status(400).json({ error: "El email es obligatorio." });
@@ -1531,6 +1534,11 @@ app.post("/api/commercial/clients", async (request, response) => {
       firstName: (body.firstName ?? "").trim(),
       lastName: (body.lastName ?? "").trim(),
       clientType: body.clientType === "existing" ? "existing" : "new",
+      // El centro y la identidad de Zoho. Solo se escriben si vienen: una
+      // solicitud posterior sin ellos no puede borrar lo que ya se sabía.
+      centreName: body.centreName ?? null,
+      crmContactId: body.crmContactId ?? null,
+      crmAccountId: body.crmAccountId ?? null,
     });
     response.json(client);
   } catch (error) {

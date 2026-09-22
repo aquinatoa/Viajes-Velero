@@ -635,6 +635,9 @@ export function upsertClientApi(input: {
   firstName: string;
   lastName: string;
   clientType: "new" | "existing";
+  centreName?: string | null;
+  crmContactId?: string | null;
+  crmAccountId?: string | null;
 }) {
   return postJson<Client>("/api/commercial/clients", input, "No se pudo guardar el cliente.");
 }

@@ -26,6 +26,13 @@ interface UpsertClientInput {
   firstName: string;
   lastName: string;
   clientType: "new" | "existing";
+  /**
+   * El centro y la identidad en Zoho. Los tres se escriben SOLO si vienen: una
+   * solicitud posterior sin centro no puede borrar el que ya se sabía.
+   */
+  centreName?: string | null;
+  crmContactId?: string | null;
+  crmAccountId?: string | null;
 }
 
 function mapClient(row: {
@@ -34,6 +41,7 @@ function mapClient(row: {
   firstName: string;
   lastName: string;
   fullName: string;
+  centreName: string | null;
   isReturningCustomer: boolean;
   crmContactId: string | null;
   crmAccountId: string | null;
@@ -44,6 +52,7 @@ function mapClient(row: {
     firstName: row.firstName,
     lastName: row.lastName,
     fullName: row.fullName,
+    centreName: row.centreName ?? undefined,
     isReturningCustomer: row.isReturningCustomer,
     crmContactId: row.crmContactId ?? undefined,
     crmAccountId: row.crmAccountId ?? undefined,
@@ -67,12 +76,21 @@ export async function upsertClientFromIntakeDb(input: UpsertClientInput): Promis
   const lastName = input.lastName || existing?.lastName || "";
   const fullName = `${firstName} ${lastName}`.trim();
 
+  // Lo que no venga se conserva. Un dato que se supo una vez no se pierde
+  // porque el siguiente correo del mismo colegio no lo mencione.
+  const centreName = input.centreName?.trim() || existing?.centreName || null;
+  const crmContactId = input.crmContactId ?? existing?.crmContactId ?? null;
+  const crmAccountId = input.crmAccountId ?? existing?.crmAccountId ?? null;
+
   const row = await prisma.client.upsert({
     where: { email },
     update: {
       firstName,
       lastName,
       fullName,
+      centreName,
+      crmContactId,
+      crmAccountId,
       isReturningCustomer: true,
     },
     create: {
@@ -80,6 +98,9 @@ export async function upsertClientFromIntakeDb(input: UpsertClientInput): Promis
       firstName,
       lastName,
       fullName,
+      centreName,
+      crmContactId,
+      crmAccountId,
       isReturningCustomer: input.clientType === "existing",
     },
   });
@@ -101,6 +122,7 @@ export interface SaveTripRequestInput {
   clientId: string;
   ownerUserId?: string | null;
   department?: "GROUPS" | "SPORTS" | null;
+  centreName?: string | null;
   opportunityName?: string | null;
   originalMessage: string;
   language?: string | null;
@@ -158,6 +180,7 @@ export async function saveTripRequestDb(input: SaveTripRequestInput): Promise<Tr
     // quien la creó sigue siendo quien la creó.
     ownerUserId: editable?.ownerUserId ?? input.ownerUserId ?? null,
     department: (editable?.department ?? input.department ?? null) as never,
+    centreName: input.centreName ?? null,
     opportunityName: input.opportunityName ?? null,
     originalMessage: input.originalMessage,
     language: input.language ?? null,
@@ -183,6 +206,7 @@ export async function saveTripRequestDb(input: SaveTripRequestInput): Promise<Tr
   return {
     id: row.id,
     clientId: row.clientId,
+    centreName: row.centreName ?? undefined,
     opportunityName: row.opportunityName ?? undefined,
     originalMessage: row.originalMessage,
     language: row.language ?? "",

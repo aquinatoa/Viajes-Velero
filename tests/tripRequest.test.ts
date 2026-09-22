@@ -14,6 +14,7 @@
 import assert from "node:assert/strict";
 
 import {
+  extractCentreName,
   extractClientInfo,
   extractRequestExtras,
   readTripMessage,
@@ -199,9 +200,14 @@ prueba("un destino que no operamos se nombra en el aviso", () => {
   assert.match(aviso.reason, /Benidorm/);
 });
 
-prueba("y llega al nombre de la oportunidad, para reconocerla en el CRM", () => {
+prueba("el centro manda sobre el destino en el nombre de la oportunidad", () => {
+  // Este correo lo firma el «Colegio San Vicente» y pide Benidorm. En el CRM de
+  // Oravia las oportunidades se llaman por el CENTRO, no por el destino: en una
+  // lista de doscientas, «COLEGIO SAN VICENTE 2027» se encuentra y
+  // «Viaje fin de curso Benidorm 2027» no dice de quién es.
   const info = extractClientInfo(CORREO_DESTINO_NO_OPERADO);
-  assert.equal(info.opportunityName, "Viaje fin de curso Benidorm 2027");
+  assert.equal(info.centreName, "Colegio San Vicente");
+  assert.equal(info.opportunityName, "COLEGIO SAN VICENTE 2027");
 });
 
 // ── El contacto ───────────────────────────────────────────────────────────────
@@ -335,6 +341,70 @@ prueba("el resto del mensaje se entiende igual", () => {
   assert.equal(normalized.dateFrom, "2027-06-16");
   assert.equal(normalized.participants, 25);
   assert.equal(normalized.teachers, 2);
+});
+// ── El centro educativo ───────────────────────────────────────────────────────
+//
+// En el CRM de Oravia la CUENTA es el centro: «CENTRE D'ESTUDIS JAUME BALMES»,
+// «ETAPSPORT», «Tot Turisme». La app no guardaba el centro, así que creaba la
+// cuenta con el nombre de quien escribía. En su Zoho de producción quedaron
+// tres cuentas llamadas «Marta Ferrer». Esto es lo que lo evita.
+
+console.log("\nEl centro que escribe");
+
+prueba("un IES se reconoce y no se lleva la ciudad por delante", () => {
+  const info = extractClientInfo(
+    "Soy Marta Ferrer, del IES Jaume Balmes de Barcelona. Viaje a Salou en 2027.",
+  );
+  assert.equal(info.centreName, "IES Jaume Balmes");
+});
+
+prueba("un colegio también, y para en el punto de la frase", () => {
+  const info = extractClientInfo(
+    "os escribo del Colegio Sagrado Corazón. Viaje de estudios a La Pineda 2027.",
+  );
+  assert.equal(info.centreName, "Colegio Sagrado Corazón");
+});
+
+prueba("los nombres con tilde no se pierden", () => {
+  // «\b» en JavaScript es ASCII: detrás de «Fundació» no hay frontera de
+  // palabra, así que el patrón de siempre no casaba nunca con estos.
+  assert.equal(extractCentreName("Le escribe la Fundació Llor para el viaje."), "Fundació Llor");
+  assert.equal(extractCentreName("Somos el Club Natació Sabadell."), "Club Natació Sabadell");
+});
+
+prueba("el catalán no hace que se trague media frase", () => {
+  // «i volem» es minúscula: no puede entrar en el nombre del centro.
+  assert.equal(
+    extractCentreName("Som de l'Institut Vedruna Balaguer i volem anar a Salou."),
+    "Institut Vedruna Balaguer",
+  );
+});
+
+prueba("un tipo suelto no identifica a nadie", () => {
+  assert.equal(extractCentreName("Somos un colegio y queremos ir a Salou."), "");
+});
+
+prueba("sin centro reconocible, no se inventa", () => {
+  assert.equal(extractCentreName("Hola, queremos ir a Salou del 10 al 14 de mayo."), "");
+});
+
+// ── El nombre de la oportunidad ───────────────────────────────────────────────
+
+console.log("\nEl nombre de la oportunidad, como los nombra Oravia");
+
+prueba("centro y año, en mayúsculas", () => {
+  // Los suyos: «JAUME BALMES 3er ESO 2027», «VEDRUNA BALAGUER 2027». Antes
+  // salía «Viaje fin de curso Salou 2027», que describe el viaje pero no dice
+  // de quién es, y en una lista de doscientas no sirve para encontrarla.
+  const info = extractClientInfo(
+    "Soy Marta Ferrer, del IES Jaume Balmes de Barcelona. Fin de curso a Salou en 2027.",
+  );
+  assert.equal(info.opportunityName, "IES JAUME BALMES 2027");
+});
+
+prueba("sin centro, se sigue describiendo el viaje", () => {
+  const info = extractClientInfo("Queremos un viaje de fin de curso a Salou en 2027.");
+  assert.equal(info.opportunityName, "Viaje fin de curso Salou 2027");
 });
 
 console.log(`\n${pasadas} pasadas, ${fallidas} fallidas\n`);

@@ -14,6 +14,7 @@ import {
 import {
   abrirProposalPdf,
   buscarContactoCrmApi,
+  upsertClientApi,
   createZohoOpportunityApi,
   prepareProposalDeliveryApi,
   searchAccommodationsApi,
@@ -408,6 +409,11 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
         ...actual,
         firstName: actual.firstName.trim() || contacto.firstName,
         lastName: actual.lastName.trim() || contacto.lastName,
+        // El centro que manda es el de su cuenta en Zoho, no el que hayamos
+        // adivinado del mensaje: si el colegio ya existe, su nombre bueno es el
+        // que ellos escribieron alli. Asi no se crea una segunda cuenta por una
+        // tilde o un «IES» de mas.
+        centreName: contacto.accountName || (actual.centreName ?? ""),
       }));
     } catch {
       // Sin CRM se sigue trabajando: el contacto se escribe a mano, como antes.
@@ -432,6 +438,10 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
         email: form.email || datosCliente.email || "",
         firstName: form.firstName || datosCliente.firstName || "",
         lastName: form.lastName || datosCliente.lastName || "",
+        // El centro da nombre a la cuenta del CRM. Sin el, la app creaba la
+        // cuenta con el nombre de la persona.
+        centreName: form.centreName || datosCliente.centreName || "",
+        opportunityName: form.opportunityName || datosCliente.opportunityName || "",
         rawTripRequestText: texto,
       };
       setForm(entrada);
@@ -440,7 +450,7 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
       // adivinemos del mensaje. Teclear el contacto en cada solicitud acaba
       // creando una segunda ficha del mismo colegio con el nombre escrito de
       // otra manera. No bloquea: si Zoho no contesta, se sigue igual.
-      if (entrada.email) void traerContactoDelCrm(entrada.email);
+      if (form.email) void traerContactoDelCrm(form.email);
 
       // Leer NO exige datos de contacto: el correo hace falta para enviar.
       const resultado = readTripMessage(texto);
@@ -577,6 +587,29 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
       });
       logCrmSyncAttempt(payload);
       setDealId(trato.dealId);
+
+      // Se guarda la identidad que Zoho acaba de resolver. Estos dos campos
+      // existian desde el principio y no los escribia nadie: por eso cada
+      // solicitud volvia a buscar el contacto en Zoho desde cero, y cada
+      // busqueda era otra ocasion de no encontrarlo y crear un duplicado.
+      // A partir de aqui, el mismo colegio ya se reconoce por identificador.
+      if (trato.contactId || trato.accountId) {
+        try {
+          await upsertClientApi({
+            email: form.email,
+            firstName: form.firstName,
+            lastName: form.lastName,
+            clientType: form.clientType,
+            centreName: form.centreName ?? null,
+            crmContactId: trato.contactId ?? null,
+            crmAccountId: trato.accountId ?? null,
+          });
+        } catch {
+          // No se corta el cierre por esto: la propuesta ya existe y el trato
+          // tambien. Solo significa que la proxima vez habra que volver a
+          // buscar en Zoho.
+        }
+      }
 
       const preparada = await prepareProposalDeliveryApi(nueva.id, {
         recipientEmail: form.email,
@@ -820,6 +853,17 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
                   resaltar={!entendido.ageRangeText.trim() && !entendido.averageAgeText.trim()}
                 />
                 <Campo etiqueta="Régimen" valor={entendido.regimeRequested} onChange={(v) => setEntendido({ ...entendido, regimeRequested: v })} />
+                {/* El centro es la CUENTA del CRM. Sin el, la app creaba la
+                    cuenta con el nombre de la persona y en el Zoho de Oravia
+                    quedaron tres cuentas llamadas «Marta Ferrer». */}
+                <Campo
+                  etiqueta="Centro"
+                  valor={form.centreName ?? ""}
+                  onChange={(v) => setForm({ ...form, centreName: v })}
+                  placeholder="IES Jaume Balmes"
+                  resaltar={!(form.centreName ?? "").trim()}
+                  ayuda="El colegio, club o agencia. Es lo que da nombre a la cuenta en Zoho."
+                />
                 <Campo etiqueta="Correo del centro" valor={form.email} onChange={(v) => setForm({ ...form, email: v })} placeholder="direccion@colegio.es" resaltar={!form.email.trim()} />
                 <Campo etiqueta="Contacto · nombre" valor={form.firstName} onChange={(v) => setForm({ ...form, firstName: v })} placeholder="Javier" resaltar={!form.firstName.trim()} />
                 <Campo etiqueta="Contacto · apellidos" valor={form.lastName} onChange={(v) => setForm({ ...form, lastName: v })} placeholder="Martínez" resaltar={!form.lastName.trim()} />

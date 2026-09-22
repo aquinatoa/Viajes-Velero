@@ -39,9 +39,17 @@ function buildCommonContact(client: Client) {
   };
 }
 
+/**
+ * La cuenta del CRM: el CENTRO, no la persona.
+ *
+ * Si ya se resolvió una vez se reutiliza su identificador, que es lo único que
+ * garantiza no crear una segunda cuenta del mismo colegio por una diferencia de
+ * tildes o de mayúsculas en el nombre.
+ */
 function buildCommonAccount(client: Client) {
   return {
     crm_account_id: client.crmAccountId ?? null,
+    name: client.centreName ?? null,
     account_lookup_strategy: client.crmAccountId ? "use_existing" : "resolve_or_create"
   };
 }

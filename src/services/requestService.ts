@@ -329,7 +329,82 @@ export interface ExtractedClientInfo {
   email: string;
   firstName: string;
   lastName: string;
+  /** El colegio, el club o la agencia. En el CRM de Oravia es la CUENTA. */
+  centreName: string;
   opportunityName: string;
+}
+
+/** Cómo empieza el nombre de un centro. Se conserva tal cual para el CRM. */
+const TIPOS_DE_CENTRO = [
+  "IES",
+  "CEIP",
+  "CPI",
+  "Instituto",
+  "Institut",
+  "Colegio",
+  "Col·legi",
+  "Collegi",
+  "Escuela",
+  "Escola",
+  "Centre d'Estudis",
+  "Centro de Estudios",
+  "Fundació",
+  "Fundacion",
+  "Fundación",
+  "Universidad",
+  "Universitat",
+  "Club",
+  "Asociación",
+  "Associació",
+  "AMPA",
+  "AFA",
+];
+
+/**
+ * El centro que escribe, sacado del propio mensaje.
+ *
+ * En el CRM de Oravia la cuenta es el centro —«CENTRE D'ESTUDIS JAUME BALMES»,
+ * «ETAPSPORT»— y no la persona. Como la app no guardaba el centro, creaba la
+ * cuenta con el nombre de quien escribía: en su CRM quedaron tres cuentas
+ * llamadas «Marta Ferrer». Esto es lo que lo evita.
+ *
+ * Se corta en la preposición siguiente para no arrastrar la ciudad: de «del IES
+ * Ramón y Cajal de Madrid» sale «IES Ramón y Cajal», no el centro con Madrid
+ * pegado detrás.
+ */
+/** Palabras que, en medio de una frase, ya no son parte del nombre del centro. */
+const CORTA_EL_NOMBRE = ["de", "del", "en", "desde", "para", "que", "con", "i", "y", "a"];
+
+export function extractCentreName(text: string): string {
+  // El tipo se acepta en mayúscula o minúscula («del colegio Sagrado Corazón»),
+  // pero SOLO en su primera letra. Un modificador `i` global haría que
+  // `\p{Lu}` de abajo aceptara minúsculas, y entonces el nombre se comería la
+  // frase entera: «Institut Vedruna Balaguer i volem».
+  const tipos = TIPOS_DE_CENTRO.map((tipo) => {
+    const escapado = tipo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const inicial = escapado[0];
+    return `[${inicial.toUpperCase()}${inicial.toLowerCase()}]${escapado.slice(1)}`;
+  }).join("|");
+
+  const corte = CORTA_EL_NOMBRE.join("|");
+
+  // Se evita `\b` alrededor del tipo: en JavaScript la frontera de palabra es
+  // ASCII, y detrás de «Fundació» no hay ninguna, así que `\bFundació\b` no
+  // casaba nunca. Con `\p{L}` y el modificador `u` sí.
+  const patron = new RegExp(
+    `(?<!\\p{L})(${tipos})(?!\\p{L})` +
+      // Hasta cuatro palabras más, cada una empezando por mayúscula. Los puntos
+      // quedan fuera a propósito: son el final de la frase, no del nombre.
+      `((?:\\s+(?!(?:${corte})(?!\\p{L}))\\p{Lu}[\\p{L}\\p{N}'’·-]*){0,4})`,
+    "u",
+  );
+
+  const encontrado = text.match(patron);
+  if (!encontrado) return "";
+
+  const nombre = `${encontrado[1]}${encontrado[2] ?? ""}`.replace(/\s+/g, " ").trim();
+  // Un tipo suelto («Colegio») no identifica a nadie.
+  return nombre.split(/\s+/).length >= 2 ? nombre.replace(/[.,;:]+$/, "") : "";
 }
 
 /** Palabras que aparecen en una firma pero no son el nombre de nadie. */
@@ -387,7 +462,28 @@ export function extractClientInfo(text: string): ExtractedClientInfo {
     lastName = parts.slice(1).join(" ");
   }
 
-  // Nombre de la oportunidad sugerido: tipo de viaje + destino + año.
+  const centreName = extractCentreName(text);
+
+  // Si el destino no está en el catálogo se usa el que diga el correo: el
+  // nombre de la oportunidad es para que una persona la reconozca en el CRM,
+  // no para buscar inventario.
+  const destination = findDestination(text)?.city ?? destinoFueraDeCatalogo(text);
+  const year = text.match(/\b(20\d{2})\b/)?.[1] ?? "";
+
+  // El nombre de la oportunidad, como los nombra Oravia: CENTRO y año, en
+  // mayúsculas. Los suyos son «JAUME BALMES 3er ESO 2027», «VEDRUNA BALAGUER
+  // 2027», «FUNDACIÓ LLOR 2027». Antes salía «Viaje fin de curso Salou 2027»,
+  // que describe el viaje pero no dice de quién es, y en una lista de doscientas
+  // oportunidades eso no sirve para encontrarla.
+  //
+  // El curso («3er ESO») no se puede adivinar del mensaje, así que queda para
+  // que lo añada quien cotiza. El campo es editable.
+  if (centreName) {
+    const opportunityName = [centreName.toUpperCase(), year].filter(Boolean).join(" ").trim();
+    return { email, firstName, lastName, centreName, opportunityName };
+  }
+
+  // Sin centro, el respaldo de siempre: describir el viaje es mejor que nada.
   const lower = text.toLowerCase();
   let base = "";
   if (lower.includes("fin de curso")) base = "Viaje fin de curso";
@@ -395,14 +491,9 @@ export function extractClientInfo(text: string): ExtractedClientInfo {
   else if (lower.includes("viaje cultural")) base = "Viaje cultural";
   else if (lower.includes("viaje escolar") || lower.includes("viaje")) base = "Viaje escolar";
 
-  // Si el destino no está en el catálogo se usa el que diga el correo: el
-  // nombre de la oportunidad es para que una persona la reconozca en el CRM,
-  // no para buscar inventario.
-  const destination = findDestination(text)?.city ?? destinoFueraDeCatalogo(text);
-  const year = text.match(/\b(20\d{2})\b/)?.[1] ?? "";
   const opportunityName = [base, destination, year].filter(Boolean).join(" ").trim();
 
-  return { email, firstName, lastName, opportunityName };
+  return { email, firstName, lastName, centreName, opportunityName };
 }
 
 export interface RequestExtras {
@@ -805,6 +896,7 @@ export const upsertClientFromRequest = (input: ParseTripRequestInput): Promise<C
     firstName: input.firstName,
     lastName: input.lastName,
     clientType: input.clientType,
+    centreName: input.centreName ?? null,
   });
 };
 
@@ -822,6 +914,7 @@ export const saveNormalizedTripRequest = (
   return saveTripRequestApi({
     id: existingId ?? null,
     clientId,
+    centreName: source.centreName ?? null,
     opportunityName: source.opportunityName ?? null,
     originalMessage: source.rawTripRequestText,
     requestStatus: parseResult.requestStatus,

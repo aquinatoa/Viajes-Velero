@@ -401,7 +401,22 @@ async function createAccount(name: string) {
 }
 
 async function upsertAccount(name: string) {
-  const existing = await searchAccountByName(name).catch(() => null);
+  if (!name.trim()) return null;
+
+  // Mismo criterio que con el contacto: un error de busqueda NO puede leerse
+  // como "no existe", porque entonces se crea un duplicado en el CRM del
+  // cliente y nadie se entera hasta que mira la lista de cuentas.
+  let existing: Record<string, unknown> | null;
+  try {
+    existing = await searchAccountByName(name);
+  } catch (error) {
+    const motivo = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `No se ha podido comprobar si «${name}» ya es una cuenta del CRM, así que no se crea ` +
+        `nada para no duplicarla. Vuelve a intentarlo. (${motivo})`,
+    );
+  }
+
   if (existing?.id) {
     return String(existing.id);
   }
@@ -417,6 +432,8 @@ export async function createZohoOpportunity(payload: {
   };
   account: {
     crm_account_id?: string | null;
+    /** El centro. Es lo que da nombre a la cuenta en Zoho. */
+    name?: string | null;
   };
   opportunity: {
     opportunity_name?: string;
@@ -438,8 +455,17 @@ export async function createZohoOpportunity(payload: {
     lastName: payload.contact.last_name
   });
 
-  const accountId =
-    payload.account.crm_account_id || (await upsertAccount(payload.contact.full_name));
+  // La CUENTA es el centro, no la persona.
+  //
+  // Antes se resolvía con `payload.contact.full_name` y en el CRM de Oravia
+  // quedaron cuentas llamadas «Marta Ferrer», tres iguales. Sus cuentas de
+  // verdad son «CENTRE D'ESTUDIS JAUME BALMES», «ETAPSPORT», «Tot Turisme».
+  //
+  // Si no se sabe el centro NO se inventa una cuenta: es preferible un trato
+  // sin cuenta, que se ve y se corrige, que otra cuenta basura con nombre de
+  // persona, que no se ve hasta que alguien mira la lista.
+  const nombreDeCuenta = payload.account.name?.trim() ?? "";
+  const accountId = payload.account.crm_account_id || (await upsertAccount(nombreDeCuenta));
 
   const dealName =
     payload.opportunity.opportunity_name ||

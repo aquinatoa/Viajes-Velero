@@ -13,7 +13,15 @@ model Client {
   firstName            String
   lastName             String
   fullName             String
+  // El colegio, el club o la agencia. En el CRM de Oravia la CUENTA es esto,
+  // no la persona: «CENTRE D'ESTUDIS JAUME BALMES», «ETAPSPORT». Sin este dato
+  // la app no tenia de donde sacar la cuenta y la creaba con el nombre de quien
+  // escribia, lo que llenaba su CRM de cuentas llamadas como personas.
+  centreName           String?
   isReturningCustomer  Boolean       @default(false)
+  // Identidad en Zoho, que se guarda tras el primer cierre. Existian desde el
+  // principio y no los escribia nadie: cada solicitud volvia a buscar en Zoho
+  // desde cero, y cada busqueda era otra ocasion de no encontrarlo y duplicar.
   crmContactId         String?
   crmAccountId         String?
   createdAt            DateTime      @default(now())
@@ -26,6 +34,11 @@ model TripRequest {
   clientId           String
   ownerUserId        String?        // quién creó la cotización (para "ver solo lo suyo")
   department         Department?    // Groups / Sports; null si aún no asignado
+  // El centro tal y como se leyó en ESTE mensaje. Se guarda aparte del cliente
+  // porque un mismo contacto puede escribir desde dos centros, y porque la
+  // propuesta tiene que poder decir para quién se hizo aunque el cliente cambie
+  // después.
+  centreName         String?
   opportunityName    String?
   originalMessage    String
   language           String?

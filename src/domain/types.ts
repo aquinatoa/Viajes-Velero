@@ -33,6 +33,8 @@ export interface Client {
   firstName: string;
   lastName: string;
   fullName: string;
+  /** El colegio, club o agencia. En el CRM de Oravia es la CUENTA. */
+  centreName?: string;
   isReturningCustomer: boolean;
   crmContactId?: string;
   crmAccountId?: string;
@@ -69,6 +71,8 @@ export interface NormalizedRequestDraft {
 export interface TripRequest {
   id: string;
   clientId: string;
+  /** El centro tal y como se leyó en este mensaje. */
+  centreName?: string;
   opportunityName?: string;
   originalMessage: string;
   language: string;
@@ -94,6 +98,8 @@ export interface ParseTripRequestInput {
   email: string;
   firstName: string;
   lastName: string;
+  /** El colegio o club que escribe. Da nombre a la cuenta del CRM. */
+  centreName?: string;
   opportunityName?: string;
   rawTripRequestText: string;
 }
