@@ -119,6 +119,47 @@ function esDeOtraLocalidad(localidad: string | null | undefined, destino: string
 }
 
 
+/**
+ * Por qué no ha salido ningún hotel, dicho con precisión.
+ *
+ * El mensaje de antes era siempre el mismo: «No hay hoteles con tarifa para esas
+ * fechas. Revisa el destino o las fechas». En la reunión del 21/09 eso costó
+ * veinte minutos. La petición del colegio no traía destino —solo decía la
+ * actividad— y el aviso mandaba a mirar las fechas, así que se probó 2026, 2027,
+ * octubre y junio antes de caer en que lo que faltaba era el pueblo.
+ *
+ * «Revisa A o B» cuando el sistema sabe cuál de los dos falla no es ayudar: es
+ * repartir el trabajo de diagnóstico al que menos información tiene.
+ */
+function porQueNoHayHoteles(datos: NormalizedRequestDraft, resultado: SearchAccommodationsResult): string {
+  if (!datos.destinationText.trim()) {
+    return (
+      "Falta el destino: la petición no dice a qué pueblo van. Escríbelo en «Destino» " +
+      "y vuelve a buscar."
+    );
+  }
+
+  if (!datos.dateFrom.trim() || !datos.dateTo.trim()) {
+    return `Faltan las fechas del viaje. Escríbelas y se buscará en ${datos.destinationText}.`;
+  }
+
+  // El catálogo de Oravia es de 2027. Cotizar 2026 no devuelve nada y el aviso
+  // no lo decía: en la reunión se dio varias vueltas a las fechas sin saberlo.
+  const anio = Number(datos.dateFrom.slice(0, 4));
+  const anios = [...new Set((resultado.matches ?? []).map((m) => m.rate.year))].filter(Boolean);
+  if (anio && anios.length > 0 && !anios.includes(anio)) {
+    return (
+      `No hay tarifas de ${anio} en ${datos.destinationText}. ` +
+      `El catálogo cargado cubre ${anios.sort().join(", ")}.`
+    );
+  }
+
+  return (
+    `No hay hoteles con tarifa en ${datos.destinationText} para esas fechas. ` +
+    "Puede que el destino esté bien escrito pero no haya tarifas cargadas de ese año."
+  );
+}
+
 /** Convierte cualquier error (incluidos los de validación) en una frase legible. */
 function mensajeDeError(error: unknown, porDefecto: string): string {
   if (error && typeof error === "object" && "issues" in error) {
@@ -283,7 +324,7 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
       setHoteles(alojamientos);
       setActividades(planes);
       if (alojamientos.matches.length === 0) {
-        setAviso("No hay hoteles con tarifa para esas fechas. Revisa el destino o las fechas.");
+        setAviso(porQueNoHayHoteles(datos, alojamientos));
       }
     } finally {
       setOcupado("");
@@ -942,8 +983,9 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
             </div>
           ) : hoteles.matches.length === 0 ? (
             <div className="cv__slot">
-              No hay hoteles con tarifa para {entendido?.destinationText || "ese destino"} en esas
-              fechas. Prueba a cambiar el destino o las fechas en la petición.
+              {entendido
+                ? porQueNoHayHoteles(entendido, hoteles)
+                : "No hay hoteles con tarifa para esas fechas."}
             </div>
           ) : vista === "lista" ? (
             <ListaOpciones
