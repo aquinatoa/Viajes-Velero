@@ -281,8 +281,24 @@ function scoreAccommodationMatch(
   return { score, reasons, excluded };
 }
 
+/**
+ * Por dónde se BUSCA una actividad: su pueblo, y si no se sabe, el sitio.
+ *
+ * `locationMain` es dónde ocurre —«PortAventura Park», «Caribe Aquatic Park»—
+ * y eso es lo que se le cuenta al colegio. Pero nadie escribe «PortAventura
+ * Park» en el destino: escribe Salou. Buscando por el sitio, las 386 tarifas de
+ * PortAventura solo aparecían si se acertaba con el nombre del parque, y por
+ * eso Salou, Vila-seca y Cambrils devolvían cero.
+ *
+ * Se sigue mirando `locationMain` como respaldo para no romper lo que ya
+ * estaba publicado antes de existir `locality`.
+ */
+function dondeSeBusca(activity: { locality?: string | null; locationMain: string | null }): string | null {
+  return activity.locality?.trim() || activity.locationMain;
+}
+
 function scoreActivityMatch(
-  activity: { locationMain: string | null },
+  activity: { locality?: string | null; locationMain: string | null },
   rate: { ageLabel: string | null; ageMin: number | null; ageMax: number | null },
   filters: SearchFilters
 ) {
@@ -290,17 +306,18 @@ function scoreActivityMatch(
   let score = 0;
   const ageRange = parseAgeRange(filters);
 
-  // Ubicación: exacta (+30) o misma zona turística (+18). Sin coincidencia no
+  // Ubicación: exacta (+50) o misma zona turística (+18). Sin coincidencia no
   // suma, y el umbral de la búsqueda la dejará fuera (así no se cuelan
   // actividades de otra comarca, p. ej. el Pirineo en un viaje a Salou).
-  const locA = normalizeText(activity.locationMain ?? "");
-  const locF = normalizeText(filters.destinationText);
-  if (locA && coincideLocalidad(activity.locationMain, filters.destinationText)) {
+  const donde = dondeSeBusca(activity);
+  const locA = normalizeText(donde ?? "");
+  if (locA && coincideLocalidad(donde, filters.destinationText)) {
     score += 50;
-    reasons.push(`Ubicación coincidente: ${activity.locationMain}.`);
-  } else if (locA && zoneOf(activity.locationMain) && zoneOf(activity.locationMain) === zoneOf(filters.destinationText)) {
+    // Se nombra el SITIO, no el pueblo: es lo que le interesa a quien cotiza.
+    reasons.push(`Ubicación coincidente: ${activity.locationMain ?? donde}.`);
+  } else if (locA && zoneOf(donde) && zoneOf(donde) === zoneOf(filters.destinationText)) {
     score += 18;
-    reasons.push(`En la misma zona: ${activity.locationMain}.`);
+    reasons.push(`En la misma zona: ${activity.locationMain ?? donde}.`);
   }
 
   // Edad: si la tarifa tiene tramo y solapa, +40; tarifa de adulto, +20; si la

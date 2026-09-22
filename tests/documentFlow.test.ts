@@ -1648,6 +1648,50 @@ async function main() {
     assert.ok(!r.matches.some((m) => m.accommodation.id === multi.id));
   });
 
+  // --- una actividad se busca por su PUEBLO, no por el nombre del sitio --------
+  //
+  // En produccion las 386 tarifas de PortAventura se publicaron con
+  // `locationMain` = «PortAventura Park», que es donde ocurre pero no es un
+  // pueblo. Buscando Salou salian CERO actividades teniendo 402 publicadas: solo
+  // aparecian escribiendo «PortAventura Park» en el destino, que no lo pide
+  // ningun colegio.
+  const parque = await prisma.activity.create({
+    data: {
+      activityName: "1 dia PortAventura Park",
+      locationMain: "PortAventura Park",
+      locality: "Vila-seca / Salou",
+      rates: { create: [{ year: 2027, salePvpAmount: 52, currency: "EUR" }] },
+    },
+  });
+
+  await test("una actividad aparece buscando su pueblo, no el nombre del parque", async () => {
+    const { searchActivitiesDb } = await import("../server/searchDb");
+    const r = await searchActivitiesDb({
+      destinationText: "Salou", ageRangeText: "15-17", participants: 40, teachers: 4,
+    } as never);
+    assert.ok(
+      r.matches.some((m) => m.activity.id === parque.id),
+      "buscando Salou deberia salir la actividad de PortAventura",
+    );
+  });
+
+  await test("y sigue diciendo DONDE ocurre, que es lo que ve el colegio", async () => {
+    const { searchActivitiesDb } = await import("../server/searchDb");
+    const r = await searchActivitiesDb({
+      destinationText: "Salou", ageRangeText: "15-17", participants: 40, teachers: 4,
+    } as never);
+    const encontrada = r.matches.find((m) => m.activity.id === parque.id);
+    assert.equal(encontrada?.activity.locationMain, "PortAventura Park");
+  });
+
+  await test("una actividad de otra comarca no se cuela", async () => {
+    const { searchActivitiesDb } = await import("../server/searchDb");
+    const r = await searchActivitiesDb({
+      destinationText: "Jaca", ageRangeText: "15-17", participants: 40, teachers: 4,
+    } as never);
+    assert.ok(!r.matches.some((m) => m.activity.id === parque.id));
+  });
+
   await prisma.$disconnect();
 
   // --- resumen -----------------------------------------------------------------

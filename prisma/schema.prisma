@@ -184,7 +184,16 @@ model Activity {
   id               String                  @id @default(cuid())
   activityName     String
   supplierName     String?
+  // DÓNDE OCURRE, con el nombre del sitio: «PortAventura Park», «Caribe
+  // Aquatic Park». Es lo que se le cuenta al colegio en la propuesta.
   locationMain     String?
+  // EN QUÉ PUEBLO está, que es otra cosa y es por lo que se busca.
+  //
+  // Sin esto, las 386 tarifas de PortAventura solo aparecían escribiendo
+  // «PortAventura Park» en el destino, que es algo que ningún colegio pide:
+  // piden Salou. Buscar Salou, Vila-seca o Cambrils devolvía CERO actividades
+  // teniendo 402 publicadas.
+  locality         String?
   durationText     String?
   descriptionText  String?
   sourceFile       String?

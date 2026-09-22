@@ -1540,21 +1540,34 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
       sourceStagingId: policy.id,
     }));
 
-    // Si la IA no dijo dónde está, se usa la ubicación del documento — igual que
-    // en los alojamientos. Sin ella la actividad es INENCONTRABLE al cotizar: la
-    // búsqueda puntúa por ubicación y sin coincidencia no pasa el umbral. En
-    // producción, las 386 tarifas de PortAventura se publicaron con
-    // `locationMain` a null y no aparecían al buscar para Salou. Para eso está
-    // el campo «Dónde está» del formulario de alta.
+    // Dónde OCURRE. Lo que dice la IA suele ser el sitio: «PortAventura Park»,
+    // «Caribe Aquatic Park». Eso es lo que se le cuenta al colegio.
     const locationMain =
       (activity.locationMain && activity.locationMain.trim()) ||
       (context.controlLocation ?? "") ||
+      null;
+
+    // En qué PUEBLO está, que es por lo que se busca, y no es lo mismo.
+    //
+    // El primer intento fue rellenar `locationMain` con la ubicación del
+    // documento cuando la IA no decía nada. No bastaba: en PortAventura la IA
+    // SÍ decía algo —el nombre del parque— así que el respaldo no entraba, y
+    // las 386 tarifas seguían sin aparecer. Buscando Salou salían cero
+    // actividades teniendo 402 publicadas; solo aparecían escribiendo
+    // «PortAventura Park» en el destino, que no lo pide ningún colegio.
+    //
+    // La ubicación del documento manda aquí, porque es la que puso una persona
+    // al registrarlo sabiendo para qué destino se vende.
+    const locality =
+      (context.controlLocation && context.controlLocation.trim()) ||
+      (activity.locationMain && activity.locationMain.trim()) ||
       null;
 
     activitiesToCreate.push({
       activityName: activity.activityName,
       supplierName: activity.supplierName,
       locationMain,
+      locality,
       durationText: activity.durationText,
       descriptionText: activity.descriptionText ?? null,
       sourceFile: null,
