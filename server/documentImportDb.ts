@@ -448,6 +448,86 @@ export async function countInventoryDocumentStaging(sourceDocumentId: string) {
  * análisis IA/mock. Es transaccional: o se crean todos los candidatos del
  * documento, o ninguno. No escribe nada en el inventario operativo.
  */
+/** Un suplemento, tal y como lo propone la lectura del documento. */
+interface SuplementoLeido {
+  accommodationName?: string | null;
+  adjustmentType?: string | null;
+  concept: string;
+  amountType?: string | null;
+  amount?: number | null;
+  appliesPer?: string | null;
+  conditionText?: string | null;
+  rawText?: string | null;
+}
+
+/** Para comparar: sin tildes, sin mayúsculas y sin espacios de más. */
+function normalizarParaComparar(valor?: string | null): string {
+  return String(valor ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Agrupa los suplementos que son el mismo repetido.
+ *
+ * El maestro de hoteles es una hoja de cálculo con una fila por tarifa, y las
+ * condiciones del hotel están escritas EN CADA FILA. Un hotel con seis
+ * temporadas, dos regímenes y tres ocupaciones repite sus tres suplementos
+ * treinta y seis veces. La lectura los propone todos, y alguien tiene que
+ * aprobarlos o descartarlos de uno en uno.
+ *
+ * Dos suplementos son el mismo si coinciden en todo lo que los define: de qué
+ * alojamiento son, qué tipo, qué concepto, cuánto, sobre qué se aplica y con
+ * qué condición. La comparación ignora tildes, mayúsculas y espacios de más,
+ * porque la misma frase escrita dos veces en un Excel no siempre sale igual.
+ *
+ * Se conserva el PRIMERO y se dice cuántas veces aparecía: esa cuenta es
+ * información, no ruido. Un suplemento que aparece en las 36 filas del hotel es
+ * del hotel; uno que aparece en 2 puede ser de una temporada concreta, y eso
+ * quien revisa quiere verlo.
+ */
+export function agruparSuplementos(suplementos: SuplementoLeido[]): {
+  filas: SuplementoLeido[];
+  agrupados: number;
+} {
+  const vistos = new Map<string, { fila: SuplementoLeido; veces: number }>();
+
+  for (const suplemento of suplementos) {
+    const clave = [
+      normalizarParaComparar(suplemento.accommodationName),
+      normalizarParaComparar(suplemento.adjustmentType),
+      normalizarParaComparar(suplemento.concept),
+      normalizarParaComparar(suplemento.amountType),
+      suplemento.amount ?? "",
+      normalizarParaComparar(suplemento.appliesPer),
+      normalizarParaComparar(suplemento.conditionText),
+    ].join("|");
+
+    const yaEstaba = vistos.get(clave);
+    if (yaEstaba) {
+      yaEstaba.veces += 1;
+      continue;
+    }
+    vistos.set(clave, { fila: { ...suplemento }, veces: 1 });
+  }
+
+  const filas = [...vistos.values()].map(({ fila, veces }) =>
+    veces > 1
+      ? {
+          ...fila,
+          // Quien revisa necesita saber que esto venía repetido, y cuántas
+          // veces: distingue una condición del hotel de una de una temporada.
+          rawText: `${fila.rawText ?? fila.concept} · repetido en ${veces} filas del documento`,
+        }
+      : fila,
+  );
+
+  return { filas, agrupados: suplementos.length - filas.length };
+}
+
 export async function createInventoryDocumentStaging(
   sourceDocumentId: string,
   analysis: AiDocumentAnalysisResult,
@@ -514,7 +594,17 @@ export async function createInventoryDocumentStaging(
     };
   });
 
-  const adjustmentData = analysis.candidateSupplements.map((supplement) => ({
+  // El maestro repite las condiciones del hotel en cada fila de tarifa, así que
+  // la lectura propone el mismo suplemento decenas de veces. Se agrupan antes
+  // de crear candidatos: si no, hay que aprobarlos o descartarlos de uno en uno.
+  const suplementos = agruparSuplementos(analysis.candidateSupplements);
+  if (suplementos.agrupados > 0) {
+    warnings.push(
+      `Se han agrupado ${suplementos.agrupados} suplementos repetidos: quedan ` +
+        `${suplementos.filas.length} distintos. En cada uno se dice en cuántas filas venía.`,
+    );
+  }
+  const adjustmentData = suplementos.filas.map((supplement) => ({
     _accommodationName: supplement.accommodationName ?? null,
     adjustmentType: supplement.adjustmentType ?? "UNKNOWN",
     concept: supplement.concept,

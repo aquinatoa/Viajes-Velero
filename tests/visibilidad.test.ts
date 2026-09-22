@@ -20,6 +20,7 @@ import {
   draftVisibilityWhere,
   tripRequestVisibilityWhere,
 } from "../server/auth";
+import { agruparSuplementos } from "../server/documentImportDb";
 
 let pasadas = 0;
 let fallidas = 0;
@@ -121,6 +122,84 @@ prueba("un cotizador ve MÁS borradores que propuestas", () => {
   assert.match(borradores, /GROUPS/);
   assert.ok(!/GROUPS/.test(propuestas));
 });
+// ── Suplementos repetidos ─────────────────────────────────────────────────────
+//
+// El maestro de hoteles es una hoja con una fila por tarifa, y las condiciones
+// del hotel están escritas EN CADA FILA. Un hotel con seis temporadas, dos
+// regímenes y tres ocupaciones repite sus suplementos treinta y seis veces, y
+// alguien tenía que aprobarlos o descartarlos de uno en uno.
 
-console.log(`\n${pasadas} pasadas, ${fallidas} fallidas\n`);
+console.log("\nSuplementos repetidos del mismo documento");
+
+const unSuplemento = (extra: Record<string, unknown> = {}) => ({
+  accommodationName: "Hotel Planas 3*",
+  adjustmentType: "SUPLEMENTO",
+  concept: "Individual",
+  amountType: "PORCENTAJE",
+  amount: 75,
+  appliesPer: "estancia",
+  conditionText: "sobre múltiple",
+  rawText: "Individual +75% s/múltiple",
+  ...extra,
+});
+
+prueba("treinta y seis filas iguales son un suplemento", () => {
+  const leidos = Array.from({ length: 36 }, () => unSuplemento());
+  const { filas, agrupados } = agruparSuplementos(leidos);
+  assert.equal(filas.length, 1);
+  assert.equal(agrupados, 35);
+});
+
+prueba("y se dice en cuántas filas venía", () => {
+  // La cuenta es información: un suplemento que sale en las 36 filas es del
+  // hotel; uno que sale en 2 puede ser de una temporada concreta.
+  const { filas } = agruparSuplementos(Array.from({ length: 36 }, () => unSuplemento()));
+  assert.match(filas[0].rawText ?? "", /repetido en 36 filas/);
+});
+
+prueba("uno que aparece una sola vez se queda como estaba", () => {
+  const { filas, agrupados } = agruparSuplementos([unSuplemento()]);
+  assert.equal(agrupados, 0);
+  assert.equal(filas[0].rawText, "Individual +75% s/múltiple");
+});
+
+prueba("dos importes distintos son DOS suplementos", () => {
+  const { filas } = agruparSuplementos([unSuplemento(), unSuplemento({ amount: 50 })]);
+  assert.equal(filas.length, 2);
+});
+
+prueba("el mismo suplemento en dos hoteles no se mezcla", () => {
+  const { filas } = agruparSuplementos([
+    unSuplemento(),
+    unSuplemento({ accommodationName: "Hotel Eurosalou 3*" }),
+  ]);
+  assert.equal(filas.length, 2);
+});
+
+prueba("las tildes y las mayúsculas no crean duplicados falsos", () => {
+  // La misma frase escrita dos veces en un Excel no siempre sale igual.
+  const { filas } = agruparSuplementos([
+    unSuplemento({ conditionText: "sobre múltiple" }),
+    unSuplemento({ conditionText: "Sobre  Multiple " }),
+  ]);
+  assert.equal(filas.length, 1);
+});
+
+prueba("una condición distinta sí es otro suplemento", () => {
+  const { filas } = agruparSuplementos([
+    unSuplemento(),
+    unSuplemento({ conditionText: "solo en temporada alta" }),
+  ]);
+  assert.equal(filas.length, 2);
+});
+
+prueba("sin suplementos no se inventa ninguno", () => {
+  const { filas, agrupados } = agruparSuplementos([]);
+  assert.equal(filas.length, 0);
+  assert.equal(agrupados, 0);
+});
+
+console.log(`
+${pasadas} pasadas, ${fallidas} fallidas
+`);
 process.exit(fallidas > 0 ? 1 : 0);
