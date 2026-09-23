@@ -189,6 +189,7 @@ export async function prepareDelivery(input: PrepareDeliveryInput): Promise<Deli
         duration: actividad.durationSnapshot,
         priceText: actividad.pvpSnapshot,
         amount: importeDe(actividad.pvpSnapshot),
+        description: actividad.descriptionSnapshot,
       })),
   }));
 

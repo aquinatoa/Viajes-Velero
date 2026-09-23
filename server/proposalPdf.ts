@@ -37,6 +37,8 @@ export interface PdfActivity {
   priceText?: string | null;
   /** El importe suelto, para poder sumar el total del viaje. */
   amount?: number | null;
+  /** Que supone la actividad. Es lo que el colegio ensena a las familias. */
+  description?: string | null;
 }
 
 export interface PdfOption {
@@ -54,7 +56,7 @@ export interface PdfOption {
   observationsText?: string | null;
   /** Las gratuidades del hotel. Cambian el precio: van en su propia linea. */
   freePolicyText?: string | null;
-  /** Las actividades de ESTA opción. Van debajo del alojamiento. */
+  /** Las actividades de ESTA opción. Se dibujan en la sección 2, no aquí. */
   activities?: PdfActivity[];
 }
 
@@ -225,6 +227,102 @@ function drawTripSummary(doc: PDFKit.PDFDocument, input: PdfInput, top: number):
   return y + 38;
 }
 
+/**
+ * Cómo se llama en castellano cada etiqueta del importador.
+ *
+ * Las condiciones se guardan como «[GRATUIDAD] 1 gratuidad cada 25 pax |
+ * [CANCELACION] 25-7 días 20%…»: la etiqueta entre corchetes es el tipo de
+ * política tal y como lo clasificó el importador. Sacarla tal cual al PDF
+ * hacía que el colegio leyera corchetes en mayúsculas y sin tildes, que es el
+ * aspecto de una base de datos, no el de una propuesta.
+ *
+ * Lo que no esté en esta lista se escribe con mayúscula inicial: es preferible
+ * una etiqueta imperfecta a perder el dato, porque el importador puede
+ * clasificar tipos nuevos en cualquier momento.
+ */
+const NOMBRE_DE_LA_CONDICION: Record<string, string> = {
+  GRATUIDAD: "Gratuidades",
+  GRATUIDADES: "Gratuidades",
+  FREE: "Gratuidades",
+  CANCELACION: "Cancelación",
+  MODIFICACION: "Modificaciones",
+  PAGO: "Pagos",
+  PAGOS: "Pagos",
+  DEPOSITO: "Depósito",
+  FIANZA: "Fianza",
+  SUPLEMENTO: "Suplementos",
+  SUPLEMENTOS: "Suplementos",
+  TASA: "Tasa turística",
+  TASA_TURISTICA: "Tasa turística",
+  RELEASE: "Release",
+  EDAD: "Edades",
+  EDADES: "Edades",
+  MINIMO: "Mínimo de plazas",
+  OCUPACION: "Ocupación",
+  RATIO: "Ratio de monitores",
+  BEBIDAS: "Bebidas",
+  CONFIRMACION: "Confirmación",
+  DESCUENTO: "Descuentos",
+  CONTACTO: "Contacto",
+  UNKNOWN: "",
+  OTROS: "",
+};
+
+/** Una condición ya lista para imprimir: su etiqueta y su texto. */
+interface Condicion {
+  etiqueta: string;
+  texto: string;
+}
+
+/**
+ * Parte el texto de condiciones en líneas legibles.
+ *
+ * El importador las junta con « | » y les pone delante el tipo entre
+ * corchetes. Aquí se deshace eso para que cada condición salga en su propia
+ * línea con su nombre delante, que es como se lee una ficha de hotel.
+ */
+function condicionesEnLista(texto?: string | null): Condicion[] {
+  const limpio = textoParaElCliente(texto);
+  if (!limpio) return [];
+
+  return limpio
+    .split(/\s*\|\s*/)
+    .map((trozo) => trozo.trim())
+    .filter(Boolean)
+    .map((trozo) => {
+      const conEtiqueta = trozo.match(/^\[([^\]]+)\]\s*(.*)$/);
+      if (!conEtiqueta) return { etiqueta: "", texto: trozo };
+
+      const clave = conEtiqueta[1].trim().toUpperCase().replace(/\s+/g, "_");
+      const conocida = NOMBRE_DE_LA_CONDICION[clave];
+      const etiqueta =
+        conocida !== undefined
+          ? conocida
+          : clave.charAt(0) + clave.slice(1).toLowerCase().replace(/_/g, " ");
+
+      return { etiqueta, texto: conEtiqueta[2].trim() };
+    })
+    .filter((condicion) => condicion.texto.length > 0);
+}
+
+/** Lo más abajo que se puede empezar a escribir sin invadir el pie. */
+const SUELO = 752;
+
+/**
+ * Abre página si lo que viene no cabe entero, y devuelve la «y» donde escribir.
+ *
+ * Hace falta porque aquí se dibuja con coordenadas fijas: cuando un texto no
+ * cabía, pdfkit abría página él solo y la siguiente línea se escribía en la
+ * «y» vieja, ya en la página nueva. Una propuesta salió con una página entera
+ * en blanco que solo contenía el punto de una viñeta, y su texto tres líneas
+ * más allá, en la página siguiente.
+ */
+function conSitio(doc: PDFKit.PDFDocument, y: number, alto: number): number {
+  if (y + alto <= SUELO) return y;
+  doc.addPage();
+  return 60;
+}
+
 /** Una opción por bloque, numerada como la ve el cliente. */
 function drawOption(doc: PDFKit.PDFDocument, option: PdfOption, top: number): number {
   const boxTop = top;
@@ -254,56 +352,197 @@ function drawOption(doc: PDFKit.PDFDocument, option: PdfOption, top: number): nu
     y = doc.y + 8;
   }
 
-  for (const [label, text] of [
-    ["Desglose", option.priceBreakdownText],
-    // Las gratuidades van en su propia linea y ANTES de las condiciones: es lo
-    // primero que mira un colegio, porque cambia lo que paga.
-    ["Gratuidades", textoParaElCliente(option.freePolicyText)],
-    ["Incluye y condiciones", textoParaElCliente(option.conditionsText)],
-    ["Observaciones", textoParaElCliente(option.observationsText)],
-  ] as Array<[string, string | null | undefined]>) {
-    if (!text) continue;
+  if (option.priceBreakdownText) {
+    y = conSitio(doc, y, 34);
     doc.font("Helvetica-Bold").fontSize(7.5).fillColor(MUTED);
-    doc.text(label.toUpperCase(), 50, y, { characterSpacing: 0.6 });
+    doc.text("DESGLOSE", 50, y, { characterSpacing: 0.6 });
     doc.font("Helvetica").fontSize(9.5).fillColor(INK);
-    doc.text(text, 50, doc.y + 2, { width: 495 });
+    doc.text(option.priceBreakdownText, 50, doc.y + 2, { width: 495 });
     y = doc.y + 8;
   }
 
-  // Las actividades de esta opción, DEBAJO de su alojamiento. Van aquí y no en
-  // una lista aparte porque el colegio elige una opción entera, no un hotel por
-  // un lado y unas excursiones por otro.
-  const actividades = option.activities ?? [];
-  if (actividades.length > 0) {
+  // Las gratuidades, en su propio recuadro y ANTES de las condiciones: es lo
+  // primero que mira un colegio, porque cambia lo que acaba pagando.
+  const gratuidades = condicionesEnLista(option.freePolicyText);
+  if (gratuidades.length > 0) {
+    const texto = gratuidades.map((condicion) => condicion.texto).join(" ");
+    const alto = doc.font("Helvetica").fontSize(9.5).heightOfString(texto, { width: 455 }) + 26;
+    y = conSitio(doc, y, alto);
+    doc.roundedRect(50, y, 495, alto, 4).fillAndStroke("#FFF9EC", AMBER);
     doc.font("Helvetica-Bold").fontSize(7.5).fillColor(MUTED);
-    doc.text("ACTIVIDADES INCLUIDAS", 50, y, { characterSpacing: 0.6 });
-    y = doc.y + 4;
-
-    for (const actividad of actividades) {
-      const detalle = [actividad.provider, actividad.duration].filter(Boolean).join(" · ");
-
-      doc.font("Helvetica").fontSize(9.5).fillColor(INK);
-      doc.text(textoParaElCliente(actividad.name), 62, y, { width: 340 });
-      const finNombre = doc.y;
-
-      if (actividad.priceText) {
-        doc.font("Helvetica").fontSize(9.5).fillColor(INK);
-        doc.text(actividad.priceText, 410, y, { width: 135, align: "right" });
-      }
-
-      y = finNombre;
-      if (detalle) {
-        doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
-        doc.text(textoParaElCliente(detalle), 62, y, { width: 340 });
-        y = doc.y;
-      }
-      y += 4;
-    }
-    y += 4;
+    doc.text("GRATUIDADES", 64, y + 8, { characterSpacing: 0.6 });
+    doc.font("Helvetica").fontSize(9.5).fillColor(INK);
+    doc.text(texto, 64, doc.y + 2, { width: 455 });
+    y += alto + 8;
   }
+
+  for (const [titulo, condiciones] of [
+    ["Qué incluye y condiciones", condicionesEnLista(option.conditionsText)],
+    ["Observaciones", condicionesEnLista(option.observationsText)],
+  ] as Array<[string, Condicion[]]>) {
+    if (condiciones.length === 0) continue;
+
+    y = conSitio(doc, y, 34);
+    doc.font("Helvetica-Bold").fontSize(7.5).fillColor(MUTED);
+    doc.text(titulo.toUpperCase(), 50, y, { characterSpacing: 0.6 });
+    y = doc.y + 3;
+
+    for (const condicion of condiciones) {
+      const completa = condicion.etiqueta
+        ? `${condicion.etiqueta}: ${condicion.texto}`
+        : condicion.texto;
+      y = conSitio(doc, y, doc.font("Helvetica").fontSize(9.5).heightOfString(completa, { width: 485 }));
+
+      doc.font("Helvetica").fontSize(9.5).fillColor(MUTED);
+      doc.text("·", 50, y, { width: 8 });
+
+      if (condicion.etiqueta) {
+        doc.font("Helvetica-Bold").fontSize(9.5).fillColor(INK);
+        doc.text(`${condicion.etiqueta}: `, 60, y, { continued: true });
+        doc.font("Helvetica").fillColor(INK).text(condicion.texto, { width: 485 });
+      } else {
+        doc.font("Helvetica").fontSize(9.5).fillColor(INK);
+        doc.text(condicion.texto, 60, y, { width: 485 });
+      }
+
+      y = doc.y + 2;
+    }
+
+    y += 6;
+  }
+
+  // Las actividades NO van aqui. Tienen su propia seccion, porque el programa
+  // se elige una vez para todo el viaje y repetirlo bajo cada hotel obligaba a
+  // leer tres veces lo mismo para comparar tres alojamientos.
 
   doc.moveTo(50, y + 2).lineTo(545, y + 2).lineWidth(1).strokeColor(HAIRLINE).stroke();
   return y + 18;
+}
+
+/**
+ * Las actividades del viaje: la segunda de las tres partes del documento.
+ *
+ * El programa se elige una vez para todo el viaje, así que repetirlo bajo cada
+ * hotel obligaba a leer tres veces lo mismo para poder comparar tres
+ * alojamientos. Aquí va el itinerario entero, una sola vez, y el total de lo
+ * que suponen todas las actividades juntas.
+ *
+ * Si alguna opción lleva un programa distinto, cada actividad dice a qué
+ * opciones pertenece. Callarlo sería peor que no ponerlo: el colegio estaría
+ * leyendo un itinerario que no le corresponde al hotel que acabe eligiendo.
+ */
+function drawActividades(doc: PDFKit.PDFDocument, input: PdfInput, top: number): number {
+  const personas = (input.participants ?? 0) + (input.teachers ?? 0);
+
+  // Cada actividad una sola vez, con las opciones en las que aparece.
+  const porNombre = new Map<string, { actividad: PdfActivity; opciones: number[] }>();
+  for (const option of input.options) {
+    for (const actividad of option.activities ?? []) {
+      const yaEsta = porNombre.get(actividad.name);
+      if (yaEsta) yaEsta.opciones.push(option.optionNumber);
+      else porNombre.set(actividad.name, { actividad, opciones: [option.optionNumber] });
+    }
+  }
+
+  const itinerario = [...porNombre.values()];
+  if (itinerario.length === 0) return top;
+
+  // ¿El mismo programa en todas las opciones? Entonces no hay nada que aclarar.
+  const todasIguales = itinerario.every((entrada) => entrada.opciones.length === input.options.length);
+
+  let y = top;
+
+  doc.font("Helvetica-Bold").fontSize(8).fillColor(MUTED);
+  doc.text("2 · LAS ACTIVIDADES", 50, y, { characterSpacing: 0.8 });
+  y = doc.y + 4;
+
+  doc.font("Helvetica").fontSize(9).fillColor(MUTED);
+  doc.text(
+    todasIguales
+      ? "El mismo programa para todas las opciones de alojamiento. Los precios son por persona."
+      : "Cada actividad indica en qué opciones va incluida. Los precios son por persona.",
+    50,
+    y,
+    { width: 495 },
+  );
+  y = doc.y + 12;
+
+  let porPersona = 0;
+
+  for (const { actividad, opciones } of itinerario) {
+    // Un salto de página a media actividad separa el nombre de su precio.
+    y = conSitio(doc, y, 46);
+
+    porPersona += actividad.amount ?? 0;
+
+    doc.font("Helvetica-Bold").fontSize(10.5).fillColor(INK);
+    doc.text(textoParaElCliente(actividad.name), 50, y, { width: 340 });
+    const finDelNombre = doc.y;
+
+    if (actividad.priceText) {
+      doc.font("Helvetica-Bold").fontSize(10.5).fillColor(INK);
+      doc.text(actividad.priceText, 400, y, { width: 145, align: "right" });
+      if (personas > 0 && (actividad.amount ?? 0) > 0) {
+        doc.font("Helvetica").fontSize(8).fillColor(MUTED);
+        doc.text(`${formatMoney((actividad.amount ?? 0) * personas)} el grupo`, 400, doc.y + 1, {
+          width: 145,
+          align: "right",
+        });
+      }
+    }
+
+    y = finDelNombre + 2;
+
+    const detalle = [
+      actividad.provider,
+      actividad.duration,
+      todasIguales
+        ? null
+        : `En ${opciones.length === 1 ? "la opción" : "las opciones"} ${opciones.join(", ")}`,
+    ]
+      .filter(Boolean)
+      .join("  ·  ");
+
+    if (detalle) {
+      doc.font("Helvetica").fontSize(9).fillColor(MUTED);
+      doc.text(textoParaElCliente(detalle), 50, y, { width: 340 });
+      y = doc.y;
+    }
+
+    if (actividad.description) {
+      const descripcion = textoParaElCliente(actividad.description);
+      if (descripcion) {
+        doc.font("Helvetica").fontSize(9).fillColor(INK);
+        doc.text(descripcion, 50, y + 3, { width: 340 });
+        y = doc.y;
+      }
+    }
+
+    y += 12;
+  }
+
+  // El total del conjunto: por persona y para el grupo entero. Es la cifra que
+  // el colegio suma al alojamiento, así que se da en las dos unidades.
+  y = conSitio(doc, y, 44);
+  doc.moveTo(50, y).lineTo(545, y).lineWidth(1).strokeColor(HAIRLINE).stroke();
+  y += 8;
+
+  doc.font("Helvetica-Bold").fontSize(10).fillColor(INK);
+  doc.text("Total de las actividades", 50, y, { width: 240 });
+  doc.font("Helvetica-Bold").fontSize(10).fillColor(NAVY);
+  doc.text(`${formatMoney(porPersona)} por persona`, 300, y, { width: 245, align: "right" });
+  y = doc.y + 2;
+
+  if (personas > 0) {
+    doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
+    doc.text(`${formatMoney(porPersona * personas)} para las ${personas} personas del grupo`, 300, y, {
+      width: 245,
+      align: "right",
+    });
+    y = doc.y;
+  }
+
+  return y + 16;
 }
 
 /**
@@ -322,7 +561,7 @@ function drawResumen(doc: PDFKit.PDFDocument, input: PdfInput, top: number): num
   let y = top;
 
   doc.font("Helvetica-Bold").fontSize(8).fillColor(MUTED);
-  doc.text("RESUMEN DEL VIAJE", 50, y, { characterSpacing: 0.8 });
+  doc.text("3 · RESUMEN DEL VIAJE", 50, y, { characterSpacing: 0.8 });
   y = doc.y + 8;
 
   // Cabecera de la tabla.
@@ -450,7 +689,12 @@ export async function buildProposalPdf(input: PdfInput): Promise<string> {
   y = drawTripSummary(doc, input, y);
 
   doc.font("Helvetica-Bold").fontSize(8).fillColor(MUTED);
-  doc.text("ELIGE UNA DE ESTAS OPCIONES", 50, y, { characterSpacing: 0.8 });
+  doc.text("1 · LOS ALOJAMIENTOS", 50, y, { characterSpacing: 0.8 });
+  y = doc.y + 3;
+  doc.font("Helvetica").fontSize(9).fillColor(MUTED);
+  doc.text("Elige una de estas opciones. El precio incluye las noches del grupo completo.", 50, y, {
+    width: 495,
+  });
   y = doc.y + 10;
 
   for (const option of input.options) {
@@ -460,6 +704,15 @@ export async function buildProposalPdf(input: PdfInput): Promise<string> {
       y = 60;
     }
     y = drawOption(doc, option, y);
+  }
+
+  // Las actividades, una sola vez, entre los alojamientos y el resumen.
+  if (input.options.some((option) => (option.activities ?? []).length > 0)) {
+    if (y > 600) {
+      doc.addPage();
+      y = 60;
+    }
+    y = drawActividades(doc, input, y) + 4;
   }
 
   // El resumen va al final, cuando ya se han visto las opciones enteras.

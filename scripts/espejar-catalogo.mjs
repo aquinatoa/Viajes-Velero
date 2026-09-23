@@ -189,6 +189,12 @@ for (const item of catalogo.accommodations) {
       accommodationName: item.accommodationName,
       locality: item.locality ?? "",
       categoryType: item.categoryType ?? null,
+      // Condiciones, observaciones y gratuidades: son lo que el colegio lee en
+      // la propuesta. Sin ellas, el PDF generado en local salía con el precio
+      // pelado y no se podía comprobar aquí el bloque de cada alojamiento.
+      conditionsText: item.conditionsText ?? null,
+      observations: item.observations ?? null,
+      freePolicy: item.freePolicy ?? null,
       sourceFile: item.sourceDocumentName ?? null,
       sourceDocumentId: documentosCreados.get(item.sourceDocumentName) ?? null,
       rates: { create: rates },
@@ -249,7 +255,6 @@ console.log(`  · ${sinUbicacion} actividades sin ubicación ninguna.`);
 console.log(`  · ${conParque} con el nombre del PARQUE como ubicación, no un pueblo.`);
 console.log("    Ninguna de las dos aparece al buscar por localidad. Es el fallo real.");
 console.log("  · El canal de cliente se deduce del documento; el resumen no lo trae.");
-console.log("  · Las condiciones y observaciones de cada alojamiento no viajan en el resumen.");
 console.log();
 console.log("Hasta dónde llega el espejo, medido:");
 console.log("  · Las ACTIVIDADES salen idénticas: el resumen trae todo lo suyo.");

@@ -178,17 +178,25 @@ prueba("el desglose cuadra con el total", () => {
   assert.match(todo, /8\.294,40 €/);
 });
 
-// ── Las actividades y el resumen del viaje ────────────────────────────────────
+// ── Las tres partes del documento ─────────────────────────────────────────────
 //
-// Lo pidió Oravia tras la reunión: cada alojamiento con sus especificaciones,
-// las actividades DEBAJO, y al final un resumen por opción con el total del
-// viaje completo. Antes el PDF ni cargaba las actividades.
+// Es como lo pidió Oravia: 1) los alojamientos, cada uno con todo lo que
+// supone; 2) las actividades, el itinerario entero UNA vez y lo que cuesta el
+// conjunto; 3) el resumen del viaje. Antes el PDF ni cargaba las actividades,
+// y cuando empezaron a salir iban repetidas bajo cada hotel: para comparar
+// tres alojamientos había que leer tres veces el mismo programa.
 
 const CON_ACTIVIDADES = {
   ...OPCION(1),
   accommodationName: "Hotel Santa Mónica Playa",
   totalPvpText: "9.200,00 €",
   totalAmount: 9200,
+  // Tal y como las guarda el importador: con el tipo entre corchetes y unidas
+  // por barras verticales. Es lo que de verdad hay en la base.
+  freePolicyText: "1 gratuidad cada 25 de pago (hab. múltiple).",
+  conditionsText:
+    "[SUPLEMENTO] Individual +50% s/régimen. | [TASA] No incluida. | " +
+    "[CANCELACION] 25-7 días 20% y menos de 7 días 50%.",
   activities: [
     { name: "1 día PortAventura Park", provider: "PortAventura", duration: "1 día", priceText: "52,00 €", amount: 52 },
     { name: "Caribe Aquatic Park", provider: "PortAventura", duration: "1 día", priceText: "23,00 €", amount: 23 },
@@ -223,14 +231,39 @@ textoDos = textoDos.replace(/\s+/g, " ");
 
 console.log("\nLas actividades y el resumen");
 
-prueba("las actividades salen bajo su alojamiento", () => {
-  assert.match(textoDos, /ACTIVIDADES INCLUIDAS/);
-  assert.match(textoDos, /PortAventura Park/);
-  assert.match(textoDos, /Caribe Aquatic Park/);
+prueba("el documento va en tres partes, y en este orden", () => {
+  const alojamientos = textoDos.indexOf("1 · LOS ALOJAMIENTOS");
+  const actividades = textoDos.indexOf("2 · LAS ACTIVIDADES");
+  const resumen = textoDos.indexOf("3 · RESUMEN DEL VIAJE");
+
+  assert.ok(alojamientos >= 0, "falta la parte de alojamientos");
+  assert.ok(actividades > alojamientos, "las actividades no van tras los alojamientos");
+  assert.ok(resumen > actividades, "el resumen no va al final");
 });
 
-prueba("hay un resumen del viaje al final", () => {
-  assert.match(textoDos, /RESUMEN DEL VIAJE/);
+prueba("el itinerario sale una sola vez, no bajo cada hotel", () => {
+  assert.match(textoDos, /PortAventura Park/);
+  // Repetirlo bajo cada alojamiento obligaba a leer tres veces lo mismo para
+  // poder comparar tres hoteles.
+  const veces = textoDos.split("Caribe Aquatic Park").length - 1;
+  assert.equal(veces, 1, `la actividad aparece ${veces} veces`);
+});
+
+prueba("se dice lo que cuestan TODAS las actividades juntas", () => {
+  // 52 + 23 = 75 € por persona; 48 alumnos + 4 profesores = 52 personas.
+  assert.match(textoDos, /Total de las actividades/);
+  assert.match(textoDos, /75,00 € por persona/);
+  assert.match(textoDos, /3\.900,00 € para las 52 personas/);
+});
+
+prueba("las condiciones del alojamiento se leen, sin corchetes en mayúsculas", () => {
+  // El importador las guarda como «[GRATUIDAD] texto | [CANCELACION] texto».
+  // Sacar eso tal cual al PDF hacía que el colegio leyera una base de datos.
+  assert.ok(!/\[[A-Z_]+\]/.test(textoDos), "quedan etiquetas del importador en el PDF");
+  assert.match(textoDos, /Cancelación: /);
+  assert.match(textoDos, /Tasa turística: /);
+  assert.match(textoDos, /GRATUIDADES/);
+  assert.match(textoDos, /1 gratuidad cada 25 de pago/);
 });
 
 prueba("el total de una opción suma alojamiento MÁS actividades", () => {

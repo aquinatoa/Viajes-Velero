@@ -693,6 +693,17 @@ export interface CatalogAccommodation {
   categoryType?: string | null;
   sourceDocumentId?: string | null;
   sourceDocumentName?: string | null;
+  /**
+   * Lo que el alojamiento incluye y bajo qué condiciones.
+   *
+   * Son texto del proveedor, y van en la propuesta que ve el colegio: las
+   * gratuidades cambian lo que paga. El catálogo no los traía, así que la
+   * copia local del inventario salía sin ellos y no había forma de comprobar
+   * aquí si el documento los imprime.
+   */
+  conditionsText?: string | null;
+  observations?: string | null;
+  freePolicy?: string | null;
   rates: CatalogRate[];
 }
 

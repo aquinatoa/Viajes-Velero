@@ -2167,6 +2167,9 @@ export async function getPublishedInventoryCatalog(): Promise<PublishedInventory
     accommodationName: accommodation.accommodationName,
     locality: accommodation.locality,
     categoryType: accommodation.categoryType,
+    conditionsText: accommodation.conditionsText,
+    observations: accommodation.observations,
+    freePolicy: accommodation.freePolicy,
     sourceDocumentId: accommodation.sourceDocumentId,
     sourceDocumentName: accommodation.sourceDocumentId
       ? documentNames.get(accommodation.sourceDocumentId) ?? null
