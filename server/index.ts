@@ -193,8 +193,47 @@ function crmErrorResponse(error: unknown, response: express.Response, fallback: 
   });
 }
 
+/**
+ * Qué revisión está sirviendo este proceso, y desde cuándo.
+ *
+ * Sin esto, saber si un cambio está o no en el servidor obligaba a buscar una
+ * frase concreta dentro del JavaScript minificado que sirve, o a fiarse del
+ * panel de GitHub. Ninguna de las dos cosas vale: el panel dice que el flujo
+ * terminó, no que el servidor esté sirviendo lo nuevo, y el 17 de septiembre di
+ * por desplegado algo que no lo estaba por mirar el sitio equivocado.
+ *
+ * El despliegue deja cada release en su propio directorio con su `.git`, y
+ * checkout de FETCH_HEAD deja HEAD desprendido, así que ahí está el sha
+ * directamente. En local HEAD es una referencia y hay que seguirla.
+ *
+ * Se lee UNA vez, al arrancar: es lo que este proceso tiene cargado en memoria.
+ * Releerlo diría qué hay en el disco, que tras un despliegue ya no es lo mismo.
+ */
+const REVISION: string = (() => {
+  const puesta = (process.env.ORAVIA_REVISION ?? "").trim();
+  if (puesta) return puesta.slice(0, 40);
+
+  try {
+    const cabeza = fs.readFileSync(path.join(process.cwd(), ".git", "HEAD"), "utf8").trim();
+    if (/^[0-9a-f]{40}$/i.test(cabeza)) return cabeza;
+
+    const referencia = cabeza.match(/^ref:\s*(.+)$/)?.[1];
+    if (!referencia) return "desconocida";
+    return fs
+      .readFileSync(path.join(process.cwd(), ".git", referencia), "utf8")
+      .trim()
+      .slice(0, 40);
+  } catch {
+    // Un despliegue sin `.git` es posible; no saber la revisión no puede
+    // impedir que el servicio responda que está vivo.
+    return "desconocida";
+  }
+})();
+
+const ARRANCADO_EN = new Date().toISOString();
+
 app.get("/api/health", (_request, response) => {
-  response.json({ ok: true });
+  response.json({ ok: true, revision: REVISION.slice(0, 7), arrancadoEn: ARRANCADO_EN });
 });
 
 app.get("/api/crm/auth/status", (_request, response) => {
