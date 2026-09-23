@@ -42,6 +42,15 @@ export interface BorradorSolicitud {
   elegidos: string[];
   programaBase: string[];
   excepciones: Record<number, { fuera: string[]; dentro: string[] }>;
+  /**
+   * Precios que ha puesto a mano quien cotiza, por actividad.
+   *
+   * Son para las que el catálogo no tarifa, como «Arbitraje». Es una
+   * decisión suya, no un dato del catálogo, así que viaja con el borrador:
+   * sin esto, recuperar el trabajo a medias perdía el precio y la actividad
+   * volvía a salir sin poder elegirse.
+   */
+  preciosFijados?: Record<string, number>;
 }
 
 function almacen(): Storage | null {

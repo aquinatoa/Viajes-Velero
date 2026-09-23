@@ -252,6 +252,16 @@ export interface ActivitySearchMatch {
   rate: ActivityRate;
   score: number;
   matchReasons: string[];
+  /**
+   * El catálogo no le pone precio y hay que ponérselo al cotizar.
+   *
+   * No es lo mismo que un importe a cero: un cero puede ser un precio real.
+   * Esto dice que NO HAY dato, que es una decisión de quien cotiza y no un
+   * número que se pueda sumar.
+   */
+  precioAFijar?: boolean;
+  /** El precio que ha puesto a mano quien cotiza, cuando lo ha puesto. */
+  precioFijado?: number | null;
 }
 
 export interface SearchAccommodationsResult {
@@ -265,6 +275,15 @@ export interface SearchAccommodationsResult {
 export interface SearchActivitiesResult {
   filters: SearchFilters;
   matches: ActivitySearchMatch[];
+  /**
+   * Las que el catálogo tiene sin ninguna tarifa.
+   *
+   * Van aparte porque no se pueden puntuar: sin tarifa no hay ni localidad ni
+   * tramo de edad con los que comparar, así que cualquier filtro las esconde.
+   * Es el caso de «Arbitraje», que lleva en el catálogo desde el principio y
+   * nunca se pudo ofrecer.
+   */
+  sinTarifa?: ActivitySearchMatch[];
   warnings: WarningItem[];
   missingFields: MissingField[];
   status: "ok" | "no_matches" | "insufficient_filters";

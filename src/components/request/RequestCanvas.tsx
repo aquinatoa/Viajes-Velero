@@ -224,6 +224,15 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
   const [programaBase, setProgramaBase] = useState<string[]>([]);
   /** Excepciones por opción: qué actividad se quita o se añade respecto a la base. */
   const [excepciones, setExcepciones] = useState<Record<number, { fuera: string[]; dentro: string[] }>>({});
+  /**
+   * Precios puestos a mano, para las actividades que el catálogo no tarifa.
+   *
+   * «Arbitraje» está en el catálogo sin ninguna tarifa, así que la búsqueda ni
+   * lo enseñaba. Oravia lo quiere como opción elegible, diciendo que hay que
+   * ponerle precio, y lo pone quien cotiza. Se guarda en el borrador como todo
+   * lo demás: es una decisión suya, no un dato del catálogo.
+   */
+  const [preciosFijados, setPreciosFijados] = useState<Record<string, number>>({});
 
   // Cierre
   /**
@@ -350,6 +359,7 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
       setElegidos(estado.elegidos ?? []);
       setProgramaBase(estado.programaBase ?? []);
       setExcepciones(estado.excepciones ?? {});
+      setPreciosFijados(estado.preciosFijados ?? {});
       setRecuperable(null);
 
       // Las tarifas pueden haber cambiado desde que se guardó: se vuelve a
@@ -382,6 +392,7 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
         elegidos,
         programaBase,
         excepciones,
+        preciosFijados,
       };
 
       // En el navegador, siempre: es la red que salva lo escrito si se cae la
@@ -409,7 +420,7 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
     return () => {
       if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
     };
-  }, [mensajes, borrador, form, entendido, tope, requisitos, elegidos, programaBase, excepciones, solicitudId, canal, enviada]);
+  }, [mensajes, borrador, form, entendido, tope, requisitos, elegidos, programaBase, excepciones, preciosFijados, solicitudId, canal, enviada]);
 
   /** Recupera el borrador y vuelve a buscar hoteles: las tarifas pueden haber cambiado. */
   function recuperar() {
@@ -425,6 +436,7 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
     setElegidos(recuperable.elegidos);
     setProgramaBase(recuperable.programaBase);
     setExcepciones(recuperable.excepciones);
+    setPreciosFijados(recuperable.preciosFijados ?? {});
     if (recuperable.entendido) {
       setParseResult({
         normalized: recuperable.entendido,
@@ -493,8 +505,33 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
     return [...programaBase.filter((id) => !excepcion.fuera.includes(id)), ...excepcion.dentro];
   }
 
+  /** Todas las que se pueden elegir: las tarifadas y las que hay que tarifar. */
+  const actividadesElegibles = useMemo<ActivitySearchMatch[]>(
+    () => [...(actividades?.matches ?? []), ...(actividades?.sinTarifa ?? [])],
+    [actividades],
+  );
+
+  /**
+   * Una actividad con su precio REAL, sea del catálogo o puesto a mano.
+   *
+   * Todo lo que suma —el precio por alumno, el tope, el documento— pasa por
+   * aquí, así que el precio fijado se aplica una vez y en un solo sitio.
+   */
   function matchActividad(id: string): ActivitySearchMatch | undefined {
-    return actividades?.matches.find((m) => m.activity.id === id);
+    const encontrada = actividadesElegibles.find((m) => m.activity.id === id);
+    if (!encontrada) return undefined;
+    const puesto = preciosFijados[id];
+    if (!encontrada.precioAFijar || !puesto) return encontrada;
+    return {
+      ...encontrada,
+      rate: { ...encontrada.rate, salePvpAmount: puesto },
+      precioFijado: puesto,
+    };
+  }
+
+  /** Sin precio no se puede elegir: entraría en el documento valiendo cero. */
+  function faltaPonerlePrecio(item: ActivitySearchMatch): boolean {
+    return Boolean(item.precioAFijar) && !preciosFijados[item.activity.id];
   }
 
   function matchHotel(id: string): AccommodationSearchMatch | undefined {
@@ -778,7 +815,12 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
         tripRequestId: guardada.id,
         normalized: entendido,
         accommodationMatches: hoteles?.matches ?? [],
-        activityMatches: actividades?.matches ?? [],
+        // Con el precio ya resuelto: las que el catálogo no tarifa llevan el
+        // que puso quien cotiza. Mandando `matches` a secas, «Arbitraje» ni
+        // llegaba, y si llegara entraría valiendo cero.
+        activityMatches: actividadesElegibles.map(
+          (item) => matchActividad(item.activity.id) ?? item,
+        ),
         builderState: {
           selectedAccommodationIds: elegidos,
           activitiesByOption: actividadesPorOpcion,
@@ -1323,6 +1365,77 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
                   );
                 })}
               </ul>
+
+              {/* Las que el catálogo no tarifa. Antes ni aparecían: la búsqueda
+                  recorre las tarifas de cada actividad, y sin tarifas no salía
+                  ni una. «Arbitraje» llevaba así desde el principio. */}
+              {(actividades.sinTarifa ?? []).length > 0 ? (
+                <div className="cv__actsx">
+                  <p className="cv__actsxh">
+                    Sin precio en el catálogo
+                    <span>Ponle el precio y quedará elegible. Es por persona.</span>
+                  </p>
+                  <ul className="cv__acts">
+                    {(actividades.sinTarifa ?? []).map((item) => {
+                      const puesta = programaBase.includes(item.activity.id);
+                      const falta = faltaPonerlePrecio(item);
+                      return (
+                        <li key={item.activity.id}>
+                          <button
+                            type="button"
+                            className={puesta ? "cv__act is-on" : "cv__act"}
+                            onClick={() => alternarBase(item.activity.id)}
+                            aria-pressed={puesta}
+                            disabled={falta}
+                            title={falta ? "Ponle precio antes de añadirla al programa" : undefined}
+                          >
+                            <span className="cv__actchk">{puesta ? "✓" : ""}</span>
+                            <span className="cv__actm">
+                              <span className="cv__actt">{item.activity.activityName}</span>
+                              <span className="cv__acts2">
+                                {[item.activity.supplierName, item.activity.durationText]
+                                  .filter(Boolean)
+                                  .join(" · ") || "Sin proveedor ni duración en el catálogo"}
+                              </span>
+                            </span>
+                          </button>
+                          <label className="cv__actprecio">
+                            <span className="sr-only">
+                              Precio por persona de {item.activity.activityName}
+                            </span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              inputMode="decimal"
+                              placeholder="0,00"
+                              value={preciosFijados[item.activity.id] ?? ""}
+                              onChange={(evento) => {
+                                const valor = Number(evento.target.value);
+                                setPreciosFijados((antes) => {
+                                  const siguiente = { ...antes };
+                                  if (Number.isFinite(valor) && valor > 0) {
+                                    siguiente[item.activity.id] = valor;
+                                  } else {
+                                    delete siguiente[item.activity.id];
+                                    // Sin precio no puede seguir en el programa:
+                                    // entraría en el documento valiendo cero.
+                                    setProgramaBase((base) =>
+                                      base.filter((id) => id !== item.activity.id),
+                                    );
+                                  }
+                                  return siguiente;
+                                });
+                              }}
+                            />
+                            <span aria-hidden="true">€</span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </section>

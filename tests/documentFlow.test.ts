@@ -1692,6 +1692,59 @@ async function main() {
     assert.ok(!r.matches.some((m) => m.activity.id === parque.id));
   });
 
+  // --- actividades que el catálogo no tarifa -----------------------------------
+  //
+  // «Arbitraje» lleva en el catálogo de Oravia desde el principio y nunca se
+  // pudo ofrecer: la búsqueda recorre las TARIFAS de cada actividad, así que una
+  // actividad sin tarifas no producía ni un resultado. Oravia la quiere como
+  // opción, diciendo que hay que ponerle precio, y lo ponen ellos.
+
+  const sinTarifar = await prisma.activity.create({
+    data: { activityName: "Arbitraje" },
+  });
+
+  await test("una actividad sin ninguna tarifa aparece, aparte y marcada", async () => {
+    const { searchActivitiesDb } = await import("../server/searchDb");
+    const r = await searchActivitiesDb({
+      destinationText: "Salou", ageRangeText: "15-17", participants: 40, teachers: 4,
+    } as never);
+
+    const encontrada = (r.sinTarifa ?? []).find((m) => m.activity.id === sinTarifar.id);
+    assert.ok(encontrada, "«Arbitraje» tiene que salir");
+    assert.equal(encontrada!.precioAFijar, true);
+    assert.equal(encontrada!.rate.salePvpAmount, 0, "sin precio del catálogo");
+  });
+
+  await test("y no se cuela entre las tarifadas, que son las que sí suman", async () => {
+    const { searchActivitiesDb } = await import("../server/searchDb");
+    const r = await searchActivitiesDb({
+      destinationText: "Salou", ageRangeText: "15-17", participants: 40, teachers: 4,
+    } as never);
+
+    assert.ok(!r.matches.some((m) => m.activity.id === sinTarifar.id));
+  });
+
+  await test("sale aunque se busque en otro destino: no tiene localidad que filtrar", async () => {
+    // Sin tarifa tampoco hay localidad ni tramo de edad con los que puntuar, así
+    // que cualquier filtro la escondería otra vez. Es la razón de que vaya
+    // aparte y no mezclada con las puntuadas.
+    const { searchActivitiesDb } = await import("../server/searchDb");
+    const r = await searchActivitiesDb({
+      destinationText: "Jaca", ageRangeText: "15-17", participants: 40, teachers: 4,
+    } as never);
+
+    assert.ok((r.sinTarifa ?? []).some((m) => m.activity.id === sinTarifar.id));
+  });
+
+  await test("una actividad con tarifas NO se duplica en el grupo sin precio", async () => {
+    const { searchActivitiesDb } = await import("../server/searchDb");
+    const r = await searchActivitiesDb({
+      destinationText: "Salou", ageRangeText: "15-17", participants: 40, teachers: 4,
+    } as never);
+
+    assert.ok(!(r.sinTarifa ?? []).some((m) => m.activity.id === parque.id));
+  });
+
   // --- borradores de solicitud -------------------------------------------------
   //
   // La pantalla de nueva solicitud llegó a listar CINCO «IES Jaume Balmes ·

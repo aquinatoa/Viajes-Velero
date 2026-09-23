@@ -641,9 +641,69 @@ export async function searchActivitiesDb(
     (a, b) => b.score - a.score
   );
 
+  // Las que el catálogo tiene SIN NINGUNA tarifa.
+  //
+  // Hasta ahora desaparecían: la búsqueda recorre las tarifas de cada actividad,
+  // así que una actividad sin tarifas no producía ni un resultado. «Arbitraje»
+  // está en el catálogo desde el principio y nunca se pudo ofrecer.
+  //
+  // No se filtran por destino ni por edad, y es a propósito: una actividad sin
+  // tarifa tampoco tiene localidad ni tramo de edad con los que puntuar, así que
+  // cualquier filtro la volvería a esconder. Van aparte, marcadas, para que
+  // quien cotiza decida — que es justo lo que pidió Oravia: «que salga como
+  // opción, diciendo que hay que ponerle precio, y lo marcamos nosotros».
+  //
+  // Las que SÍ tienen tarifas pero ninguna de este canal no entran aquí: esas
+  // están escondidas por una regla que existe, y sacarlas colaría en una
+  // cotización genérica los precios pactados con el turoperador suizo.
+  const sinTarifa: ActivitySearchMatch[] = activities
+    .filter((activity) => activity.rates.length === 0)
+    .map((activity) => ({
+      activity: {
+        id: activity.id,
+        activityName: activity.activityName,
+        supplierName: activity.supplierName ?? "",
+        locationMain: activity.locationMain ?? "",
+        durationText: activity.durationText ?? "",
+        descriptionText: activity.descriptionText ?? "",
+        policies: activity.policies.map((policy) => ({
+          id: policy.id,
+          policyType: policy.policyType,
+          policyText: policy.policyText,
+        })),
+        sourceFile: activity.sourceFile ?? "",
+        sourceDocumentId: activity.sourceDocumentId ?? "",
+        sourceDocumentName: activity.sourceDocumentId
+          ? documentNames.get(activity.sourceDocumentId) ?? ""
+          : "",
+      },
+      // Una tarifa de mentira, con importe cero, para que el resto de la
+      // pantalla no tenga que preguntarse si hay tarifa o no. Lo que la
+      // distingue es `precioAFijar`, no el cero: un cero puede ser un precio.
+      rate: {
+        id: `sin-tarifa:${activity.id}`,
+        activityId: activity.id,
+        year: filters.dateFrom ? new Date(filters.dateFrom).getUTCFullYear() : new Date().getUTCFullYear(),
+        ageLabel: "",
+        ageMin: 0,
+        ageMax: 0,
+        salePvpAmount: 0,
+        costNetAmount: 0,
+        clientSegment: "",
+        commissionPercent: 0,
+        durationText: activity.durationText ?? "",
+        sourceFile: activity.sourceFile ?? "",
+        sourceSheet: "",
+      },
+      score: 0,
+      matchReasons: ["El catálogo no le pone precio: hay que fijarlo al cotizar."],
+      precioAFijar: true,
+    }));
+
   return {
     filters,
     matches,
+    sinTarifa,
     warnings:
       matches.length === 0
         ? [
@@ -655,6 +715,6 @@ export async function searchActivitiesDb(
           ]
         : warnings,
     missingFields,
-    status: matches.length > 0 ? "ok" : "no_matches"
+    status: matches.length > 0 || sinTarifa.length > 0 ? "ok" : "no_matches"
   };
 }
