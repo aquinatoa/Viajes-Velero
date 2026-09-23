@@ -134,6 +134,9 @@ export async function prepareDelivery(input: PrepareDeliveryInput): Promise<Deli
     where: { id: input.proposalId },
     include: {
       accommodationOptions: { orderBy: { optionNumber: "asc" } },
+      // Las actividades también: van DEBAJO de su alojamiento en el PDF y
+      // entran en el total de cada opción. Antes no se cargaban siquiera.
+      activityOptions: { orderBy: [{ optionNumber: "asc" }, { displayOrder: "asc" }] },
       tripRequest: { include: { client: true } },
     },
   });
@@ -166,9 +169,21 @@ export async function prepareDelivery(input: PrepareDeliveryInput): Promise<Deli
     participants: option.participants,
     teachers: option.teachers,
     totalPvpText: option.totalPvpText,
+    totalAmount: importeDe(option.totalPvpText),
     priceBreakdownText: option.priceBreakdownText,
     conditionsText: option.conditionsText,
     observationsText: option.observationsText,
+    // Cada opción se lleva SUS actividades: el colegio elige una opción entera,
+    // no un hotel por un lado y unas excursiones por otro.
+    activities: proposal.activityOptions
+      .filter((actividad) => actividad.optionNumber === option.optionNumber && actividad.isSelected)
+      .map((actividad) => ({
+        name: actividad.activityNameSnapshot,
+        provider: actividad.providerSnapshot,
+        duration: actividad.durationSnapshot,
+        priceText: actividad.pvpSnapshot,
+        amount: importeDe(actividad.pvpSnapshot),
+      })),
   }));
 
   const tripTitle = request.opportunityName ?? request.destinationText ?? "vuestro viaje";
@@ -309,6 +324,25 @@ export async function sendDelivery(deliveryId: string): Promise<DeliveryResult> 
   );
 
   return { ...base, status: updated.status, simulated: false };
+}
+
+/**
+ * El número que hay dentro de un importe ya formateado.
+ *
+ * Los totales se guardan como texto —«8.294,40 €», «52 €»— porque es lo que se
+ * enseña. Para poder SUMARLOS en el resumen del viaje hay que recuperarlos, y
+ * hay que hacerlo con el formato español: el punto separa miles y la coma los
+ * céntimos, justo al revés que en inglés. Confundirlos convertiría 8.294,40 en
+ * ocho euros con veintinueve.
+ */
+function importeDe(texto?: string | null): number | null {
+  if (!texto) return null;
+  const limpio = String(texto)
+    .replace(/[^\d.,-]/g, "")
+    .replace(/\.(?=\d{3}\b)/g, "")
+    .replace(",", ".");
+  const numero = Number(limpio);
+  return Number.isFinite(numero) ? numero : null;
 }
 
 /**

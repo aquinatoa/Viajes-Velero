@@ -9754,3 +9754,57 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
   color: var(--muted);
   white-space: nowrap;
 }
+
+/* ── Pestañas del paso 2 ──────────────────────────────────────────────────
+   Alojamientos y actividades, separados. Antes iba todo en una columna con
+   mucho desplazamiento y no se veía de un vistazo si quedaba algo sin
+   asignar, que es lo que hay que comprobar antes de enviar. */
+.cv__tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.cv__tabs button {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 16px 10px;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+}
+
+.cv__tabs button:hover {
+  color: var(--text);
+}
+
+.cv__tabs button.is-on {
+  color: var(--cv-navy);
+  border-bottom-color: var(--cv-navy);
+}
+
+/* La cuenta de cada pestaña: es lo que permite ver que no falta nada. */
+.cv__tabs button b {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.cv__tabs button.is-on b {
+  color: var(--cv-navy);
+}
+
+.cv__tabs button:focus-visible {
+  outline: 2px solid var(--cv-navy);
+  outline-offset: -2px;
+}

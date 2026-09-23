@@ -242,6 +242,15 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
   /** Hotel cuyo detalle se está mirando. Popover, no modal: no interrumpe. */
   const [detalle, setDetalle] = useState<string | null>(null);
   const [revisando, setRevisando] = useState(false);
+  /**
+   * Qué se está eligiendo ahora: alojamientos o actividades.
+   *
+   * Antes iba todo en una sola columna, uno debajo de otro, con mucho
+   * desplazamiento. Quien cotiza no tenía forma de ver de un vistazo si se
+   * había dejado algo sin asignar, que es justo lo que hay que comprobar antes
+   * de enviar.
+   */
+  const [selec, setSelec] = useState<"alojamientos" | "actividades">("alojamientos");
   const [vista, setVista] = useState<"lista" | "comparar">("lista");
   const [ocupado, setOcupado] = useState<"" | "leyendo" | "buscando" | "enviando">("");
   const [error, setError] = useState("");
@@ -1086,25 +1095,69 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
         {/* ── Las opciones ── */}
         <section className="cv__right" aria-label="Las opciones">
           {hoteles ? (
-            <div className="cv__opsh">
-              <span className="cv__lbl">Las opciones · {elegidos.length} de {MAX_OPCIONES}</span>
-              <div className="cv__seg" role="tablist" aria-label="Vista">
-                <button type="button" className={vista === "lista" ? "is-on" : ""} onClick={() => setVista("lista")}>
-                  Lista
+            <>
+              {/* Dos pestañas, alojamientos y actividades. Antes iba todo en una
+                  sola columna con mucho desplazamiento, y quien cotiza no tenía
+                  forma de ver de un vistazo si se había dejado algo sin asignar.
+                  Cada pestaña lleva su cuenta al lado. */}
+              <div className="cv__tabs" role="tablist" aria-label="Qué se está eligiendo">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={selec === "alojamientos"}
+                  className={selec === "alojamientos" ? "is-on" : ""}
+                  onClick={() => setSelec("alojamientos")}
+                >
+                  Alojamientos
+                  <b>{elegidos.length} de {MAX_OPCIONES}</b>
                 </button>
                 <button
                   type="button"
-                  className={vista === "comparar" ? "is-on" : ""}
-                  onClick={() => setVista("comparar")}
-                  disabled={elegidos.length === 0}
+                  role="tab"
+                  aria-selected={selec === "actividades"}
+                  className={selec === "actividades" ? "is-on" : ""}
+                  onClick={() => setSelec("actividades")}
                 >
-                  Comparar
+                  Actividades
+                  <b>
+                    {programaBase.length === 0
+                      ? "ninguna"
+                      : `${programaBase.length} ${programaBase.length === 1 ? "elegida" : "elegidas"}`}
+                  </b>
                 </button>
               </div>
-            </div>
+
+              {selec === "alojamientos" ? (
+                <div className="cv__opsh">
+                  <span className="cv__lbl">
+                    {hoteles.matches.length} con tarifa · elige hasta {MAX_OPCIONES}
+                  </span>
+                  <div className="cv__seg" role="tablist" aria-label="Vista">
+                    <button type="button" className={vista === "lista" ? "is-on" : ""} onClick={() => setVista("lista")}>
+                      Lista
+                    </button>
+                    <button
+                      type="button"
+                      className={vista === "comparar" ? "is-on" : ""}
+                      onClick={() => setVista("comparar")}
+                      disabled={elegidos.length === 0}
+                    >
+                      Comparar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="cv__opsh">
+                  <span className="cv__lbl">
+                    {(actividades?.matches.length ?? 0)} disponibles · van en todas las opciones
+                  </span>
+                </div>
+              )}
+            </>
           ) : null}
 
-          {!hoteles ? (
+          {selec === "alojamientos" ? (
+            !hoteles ? (
             <div className="cv__slot">
               {ocupado === "buscando"
                 ? "Buscando hoteles con tarifa para esas fechas…"
@@ -1140,13 +1193,19 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
               noches={noches}
               onAlternarOpcion={alternarEnOpcion}
             />
-          )}
+          )
+          ) : null}
 
-          {actividades && vista === "lista" ? (
+          {selec === "actividades" && actividades ? (
             <div className="cv__card">
               <div className="cv__cardh">
                 <span className="cv__lbl">El programa</span>
-                <button type="button" className="cv__link" onClick={() => setVista("comparar")} disabled={elegidos.length === 0}>
+                <button
+                  type="button"
+                  className="cv__link"
+                  onClick={() => { setSelec("alojamientos"); setVista("comparar"); }}
+                  disabled={elegidos.length === 0}
+                >
                   Personalizar por opción
                 </button>
               </div>

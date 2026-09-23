@@ -178,6 +178,78 @@ prueba("el desglose cuadra con el total", () => {
   assert.match(todo, /8\.294,40 €/);
 });
 
+// ── Las actividades y el resumen del viaje ────────────────────────────────────
+//
+// Lo pidió Oravia tras la reunión: cada alojamiento con sus especificaciones,
+// las actividades DEBAJO, y al final un resumen por opción con el total del
+// viaje completo. Antes el PDF ni cargaba las actividades.
+
+const CON_ACTIVIDADES = {
+  ...OPCION(1),
+  accommodationName: "Hotel Santa Mónica Playa",
+  totalPvpText: "9.200,00 €",
+  totalAmount: 9200,
+  activities: [
+    { name: "1 día PortAventura Park", provider: "PortAventura", duration: "1 día", priceText: "52,00 €", amount: 52 },
+    { name: "Caribe Aquatic Park", provider: "PortAventura", duration: "1 día", priceText: "23,00 €", amount: 23 },
+  ],
+};
+
+const rutaDos = await buildProposalPdf({
+  reference: "ORV-2026-9998",
+  clientName: "María López",
+  centreName: null,
+  tripTitle: "IES JAUME BALMES 2027",
+  destination: "Salou",
+  dateFrom: new Date("2027-05-18T00:00:00Z"),
+  dateTo: new Date("2027-05-22T00:00:00Z"),
+  participants: 48,
+  teachers: 4,
+  options: [CON_ACTIVIDADES, { ...OPCION(2), totalAmount: 11000, totalPvpText: "11.000,00 €" }],
+  preparedBy: "Oravia Travel Group",
+});
+
+const pdfDos = await getDocument({
+  data: new Uint8Array(readFileSync(path.resolve(rutaDos))),
+  useSystemFonts: true,
+}).promise;
+
+let textoDos = "";
+for (let p = 1; p <= pdfDos.numPages; p += 1) {
+  const contenido = await (await pdfDos.getPage(p)).getTextContent();
+  textoDos += " " + contenido.items.map((i) => ("str" in i ? i.str : "")).join(" ");
+}
+textoDos = textoDos.replace(/\s+/g, " ");
+
+console.log("\nLas actividades y el resumen");
+
+prueba("las actividades salen bajo su alojamiento", () => {
+  assert.match(textoDos, /ACTIVIDADES INCLUIDAS/);
+  assert.match(textoDos, /PortAventura Park/);
+  assert.match(textoDos, /Caribe Aquatic Park/);
+});
+
+prueba("hay un resumen del viaje al final", () => {
+  assert.match(textoDos, /RESUMEN DEL VIAJE/);
+});
+
+prueba("el total de una opción suma alojamiento MÁS actividades", () => {
+  // 52 + 23 = 75 € por persona, y van 48 alumnos + 4 profesores = 52 personas.
+  // 75 x 52 = 3.900 de actividades, más 9.200 de alojamiento = 13.100.
+  assert.match(textoDos, /13\.100,00/);
+});
+
+prueba("y se dice cuánto sale por alumno", () => {
+  // 13.100 / 48 alumnos = 272,92.
+  assert.match(textoDos, /272,92/);
+  assert.match(textoDos, /por alumno/);
+});
+
+prueba("una opción sin actividades no inventa importes", () => {
+  // La opción 2 no tiene ninguna: su total es el del alojamiento a secas.
+  assert.match(textoDos, /11\.000,00/);
+});
+
 rmSync(ALMACEN, { recursive: true, force: true });
 
 console.log(`\n${pasadas} pasadas, ${fallidas} fallidas\n`);
