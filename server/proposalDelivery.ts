@@ -20,6 +20,7 @@ import nodemailer from "nodemailer";
 import { buildProposalPdf, type PdfOption } from "./proposalPdf";
 import { canSend, loadMailSettings, mailboxFor, replyToFor } from "./mailConfig";
 import { marcarHito, type Hito } from "./crmPipeline";
+import { borrarBorradorDeSolicitudDb } from "./draftsDb";
 
 const prisma = new PrismaClient();
 
@@ -266,6 +267,9 @@ export async function sendDelivery(deliveryId: string): Promise<DeliveryResult> 
   if (!delivery) throw new Error("La entrega no existe.");
   if (delivery.status === "SENT") throw new Error("Esta propuesta ya se envió.");
 
+  // De qué solicitud viene, para poder cerrar su borrador al final.
+  const solicitudId = await solicitudDeLaEntrega(delivery.id);
+
   const settings = loadMailSettings();
   const box = mailboxFor(settings, delivery.department);
   const publicUrl = settings.publicBaseUrl ? `${settings.publicBaseUrl}/p/${delivery.publicToken}` : null;
@@ -289,6 +293,9 @@ export async function sendDelivery(deliveryId: string): Promise<DeliveryResult> 
     console.info(
       `[crm] ${delivery.reference}: simulada, sin clave de buzón. La fase del trato se queda como está.`,
     );
+    // El borrador SÍ se cierra: el documento está hecho y la solicitud montada,
+    // así que ya no es trabajo a medias aunque el correo no haya salido.
+    await cerrarBorradorDe(solicitudId);
     return { ...base, status: updated.status, simulated: true };
   }
 
@@ -323,6 +330,8 @@ export async function sendDelivery(deliveryId: string): Promise<DeliveryResult> 
     where: { id: delivery.id },
     data: { status: "SENT", sentAt: new Date(), failureReason: null },
   });
+
+  await cerrarBorradorDe(solicitudId);
 
   await reflejarEnElCrm(
     delivery.id,
@@ -483,6 +492,36 @@ export async function marcarDepositoCobrado(deliveryId: string, cuando = new Dat
 /** Una entrega concreta: la usa la descarga del documento. */
 export async function getDelivery(id: string) {
   return prisma.proposalDelivery.findUnique({ where: { id } });
+}
+
+/**
+ * Cerrar el borrador de una solicitud cuya propuesta ya está hecha.
+ *
+ * Un borrador es trabajo a medias. En cuanto la propuesta sale, deja de serlo,
+ * y seguir listándolo hace que la pantalla de nueva solicitud ofrezca continuar
+ * cosas ya terminadas. Pasó: llegó a haber cinco «IES Jaume Balmes · Salou ·
+ * 2027-05-18» seguidas, las cinco de la misma solicitud, que existía desde
+ * hacía una hora.
+ *
+ * Que falle no puede tumbar el envío: la propuesta ya salió, y lo peor que
+ * ocurre es que quede un borrador de más.
+ */
+async function cerrarBorradorDe(tripRequestId: string | null): Promise<void> {
+  if (!tripRequestId) return;
+  try {
+    await borrarBorradorDeSolicitudDb(tripRequestId);
+  } catch (error) {
+    console.error("No se pudo cerrar el borrador de la solicitud", error);
+  }
+}
+
+/** De qué solicitud nace una entrega. Hace falta para cerrar su borrador. */
+async function solicitudDeLaEntrega(deliveryId: string): Promise<string | null> {
+  const fila = await prisma.proposalDelivery.findUnique({
+    where: { id: deliveryId },
+    select: { proposal: { select: { tripRequestId: true } } },
+  });
+  return fila?.proposal?.tripRequestId ?? null;
 }
 
 /**

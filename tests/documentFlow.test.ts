@@ -1692,6 +1692,123 @@ async function main() {
     assert.ok(!r.matches.some((m) => m.activity.id === parque.id));
   });
 
+  // --- borradores de solicitud -------------------------------------------------
+  //
+  // La pantalla de nueva solicitud llegó a listar CINCO «IES Jaume Balmes ·
+  // Salou · 2027-05-18» seguidas, las cinco de la misma solicitud, que ya
+  // existía desde hacía una hora. Dos causas: cada recarga estrenaba fila, y
+  // una propuesta ya hecha no cerraba su borrador.
+
+  const drafts = await import("../server/draftsDb.ts");
+
+  console.log("\nBorradores de solicitud:");
+
+  await test("recargar la pestaña NO estrena un borrador de la misma solicitud", async () => {
+    const req = await nuevaSolicitud("Borrador que se recarga");
+
+    // Tres guardados sin id, como tres pestañas que no recuerdan cuál era el
+    // suyo pero sí saben para qué solicitud escriben.
+    const ids = [];
+    for (const n of [1, 2, 3]) {
+      const guardado = await drafts.guardarBorradorDb({
+        title: `Recarga ${n}`,
+        payload: { n },
+        tripRequestId: req.id,
+      });
+      ids.push(guardado.id);
+    }
+
+    assert.equal(new Set(ids).size, 1, "las tres deben caer en la misma fila");
+
+    const filas = await prisma.requestDraft.count({ where: { tripRequestId: req.id } });
+    assert.equal(filas, 1);
+  });
+
+  await test("pero dos solicitudes distintas sí son dos borradores", async () => {
+    const a = await nuevaSolicitud("Borrador A");
+    const b = await nuevaSolicitud("Borrador B");
+
+    const uno = await drafts.guardarBorradorDb({ title: "A", payload: {}, tripRequestId: a.id });
+    const dos = await drafts.guardarBorradorDb({ title: "B", payload: {}, tripRequestId: b.id });
+
+    assert.notEqual(uno.id, dos.id);
+  });
+
+  await test("y sin solicitud todavía, cada uno es suyo", async () => {
+    // Antes de pegar el mensaje no hay solicitud a la que agarrarse: dos
+    // personas empezando a la vez son dos borradores, no uno.
+    const uno = await drafts.guardarBorradorDb({ title: "Sin solicitud 1", payload: {} });
+    const dos = await drafts.guardarBorradorDb({ title: "Sin solicitud 2", payload: {} });
+
+    assert.notEqual(uno.id, dos.id);
+  });
+
+  await test("enviar la propuesta cierra su borrador", async () => {
+    const req = await nuevaSolicitud("Borrador que se cierra al enviar");
+    await drafts.guardarBorradorDb({
+      title: "A medias",
+      payload: {},
+      tripRequestId: req.id,
+    });
+    assert.equal(await prisma.requestDraft.count({ where: { tripRequestId: req.id } }), 1);
+
+    const propuesta = await commercial.saveTripProposalDb({
+      tripRequestId: req.id,
+      versionNumber: 1,
+      proposalStatus: "READY_FOR_APPROVAL",
+      accommodationOptions: [opcion("Hotel A")],
+      activityOptions: [],
+    });
+    const entrega = await delivery.prepareDelivery({
+      proposalId: propuesta.id,
+      recipientEmail: "colegio@example.com",
+    });
+
+    // Sin clave de buzón queda SIMULATED, que es como se prueba en local. El
+    // borrador se cierra igual: el documento está hecho.
+    const enviada = await delivery.sendDelivery(entrega.id);
+    assert.equal(enviada.simulated, true);
+
+    const quedan = await prisma.requestDraft.count({ where: { tripRequestId: req.id } });
+    assert.equal(quedan, 0, "una propuesta hecha ya no es trabajo a medias");
+  });
+
+  await test("una reserva vieja no deja el borrador bloqueado para siempre", async () => {
+    // Quien cerró el portátil el viernes no puede bloquear a nadie el lunes.
+    const guardado = await drafts.guardarBorradorDb({
+      title: "Abierto y olvidado",
+      payload: {},
+      userId: "u-quien-sea",
+    });
+    await prisma.requestDraft.update({
+      where: { id: guardado.id },
+      data: { lockedAt: new Date(Date.now() - 31 * 60_000) },
+    });
+
+    const lista = await drafts.listarBorradoresDb({ id: guardado.id });
+    assert.equal(lista[0].lockedByUserId, null);
+  });
+
+  await test("recién guardado sí dice quién lo tiene abierto", async () => {
+    // Y dice QUIÉN, no «alguien»: la pantalla compara ese id con el suyo. Sin
+    // el dato, los borradores propios decían que los tenía abierta alguien.
+    const guardado = await drafts.guardarBorradorDb({
+      title: "Abierto ahora",
+      payload: {},
+      userId: "u-yo",
+    });
+
+    const lista = await drafts.listarBorradoresDb({ id: guardado.id });
+    assert.equal(lista[0].lockedByUserId, "u-yo");
+  });
+
+  await test("descartar uno lo quita de la lista", async () => {
+    const guardado = await drafts.guardarBorradorDb({ title: "Para tirar", payload: {} });
+    assert.equal(await drafts.borrarBorradorDb(guardado.id), true);
+    assert.equal((await drafts.listarBorradoresDb({ id: guardado.id })).length, 0);
+    assert.equal(await drafts.borrarBorradorDb(guardado.id), false, "borrarlo dos veces no revienta");
+  });
+
   await prisma.$disconnect();
 
   // --- resumen -----------------------------------------------------------------

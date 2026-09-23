@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildProposal,
   logCrmSyncAttempt,
@@ -15,6 +15,7 @@ import {
   abrirProposalPdf,
   buscarContactoCrmApi,
   upsertClientApi,
+  borrarBorradorApi,
   guardarBorradorApi,
   leerBorradorApi,
   listarBorradoresApi,
@@ -69,6 +70,13 @@ const MAX_OPCIONES = 3;
 export interface RequestCanvasProps {
   onFinished?: () => void;
   onExit: () => void;
+  /**
+   * Quién está trabajando. Hace falta para no llamar «alguien» a uno mismo: la
+   * lista de borradores decía «alguien la tiene abierta» sobre los borradores
+   * del propio usuario, porque cada autoguardado deja la reserva puesta y nadie
+   * la comparaba con quien estaba mirando la pantalla.
+   */
+  currentUserId?: string | null;
 }
 
 type HitoEstado = "pendiente" | "trabajando" | "aviso" | "hecho";
@@ -183,7 +191,7 @@ function mensajeDeError(error: unknown, porDefecto: string): string {
   return error instanceof Error ? error.message : porDefecto;
 }
 
-export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
+export function RequestCanvas({ onFinished, onExit, currentUserId = null }: RequestCanvasProps) {
   // La petición
   const [mensajes, setMensajes] = useState<string[]>([]);
   const [borrador, setBorrador] = useState("");
@@ -272,19 +280,39 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
 
   // Y los borradores del servidor, que son los que se pueden continuar desde
   // otro ordenador o los que dejó un compañero.
-  useEffect(() => {
-    let vivo = true;
-    listarBorradoresApi()
-      .then(({ drafts }) => {
-        if (vivo) setBorradores(drafts);
-      })
+  const recargarBorradores = useCallback(() => {
+    return listarBorradoresApi()
+      .then(({ drafts }) => setBorradores(drafts))
       .catch(() => {
         // Sin lista se sigue trabajando: se empieza una solicitud nueva.
       });
-    return () => {
-      vivo = false;
-    };
   }, []);
+
+  useEffect(() => {
+    void recargarBorradores();
+  }, [recargarBorradores]);
+
+  /** Los de la lista, menos el que se está editando ahora mismo. */
+  const otrosBorradores = useMemo(
+    () => borradores.filter((d) => d.id !== borradorId),
+    [borradores, borradorId],
+  );
+
+  /**
+   * Tirar un borrador que ya no sirve.
+   *
+   * Hasta ahora la lista solo dejaba continuar. Una prueba que salió mal se
+   * quedaba ahí para siempre y no había forma de quitarla desde la pantalla.
+   */
+  async function descartarDelServidor(id: string) {
+    setBorradores((antes) => antes.filter((d) => d.id !== id));
+    if (id === borradorId) setBorradorId(null);
+    await borrarBorradorApi(id).catch(() => {
+      // Si no se pudo, la próxima recarga lo vuelve a enseñar: mejor eso que
+      // afirmar que se borró algo que sigue ahí.
+      void recargarBorradores();
+    });
+  }
 
   /**
    * Continuar un borrador del servidor, sea de quien sea.
@@ -410,9 +438,17 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
     setAviso("Recuperado el borrador. Las tarifas se han vuelto a consultar.");
   }
 
+  /**
+   * Descartar el trabajo a medias que ofrece el aviso de arriba.
+   *
+   * Antes solo limpiaba el navegador: la fila del servidor se quedaba, así que
+   * el borrador «descartado» reaparecía en la lista de abajo y en cualquier
+   * otro ordenador. Descartar tiene que descartar.
+   */
   function descartarBorrador() {
     borrarBorrador();
     setRecuperable(null);
+    if (borradorId) void descartarDelServidor(borradorId);
   }
 
   const noches = entendido ? nochesEntre(entendido.dateFrom, entendido.dateTo) : 0;
@@ -816,6 +852,15 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
       const enviada = await sendProposalDeliveryApi(entrega.id);
       setEntrega(enviada);
       setEnviada(true);
+
+      // La propuesta ya salió: esto deja de ser trabajo a medias. El servidor
+      // cierra su borrador al enviar; aquí se quita de la pantalla y del
+      // navegador para que el aviso de «tienes una solicitud a medias» no siga
+      // ofreciendo continuar algo que ya está hecho.
+      borrarBorrador();
+      setRecuperable(null);
+      setBorradorId(null);
+      void recargarBorradores();
       setRevisando(false);
       borrarBorrador();
       setAviso(
@@ -915,21 +960,38 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
       {/* Los borradores del servidor. Antes solo había UNO y vivía en este
           navegador: empezar otra solicitud pisaba la anterior y nadie podía
           continuar la de un compañero. Puntos 4 y 5 de Ruth. */}
-      {borradores.length > 0 && !entendido && mensajes.length === 0 ? (
+      {/* La que tienes abierta AHORA no se lista: ya la estás viendo, y salía
+          repetida debajo del aviso de «tienes una solicitud a medias». */}
+      {otrosBorradores.length > 0 && !entendido && mensajes.length === 0 ? (
         <div className="cv__drafts">
           <p className="cv__draftsh">
-            Solicitudes a medias · {borradores.length}
+            Solicitudes a medias · {otrosBorradores.length}
             <span>Tuyas y de tu departamento. Se pueden continuar.</span>
           </p>
           <ul>
-            {borradores.slice(0, 8).map((d) => (
+            {otrosBorradores.slice(0, 8).map((d) => (
               <li key={d.id}>
                 <button type="button" className="cv__draft" onClick={() => void continuarBorrador(d.id)}>
                   <span className="cv__draftt">{d.title}</span>
                   <span className="cv__draftm">
                     {haceCuanto(d.updatedAt)}
-                    {d.lockedByUserId ? " · alguien la tiene abierta" : ""}
+                    {/* «Alguien» solo si de verdad es otra persona. Cada
+                        autoguardado deja la reserva puesta, así que sin
+                        comparar con quien mira la pantalla, tus propios
+                        borradores decían que los tenía abierta alguien. */}
+                    {d.lockedByUserId && d.lockedByUserId !== currentUserId
+                      ? " · alguien la tiene abierta"
+                      : ""}
                   </span>
+                </button>
+                <button
+                  type="button"
+                  className="cv__draftx"
+                  onClick={() => void descartarDelServidor(d.id)}
+                  title={`Descartar «${d.title}»`}
+                  aria-label={`Descartar «${d.title}»`}
+                >
+                  Descartar
                 </button>
               </li>
             ))}

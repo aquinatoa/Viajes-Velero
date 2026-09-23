@@ -158,6 +158,24 @@ export async function guardarBorradorDb(input: GuardarBorradorInput) {
     }
   }
 
+  // Sin id, pero con una solicitud ya creada: es la MISMA solicitud, vista
+  // desde una pestaña que no recuerda su borrador. Se continúa el que ya hay.
+  //
+  // Sin esto, cada recarga estrenaba fila: la pantalla llegó a listar cinco
+  // «IES Jaume Balmes · Salou · 2027-05-18» idénticas, las cinco de la misma
+  // solicitud y todas presentadas como trabajo a medias distinto.
+  if (input.tripRequestId) {
+    const hermano = await prisma.requestDraft.findFirst({
+      where: { tripRequestId: input.tripRequestId },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true },
+    });
+    if (hermano) {
+      const row = await prisma.requestDraft.update({ where: { id: hermano.id }, data: datos });
+      return aLista({ ...row });
+    }
+  }
+
   const row = await prisma.requestDraft.create({
     data: {
       ...datos,
@@ -168,6 +186,19 @@ export async function guardarBorradorDb(input: GuardarBorradorInput) {
     },
   });
   return aLista({ ...row });
+}
+
+/**
+ * Quita el borrador de una solicitud que ya está enviada.
+ *
+ * Un borrador es trabajo a medias. Cuando la propuesta sale, deja de serlo, y
+ * seguir listándolo hace que la pantalla de nueva solicitud ofrezca continuar
+ * cosas que ya están hechas. Era el caso de las cinco de la captura: las cinco
+ * apuntaban a una solicitud que existía desde hacía una hora.
+ */
+export async function borrarBorradorDeSolicitudDb(tripRequestId: string): Promise<number> {
+  const { count } = await prisma.requestDraft.deleteMany({ where: { tripRequestId } });
+  return count;
 }
 
 export async function borrarBorradorDb(id: string): Promise<boolean> {

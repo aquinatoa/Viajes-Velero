@@ -238,6 +238,7 @@ export function App() {
       <RequestCanvas
         onExit={() => navigatePath(routeForPage("home"))}
         onFinished={() => undefined}
+        currentUserId={currentUser.id}
       />
     );
   }

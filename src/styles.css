@@ -9881,3 +9881,39 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
   outline: 3px solid var(--danger);
   outline-offset: 2px;
 }
+
+/* Descartar un borrador desde la lista. Queda a la derecha y en gris: seguir
+   con uno es lo normal, tirarlo es la excepción. */
+.cv__drafts li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cv__drafts li .cv__draft {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.cv__draftx {
+  flex: 0 0 auto;
+  border: 0;
+  background: none;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  transition: color 0.16s var(--ease-out), background 0.16s var(--ease-out);
+}
+
+.cv__draftx:hover {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.cv__draftx:focus-visible {
+  outline: 3px solid var(--danger);
+  outline-offset: 2px;
+}
