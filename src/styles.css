@@ -9808,3 +9808,15 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
   outline: 2px solid var(--cv-navy);
   outline-offset: -2px;
 }
+
+/* Los dos botones del documento en la revisión: verlo y rehacerlo.
+   Rehacer estaba solo en la barra de arriba, que esta pantalla tapa. */
+.rv__docrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rv__docrow .cv__ghost {
+  flex: 1 1 auto;
+}

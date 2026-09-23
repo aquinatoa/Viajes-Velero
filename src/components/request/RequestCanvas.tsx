@@ -243,6 +243,13 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
   const [detalle, setDetalle] = useState<string | null>(null);
   const [revisando, setRevisando] = useState(false);
   /**
+   * Se esta rehaciendo el documento, no enviando.
+   *
+   * Los dos usan , asi que sin distinguirlo el boton de
+   * enviar decia «Enviando…» mientras solo se regeneraba el PDF. Eso asusta.
+   */
+  const [rehaciendo, setRehaciendo] = useState(false);
+  /**
    * Qué se está eligiendo ahora: alojamientos o actividades.
    *
    * Antes iba todo en una sola columna, uno debajo de otro, con mucho
@@ -674,6 +681,27 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
    * monta las opciones, crea el trato en Zoho y genera el documento. Deja la
    * entrega en borrador para poder revisarla antes de que salga.
    */
+  /**
+   * Rehacer el documento sin salir de la pantalla de revisión.
+   *
+   * Es la misma preparación, así que reaprovecha la entrega en borrador: se
+   * conservan la referencia y el enlace público, y el PDF se regenera con lo
+   * que hay ahora. No crea una segunda entrega ni un segundo trato.
+   *
+   * Solo se marca aparte para que el botón de enviar no diga «Enviando…»
+   * mientras esto ocurre.
+   */
+  async function rehacerDocumento() {
+    setRehaciendo(true);
+    setAviso("");
+    try {
+      await prepararParaRevisar();
+      setAviso("Documento rehecho con lo que hay ahora. Vuelve a abrirlo para verlo.");
+    } finally {
+      setRehaciendo(false);
+    }
+  }
+
   async function prepararParaRevisar() {
     if (!parseResult || !entendido) return;
     setError("");
@@ -1337,14 +1365,35 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
             </div>
 
             <footer className="rv__foot">
-              <button
-                type="button"
-                className="cv__ghost"
-                onClick={verDocumento}
-                disabled={!entrega?.pdfPath}
-              >
-                Ver el documento
-              </button>
+              <div className="rv__docrow">
+                <button
+                  type="button"
+                  className="cv__ghost"
+                  onClick={verDocumento}
+                  disabled={!entrega?.pdfPath}
+                >
+                  Ver el documento
+                </button>
+                {/* Rehacerlo sin salir de aquí.
+                    El mecanismo ya existía —«Revisar y enviar» vuelve a
+                    prepararlo todo— pero ese botón está en la barra de arriba,
+                    que esta pantalla tapa. Así que para regenerar el documento
+                    había que salir, volver a entrar y no era evidente que eso
+                    lo rehiciera. Mientras no se haya enviado, rehacer es una
+                    operación normal, no una salida de emergencia.
+
+                    Conserva la referencia y el enlace: por dentro reaprovecha
+                    la entrega en borrador en vez de crear otra. */}
+                <button
+                  type="button"
+                  className="cv__ghost"
+                  onClick={() => void rehacerDocumento()}
+                  disabled={ocupado !== "" || enviada}
+                  title="Vuelve a generar el PDF con lo que hay ahora, sin cambiar la referencia"
+                >
+                  {rehaciendo ? "Rehaciendo…" : "Rehacer el documento"}
+                </button>
+              </div>
               <div className="rv__footr">
                 <button type="button" className="cv__ghost" onClick={() => setRevisando(false)} disabled={ocupado !== ""}>
                   Guardar sin enviar
@@ -1355,7 +1404,7 @@ export function RequestCanvas({ onFinished, onExit }: RequestCanvasProps) {
                   onClick={enviarAhora}
                   disabled={!entrega || ocupado !== "" || enviada}
                 >
-                  {ocupado === "enviando" ? "Enviando…" : "Enviar al colegio"}
+                  {ocupado === "enviando" && !rehaciendo ? "Enviando…" : "Enviar al colegio"}
                 </button>
               </div>
             </footer>
