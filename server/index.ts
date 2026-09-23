@@ -18,6 +18,11 @@ import {
 } from "./zoho";
 import { searchAccommodationsDb, searchActivitiesDb } from "./searchDb";
 import {
+  borrarSolicitudDb,
+  queSeVaABorrar,
+  SolicitudNoBorrable,
+} from "./borrarSolicitud";
+import {
   borrarBorradorDb,
   guardarBorradorDb,
   leerBorradorDb,
@@ -1653,6 +1658,72 @@ app.delete("/api/commercial/drafts/:id", async (request, response) => {
   } catch (error) {
     console.error("Error borrando borrador", error);
     response.status(500).json({ error: "No se pudo borrar el borrador." });
+  }
+});
+
+// ── Borrar una solicitud entera ─────────────────────────────────────────────
+// Se lleva por delante sus propuestas, sus envíos, sus PDF y el trato del CRM.
+// Hasta ahora no había forma de deshacer una prueba: la solicitud se quedaba en
+// la mesa para siempre y su oportunidad en Zoho también, y había que ir al CRM
+// a buscarla y borrarla a mano.
+
+app.get("/api/commercial/trip-requests/:id/borrado", async (request, response) => {
+  try {
+    const user = (request as AuthedRequest).user;
+    const resumen = await queSeVaABorrar(
+      String(request.params.id),
+      user!,
+      user ? tripRequestVisibilityWhere(user) : {},
+    );
+    if (!resumen) {
+      response.status(404).json({ error: "Esa solicitud ya no existe." });
+      return;
+    }
+    response.json(resumen);
+  } catch (error) {
+    console.error("Error mirando qué se borraría", error);
+    response.status(500).json({ error: "No se pudo comprobar qué se borraría." });
+  }
+});
+
+app.delete("/api/commercial/trip-requests/:id", async (request, response) => {
+  const user = (request as AuthedRequest).user;
+  try {
+    const borrado = await borrarSolicitudDb(
+      String(request.params.id),
+      user!,
+      user ? tripRequestVisibilityWhere(user) : {},
+    );
+
+    if (!borrado) {
+      response.status(404).json({ error: "Esa solicitud ya no existe." });
+      return;
+    }
+
+    // Queda escrito quién borró qué: una solicitud borrada no deja rastro en
+    // ningún otro sitio, y sin esto no habría forma de saber que existió.
+    await writeAudit({
+      user,
+      action: "BORRAR_SOLICITUD",
+      entity: `TripRequest:${borrado.tripRequestId}`,
+      detail:
+        `«${borrado.titulo}» · ${borrado.propuestas} propuesta(s), ${borrado.envios} envío(s)` +
+        (borrado.referencias.length ? ` [${borrado.referencias.join(", ")}]` : "") +
+        (borrado.crmDealId
+          ? ` · trato ${borrado.crmDealId} ${borrado.crm === "BORRADO" ? "borrado del CRM" : "ya no estaba en el CRM"}`
+          : " · sin trato en el CRM"),
+    });
+
+    response.json(borrado);
+  } catch (error) {
+    if (error instanceof SolicitudNoBorrable) {
+      response.status(409).json({ error: error.message });
+      return;
+    }
+    // Si Zoho falla, aquí no se ha borrado nada: se puede reintentar. Y si lo
+    // que hace falta es volver a autorizar, la respuesta lo dice con su enlace.
+    console.error("Error borrando la solicitud", error);
+    crmErrorResponse(error, response, "No se pudo borrar la solicitud.");
   }
 });
 

@@ -6,6 +6,7 @@ import {
 } from "../../services/apiClient";
 import type { CurrentUser } from "../../domain/types";
 import { ChangePanel } from "./ChangePanel";
+import { BorrarSolicitudPanel } from "./BorrarSolicitudPanel";
 
 /**
  * Mesa de propuestas — pantalla de inicio.
@@ -176,6 +177,10 @@ export function ProposalDesk({
   const [sendingId, setSendingId] = useState<string | null>(null);
   /** Propuesta sobre la que se está mirando un cambio del cliente. */
   const [cambiando, setCambiando] = useState<ProposalDelivery | null>(null);
+  /** Propuesta cuya solicitud se está a punto de borrar. */
+  const [borrando, setBorrando] = useState<ProposalDelivery | null>(null);
+  /** Lo último que se borró, para decirlo sin que parezca que se ha perdido. */
+  const [aviso, setAviso] = useState("");
 
   async function load() {
     setLoading(true);
@@ -252,6 +257,12 @@ export function ProposalDesk({
         </div>
       ) : null}
 
+      {aviso ? (
+        <div className="alert alert--ok" role="status">
+          {aviso}
+        </div>
+      ) : null}
+
       <section className="desk__card">
         <header className="desk__cardhead">
           <h2>Lo que está en juego</h2>
@@ -308,6 +319,14 @@ export function ProposalDesk({
                   >
                     Ha cambiado algo
                   </button>
+                  <button
+                    type="button"
+                    className="desk__rowlink desk__rowlink--borrar"
+                    onClick={() => setBorrando(delivery)}
+                    title="Borrar la solicitud, sus propuestas y su oportunidad del CRM"
+                  >
+                    Borrar
+                  </button>
                   {(() => {
                     const accion = accionDe(delivery);
                     return (
@@ -339,6 +358,19 @@ export function ProposalDesk({
           tituloViaje={tripTitleOf(cambiando)}
           onClose={() => setCambiando(null)}
           onApplied={() => void load()}
+        />
+      ) : null}
+
+      {borrando ? (
+        <BorrarSolicitudPanel
+          delivery={borrando}
+          titulo={tripTitleOf(borrando)}
+          onClose={() => setBorrando(null)}
+          onBorrada={(resumen) => {
+            setBorrando(null);
+            setAviso(resumen);
+            void load();
+          }}
         />
       ) : null}
     </div>

@@ -715,6 +715,11 @@ export interface ProposalDelivery {
   proposal?: {
     id: string;
     tripRequest?: {
+      // El id y el trato del CRM hacen falta para poder borrar el expediente
+      // desde la mesa: se borra la SOLICITUD, no el envío suelto, y la pantalla
+      // que pide la confirmación tiene que poder decir qué trato se va con ella.
+      id: string;
+      crmDealId: string | null;
       opportunityName: string | null;
       destinationText: string | null;
       dateFrom: string | null;
@@ -722,6 +727,58 @@ export interface ProposalDelivery {
       participants: number | null;
     } | null;
   } | null;
+}
+
+/** Lo que se lleva por delante borrar una solicitud. */
+export interface BorradoDeSolicitud {
+  tripRequestId: string;
+  titulo: string;
+  propuestas: number;
+  envios: number;
+  referencias: string[];
+  crm: "BORRADO" | "NO_ESTABA" | null;
+  crmDealId: string | null;
+}
+
+/** Lo que se borraría, y el motivo por el que no se puede si lo hay. */
+export interface VistaPreviaDelBorrado {
+  tripRequestId: string;
+  titulo: string;
+  centreName: string | null;
+  propuestas: number;
+  envios: number;
+  referencias: string[];
+  enviadaAlColegio: boolean;
+  crmDealId: string | null;
+  crmDealUrl: string | null;
+  /** `null` si se puede borrar. Si no, la frase que explica por qué no. */
+  motivoNoBorrable: string | null;
+}
+
+/**
+ * Qué se llevaría por delante el borrado, preguntado al servidor.
+ *
+ * Se pregunta en vez de deducirlo aquí porque la regla de quién puede borrar
+ * qué vive en el servidor, y escribirla otra vez en el navegador acabaría
+ * diciendo una cosa en la pantalla y otra al pulsar.
+ */
+export function vistaPreviaDelBorradoApi(tripRequestId: string) {
+  return getJson<VistaPreviaDelBorrado>(
+    `/api/commercial/trip-requests/${encodeURIComponent(tripRequestId)}/borrado`,
+    "No se pudo comprobar qué se borraría.",
+  );
+}
+
+/**
+ * Borra la solicitud entera: sus propuestas, sus envíos, sus PDF y el trato del
+ * CRM. No hay vuelta atrás en la app; el trato de Zoho sí se queda 60 días en
+ * su papelera.
+ */
+export function borrarSolicitudApi(tripRequestId: string) {
+  return deleteJson<BorradoDeSolicitud>(
+    `/api/commercial/trip-requests/${encodeURIComponent(tripRequestId)}`,
+    "No se pudo borrar la solicitud.",
+  );
 }
 
 export function prepareProposalDeliveryApi(

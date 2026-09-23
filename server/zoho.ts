@@ -711,3 +711,51 @@ export async function updateZohoDeal(payload: {
 
   return { dealId: payload.dealId, stage: payload.stage, chosenOption: payload.chosenOption };
 }
+
+
+/**
+ * Borra en el CRM el trato de una solicitud.
+ *
+ * Hace falta porque las pruebas dejan tratos reales en el Zoho de Oravia: el
+ * `.env` apunta a su CRM de verdad, no a un entorno de juguete, y cada recorrido
+ * de prueba creaba una oportunidad que luego habia que ir a buscar y borrar a
+ * mano.
+ *
+ * Zoho no destruye el registro: lo manda a su papelera, donde se queda 60 dias
+ * y se puede restaurar. Eso lo dice la pantalla que pide la confirmacion,
+ * porque cambia lo que se esta decidiendo.
+ *
+ * Solo el trato. El contacto y la cuenta se quedan: un colegio que ha pedido un
+ * presupuesto de prueba sigue siendo un colegio, y borrarlo se llevaria por
+ * delante el historial de sus otras oportunidades.
+ *
+ * Se usa el borrado por `ids=`, que responde 200 con el resultado de cada
+ * registro, en vez de `Deals/{id}`, que responde 404 a secas: con el 404 no se
+ * puede distinguir «ya no estaba» de «no tengo permiso», y son cosas distintas.
+ */
+export async function eliminarTratoEnCrm(dealId: string): Promise<"BORRADO" | "NO_ESTABA"> {
+  const id = String(dealId ?? "").trim();
+  if (!id) return "NO_ESTABA";
+
+  try {
+    const resultado = await zohoRequest<ZohoRecordResponse<{ code?: string; message?: string }>>(
+      `${zohoConfig.dealsModule}?ids=${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    );
+
+    const codigo = String(resultado.data?.[0]?.code ?? "");
+    if (codigo === "SUCCESS") return "BORRADO";
+    if (/NOT_FOUND|INVALID_DATA/i.test(codigo)) return "NO_ESTABA";
+
+    throw new Error(
+      `Zoho no borro el trato ${id}: ${resultado.data?.[0]?.message ?? codigo ?? "sin motivo"}`,
+    );
+  } catch (error) {
+    // Un trato ya borrado a mano no es un fallo: lo que se queria es que no
+    // estuviera, y no esta.
+    if (error instanceof Error && /RESOURCE_NOT_FOUND|devolvio 404|devolvió 404/i.test(error.message)) {
+      return "NO_ESTABA";
+    }
+    throw error;
+  }
+}

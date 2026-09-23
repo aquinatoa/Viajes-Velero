@@ -9820,3 +9820,64 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 .rv__docrow .cv__ghost {
   flex: 1 1 auto;
 }
+
+/* ── Borrar una solicitud ────────────────────────────────────────────────────
+   El botón no grita: borrar no es la acción principal de la fila, y un rojo
+   fijo entre catorce propuestas convierte la mesa en un campo de minas. Se
+   tiñe al acercarse, que es cuando importa saber qué hace. */
+.desk__rowlink--borrar:hover,
+.desk__rowlink--borrar:focus-visible {
+  color: var(--danger);
+}
+
+.borra__lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.borra__lista li {
+  position: relative;
+  padding-left: 16px;
+  font-size: var(--fs-body);
+  line-height: 1.5;
+}
+
+.borra__lista li::before {
+  content: "·";
+  position: absolute;
+  left: 4px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.borra__foot {
+  justify-content: space-between;
+}
+
+.borra__btn {
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  padding: 9px 16px;
+  font-weight: 700;
+  font-size: var(--fs-body);
+  color: #fff;
+  background: var(--danger);
+  transition: filter 0.16s var(--ease-out);
+}
+
+.borra__btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.borra__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.borra__btn:focus-visible {
+  outline: 3px solid var(--danger);
+  outline-offset: 2px;
+}
