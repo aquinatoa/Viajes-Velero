@@ -5,7 +5,7 @@ import type {
 } from "../domain/types";
 import { approveTripProposalApi, saveTripProposalApi } from "./apiClient";
 import { applyDefaultMarkup, totalAlojamiento } from "./pricing";
-import { diffNights, formatCurrency, formatCurrencyExact } from "./utils";
+import { diffNights, formatCurrencyExact } from "./utils";
 
 function ensureProposalInputs(input: BuildProposalInput) {
   if (input.builderState.selectedAccommodationIds.length === 0) {
@@ -79,6 +79,10 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
       priceBreakdownText: `${desglose.join(" + ")}, por noche x ${nights} noches`,
       conditionsText: selected.accommodation.conditionsText,
       observationsText: selected.accommodation.observations,
+      // Las gratuidades: «1 gratuidad en base doble por cada 25 de pago». Están
+      // en el catálogo y no llegaban a la propuesta, así que el documento que
+      // ve el colegio no las decía. Es información que cambia el precio.
+      freePolicyText: selected.accommodation.freePolicy,
       isSelected: false
     };
   });
@@ -102,7 +106,10 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
         activityNameSnapshot: selected.activity.activityName,
         providerSnapshot: selected.activity.supplierName,
         durationSnapshot: selected.activity.durationText,
-        pvpSnapshot: rate.salePvpAmount > 0 ? formatCurrency(rate.salePvpAmount) : "A consultar",
+        // Con céntimos, como el resto del documento: el precio de una actividad
+        // entra en el total del viaje, así que redondearlo aquí hacía que la
+        // suma del resumen no cuadrara con lo que se ve arriba.
+        pvpSnapshot: rate.salePvpAmount > 0 ? formatCurrencyExact(rate.salePvpAmount) : "A consultar",
         descriptionSnapshot: selected.activity.descriptionText,
         isSelected: false
       };

@@ -31,10 +31,21 @@ export function formatCurrency(amount: number) {
  * 106 € de diferencia y deja de fiarse del resto del documento.
  */
 export function formatCurrencyExact(amount: number) {
-  return new Intl.NumberFormat("es-ES", {
+  const opciones: Intl.NumberFormatOptions = {
     style: "currency",
     currency: "EUR",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
-  }).format(amount);
+  };
+
+  // El punto de los miles, SIEMPRE. El español no agrupa los números de cuatro
+  // cifras, así que el mismo documento mezclaba «8013,60 €» en la cabecera de
+  // una opción con «8.013,60 €» en el resumen: dos formatos para el mismo
+  // importe, en la misma página.
+  //
+  // Se asigna aparte porque «always» es de ES2023 y la librería de tipos que
+  // usa el navegador en este proyecto todavía declara la opción como booleana.
+  (opciones as Record<string, unknown>).useGrouping = "always";
+
+  return new Intl.NumberFormat("es-ES", opciones).format(amount);
 }

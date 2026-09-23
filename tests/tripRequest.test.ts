@@ -406,6 +406,28 @@ prueba("sin centro, se sigue describiendo el viaje", () => {
   const info = extractClientInfo("Queremos un viaje de fin de curso a Salou en 2027.");
   assert.equal(info.opportunityName, "Viaje fin de curso Salou 2027");
 });
+prueba("«Ramón y Cajal» es un nombre, no dos", () => {
+  // Cortar en la «y» daba «IES Ramón», y con ESE nombre se creaba la cuenta en
+  // el CRM del cliente. Se vio en el primer PDF generado del recorrido real:
+  // la oportunidad se llamaba «IES RAMÓN 2027».
+  assert.equal(
+    extractCentreName("Soy María López, del IES Ramón y Cajal de Madrid."),
+    "IES Ramón y Cajal",
+  );
+});
+
+prueba("en catalán igual, sin tragarse la frase", () => {
+  assert.equal(
+    extractCentreName("Escribimos del Colegio Sant Pere i Sant Pau de Tarragona."),
+    "Colegio Sant Pere i Sant Pau",
+  );
+  // Pero «i volem» sigue quedando fuera: el conector solo une si lo que viene
+  // detrás empieza por mayúscula.
+  assert.equal(
+    extractCentreName("Som de l'Institut Vedruna Balaguer i volem anar a Salou."),
+    "Institut Vedruna Balaguer",
+  );
+});
 
 console.log(`\n${pasadas} pasadas, ${fallidas} fallidas\n`);
 process.exit(fallidas > 0 ? 1 : 0);

@@ -372,8 +372,20 @@ const TIPOS_DE_CENTRO = [
  * Ramón y Cajal de Madrid» sale «IES Ramón y Cajal», no el centro con Madrid
  * pegado detrás.
  */
-/** Palabras que, en medio de una frase, ya no son parte del nombre del centro. */
-const CORTA_EL_NOMBRE = ["de", "del", "en", "desde", "para", "que", "con", "i", "y", "a"];
+/**
+ * Palabras que, en medio de una frase, ya no son parte del nombre del centro.
+ *
+ * «de» y «del» están aquí porque introducen la ciudad: de «IES Ramón y Cajal de
+ * Madrid» queremos el centro, no el centro con Madrid pegado detrás.
+ *
+ * «y» e «i» NO están, y es a propósito: unen dos partes de un mismo nombre.
+ * Cortando ahí, «IES Ramón y Cajal» se quedaba en «IES Ramón», y con ese nombre
+ * se creaba la cuenta en el CRM.
+ */
+const CORTA_EL_NOMBRE = ["de", "del", "en", "desde", "para", "que", "con", "a"];
+
+/** Conectores que unen dos partes del nombre: «Ramón y Cajal», «Sant Pere i Sant Pau». */
+const UNE_EL_NOMBRE = ["y", "i", "&"];
 
 export function extractCentreName(text: string): string {
   // El tipo se acepta en mayúscula o minúscula («del colegio Sagrado Corazón»),
@@ -391,11 +403,14 @@ export function extractCentreName(text: string): string {
   // Se evita `\b` alrededor del tipo: en JavaScript la frontera de palabra es
   // ASCII, y detrás de «Fundació» no hay ninguna, así que `\bFundació\b` no
   // casaba nunca. Con `\p{L}` y el modificador `u` sí.
+  const une = UNE_EL_NOMBRE.map((u) => u.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+
   const patron = new RegExp(
     `(?<!\\p{L})(${tipos})(?!\\p{L})` +
-      // Hasta cuatro palabras más, cada una empezando por mayúscula. Los puntos
-      // quedan fuera a propósito: son el final de la frase, no del nombre.
-      `((?:\\s+(?!(?:${corte})(?!\\p{L}))\\p{Lu}[\\p{L}\\p{N}'’·-]*){0,4})`,
+      // Hasta seis palabras más. Cada una empieza por mayúscula, o es un
+      // conector —«y», «i»— seguido de una que sí. Los puntos quedan fuera a
+      // propósito: son el final de la frase, no del nombre.
+      `((?:\\s+(?:(?:${une})\\s+)?(?!(?:${corte})(?!\\p{L}))\\p{Lu}[\\p{L}\\p{N}'’·-]*){0,6})`,
     "u",
   );
 

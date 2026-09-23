@@ -173,10 +173,16 @@ export async function prepareDelivery(input: PrepareDeliveryInput): Promise<Deli
     priceBreakdownText: option.priceBreakdownText,
     conditionsText: option.conditionsText,
     observationsText: option.observationsText,
+    freePolicyText: option.freePolicyText,
     // Cada opción se lleva SUS actividades: el colegio elige una opción entera,
     // no un hotel por un lado y unas excursiones por otro.
+    // NO se filtra por `isSelected`. Ese campo significa «el colegio eligió
+    // esta opción» y se pone al aprobar, así que al generar el documento vale
+    // false en todas: filtrando por él, el PDF salía SIEMPRE sin actividades
+    // aunque se hubieran elegido. Las que están guardadas en una opción ya son
+    // las que eligió quien cotiza.
     activities: proposal.activityOptions
-      .filter((actividad) => actividad.optionNumber === option.optionNumber && actividad.isSelected)
+      .filter((actividad) => actividad.optionNumber === option.optionNumber)
       .map((actividad) => ({
         name: actividad.activityNameSnapshot,
         provider: actividad.providerSnapshot,

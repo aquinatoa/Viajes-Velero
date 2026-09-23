@@ -317,6 +317,7 @@ export interface SaveTripProposalInput {
     totalPvpText?: string | null;
     priceBreakdownText?: string | null;
     conditionsText?: string | null;
+    freePolicyText?: string | null;
     observationsText?: string | null;
     isSelected?: boolean;
   }[];
@@ -393,6 +394,7 @@ export async function saveTripProposalDb(input: SaveTripProposalInput): Promise<
         totalPvpText: option.totalPvpText ?? null,
         priceBreakdownText: option.priceBreakdownText ?? null,
         conditionsText: option.conditionsText ?? null,
+        freePolicyText: option.freePolicyText ?? null,
         observationsText: option.observationsText ?? null,
         isSelected: option.isSelected ?? false,
       })),
@@ -444,6 +446,7 @@ export async function saveTripProposalDb(input: SaveTripProposalInput): Promise<
       totalPvpText: option.totalPvpText ?? "",
       priceBreakdownText: option.priceBreakdownText ?? "",
       conditionsText: option.conditionsText ?? "",
+      freePolicyText: option.freePolicyText ?? "",
       observationsText: option.observationsText ?? "",
       isSelected: option.isSelected,
     })),
@@ -520,6 +523,7 @@ export async function approveTripProposalDb(
       totalPvpText: option.totalPvpText ?? "",
       priceBreakdownText: option.priceBreakdownText ?? "",
       conditionsText: option.conditionsText ?? "",
+      freePolicyText: option.freePolicyText ?? "",
       observationsText: option.observationsText ?? "",
       isSelected: option.isSelected,
     })),

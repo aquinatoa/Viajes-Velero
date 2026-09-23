@@ -292,6 +292,8 @@ export interface ProposalAccommodationOption {
   priceBreakdownText: string;
   conditionsText: string;
   observationsText: string;
+  /** Las gratuidades del hotel. Cambian el precio, asi que van en la propuesta. */
+  freePolicyText?: string;
   isSelected: boolean;
 }
 
