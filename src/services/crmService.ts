@@ -211,6 +211,18 @@ export const prepareNewOpportunityPayload = ({
       group_type: request.groupType,
       opportunity_name: dealName,
       amount,
+      // Lo que hasta ahora se quedaba aquí dentro y no llegaba a ningún campo
+      // del trato. Ruth lo reportó: «no rellena ningún campo de la oportunidad
+      // como fecha entrada y salida, número de pasajeros, importe depósito,
+      // tipo de pago y forma de cobro. Lo pone todo en la descripción».
+      language: request.language,
+      age_range_text: request.ageRangeText,
+      // El DEPARTAMENTO no va aquí: lo pone el servidor desde la sesión de quien
+      // cotiza, igual que el dueño de la solicitud. Es el dato fiable; esta
+      // pantalla no lo conoce y el navegador no debería poder elegirlo.
+      // «Contacto responsable grupo» es texto libre en su CRM, aparte del
+      // contacto vinculado.
+      contact_name: client.fullName ?? null,
       description: buildOpportunityDescription(request, proposal)
     },
     approved_option: null,

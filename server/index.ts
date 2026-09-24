@@ -377,9 +377,19 @@ app.post("/api/crm/opportunities/new", async (request, response) => {
         participants?: number | null;
         teachers?: number | null;
         group_type?: string;
+        department?: "GROUPS" | "SPORTS" | null;
       };
       proposalOptions: unknown;
     };
+
+    // El DEPARTAMENTO lo pone la sesión, no el navegador. Es la misma regla que
+    // el dueño de la solicitud: el dato fiable está aquí, y la pantalla que
+    // cotiza ni siquiera lo conoce. Va al campo «Departamento» del trato, que
+    // Oravia tiene relleno en el 99% de sus oportunidades.
+    const quienCotiza = (request as AuthedRequest).user;
+    if (payload.opportunity && quienCotiza?.department) {
+      payload.opportunity.department = quienCotiza.department;
+    }
 
     const result = payload.tripRequestId
       ? await ensureTripRequestDealDb(payload.tripRequestId, () => createZohoOpportunity(payload))

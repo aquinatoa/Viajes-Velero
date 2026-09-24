@@ -1,4 +1,10 @@
 import "./loadEnv";
+// El embudo vive en `crmPipeline`, que a su vez importa de aquí dos funciones.
+// El ciclo es inocuo: ninguno de los dos módulos LEE lo del otro mientras se
+// evalúa, solo dentro de funciones que se llaman después. Si algún día uno de
+// los dos usa lo importado en su cuerpo, habrá que sacar el embudo a su propio
+// módulo.
+import { FASES } from "./crmPipeline";
 type ZohoTokenResponse = {
   access_token: string;
   refresh_token?: string;
@@ -423,7 +429,168 @@ async function upsertAccount(name: string) {
   return createAccount(name);
 }
 
-export async function createZohoOpportunity(payload: {
+/**
+ * Cómo se llama en su CRM cada departamento nuestro.
+ *
+ * Los valores son los de su lista, tal cual: «Grupos» y «Turismo Deportivo».
+ * De sus 1.000 tratos, 542 son de Grupos y 427 de Turismo Deportivo, así que
+ * son los dos que importan; los otros tres valores de la lista —Familiar,
+ * Congresos, Agencia— no los produce esta app.
+ */
+const DEPARTAMENTO_EN_CRM: Record<string, string> = {
+  GROUPS: "Grupos",
+  SPORTS: "Turismo Deportivo",
+};
+
+/**
+ * El idioma, con el nombre exacto de su lista.
+ *
+ * Su picklist solo tiene Español, Inglés y Francés. El catalán NO está, así
+ * que un mensaje en catalán se queda sin idioma en el trato en vez de inventar
+ * un valor que su CRM rechazaría. Hay que pedirles que lo añadan.
+ *
+ * Se aceptan códigos y nombres porque el dato llega de la lectura del mensaje y
+ * hoy unas veces es «es» y otras «Español». En sus propios tratos conviven las
+ * dos formas: 557 dicen «Español» y 79 dicen «es», que es basura que ya tienen.
+ */
+function idiomaEnCrm(valor?: string | null): string | null {
+  const limpio = String(valor ?? "").trim().toLowerCase();
+  if (!limpio) return null;
+  if (/^(es|spa|cas|español|espanol|castellano)/.test(limpio)) return "Español";
+  if (/^(en|eng|ingl)/.test(limpio)) return "Inglés";
+  if (/^(fr|fra|franc)/.test(limpio)) return "Francés";
+  return null;
+}
+
+/**
+ * El depósito acordado con Oravia en junio: 30% al aceptar la propuesta.
+ *
+ * Es el mismo número que usa la mesa de propuestas para el reloj de los 40
+ * días. Vive aquí porque es lo que se escribe en el trato.
+ */
+const DEPOSITO_PORCENTAJE = 30;
+const FORMA_DE_COBRO = "Deposito 30%";
+
+/**
+ * La fase con la que nace un trato.
+ *
+ * Se valida contra el embudo real porque el `.env` traía `ZOHO_DEAL_STAGE=Nueva`
+ * y «Nueva» NO es una de sus fases: siete tratos acabaron ahí, fuera del embudo,
+ * sin que nadie lo viera hasta leer el CRM entero. Un valor que no existe se
+ * ignora y se usa la primera fase de verdad.
+ */
+function faseInicial(): string {
+  const pedida = (zohoConfig.dealStage ?? "").trim();
+  const existe = FASES.some((f) => f.trim().toLowerCase() === pedida.toLowerCase());
+  if (pedida && existe) return pedida;
+
+  if (pedida) {
+    console.warn(
+      `[crm] «${pedida}» no es una fase del embudo. Se usa «${FASES[0]}». Revisa ZOHO_DEAL_STAGE.`,
+    );
+  }
+  return FASES[0];
+}
+
+/** Quién es quién en el CRM, ya resuelto, para poder montar el trato. */
+export interface VinculosDelTrato {
+  dealName: string;
+  contactId?: string | null;
+  accountId?: string | null;
+}
+
+/**
+ * El registro que se le manda a Zoho al crear un trato.
+ *
+ * Va aparte de la llamada para poder comprobarlo sin hablar con el CRM: es
+ * donde vive todo el mapeo y donde estaría el fallo si un campo se quedara
+ * vacío. Que es justo lo que pasaba.
+ */
+export function construirTratoParaElCrm(
+  payload: PayloadDeOportunidad,
+  vinculos: VinculosDelTrato,
+): Record<string, unknown> {
+  const { dealName, contactId, accountId } = vinculos;
+  const record: Record<string, unknown> = {
+    Deal_Name: dealName,
+    Stage: faseInicial()
+  };
+
+  if (contactId) {
+    record.Contact_Name = { id: contactId };
+  }
+  if (accountId) {
+    record.Account_Name = { id: accountId };
+  }
+  if (typeof payload.opportunity.amount === "number" && payload.opportunity.amount > 0) {
+    record.Amount = payload.opportunity.amount;
+  }
+
+  // ── Los campos del viaje ────────────────────────────────────────────────────
+  //
+  // Hasta ahora TODO esto se quedaba dentro del texto de la descripción, y el
+  // trato salía con sus campos vacíos. Lo reportó Ruth: «no rellena ningún
+  // campo de la oportunidad como fecha entrada y salida, número de pasajeros,
+  // importe depósito, tipo de pago y forma de cobro. Lo pone todo en la
+  // descripción».
+  //
+  // Los campos existían desde siempre. Leídos sus 1.000 tratos, los rellenan
+  // ellos a mano casi siempre: Departamento e Idioma en el 99%, Forma de Cobro
+  // en el 97%, Número de personas en el 96%, fecha de llegada en el 93%. Un
+  // trato nuestro con todo eso vacío se distinguía de los suyos a simple vista.
+
+  const { date_from: entrada, date_to: salida } = payload.opportunity;
+
+  if (entrada) record.Fecha_llegada_actividad = entrada;
+  if (salida) {
+    record.Fecha_salida_actividad = salida;
+    // La fecha de cierre sigue siendo la de salida, como hasta ahora.
+    record.Closing_Date = salida;
+  }
+
+  if (typeof payload.opportunity.participants === "number" && payload.opportunity.participants > 0) {
+    record.N_mero_de_personas = payload.opportunity.participants;
+  }
+  if (typeof payload.opportunity.teachers === "number" && payload.opportunity.teachers > 0) {
+    record.Profesor_entrenador = payload.opportunity.teachers;
+  }
+
+  const departamento = DEPARTAMENTO_EN_CRM[payload.opportunity.department ?? ""];
+  if (departamento) record.Departamento = departamento;
+
+  const idioma = idiomaEnCrm(payload.opportunity.language);
+  if (idioma) record.Idioma = idioma;
+
+  const edades = payload.opportunity.age_range_text?.trim();
+  if (edades) record.Edad_participantes = edades;
+
+  const responsable = payload.opportunity.contact_name?.trim();
+  if (responsable) record.Contacto_grupo = responsable;
+
+  // El cobro, que es acuerdo nuestro y no dato del colegio: depósito del 30% al
+  // aceptar. Es el valor que llevan 735 de sus 1.000 tratos.
+  record.Forma_de_Cobro = FORMA_DE_COBRO;
+  if (typeof payload.opportunity.amount === "number" && payload.opportunity.amount > 0) {
+    record.Importe_Dep_sito_New =
+      Math.round(payload.opportunity.amount * (DEPOSITO_PORCENTAJE / 100) * 100) / 100;
+  }
+
+  // `Tipo_de_Pago` (Crédito / Prepago) NO se rellena a propósito: es una
+  // condición que se pacta con cada colegio y aquí no se sabe. Ponerlo por
+  // defecto llenaría 900 tratos de un dato que nadie ha decidido.
+
+  // El detalle de las opciones, en su campo. Antes iba a la Descripción, que es
+  // donde ellos escriben a mano y donde la app deja después las notas y la
+  // opción elegida: el texto largo tapaba ambas cosas.
+  if (zohoConfig.dealOptionsField) {
+    record[zohoConfig.dealOptionsField] =
+      payload.opportunity.description?.trim() || JSON.stringify(payload.proposalOptions, null, 2);
+  }
+
+  return record;
+}
+/** Lo que la app sabe del viaje cuando abre la oportunidad en el CRM. */
+export interface PayloadDeOportunidad {
   contact: {
     email: string;
     first_name: string;
@@ -446,9 +613,19 @@ export async function createZohoOpportunity(payload: {
     group_type?: string;
     amount?: number | null;
     description?: string;
+    /** Idioma de la solicitud, para el campo «Idioma» del trato. */
+    language?: string | null;
+    /** «15-17 años», tal como venía en el mensaje. */
+    age_range_text?: string | null;
+    /** Groups o Sports. Lo pone el servidor desde la sesión, no el navegador. */
+    department?: "GROUPS" | "SPORTS" | null;
+    /** El responsable del grupo, en texto: su CRM lo tiene aparte del contacto. */
+    contact_name?: string | null;
   };
   proposalOptions: unknown;
-}) {
+}
+
+export async function createZohoOpportunity(payload: PayloadDeOportunidad) {
   const contactId = await upsertContact({
     email: payload.contact.email,
     firstName: payload.contact.first_name,
@@ -471,28 +648,7 @@ export async function createZohoOpportunity(payload: {
     payload.opportunity.opportunity_name ||
     `${payload.opportunity.destination ?? "Viaje"} ${payload.contact.full_name}`;
 
-  const record: Record<string, unknown> = {
-    Deal_Name: dealName,
-    Stage: zohoConfig.dealStage
-  };
-
-  if (contactId) {
-    record.Contact_Name = { id: contactId };
-  }
-  if (accountId) {
-    record.Account_Name = { id: accountId };
-  }
-  if (payload.opportunity.date_to) {
-    record.Closing_Date = payload.opportunity.date_to;
-  }
-  if (typeof payload.opportunity.amount === "number" && payload.opportunity.amount > 0) {
-    record.Amount = payload.opportunity.amount;
-  }
-  // Campo de detalle: texto legible si lo manda el frontend; si no, JSON de respaldo.
-  if (zohoConfig.dealOptionsField) {
-    record[zohoConfig.dealOptionsField] =
-      payload.opportunity.description?.trim() || JSON.stringify(payload.proposalOptions, null, 2);
-  }
+  const record = construirTratoParaElCrm(payload, { dealName, contactId, accountId });
 
   const result = await zohoRequest<ZohoRecordResponse<{ details?: { id?: string } }>>(
     `${zohoConfig.dealsModule}`,
