@@ -440,72 +440,111 @@ const PROXIMOS = {
   id: 'proximos', icono: 'reloj', grupo: 'Vuestro turno', label: 'Próximos pasos',
   h2: 'Qué hace cada uno, y en qué orden',
   lede:
-    'Los cinco primeros son de Neointec y ninguno depende de Oravia. El orden no es caprichoso: cada uno desbloquea al siguiente.',
+    'Separado por quién lo tiene que hacer. Lo de arriba son conversaciones: no se programa, se escribe, y desbloquea casi todo lo demás.',
   blocks: [
     {
-      t: 'tabla', tick: 'next',
-      cols: [{ h: 'Qué hay que hacer' }, { h: 'Quién' }, { h: 'Cómo saber que ha salido bien' }],
+      t: 'sec', h3: 'Tus tareas · Anthony',
+      note: 'Hablar con Oravia y con el hosting. Ninguna lleva más de diez minutos y todas desbloquean trabajo.',
+    },
+    {
+      t: 'tabla', tick: 'anthony',
+      cols: [{ h: 'Qué hay que escribir' }, { h: 'A quién' }, { h: 'Qué desbloquea' }],
       rows: [
         [
-          '<b>01</b>&nbsp; Corregir el registro A y sacar el certificado<br><span class="sec-note">Pedir a Oravia el dígito del DNS y después <code>sudo certbot --nginx -d presupuesto.oraviatravel.com</code>. Luego <code>PUBLIC_BASE_URL</code> en el <code>.env</code> y reiniciar.</span>',
-          'Neointec',
-          'La app abre por HTTPS y los enlaces de las propuestas llevan el dominio',
+          '<b>A1</b>&nbsp; El dígito del DNS<br><span class="sec-note">Redactado en <code>correo-dns-javier.md</code>. <code>presupuesto.oraviatravel.com</code> apunta a <code>192.20.235.4</code> y el servidor es <code>195.20.235.4</code>.</span>',
+          'Javier',
+          'El certificado y el paso a HTTPS',
         ],
         [
-          '<b>02</b>&nbsp; Pasar al servidor las variables de correo y las dos de Zoho<br><span class="sec-note">Las nueve <code>MAIL_*</code> que ya funcionan en local, más <code>ZOHO_DEAL_STAGE</code> y <code>ZOHO_DEAL_OPTIONS_FIELD</code>.</span>',
-          'Neointec',
+          '<b>A2</b>&nbsp; ¿Se usan los buzones <code>groups@</code> y <code>sports@</code>?<br><span class="sec-note">Los dos INBOX están vacíos. O son nuevos, o el equipo trabaja desde otra carpeta. Cambia dónde tiene que mirar la app.</span>',
+          'Javier o Ruth',
+          'Toda la bandeja de entrada',
+        ],
+        [
+          '<b>A3</b>&nbsp; Pedir el permiso de Zoho sobre Productos y Proveedores<br><span class="sec-note">Hoy devuelve <code>OAUTH_SCOPE_MISMATCH</code> y ni se pueden leer. Hay que volver a autorizar la app.</span>',
+          'Oravia',
+          'El subformulario de Servicios Contratados',
+        ],
+        [
+          '<b>A4</b>&nbsp; Pedir que añadan «Catalán» al campo Idioma<br><span class="sec-note">En los tres módulos: Oportunidades, Contactos y Cuentas. Son tres campos distintos con el mismo nombre.</span>',
+          'Oravia',
+          'Que un viaje en catalán no quede sin idioma en el CRM',
+        ],
+        [
+          '<b>A5</b>&nbsp; Las cuatro decisiones abiertas<br><span class="sec-note">Tipo de pago, forma de cobro, y qué es un «cliente especial» (el del PVP − 17%). Ver la pestaña de Decisiones.</span>',
+          'Javier y Ruth',
+          'El tipo de pago y el tercer tipo de cliente',
+        ],
+        [
+          '<b>A6</b>&nbsp; Contestar las dos dudas de Ruth del 15/09<br><span class="sec-note">Las tarifas 4R —«coste +8%» frente a «Venta»— y qué significa el «pendiente de revisar» de Fútbol Salou 2027. Llevan diez días sin respuesta.</span>',
+          'Ruth',
+          'Cerrar el catálogo de tarifas',
+        ],
+        [
+          '<b>A7</b>&nbsp; Avisar al hosting para que monten las copias de seguridad<br><span class="sec-note">Lo piden desde el 22/09, cuando terminemos la instalación. Hoy el servidor no tiene copias.</span>',
+          'Hosting',
+          'Que un fallo del servidor deje de ser irreversible',
+        ],
+      ],
+    },
+
+    {
+      t: 'sec', h3: 'Neointec',
+      note: 'Trabajo técnico. Los tres primeros no dependen de nadie y se pueden hacer hoy.',
+    },
+    {
+      t: 'tabla', tick: 'neo',
+      cols: [{ h: 'Qué hay que hacer' }, { h: 'Cómo saber que ha salido bien' }],
+      rows: [
+        [
+          '<b>N1</b>&nbsp; Pasar al servidor las variables de correo y las dos de Zoho<br><span class="sec-note">Las nueve <code>MAIL_*</code> que ya funcionan en local, más <code>ZOHO_DEAL_STAGE="Preparando Presupuesto"</code> y <code>ZOHO_DEAL_OPTIONS_FIELD="Opciones_de_Presupuesto"</code>.</span>',
           'Una propuesta enviada desde el servidor llega, y el trato nace en «Preparando Presupuesto»',
         ],
         [
-          '<b>03</b>&nbsp; Avisar al hosting para que monten las copias de seguridad<br><span class="sec-note">Lo están esperando desde el 22/09. Hoy el servidor no tiene copias.</span>',
-          'Neointec → hosting',
-          'El hosting confirma que las copias están activas',
-        ],
-        [
-          '<b>04</b>&nbsp; Dar de alta los diez usuarios reales con sus permisos<br><span class="sec-note">Y renombrar el administrador a <code>@oraviatravel.com</code>, que Ruth pidió el 27/08.</span>',
-          'Neointec',
+          '<b>N2</b>&nbsp; Dar de alta los diez usuarios reales con sus permisos<br><span class="sec-note">Y renombrar el administrador a <code>@oraviatravel.com</code>, que Ruth pidió el 27/08.</span>',
           'Cada gestor entra con lo suyo y solo ve sus cotizaciones',
         ],
         [
-          '<b>05</b>&nbsp; Limpiar los dos tratos de prueba del CRM<br><span class="sec-note">Con el botón de borrar nuevo, que de paso queda verificado contra Zoho.</span>',
-          'Neointec',
+          '<b>N3</b>&nbsp; Limpiar los dos tratos de prueba del CRM<br><span class="sec-note">Con el botón de borrar nuevo, que de paso queda verificado contra Zoho.</span>',
           'No quedan oportunidades de prueba, y el borrado se lleva la del CRM',
         ],
         [
-          '<b>06</b>&nbsp; Los idiomas: traducir con IA y sacar el PDF en el idioma de la solicitud<br><span class="sec-note">El bloque grande. Incluye traducir las condiciones de hotel que vienen en catalán.</span>',
-          'Neointec',
+          '<b>N4</b>&nbsp; Sacar el certificado y pasar la app a HTTPS<br><span class="sec-note">Cuando A1 esté hecho: <code>sudo certbot --nginx -d presupuesto.oraviatravel.com</code>, después <code>PUBLIC_BASE_URL</code> en el <code>.env</code> y reiniciar.</span>',
+          'La app abre por HTTPS y los enlaces de las propuestas llevan el dominio',
+        ],
+        [
+          '<b>N5</b>&nbsp; Los idiomas: traducir con IA y sacar el PDF en el idioma de la solicitud<br><span class="sec-note">El bloque grande. Incluye traducir las condiciones de hotel que vienen en catalán.</span>',
           'Un correo en catalán saca todos los datos y su presupuesto sale en catalán',
         ],
         [
-          '<b>07</b>&nbsp; La bandeja: leer los buzones y enseñar el hilo en la propuesta<br><span class="sec-note">Antes hay que saber si esos buzones se usan: los dos INBOX están vacíos.</span>',
-          'Neointec',
-          'Una respuesta del colegio aparece en su propuesta sin ir al correo',
-        ],
-        [
-          '<b>08</b>&nbsp; Arreglar la búsqueda por localidad<br><span class="sec-note">Que Cambrils devuelva los de Cambrils, recolocar actividades sin municipio y deduplicar suplementos.</span>',
-          'Neointec',
+          '<b>N6</b>&nbsp; Arreglar la búsqueda por localidad<br><span class="sec-note">Que Cambrils devuelva los de Cambrils, recolocar actividades sin municipio y deduplicar suplementos.</span>',
           'Buscando una localidad salen los que están en ella, y solo esos',
         ],
         [
-          '<b>09</b>&nbsp; Las reglas de producto que faltan<br><span class="sec-note">El tercer tipo de cliente, los productos de dos líneas y Fútbol Salou según el cliente.</span>',
-          'Neointec',
+          '<b>N7</b>&nbsp; Las reglas de producto que faltan<br><span class="sec-note">El tercer tipo de cliente, los productos de dos líneas y Fútbol Salou según el cliente. Depende de A5 y A6.</span>',
           'Una cotización de Cambrils Park saca las dos líneas con sus dos proveedores',
         ],
         [
-          '<b>10</b>&nbsp; Autorizar Zoho con permiso de Productos y Proveedores<br><span class="sec-note">Hoy devuelve <code>OAUTH_SCOPE_MISMATCH</code> y ni se pueden leer.</span>',
-          'Oravia',
-          'La app puede listar Productos y Proveedores',
+          '<b>N8</b>&nbsp; La bandeja: leer los buzones y enseñar el hilo en la propuesta<br><span class="sec-note">Depende de A2. Después vienen escribir al contacto y el aviso de respuesta.</span>',
+          'Una respuesta del colegio aparece en su propuesta sin ir al correo',
         ],
-        [
-          '<b>11</b>&nbsp; Añadir «Catalán» al campo Idioma de los tres módulos<br><span class="sec-note">Oportunidades, Contactos y Cuentas: son tres campos distintos con el mismo nombre.</span>',
-          'Oravia',
-          'Catalán aparece en la lista de los tres',
-        ],
-        [
-          '<b>12</b>&nbsp; Contestar las cuatro decisiones abiertas<br><span class="sec-note">Tipo de pago, forma de cobro, si los buzones se usan y qué es un «cliente especial».</span>',
-          'Oravia',
-          'Hay respuesta y se puede programar',
-        ],
+      ],
+    },
+
+    {
+      t: 'sec', h3: 'Oravia',
+      note: 'Lo que solo pueden hacer ellos, una vez se lo pidas.',
+    },
+    {
+      t: 'tabla', tick: 'ora',
+      cols: [{ h: 'Qué' }, { h: 'Se lo pide' }],
+      rows: [
+        ['Corregir el registro A del subdominio', 'A1'],
+        ['Volver a autorizar Zoho con Productos y Proveedores', 'A3'],
+        ['Añadir «Catalán» al campo Idioma de los tres módulos', 'A4'],
+        ['Contestar las cuatro decisiones abiertas', 'A5'],
+        ['Aclarar las tarifas 4R y el «pendiente de revisar» de Fútbol Salou', 'A6'],
+        ['Borrar el alojamiento de prueba <code>ESTIDIANTES 4R27 3E</code>', 'Ya dijeron que lo hacen ellos'],
       ],
     },
   ],
