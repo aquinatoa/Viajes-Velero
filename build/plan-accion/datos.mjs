@@ -1,6 +1,6 @@
 // Contenido del PLAN DE ACCIÓN de la consola de Oravia.
 //
-// El diseño y el montaje viven en wg-doc.mjs, el mismo de WaveGarden/CEEI/Omnitec.
+// El diseño y el montaje viven en nd-doc.mjs, el lenguaje D.
 // Aquí solo va el contenido, en bloques.
 //
 // Todas las cifras están comprobadas el 24/09/2026 contra el servidor
@@ -27,28 +27,30 @@ export const META = {
     { b: 'Servidor 195.20.235.4', s: 'verificado contra lo que contesta' },
   ],
   pie: [
-    'main ea22d71',
-    'Comprobado contra el servidor y el CRM',
-    'Neointec · Consultores TIC',
+    'main fc218ec',
+    '195.20.235.4',
+    'Zoho CRM · 1.000 tratos',
+  ],
+  sigla: 'OR',
+  version: 'Plan de acción · v2',
+  tags: ['CONSOLA DE OPERACIONES', 'ZOHO CRM', 'RECORRIDO DE LA APP'],
+  // Propios del formato D: la píldora del rail y los tres datos de portada.
+  estado: { texto: 'Desplegando · 24/09/2026' },
+  hechos: [
+    { icono: 'check', v: '6 bloques', k: 'corregidos esta semana' },
+    { icono: 'alerta', v: '5 bloqueantes', k: 'que no puede resolver Neointec' },
+    { icono: 'escudo', v: '217 pruebas', k: 'automáticas, en verde' },
   ],
 }
 
 /* ---------------------------------------------------------------- dónde estamos */
 
 const ESTADO = {
-  id: 'estado', grupo: 'Dónde estamos', label: 'El estado real',
+  id: 'estado', icono: 'check', grupo: 'Dónde estamos', label: 'El estado real',
   h2: 'Qué funciona hoy y qué acaba de subir',
   lede:
     'Comprobado mirando lo que contesta el servidor, no si el panel de GitHub salió verde.',
   blocks: [
-    {
-      t: 'stats',
-      items: [
-        { v: '1', k: 'despliegue que ha funcionado', h: 'el primero, el 23/09' },
-        { v: '6', k: 'bloques corregidos esta semana', h: 'todos con pruebas' },
-        { v: '217', k: 'pruebas automáticas', h: 'en verde' },
-      ],
-    },
     {
       t: 'nota', tone: 'q', kicker: 'Cómo se comprueba un despliegue a partir de ahora',
       p: [
@@ -76,7 +78,7 @@ const ESTADO = {
 /* ---------------------------------------------------------------- bloqueantes */
 
 const BLOQUEA = {
-  id: 'bloquea', grupo: 'Bloqueantes', label: 'Lo que nos para',
+  id: 'bloquea', icono: 'alerta', grupo: 'Bloqueantes', label: 'Lo que nos para',
   h2: 'Cinco cosas que no puede hacer Neointec',
   lede:
     'Ninguna lleva más de diez minutos, y entre las cinco desbloquean tres bloques de trabajo. Mientras no estén, lo que hay debajo no se puede ni empezar ni comprobar.',
@@ -126,7 +128,7 @@ const BLOQUEA = {
 /* ---------------------------------------------------------------- el recorrido */
 
 const RECORRIDO = {
-  id: 'recorrido', grupo: 'Aplicar', label: 'El recorrido',
+  id: 'recorrido', icono: 'flecha', grupo: 'Aplicar', label: 'El recorrido',
   h2: 'Qué falla en cada punto del camino',
   lede:
     'Ordenado como lo recorre quien cotiza: llega el mensaje, se montan las opciones, sale el documento. En cada punto, lo que todavía no hace lo que debería.',
@@ -202,7 +204,7 @@ const RECORRIDO = {
 /* ---------------------------------------------------------------- el CRM */
 
 const CRM = {
-  id: 'crm', grupo: 'Aplicar', label: 'El volcado al CRM',
+  id: 'crm', icono: 'base', grupo: 'Aplicar', label: 'El volcado al CRM',
   h2: 'La oportunidad ya no nace vacía',
   lede:
     'Lo reportó Ruth el 24/09 y tenía razón: mandábamos seis cosas y el resto se quedaba dentro de un texto. Los campos llevaban ahí desde siempre.',
@@ -265,7 +267,7 @@ const CRM = {
 /* ---------------------------------------------------------------- decisiones */
 
 const DECISIONES = {
-  id: 'decisiones', grupo: 'Vuestro turno', label: 'Decisiones',
+  id: 'decisiones', icono: 'bombilla', grupo: 'Vuestro turno', label: 'Decisiones',
   h2: 'El tipo de pago: cuándo se pregunta y quién lo dice',
   lede:
     'Es la única decisión de fondo que queda abierta. Las demás ya están cerradas y aplicadas.',
@@ -277,19 +279,27 @@ const DECISIONES = {
         'En su CRM, 878 de 1.000 son «Prepago» y 23 «Crédito». De esos 23, quince son ayuntamientos —Salou, Vila-seca, El Morell— y diecisiete van con «Transferencia» en la forma de cobro. Hay un patrón, pero no es una regla: esos mismos ayuntamientos usan crédito 5 de 6 veces, no 6 de 6.',
       ],
     },
+    {
+      t: 'principio',
+      kicker: 'El fondo de la decisión',
+      texto: 'Un dato que nadie ha decidido todavía no se rellena: se pregunta cuando existe la respuesta.',
+    },
     { t: 'sec', h3: 'Tres formas de resolverlo', note: 'La primera es la recomendada.' },
     {
-      t: 'opts',
+      t: 'rules',
       items: [
         {
-          rec: true,
-          ot: '<b>Preguntarlo cuando el colegio acepta, no al enviar.</b> Aceptar una opción es el momento en que arranca el reloj del depósito y en que las condiciones de pago empiezan a importar. La app pregunta ahí, con «Prepago» propuesto por defecto y «Crédito» a un clic. Un gesto, en el momento en que la respuesta existe.',
+          t: 'Recomendada · preguntarlo cuando el colegio acepta',
+          d: 'Aceptar una opción es el momento en que arranca el reloj del depósito y en que las condiciones de pago empiezan a importar. La app pregunta ahí, con «Prepago» propuesto por defecto y «Crédito» a un clic. Un gesto, en el momento en que la respuesta existe.',
         },
         {
-          ot: '<b>Recordarlo por cliente.</b> La primera vez se pregunta; a partir de ahí se propone lo que se usó la última vez con ese colegio, leyéndolo de sus oportunidades anteriores en el CRM. Es lo que hace un comercial de memoria. Más trabajo, y sigue necesitando la pregunta inicial.',
+          t: 'Alternativa · recordarlo por cliente',
+          d: 'La primera vez se pregunta; a partir de ahí se propone lo que se usó la última vez con ese colegio, leyéndolo de sus oportunidades anteriores. Es lo que hace un comercial de memoria. Más trabajo, y sigue necesitando la pregunta inicial.',
         },
         {
-          ot: '<b>Ponerlo siempre «Prepago».</b> Acertaría el 90% de las veces y fallaría en silencio el otro 10%, que son justo las administraciones públicas: los tratos donde equivocarse cuesta más. No se recomienda.',
+          no: true,
+          t: 'Descartada · ponerlo siempre «Prepago»',
+          d: 'Acertaria el 90% de las veces y fallaria en silencio el otro 10%, que son justo las administraciones publicas: los tratos donde equivocarse cuesta mas.',
         },
       ],
     },
@@ -313,62 +323,55 @@ const DECISIONES = {
 /* ---------------------------------------------------------------- próximos pasos */
 
 const PROXIMOS = {
-  id: 'proximos', grupo: 'Vuestro turno', label: 'Próximos pasos',
+  id: 'proximos', icono: 'lista', grupo: 'Vuestro turno', label: 'Próximos pasos',
   h2: 'Qué hace cada uno, y en qué orden',
   lede:
     'Los tres primeros no los puede hacer Neointec. El orden no es caprichoso: cada uno desbloquea al siguiente.',
   blocks: [
     {
-      t: 'next',
+      t: 'tabla', tick: 'next',
+      cols: [{ h: 'Qué hay que hacer' }, { h: 'Quién' }, { h: 'Cómo saber que ha salido bien' }],
       rows: [
-        {
-          n: '01', who: 'Neointec', whocls: 'neo',
-          t2: 'Corregir los dos valores del .env del servidor',
-          d: 'En <code>/opt/oravia/shared/.env</code>: <code>ZOHO_DEAL_STAGE="Preparando Presupuesto"</code> y <code>ZOHO_DEAL_OPTIONS_FIELD="Opciones_de_Presupuesto"</code>. Después, reiniciar el servicio.',
-          c: 'Una oportunidad nueva nace en «Preparando Presupuesto» y su detalle va a Opciones de Presupuesto',
-        },
-        {
-          n: '02', who: 'Oravia', whocls: 'wg',
-          t2: 'Añadir «Catalán» al campo Idioma',
-          d: 'Configuración → Personalización → Módulos y campos → campo «Idioma». En <b>Oportunidades, Contactos y Cuentas</b>: son tres campos distintos con el mismo nombre.',
-          c: 'Catalán aparece en la lista de los tres módulos',
-        },
-        {
-          n: '03', who: 'Oravia', whocls: 'wg',
-          t2: 'Volver a autorizar Zoho con permiso de Productos y Proveedores',
-          d: 'Hoy la app no puede ni leerlos: devuelve <code>OAUTH_SCOPE_MISMATCH</code>. Sin esto, el subformulario de servicios no se puede rellenar aunque se programe.',
-          c: 'La app puede listar Productos y Proveedores',
-        },
-        {
-          n: '04', who: 'Neointec', whocls: 'neo',
-          t2: 'Probar el borrado contra una oportunidad real',
-          d: 'Crear una solicitud de prueba con nombre reconocible y borrarla desde la mesa de propuestas. Comprobar que la oportunidad desaparece del CRM y aparece en su papelera.',
-          c: 'La oportunidad ya no está en el embudo y sí en la papelera',
-        },
-        {
-          n: '05', who: 'Oravia', whocls: 'wg',
-          t2: 'Decidir cuándo se pregunta el tipo de pago',
-          d: 'Ver «Decisiones». La propuesta es preguntarlo al aceptar la opción, no al enviar la propuesta.',
-          c: 'Hay respuesta, y se puede programar',
-        },
-        {
-          n: '06', who: 'Neointec', whocls: 'neo',
-          t2: 'Los idiomas: traducir con IA y generar el PDF en el idioma de la solicitud',
-          d: 'Es el bloque grande. Incluye traducir las condiciones de hotel que vienen en catalán.',
-          c: 'Un correo en catalán saca todos los datos y su presupuesto sale en catalán',
-        },
-        {
-          n: '07', who: 'Oravia', whocls: 'wg',
-          t2: 'Limpiar el catálogo',
-          d: 'Borrar el alojamiento de prueba <code>ESTIDIANTES 4R27 3E</code> y decir qué precio lleva la tarifa «Arbitraje», que ya se puede ofrecer poniéndoselo a mano.',
-          c: 'El catálogo no tiene filas de prueba',
-        },
-        {
-          n: '08', who: 'Neointec', whocls: 'neo',
-          t2: 'Arreglar la búsqueda por localidad',
-          d: 'Recolocar las actividades sin municipio, poner Salou a los dos hoteles California y deduplicar los suplementos repetidos.',
-          c: 'Buscando Salou salen todos los que están en Salou',
-        },
+        [
+          '<b>01</b>&nbsp; Corregir los dos valores del .env del servidor<br><span class="sec-note">En <code>/opt/oravia/shared/.env</code>: <code>ZOHO_DEAL_STAGE="Preparando Presupuesto"</code> y <code>ZOHO_DEAL_OPTIONS_FIELD="Opciones_de_Presupuesto"</code>. Después, reiniciar el servicio.</span>',
+          'Neointec',
+          'Una oportunidad nueva nace en «Preparando Presupuesto» y su detalle va a Opciones de Presupuesto',
+        ],
+        [
+          '<b>02</b>&nbsp; Añadir «Catalán» al campo Idioma<br><span class="sec-note">Configuración → Personalización → Módulos y campos → campo «Idioma». En <b>Oportunidades, Contactos y Cuentas</b>: son tres campos distintos con el mismo nombre.</span>',
+          'Oravia',
+          'Catalán aparece en la lista de los tres módulos',
+        ],
+        [
+          '<b>03</b>&nbsp; Volver a autorizar Zoho con permiso de Productos y Proveedores<br><span class="sec-note">Hoy la app no puede ni leerlos: devuelve <code>OAUTH_SCOPE_MISMATCH</code>. Sin esto, el subformulario de servicios no se puede rellenar aunque se programe.</span>',
+          'Oravia',
+          'La app puede listar Productos y Proveedores',
+        ],
+        [
+          '<b>04</b>&nbsp; Probar el borrado contra una oportunidad real<br><span class="sec-note">Crear una solicitud de prueba con nombre reconocible y borrarla desde la mesa de propuestas. Comprobar que la oportunidad desaparece del CRM y aparece en su papelera.</span>',
+          'Neointec',
+          'La oportunidad ya no está en el embudo y sí en la papelera',
+        ],
+        [
+          '<b>05</b>&nbsp; Decidir cuándo se pregunta el tipo de pago<br><span class="sec-note">Ver «Decisiones». La propuesta es preguntarlo al aceptar la opción, no al enviar la propuesta.</span>',
+          'Oravia',
+          'Hay respuesta, y se puede programar',
+        ],
+        [
+          '<b>06</b>&nbsp; Los idiomas: traducir con IA y generar el PDF en el idioma de la solicitud<br><span class="sec-note">Es el bloque grande. Incluye traducir las condiciones de hotel que vienen en catalán.</span>',
+          'Neointec',
+          'Un correo en catalán saca todos los datos y su presupuesto sale en catalán',
+        ],
+        [
+          '<b>07</b>&nbsp; Limpiar el catálogo<br><span class="sec-note">Borrar el alojamiento de prueba <code>ESTIDIANTES 4R27 3E</code> y decir qué precio lleva la tarifa «Arbitraje», que ya se puede ofrecer poniéndoselo a mano.</span>',
+          'Oravia',
+          'El catálogo no tiene filas de prueba',
+        ],
+        [
+          '<b>08</b>&nbsp; Arreglar la búsqueda por localidad<br><span class="sec-note">Recolocar las actividades sin municipio, poner Salou a los dos hoteles California y deduplicar los suplementos repetidos.</span>',
+          'Neointec',
+          'Buscando Salou salen todos los que están en Salou',
+        ],
       ],
     },
   ],
