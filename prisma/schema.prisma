@@ -8,32 +8,32 @@ datasource db {
 }
 
 model Client {
-  id                   String        @id @default(cuid())
-  email                String        @unique
-  firstName            String
-  lastName             String
-  fullName             String
+  id                  String        @id @default(cuid())
+  email               String        @unique
+  firstName           String
+  lastName            String
+  fullName            String
   // El colegio, el club o la agencia. En el CRM de Oravia la CUENTA es esto,
   // no la persona: «CENTRE D'ESTUDIS JAUME BALMES», «ETAPSPORT». Sin este dato
   // la app no tenia de donde sacar la cuenta y la creaba con el nombre de quien
   // escribia, lo que llenaba su CRM de cuentas llamadas como personas.
-  centreName           String?
-  isReturningCustomer  Boolean       @default(false)
+  centreName          String?
+  isReturningCustomer Boolean       @default(false)
   // Identidad en Zoho, que se guarda tras el primer cierre. Existian desde el
   // principio y no los escribia nadie: cada solicitud volvia a buscar en Zoho
   // desde cero, y cada busqueda era otra ocasion de no encontrarlo y duplicar.
-  crmContactId         String?
-  crmAccountId         String?
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
-  tripRequests         TripRequest[]
+  crmContactId        String?
+  crmAccountId        String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  tripRequests        TripRequest[]
 }
 
 model TripRequest {
   id                 String         @id @default(cuid())
   clientId           String
-  ownerUserId        String?        // quién creó la cotización (para "ver solo lo suyo")
-  department         Department?    // Groups / Sports; null si aún no asignado
+  ownerUserId        String? // quién creó la cotización (para "ver solo lo suyo")
+  department         Department? // Groups / Sports; null si aún no asignado
   // El centro tal y como se leyó en ESTE mensaje. Se guarda aparte del cliente
   // porque un mismo contacto puede escribir desde dos centros, y porque la
   // propuesta tiene que poder decir para quién se hizo aunque el cliente cambie
@@ -69,39 +69,39 @@ model TripRequest {
 }
 
 model Accommodation {
-  id                 String                   @id @default(cuid())
-  accommodationName  String
-  locality           String
-  categoryType       String?
-  accommodationType  String?
-  observations       String?
-  conditionsText     String?
-  freePolicy         String?
-  sourceFile         String?
-  sourceDocumentId   String?
-  sourceStagingId    String?
-  createdAt          DateTime                 @default(now())
-  updatedAt          DateTime                 @updatedAt
-  rates              AccommodationRate[]
-  proposalOptions    ProposalAccommodationOption[]
+  id                String                        @id @default(cuid())
+  accommodationName String
+  locality          String
+  categoryType      String?
+  accommodationType String?
+  observations      String?
+  conditionsText    String?
+  freePolicy        String?
+  sourceFile        String?
+  sourceDocumentId  String?
+  sourceStagingId   String?
+  createdAt         DateTime                      @default(now())
+  updatedAt         DateTime                      @updatedAt
+  rates             AccommodationRate[]
+  proposalOptions   ProposalAccommodationOption[]
+  policies          AccommodationPolicy[]
+  adjustments       AccommodationAdjustment[]
+  blackoutDates     AccommodationBlackoutDate[]
 
   @@index([sourceDocumentId])
-  policies           AccommodationPolicy[]
-  adjustments        AccommodationAdjustment[]
-  blackoutDates      AccommodationBlackoutDate[]
 }
 
 /// Condiciones publicadas de un alojamiento (impuestos, tasas, cancelación...).
 /// Antes se pegaban todas en un campo de texto y se perdía su tipo, con lo que
 /// la aplicación no podía razonar con ellas.
 model AccommodationPolicy {
-  id                String        @id @default(cuid())
-  accommodationId   String
-  policyType        String        @default("UNKNOWN")
-  policyText        String
-  sourceDocumentId  String?
-  sourceStagingId   String?
-  accommodation     Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+  id               String        @id @default(cuid())
+  accommodationId  String
+  policyType       String        @default("UNKNOWN")
+  policyText       String
+  sourceDocumentId String?
+  sourceStagingId  String?
+  accommodation    Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
 
   @@index([accommodationId])
   @@index([sourceDocumentId])
@@ -110,17 +110,17 @@ model AccommodationPolicy {
 /// Suplementos publicados, con su importe y a qué aplica. Como texto libre no
 /// se podían sumar al precio de una propuesta.
 model AccommodationAdjustment {
-  id                String        @id @default(cuid())
-  accommodationId   String
-  adjustmentType    String        @default("UNKNOWN")
-  concept           String
-  amountType        String?
-  amount            Decimal?
-  appliesPer        String?
-  conditionText     String?
-  sourceDocumentId  String?
-  sourceStagingId   String?
-  accommodation     Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+  id               String        @id @default(cuid())
+  accommodationId  String
+  adjustmentType   String        @default("UNKNOWN")
+  concept          String
+  amountType       String?
+  amount           Decimal?
+  appliesPer       String?
+  conditionText    String?
+  sourceDocumentId String?
+  sourceStagingId  String?
+  accommodation    Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
 
   @@index([accommodationId])
   @@index([sourceDocumentId])
@@ -144,44 +144,44 @@ model AccommodationBlackoutDate {
 }
 
 model AccommodationRate {
-  id                     String         @id @default(cuid())
-  accommodationId        String
-  rateSource             String?
-  year                   Int
-  seasonName             String?
-  dateFrom               DateTime?
-  dateTo                 DateTime?
-  minNights              Int?
-  boardType              String?
-  tariffUnit             String?
-  currency               String?
-  pvpAmount              Decimal?
-  netSaleAmount          Decimal?
-  netAzulmarinoAmount    Decimal?
+  id                  String    @id @default(cuid())
+  accommodationId     String
+  rateSource          String?
+  year                Int
+  seasonName          String?
+  dateFrom            DateTime?
+  dateTo              DateTime?
+  minNights           Int?
+  boardType           String?
+  tariffUnit          String?
+  currency            String?
+  pvpAmount           Decimal?
+  netSaleAmount       Decimal?
+  netAzulmarinoAmount Decimal?
 
   // Para qué cliente vale este precio. El mismo alojamiento, régimen y
   // ocupación valen distinto según el canal (turoperador suizo con tarifa
   // pactada frente a colegio). null = sirve para cualquier cliente.
-  clientSegment          String?
+  clientSegment   String?
   // Qué va incluido además del alojamiento (campo artificial, natural,
   // ninguno...). Es un eje del precio, no una nota.
-  includedService        String?
+  includedService String?
   // Doble / Individual. También es un eje del precio: en Fútbol Salou el mismo
   // hotel, régimen y campo valen 73 € en doble y 92 € en individual. Sin este
   // dato las dos tarifas son indistinguibles y el cotizador elige a ciegas.
-  occupancyLabel         String?
+  occupancyLabel  String?
 
-  sourceFile             String?
-  sourceSheet            String?
-  sourceDocumentId       String?
-  sourceStagingId        String?
-  accommodation          Accommodation  @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+  sourceFile       String?
+  sourceSheet      String?
+  sourceDocumentId String?
+  sourceStagingId  String?
+  accommodation    Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
 
   @@index([sourceDocumentId])
 }
 
 model Activity {
-  id               String                  @id @default(cuid())
+  id               String                   @id @default(cuid())
   activityName     String
   supplierName     String?
   // DÓNDE OCURRE, con el nombre del sitio: «PortAventura Park», «Caribe
@@ -199,8 +199,8 @@ model Activity {
   sourceFile       String?
   sourceDocumentId String?
   sourceStagingId  String?
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
   rates            ActivityRate[]
   policies         ActivityPolicy[]
   proposalOptions  ProposalActivityOption[]
@@ -218,20 +218,20 @@ model Activity {
 /// de 20 personas de pago: datos que cambian el precio de un presupuesto y que
 /// asi no se podian ni consultar ni razonar.
 model ActivityPolicy {
-  id                String   @id @default(cuid())
-  activityId        String
-  policyType        String   @default("UNKNOWN")
-  policyText        String
-  sourceDocumentId  String?
-  sourceStagingId   String?
-  activity          Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  id               String   @id @default(cuid())
+  activityId       String
+  policyType       String   @default("UNKNOWN")
+  policyText       String
+  sourceDocumentId String?
+  sourceStagingId  String?
+  activity         Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
 
   @@index([activityId])
   @@index([sourceDocumentId])
 }
 
 model ActivityRate {
-  id                String     @id @default(cuid())
+  id                String   @id @default(cuid())
   activityId        String
   year              Int
   ageLabel          String?
@@ -248,7 +248,7 @@ model ActivityRate {
   sourceSheet       String?
   sourceDocumentId  String?
   sourceStagingId   String?
-  activity          Activity   @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  activity          Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
 
   @@index([sourceDocumentId])
 }
@@ -257,41 +257,41 @@ model TripProposal {
   id                   String                        @id @default(cuid())
   tripRequestId        String
   versionNumber        Int
-  proposalStatus       ProposalStatus               @default(DRAFT)
+  proposalStatus       ProposalStatus                @default(DRAFT)
   approvedOptionNumber Int?
   summaryText          String?
   crmPayloadJson       String?
-  createdAt            DateTime                     @default(now())
-  updatedAt            DateTime                     @updatedAt
-  tripRequest          TripRequest                  @relation(fields: [tripRequestId], references: [id], onDelete: Cascade)
+  createdAt            DateTime                      @default(now())
+  updatedAt            DateTime                      @updatedAt
+  tripRequest          TripRequest                   @relation(fields: [tripRequestId], references: [id], onDelete: Cascade)
   accommodationOptions ProposalAccommodationOption[]
   activityOptions      ProposalActivityOption[]
   deliveries           ProposalDelivery[]
 }
 
 model ProposalAccommodationOption {
-  id               String        @id @default(cuid())
-  proposalId       String
-  accommodationId  String
-  optionNumber     Int
+  id                        String        @id @default(cuid())
+  proposalId                String
+  accommodationId           String
+  optionNumber              Int
   accommodationNameSnapshot String?
-  boardType        String?
-  dateFrom         DateTime?
-  dateTo           DateTime?
-  nights           Int?
-  participants     Int?
-  teachers         Int?
-  totalPvpText     String?
-  priceBreakdownText String?
-  conditionsText   String?
-  observationsText String?
+  boardType                 String?
+  dateFrom                  DateTime?
+  dateTo                    DateTime?
+  nights                    Int?
+  participants              Int?
+  teachers                  Int?
+  totalPvpText              String?
+  priceBreakdownText        String?
+  conditionsText            String?
+  observationsText          String?
   // Las gratuidades del hotel: «1 gratuidad en base doble por cada 25 de pago».
   // Estaban en el catalogo y no llegaban a la propuesta, asi que el documento
   // que ve el colegio no las decia. Es informacion que cambia el precio.
-  freePolicyText   String?
-  isSelected       Boolean       @default(false)
-  proposal         TripProposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
-  accommodation    Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+  freePolicyText            String?
+  isSelected                Boolean       @default(false)
+  proposal                  TripProposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  accommodation             Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
 }
 
 model ProposalActivityOption {
@@ -311,14 +311,14 @@ model ProposalActivityOption {
 }
 
 model CrmSyncLog {
-  id              String      @id @default(cuid())
+  id              String     @id @default(cuid())
   entityType      String
   actionType      String
   requestPayload  String?
   responsePayload String?
   syncStatus      SyncStatus
   errorMessage    String?
-  createdAt       DateTime    @default(now())
+  createdAt       DateTime   @default(now())
 }
 
 enum RequestStatus {
@@ -341,82 +341,83 @@ enum SyncStatus {
   SUCCESS
   ERROR
 }
+
 model SourceDocument {
-  id                 String   @id @default(cuid())
-  documentType       String   @default("SOURCE")
-  targetType         String
-  originalFileName   String?
-  storedFilePath     String?
-  fileMimeType       String?
-  fileSizeBytes      Int?
-  fileHash           String?
-  controlName        String
-  controlLocation    String?
-  controlYear        Int?
-  controlCategory    String?
-  controlNotes       String?
+  id               String  @id @default(cuid())
+  documentType     String  @default("SOURCE")
+  targetType       String
+  originalFileName String?
+  storedFilePath   String?
+  fileMimeType     String?
+  fileSizeBytes    Int?
+  fileHash         String?
+  controlName      String
+  controlLocation  String?
+  controlYear      Int?
+  controlCategory  String?
+  controlNotes     String?
 
   // Qué precios trae el documento. Se declara al subirlo: la IA no puede
   // deducirlo con fiabilidad y equivocarse cuesta dinero (una tarifa de venta
   // tomada por coste se publica con el margen encima).
   // PURCHASE = lo que nos cuesta · SALE = lo que cobramos · UNKNOWN = heredado.
-  rateKind           String   @default("UNKNOWN")
+  rateKind      String   @default("UNKNOWN")
   // Margen a aplicar sobre el coste cuando rateKind = PURCHASE. Si es null se
   // usa el 8% por defecto del sistema. Deportivo trabaja al 12%.
-  marginPercent      Decimal?
+  marginPercent Decimal?
   // Para qué cliente es la tarifa cuando rateKind = SALE. El mismo alojamiento
   // tiene precios distintos por canal (p. ej. TTOO suizo vs. cliente general).
-  clientSegment      String?
+  clientSegment String?
 
-  status             String   @default("UPLOADED")
-  extractionStatus   String   @default("NOT_STARTED")
-  requiresOcr        Boolean  @default(false)
-  aiConfidence       Decimal?
+  status           String   @default("UPLOADED")
+  extractionStatus String   @default("NOT_STARTED")
+  requiresOcr      Boolean  @default(false)
+  aiConfidence     Decimal?
 
   // Consumo de IA de la última lectura de este documento. Cada lectura cuesta
   // dinero y Oravia va a leer decenas al año; sin esto no hay forma de saber
   // cuánto cuesta cargar una temporada.
-  aiInputTokens      Int?
-  aiOutputTokens     Int?
-  aiModel            String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  processedAt        DateTime?
+  aiInputTokens  Int?
+  aiOutputTokens Int?
+  aiModel        String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  processedAt    DateTime?
 
-  extractions            DocumentExtraction[]
-  importIssues           ImportIssue[]
-  stagingAccommodations  StagingAccommodation[]
-  stagingActivities      StagingActivity[]
+  extractions           DocumentExtraction[]
+  importIssues          ImportIssue[]
+  stagingAccommodations StagingAccommodation[]
+  stagingActivities     StagingActivity[]
 }
 
 model DocumentExtraction {
-  id                String   @id @default(cuid())
-  sourceDocumentId  String
-  extractionMethod  String
-  pageNumber        Int?
-  rawText           String?
-  rawJson           Json?
-  confidenceScore   Decimal?
-  createdAt         DateTime @default(now())
+  id               String   @id @default(cuid())
+  sourceDocumentId String
+  extractionMethod String
+  pageNumber       Int?
+  rawText          String?
+  rawJson          Json?
+  confidenceScore  Decimal?
+  createdAt        DateTime @default(now())
 
-  sourceDocument    SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+  sourceDocument SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
 
   @@index([sourceDocumentId])
 }
 
 model ImportIssue {
-  id                String   @id @default(cuid())
-  sourceDocumentId  String
-  severity          String
-  issueType         String
-  message           String
-  fieldName         String?
-  rawValue          String?
-  pageNumber        Int?
-  resolved          Boolean  @default(false)
-  createdAt         DateTime @default(now())
+  id               String   @id @default(cuid())
+  sourceDocumentId String
+  severity         String
+  issueType        String
+  message          String
+  fieldName        String?
+  rawValue         String?
+  pageNumber       Int?
+  resolved         Boolean  @default(false)
+  createdAt        DateTime @default(now())
 
-  sourceDocument    SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+  sourceDocument SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
 
   @@index([sourceDocumentId])
   @@index([severity])
@@ -428,26 +429,26 @@ model ImportIssue {
 /// que más dinero mueve del proceso y la que peor se deduce del texto de un PDF
 /// desordenado, así que la firma una persona. Ver `rateChecks.ts`.
 model StagingAccommodation {
-  id                  String   @id @default(cuid())
-  sourceDocumentId    String
-  accommodationName   String
-  providerName        String?
-  locality            String?
-  province            String?
-  country             String?
-  categoryType        String?
-  accommodationType   String?
-  confidenceScore     Decimal?
-  reviewStatus        String   @default("PENDING")
+  id                    String    @id @default(cuid())
+  sourceDocumentId      String
+  accommodationName     String
+  providerName          String?
+  locality              String?
+  province              String?
+  country               String?
+  categoryType          String?
+  accommodationType     String?
+  confidenceScore       Decimal?
+  reviewStatus          String    @default("PENDING")
   assignmentConfirmedAt DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  sourceDocument      SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
-  rates               StagingAccommodationRate[]
-  adjustments         StagingAccommodationAdjustment[]
-  policies            StagingAccommodationPolicy[]
-  blackoutDates       StagingAccommodationBlackoutDate[]
+  sourceDocument SourceDocument                     @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+  rates          StagingAccommodationRate[]
+  adjustments    StagingAccommodationAdjustment[]
+  policies       StagingAccommodationPolicy[]
+  blackoutDates  StagingAccommodationBlackoutDate[]
 
   @@index([sourceDocumentId])
   @@index([accommodationName])
@@ -456,43 +457,43 @@ model StagingAccommodation {
 }
 
 model StagingAccommodationRate {
-  id                       String   @id @default(cuid())
-  stagingAccommodationId   String
-  sourceDocumentId         String
+  id                     String @id @default(cuid())
+  stagingAccommodationId String
+  sourceDocumentId       String
 
-  seasonName               String?
-  year                     Int?
-  dateFrom                 DateTime?
-  dateTo                   DateTime?
+  seasonName String?
+  year       Int?
+  dateFrom   DateTime?
+  dateTo     DateTime?
 
-  boardType                String?
-  unitName                 String?
-  unitType                 String?
-  rateUnit                 String?
-  occupancyLabel           String?
+  boardType       String?
+  unitName        String?
+  unitType        String?
+  rateUnit        String?
+  occupancyLabel  String?
   // Servicio incluido en el precio además del alojamiento (campo artificial,
   // campo natural, ninguno...). Es un eje más de la tarifa, no un adorno: en
   // Fútbol Salou el mismo régimen y ocupación valen distinto según el campo.
-  includedService          String?
+  includedService String?
 
-  minNights                Int?
-  minPax                   Int?
-  minUnits                 Int?
+  minNights Int?
+  minPax    Int?
+  minUnits  Int?
 
-  currency                 String   @default("EUR")
-  taxIncluded              Boolean?
-  pvpAmount                Decimal?
-  netAmount                Decimal?
-  costAmount               Decimal?
-  commissionPercent        Decimal?
+  currency          String   @default("EUR")
+  taxIncluded       Boolean?
+  pvpAmount         Decimal?
+  netAmount         Decimal?
+  costAmount        Decimal?
+  commissionPercent Decimal?
 
-  rawText                  String?
-  sourcePage               Int?
-  confidenceScore          Decimal?
-  requiresReview           Boolean  @default(true)
-  reviewStatus             String   @default("PENDING")
+  rawText         String?
+  sourcePage      Int?
+  confidenceScore Decimal?
+  requiresReview  Boolean  @default(true)
+  reviewStatus    String   @default("PENDING")
 
-  stagingAccommodation     StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
+  stagingAccommodation StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
 
   @@index([stagingAccommodationId])
   @@index([sourceDocumentId])
@@ -502,25 +503,25 @@ model StagingAccommodationRate {
 }
 
 model StagingAccommodationAdjustment {
-  id                       String   @id @default(cuid())
-  stagingAccommodationId   String
+  id                     String @id @default(cuid())
+  stagingAccommodationId String
 
-  adjustmentType            String
-  concept                   String
-  amountType                String?
-  amount                    Decimal?
-  appliesPer                String?
-  dateFrom                  DateTime?
-  dateTo                    DateTime?
+  adjustmentType String
+  concept        String
+  amountType     String?
+  amount         Decimal?
+  appliesPer     String?
+  dateFrom       DateTime?
+  dateTo         DateTime?
 
-  conditionText             String?
-  rawText                   String?
-  sourcePage                Int?
-  confidenceScore           Decimal?
-  requiresReview            Boolean @default(true)
-  reviewStatus              String  @default("PENDING")
+  conditionText   String?
+  rawText         String?
+  sourcePage      Int?
+  confidenceScore Decimal?
+  requiresReview  Boolean  @default(true)
+  reviewStatus    String   @default("PENDING")
 
-  stagingAccommodation      StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
+  stagingAccommodation StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
 
   @@index([stagingAccommodationId])
   @@index([adjustmentType])
@@ -528,18 +529,18 @@ model StagingAccommodationAdjustment {
 }
 
 model StagingAccommodationPolicy {
-  id                       String   @id @default(cuid())
-  stagingAccommodationId   String
+  id                     String @id @default(cuid())
+  stagingAccommodationId String
 
-  policyType                String
-  policyText                String
-  structuredJson            Json?
-  sourcePage                Int?
-  confidenceScore           Decimal?
-  requiresReview            Boolean @default(true)
-  reviewStatus              String  @default("PENDING")
+  policyType      String
+  policyText      String
+  structuredJson  Json?
+  sourcePage      Int?
+  confidenceScore Decimal?
+  requiresReview  Boolean  @default(true)
+  reviewStatus    String   @default("PENDING")
 
-  stagingAccommodation      StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
+  stagingAccommodation StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
 
   @@index([stagingAccommodationId])
   @@index([policyType])
@@ -547,20 +548,20 @@ model StagingAccommodationPolicy {
 }
 
 model StagingAccommodationBlackoutDate {
-  id                       String   @id @default(cuid())
-  stagingAccommodationId   String
+  id                     String @id @default(cuid())
+  stagingAccommodationId String
 
-  dateFrom                  DateTime?
-  dateTo                    DateTime?
-  availabilityStatus        String
-  reason                    String?
-  rawText                   String?
-  sourcePage                Int?
-  confidenceScore           Decimal?
-  requiresReview            Boolean @default(true)
-  reviewStatus              String  @default("PENDING")
+  dateFrom           DateTime?
+  dateTo             DateTime?
+  availabilityStatus String
+  reason             String?
+  rawText            String?
+  sourcePage         Int?
+  confidenceScore    Decimal?
+  requiresReview     Boolean   @default(true)
+  reviewStatus       String    @default("PENDING")
 
-  stagingAccommodation      StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
+  stagingAccommodation StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
 
   @@index([stagingAccommodationId])
   @@index([dateFrom, dateTo])
@@ -569,26 +570,26 @@ model StagingAccommodationBlackoutDate {
 }
 
 model StagingActivity {
-  id                  String   @id @default(cuid())
-  sourceDocumentId    String
+  id               String @id @default(cuid())
+  sourceDocumentId String
 
-  activityName        String
-  supplierName        String?
-  locationMain        String?
-  province            String?
-  country             String?
-  activityType        String?
-  durationText        String?
-  descriptionText     String?
+  activityName    String
+  supplierName    String?
+  locationMain    String?
+  province        String?
+  country         String?
+  activityType    String?
+  durationText    String?
+  descriptionText String?
 
-  confidenceScore     Decimal?
-  reviewStatus        String   @default("PENDING")
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  confidenceScore Decimal?
+  reviewStatus    String   @default("PENDING")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  sourceDocument      SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
-  rates               StagingActivityRate[]
-  policies            StagingActivityPolicy[]
+  sourceDocument SourceDocument          @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+  rates          StagingActivityRate[]
+  policies       StagingActivityPolicy[]
 
   @@index([sourceDocumentId])
   @@index([activityName])
@@ -598,35 +599,35 @@ model StagingActivity {
 }
 
 model StagingActivityRate {
-  id                  String   @id @default(cuid())
-  stagingActivityId   String
+  id                String @id @default(cuid())
+  stagingActivityId String
 
-  year                Int?
-  seasonName          String?
-  dateFrom            DateTime?
-  dateTo              DateTime?
+  year       Int?
+  seasonName String?
+  dateFrom   DateTime?
+  dateTo     DateTime?
 
-  ageLabel            String?
-  ageMin              Int?
-  ageMax              Int?
+  ageLabel String?
+  ageMin   Int?
+  ageMax   Int?
 
-  rateUnit            String?
-  currency            String   @default("EUR")
-  salePvpAmount       Decimal?
-  costNetAmount       Decimal?
-  commissionPercent   Decimal?
+  rateUnit          String?
+  currency          String   @default("EUR")
+  salePvpAmount     Decimal?
+  costNetAmount     Decimal?
+  commissionPercent Decimal?
 
-  minPax              Int?
-  maxPax              Int?
+  minPax Int?
+  maxPax Int?
 
-  durationText        String?
-  rawText             String?
-  sourcePage          Int?
-  confidenceScore     Decimal?
-  requiresReview      Boolean  @default(true)
-  reviewStatus        String   @default("PENDING")
+  durationText    String?
+  rawText         String?
+  sourcePage      Int?
+  confidenceScore Decimal?
+  requiresReview  Boolean  @default(true)
+  reviewStatus    String   @default("PENDING")
 
-  stagingActivity     StagingActivity @relation(fields: [stagingActivityId], references: [id], onDelete: Cascade)
+  stagingActivity StagingActivity @relation(fields: [stagingActivityId], references: [id], onDelete: Cascade)
 
   @@index([stagingActivityId])
   @@index([year])
@@ -635,32 +636,33 @@ model StagingActivityRate {
 }
 
 model StagingActivityPolicy {
-  id                  String   @id @default(cuid())
-  stagingActivityId   String
+  id                String @id @default(cuid())
+  stagingActivityId String
 
-  policyType           String
-  policyText           String
-  structuredJson       Json?
-  sourcePage           Int?
-  confidenceScore      Decimal?
-  requiresReview       Boolean @default(true)
-  reviewStatus         String  @default("PENDING")
+  policyType      String
+  policyText      String
+  structuredJson  Json?
+  sourcePage      Int?
+  confidenceScore Decimal?
+  requiresReview  Boolean  @default(true)
+  reviewStatus    String   @default("PENDING")
 
-  stagingActivity      StagingActivity @relation(fields: [stagingActivityId], references: [id], onDelete: Cascade)
+  stagingActivity StagingActivity @relation(fields: [stagingActivityId], references: [id], onDelete: Cascade)
 
   @@index([stagingActivityId])
   @@index([policyType])
   @@index([reviewStatus])
 }
+
 // ----------------------------------------------------------------------------
 // Autenticación y control de acceso (operadores internos).
 // ----------------------------------------------------------------------------
 
 enum UserRole {
-  ADMIN       // Administrador global: ve y gestiona todo (todos los departamentos)
-  DEPT_ADMIN  // Administrador de departamento: gestiona y ve solo su departamento
-  QUOTER      // Cotizador: crea cotizaciones, no edita nada, ve solo las suyas
-  USER        // (heredado) cotizador global sin restricción de departamento
+  ADMIN // Administrador global: ve y gestiona todo (todos los departamentos)
+  DEPT_ADMIN // Administrador de departamento: gestiona y ve solo su departamento
+  QUOTER // Cotizador: crea cotizaciones, no edita nada, ve solo las suyas
+  USER // (heredado) cotizador global sin restricción de departamento
 }
 
 // Marca / línea de negocio de Oravia. Null = global (todos los departamentos).
@@ -670,16 +672,16 @@ enum Department {
 }
 
 model User {
-  id           String       @id @default(cuid())
-  email        String       @unique
+  id           String      @id @default(cuid())
+  email        String      @unique
   name         String?
   passwordHash String
   passwordSalt String
-  role         UserRole     @default(USER)
-  department   Department?  // null = acceso a todos los departamentos (roles globales)
-  isActive     Boolean      @default(true)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  role         UserRole    @default(USER)
+  department   Department? // null = acceso a todos los departamentos (roles globales)
+  isActive     Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
   tokens       AuthToken[]
 }
 
@@ -719,27 +721,27 @@ model AuditLog {
 // sabe en qué punto está cada viaje.
 
 enum DeliveryStatus {
-  DRAFT       // preparada, todavía sin enviar
-  SIMULATED   // generada sin credenciales de correo: existe el PDF, no salió
-  SENT        // entregada al servidor de correo
-  FAILED      // el servidor de correo la rechazó
+  DRAFT // preparada, todavía sin enviar
+  SIMULATED // generada sin credenciales de correo: existe el PDF, no salió
+  SENT // entregada al servidor de correo
+  FAILED // el servidor de correo la rechazó
 }
 
 model ProposalDelivery {
-  id         String   @id @default(cuid())
+  id         String      @id @default(cuid())
   proposalId String
   // Referencia visible para el cliente (ORV-2026-0184). Va en el asunto y en el
   // PDF: es la pista que permite reconocer el hilo aunque Zoho lo cuelgue mal.
-  reference  String   @unique
+  reference  String      @unique
   department Department?
 
   // Destinatario y contenido enviado (se guarda tal cual salió, no se recalcula)
   recipientEmail String
   recipientName  String?
-  replyToEmail   String?   // dirección por expediente, cuando exista (fase 6)
+  replyToEmail   String? // dirección por expediente, cuando exista (fase 6)
   subject        String
   bodyText       String
-  pdfPath        String?   // ruta del PDF generado, dentro de storage/
+  pdfPath        String? // ruta del PDF generado, dentro de storage/
 
   status        DeliveryStatus @default(DRAFT)
   failureReason String?
@@ -747,7 +749,19 @@ model ProposalDelivery {
   sentByUserId  String?
 
   // Vida de la propuesta una vez fuera: la página pública la actualiza sola
-  publicToken   String    @unique
+  publicToken String @unique
+
+  /// El Message-ID del correo que salio.
+  ///
+  /// Es lo que permite reconocer una respuesta: el cliente de correo del
+  /// colegio lo devuelve en `In-Reply-To` y en `References`, y eso no lo
+  /// falsifica nadie ni depende de que el asunto llegue intacto.
+  ///
+  /// Se guarda porque el subdireccionamiento NO sirve aqui: probado el
+  /// 25/09/2026 contra su servidor, un correo a `groups+ORV-2026-0004@` se
+  /// acepta y no llega a ninguna parte.
+  messageId String? @unique
+
   firstViewedAt DateTime?
   lastViewedAt  DateTime?
   viewCount     Int       @default(0)
@@ -762,7 +776,8 @@ model ProposalDelivery {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  proposal TripProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  proposal TripProposal    @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  mensajes CorreoMensaje[]
 
   @@index([proposalId])
   @@index([status])
@@ -779,14 +794,14 @@ model ProposalDelivery {
 /// contenido va en JSON a propósito: es lo que la persona lleva escrito en el
 /// lienzo, cambia con la pantalla y no tiene por qué ser un esquema.
 model RequestDraft {
-  id          String   @id @default(cuid())
+  id            String      @id @default(cuid())
   /// Para reconocerlo en la lista sin abrirlo: centro, destino y fechas.
-  title       String
+  title         String
   /// Quién lo empezó. No es quién puede abrirlo: eso lo decide el departamento.
-  ownerUserId String?
-  department  Department?
+  ownerUserId   String?
+  department    Department?
   /// El estado del lienzo, tal cual. Ver `BorradorSolicitud` en el navegador.
-  payload     String
+  payload       String
   /// Solicitud ya creada por un cierre que no llegó a terminar. Sin esto, el
   /// reintento crearía otra solicitud y, tras ella, otro trato en el CRM.
   tripRequestId String?
@@ -802,4 +817,56 @@ model RequestDraft {
   @@index([ownerUserId])
   @@index([department])
   @@index([updatedAt])
+}
+
+/// Un correo del expediente: lo que sale y lo que entra.
+///
+/// Existe porque Zoho no puede hacerlo. Solo vincula un correo por cuenta y
+/// solo si sale por IMAP, asi que Oravia tuvo que poner a todos sus gestores
+/// bajo un unico usuario, y aun asi los correos se cuelgan de la oportunidad
+/// equivocada: «se vinculan a la ultima que se creo. Primera. Depende del dia
+/// es una cosa u otra» (Ruth, 17/06/2026).
+model CorreoMensaje {
+  id String @id @default(cuid())
+
+  /// De que buzon paso: GROUPS o SPORTS.
+  buzon     String
+  /// ENTRANTE o SALIENTE.
+  direccion String
+
+  /// El UID de IMAP dentro de su carpeta. Con `uidValidity` identifica el
+  /// mensaje sin volver a traerlo. Vacio en los que enviamos nosotros.
+  uid         Int?
+  uidValidity Int?
+  carpeta     String?
+
+  /// Cabeceras de hilo. `messageId` es unico de verdad; los otros dos son las
+  /// migas que deja el cliente de correo al responder.
+  messageId   String? @unique
+  inReplyTo   String?
+  referencias String?
+
+  de     String
+  para   String
+  asunto String
+  cuerpo String
+  fecha  DateTime
+
+  /// A que envio pertenece, cuando se ha podido saber.
+  deliveryId String?
+  delivery   ProposalDelivery? @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
+
+  /// Como se emparejo: MESSAGE_ID, ASUNTO o REMITENTE. Vacio si no se pudo.
+  /// Se guarda para poder auditar los emparejamientos dudosos, que los habra.
+  emparejadoPor String?
+
+  /// Si alguien de Oravia ya lo ha visto en la app.
+  visto Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([deliveryId])
+  @@index([buzon, direccion])
+  @@index([fecha])
+  @@index([emparejadoPor])
 }

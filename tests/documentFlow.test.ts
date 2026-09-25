@@ -103,6 +103,29 @@ async function main() {
   process.env.DATABASE_URL = TEST_DB_URL;
   process.env.ORAVIA_STORAGE_DIR = testStorage;
 
+  // Las pruebas NO mandan correo. Nunca.
+  //
+  // Sin esto, el día que alguien pone las claves de los buzones en su `.env`
+  // —el 25/09/2026, para encender el envío— la prueba de «enviar la propuesta»
+  // deja de simular y manda un correo de verdad desde la cuenta de Oravia. Pasó.
+  // Y `MAIL_TEST_RECIPIENT` no salva: solo cambia el destinatario, el correo
+  // sale igual.
+  //
+  // Vaciando la dirección y la clave, `canSend()` devuelve false y la entrega
+  // se queda en SIMULATED, que es justo el camino que estas pruebas comprueban.
+  //
+  // Se ponen a cadena VACÍA en vez de borrarlas, y no es un capricho: `loadEnv`
+  // se vuelve a evaluar al importar los módulos del servidor, y solo respeta lo
+  // que ya está definido. Borrándolas, la recarga las devolvía a su valor del
+  // `.env` y la prueba mandaba correo igual.
+  for (const clave of [
+    "MAIL_GROUPS_ADDRESS", "MAIL_GROUPS_APP_PASSWORD",
+    "MAIL_SPORTS_ADDRESS", "MAIL_SPORTS_APP_PASSWORD",
+    "MAIL_TEST_RECIPIENT", "MAIL_PER_TRIP_DOMAIN",
+  ]) {
+    process.env[clave] = "";
+  }
+
   // 2) Crear el esquema en la BD temporal desde cero.
   removeTestStorage();
   console.log(`Preparando esquema temporal ${TEST_SCHEMA} (prisma db push)...`);

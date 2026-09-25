@@ -21,6 +21,7 @@ import { buildProposalPdf, type PdfOption } from "./proposalPdf";
 import { canSend, loadMailSettings, mailboxFor, replyToFor } from "./mailConfig";
 import { marcarHito, type Hito } from "./crmPipeline";
 import { borrarBorradorDeSolicitudDb } from "./draftsDb";
+import { guardarMensajeSaliente } from "./correoDb";
 
 const prisma = new PrismaClient();
 
@@ -306,8 +307,9 @@ export async function sendDelivery(deliveryId: string): Promise<DeliveryResult> 
     auth: { user: box.address, pass: box.appPassword },
   });
 
+  let messageId: string | null = null;
   try {
-    await transporter.sendMail({
+    const salida = await transporter.sendMail({
       from: { name: box.displayName, address: box.address },
       to: settings.testRecipient || delivery.recipientEmail,
       replyTo: delivery.replyToEmail ?? box.address,
@@ -317,6 +319,11 @@ export async function sendDelivery(deliveryId: string): Promise<DeliveryResult> 
         ? [{ filename: `Propuesta-${delivery.reference}.pdf`, path: delivery.pdfPath }]
         : [],
     });
+    // El Message-ID es lo que permite reconocer la respuesta del colegio: su
+    // cliente de correo lo devuelve en `In-Reply-To`. Se guarda porque el
+    // subdireccionamiento —`groups+ORV-2026-0184@…`— NO funciona en su
+    // servidor: probado el 25/09/2026, el correo se acepta y desaparece.
+    messageId = salida?.messageId ?? null;
   } catch (error) {
     const failureReason = error instanceof Error ? error.message : "Error desconocido al enviar.";
     const updated = await prisma.proposalDelivery.update({
@@ -328,8 +335,12 @@ export async function sendDelivery(deliveryId: string): Promise<DeliveryResult> 
 
   const updated = await prisma.proposalDelivery.update({
     where: { id: delivery.id },
-    data: { status: "SENT", sentAt: new Date(), failureReason: null },
+    data: { status: "SENT", sentAt: new Date(), failureReason: null, messageId },
   });
+
+  // Lo que sale también es parte de la conversación: sin esto, el hilo del
+  // expediente empezaría por la respuesta del colegio y no se entendería.
+  await guardarMensajeSaliente(delivery, box.address, settings.testRecipient, messageId);
 
   await cerrarBorradorDe(solicitudId);
 
