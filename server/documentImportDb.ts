@@ -13,6 +13,7 @@ import type {
   UnpublishResult,
 } from "../src/domain/documentImportTypes";
 import { deriveSalePrice, resolveRatePrices, toRateKind, type RateKind } from "./pricing";
+import { componerTextos } from "./textoDelAlojamiento";
 
 const prisma = new PrismaClient();
 

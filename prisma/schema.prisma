@@ -270,9 +270,9 @@ model TripProposal {
 }
 
 model ProposalAccommodationOption {
-  id                        String        @id @default(cuid())
+  id                        String         @id @default(cuid())
   proposalId                String
-  accommodationId           String
+  accommodationId           String?
   optionNumber              Int
   accommodationNameSnapshot String?
   boardType                 String?
@@ -289,15 +289,23 @@ model ProposalAccommodationOption {
   // Estaban en el catalogo y no llegaban a la propuesta, asi que el documento
   // que ve el colegio no las decia. Es informacion que cambia el precio.
   freePolicyText            String?
-  isSelected                Boolean       @default(false)
-  proposal                  TripProposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
-  accommodation             Accommodation @relation(fields: [accommodationId], references: [id], onDelete: Cascade)
+  isSelected                Boolean        @default(false)
+  proposal                  TripProposal   @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  /// Si el alojamiento desaparece del catalogo, la opcion NO se borra.
+  ///
+  /// Volver a publicar un documento borra y recrea sus alojamientos, y con
+  /// `Cascade` eso se llevaba por delante las opciones de las propuestas ya
+  /// enviadas: ORV-2026-0003 y 0004 se quedaron con cero opciones sin que
+  /// nadie supiera por que. Una propuesta es una FOTO de lo que se ofrecio, y
+  /// por eso guarda el nombre, el precio y las condiciones en sus propios
+  /// campos: no necesita que el hotel siga existiendo para poder leerse.
+  accommodation             Accommodation? @relation(fields: [accommodationId], references: [id], onDelete: SetNull)
 }
 
 model ProposalActivityOption {
   id                   String       @id @default(cuid())
   proposalId           String
-  activityId           String
+  activityId           String?
   optionNumber         Int          @default(1)
   displayOrder         Int
   activityNameSnapshot String
@@ -307,7 +315,9 @@ model ProposalActivityOption {
   descriptionSnapshot  String?
   isSelected           Boolean      @default(true)
   proposal             TripProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
-  activity             Activity     @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  /// Igual que en el alojamiento: la actividad puede desaparecer del catalogo
+  /// y la propuesta que ya salio tiene que seguir leyendose.
+  activity             Activity?    @relation(fields: [activityId], references: [id], onDelete: SetNull)
 }
 
 model CrmSyncLog {

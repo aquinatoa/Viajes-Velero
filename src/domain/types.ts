@@ -299,7 +299,15 @@ export interface ProposalBuilderState {
 export interface ProposalAccommodationOption {
   id: string;
   optionNumber: number;
-  accommodationId: string;
+  /**
+   * El alojamiento del catálogo, si sigue existiendo.
+   *
+   * Puede quedarse vacío: volver a publicar un documento borra y recrea sus
+   * alojamientos, y una propuesta ya enviada no puede perder sus opciones por
+   * eso. Todo lo que hace falta para leerla está en los campos `...Snapshot`,
+   * que son la foto de lo que se ofreció.
+   */
+  accommodationId: string | null;
   accommodationNameSnapshot: string;
   boardType: string;
   dateFrom: string;
@@ -319,7 +327,8 @@ export interface ProposalAccommodationOption {
 export interface ProposalActivityOption {
   id: string;
   optionNumber: number;
-  activityId: string;
+  /** La actividad del catálogo, si sigue existiendo. Ver el alojamiento. */
+  activityId: string | null;
   displayOrder: number;
   activityNameSnapshot: string;
   providerSnapshot: string;
