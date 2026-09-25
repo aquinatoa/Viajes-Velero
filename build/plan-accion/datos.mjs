@@ -245,22 +245,6 @@ const CORREO = {
         '<b>No sustituye a Zoho</b> como registro de la oportunidad. Lo que hace es que el correo deje de depender de que Zoho acierte a vincularlo.',
       ],
     },
-    {
-      t: 'pregunta', n: 8, crit: false,
-      h: 'C · Por dónde se empieza la bandeja',
-      cuerpo: [
-        '<b>De dónde sale:</b> tu observación del 25/09: «aquí debemos alinear todo lo que debemos construir para hacer la gestión de correo de cada oportunidad y la bandeja de correo general».',
-        'Arriba están las ocho piezas. C1 se puede hacer hoy sin decidir nada; C2 espera a saber cuándo empiezan a usar los buzones.',
-        '<b>Lo que hay que elegir es el alcance de la primera entrega</b>, porque C6 —la bandeja general— es casi tanto trabajo como C1 a C5 juntas.',
-      ],
-      ops: [
-        '<b>A · Solo el hilo por expediente</b> (C1 a C5). Resuelve lo que pidió Ruth en junio: ver y contestar sin salir de la app. La bandeja general queda para después.',
-        '<b>B · El hilo y la bandeja</b> (C1 a C7). Más completo, y cubre el correo que no se empareja con ningún viaje, que es donde se pierden cosas.',
-        '<b>C · Todo, con la entrada automática de solicitudes</b> (C1 a C8). Es lo que Ruth pedía al final de la reunión de junio: que la petición entre sola.',
-      ],
-      rec: 'A',
-      comentario: 'Y dos que hay que contestar en cualquier caso: ¿la bandeja general la ve todo el mundo o cada gestor la suya? ¿Basta con la marca en pantalla o hace falta aviso por correo?',
-    },
   ],
 }
 
@@ -628,10 +612,10 @@ const PROXIMOS = {
 /* ---------------------------------------------------------------- preguntas */
 
 const PREGUNTAS = {
-  id: 'preguntas', icono: 'bombilla', grupo: 'Hay que decidir', label: 'Las siete preguntas',
+  id: 'preguntas', icono: 'bombilla', grupo: 'Hay que decidir', label: 'Las ocho preguntas',
   h2: 'Lo que necesito de ti para seguir',
   lede:
-    'Siete puntos. Cada uno dice de dónde sale —correo, reunión o comprobación— qué pasa si se resuelve y qué pasa si no. Marca la opción y, si hace falta, escribe debajo. Al final, en «Tus respuestas», lo copias y me lo pegas.',
+    'Ocho puntos. Cada uno dice de dónde sale —correo, reunión o comprobación—, qué desbloquea y qué pasa si no se hace. Marca la opción y, si hace falta, escribe debajo. Al final, en «Tus respuestas», lo copias y me lo pegas.',
   obs: false,
   blocks: [
     { t: 'indice' },
@@ -764,6 +748,22 @@ const PREGUNTAS = {
       ],
       rec: 'B',
       comentario: 'Los técnicos del hosting escriben desde granota.net, por si prefieres ir directo.',
+    },
+    {
+      t: 'pregunta', n: 8, crit: false,
+      h: 'C · Por dónde se empieza la bandeja',
+      cuerpo: [
+        '<b>De dónde sale:</b> tu observación del 25/09: «aquí debemos alinear todo lo que debemos construir para hacer la gestión de correo de cada oportunidad y la bandeja de correo general».',
+        'Arriba están las ocho piezas. C1 se puede hacer hoy sin decidir nada; C2 espera a saber cuándo empiezan a usar los buzones.',
+        '<b>Lo que hay que elegir es el alcance de la primera entrega</b>, porque C6 —la bandeja general— es casi tanto trabajo como C1 a C5 juntas.',
+      ],
+      ops: [
+        '<b>A · Solo el hilo por expediente</b> (C1 a C5). Resuelve lo que pidió Ruth en junio: ver y contestar sin salir de la app. La bandeja general queda para después.',
+        '<b>B · El hilo y la bandeja</b> (C1 a C7). Más completo, y cubre el correo que no se empareja con ningún viaje, que es donde se pierden cosas.',
+        '<b>C · Todo, con la entrada automática de solicitudes</b> (C1 a C8). Es lo que Ruth pedía al final de la reunión de junio: que la petición entre sola.',
+      ],
+      rec: 'A',
+      comentario: 'Y dos que hay que contestar en cualquier caso: ¿la bandeja general la ve todo el mundo o cada gestor la suya? ¿Basta con la marca en pantalla o hace falta aviso por correo?',
     },
   ],
 }
