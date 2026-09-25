@@ -791,4 +791,93 @@ const RESPUESTAS = {
   ],
 }
 
-export const PANELS = [ESTADO, BLOQUEA, CORREO, RECORRIDO, PRODUCTO, CRM, USUARIOS, PREGUNTAS, DECISIONES, PROXIMOS, RESPUESTAS]
+/* ---------------------------------------------------------------- para Javier */
+
+const JAVIER = {
+  id: 'javier', icono: 'usuarios', grupo: 'Vuestro turno', label: 'Para preguntar a Javier',
+  h2: 'Todo lo que hay que consultarles, en un sitio',
+  lede:
+    'Se va acumulando según aparece, para no tener que rebuscarlo cuando llegue el momento de escribirles. Lo que bloquea va arriba.',
+  blocks: [
+    { t: 'sec', h3: 'Bloquea trabajo', note: 'Sin esto no se puede seguir con lo que hay debajo.' },
+    {
+      t: 'tabla', tick: 'jav-b',
+      cols: [{ h: 'Qué preguntar' }, { h: 'Por qué' }, { h: 'Qué desbloquea' }],
+      rows: [
+        [
+          'El registro A de <code>presupuesto.oraviatravel.com</code> apunta a <code>192</code>.20.235.4 y el servidor es <code>195</code>.20.235.4',
+          'Un dígito. El correo está redactado en <code>correo-dns-javier.md</code>.',
+          'El certificado, el HTTPS y que los enlaces de las propuestas dejen de llevar una IP dentro',
+        ],
+        [
+          '<b>El buzón <code>groups@oraviatravel.com</code> no recibe nada.</b> ¿A dónde va su correo entrante?',
+          'Probado el 25/09: se manda un correo desde <code>sports@</code> a <code>groups@</code>, el servidor lo <b>acepta y lo encola</b> —«250 2.0.0 Ok: queued»— y treinta segundos después no está. Ni en INBOX, ni en enviados, ni en la papelera, ni en correo no deseado: las cinco carpetas tienen cero mensajes. El MX del dominio y el servidor IMAP son la misma máquina, así que no es un problema de DNS. Parece un reenvío o un alias a otro sistema.',
+          'Toda la bandeja de entrada (C2 a C8). Sin saber dónde aterriza el correo, la app no tiene dónde mirar.',
+        ],
+        [
+          '¿Qué es un «cliente especial», el del PVP − 17%?',
+          'Lo escribió Javier el 14/08 con PortAventura: «Cliente genérico PVP − 14%, Cliente especial PVP − 17%». La app solo conoce genérico y turoperador suizo.',
+          'Cotizar PortAventura con el precio correcto',
+        ],
+        [
+          '¿La forma de cobro es siempre «Deposito 30%»?',
+          'Es el acuerdo de junio y lo que llevan 735 de sus 1.000 tratos, pero su lista mezcla porcentajes con medios de pago (Transferencia, TPV, Efectivo).',
+          'Que la oportunidad nazca con el cobro bien puesto',
+        ],
+      ],
+    },
+
+    { t: 'sec', h3: 'Cosas que hemos encontrado y deberían saber', note: 'Ninguna la han reportado ellos: salieron mirando su servidor y su CRM.' },
+    {
+      t: 'tabla', tick: 'jav-h',
+      cols: [{ h: 'Qué decirles' }, { h: 'Detalle' }],
+      rows: [
+        [
+          '<b>El catálogo de actividades que subieron el 23/09 no se leyó</b>',
+          '<code>PLANTILLA_REVISAT_COTIZADOR_ACTIVITATS_2027_v1.xlsx</code>, 2 hojas y 70 filas, está atascado en «pendiente de revisar» con cero candidatos y el error «No se pudo leer el documento con IA». Lleva dos días así y nadie se enteró. Hay que preguntarles si lo dan por cargado.',
+        ],
+        [
+          '<b>Las copias de seguridad del servidor no existen</b>',
+          'Sus técnicos dijeron el 22/09 que esperan aviso nuestro para montarlas. Hoy el servidor lleva las tarifas, los clientes y las propuestas <b>sin ninguna copia</b>. Hay que avisarles en cuanto esté el certificado.',
+        ],
+        [
+          '<b>Hay un alojamiento fantasma en el catálogo</b>',
+          '«PortAventura · Entradas grupos parques 2027», sin ninguna tarifa, creado por el documento además de sus 8 actividades. No hace daño pero ensucia. ¿Lo borramos?',
+        ],
+        [
+          '<b>Su servidor de correo no admite subdirecciones</b>',
+          'Un correo a <code>groups+ORV-2026-0184@oraviatravel.com</code> se acepta y desaparece. Sería la forma más segura de emparejar las respuestas, aunque ya está resuelto por otras vías. Va en la misma conversación que lo de arriba: los dos son cómo entrega su servidor.',
+        ],
+      ],
+    },
+
+    { t: 'sec', h3: 'Para decidir cómo se comporta la bandeja', note: 'No corre prisa, pero hay que saberlo antes de C6 y C7.' },
+    {
+      t: 'tabla', tick: 'jav-d',
+      cols: [{ h: 'Qué preguntar' }, { h: 'Por qué importa' }],
+      rows: [
+        [
+          '¿La bandeja general la ve todo el mundo, o cada gestor solo lo suyo?',
+          'Hoy cada uno ve solo sus propuestas. Pero el correo que no se empareja con ningún viaje no es «de» nadie, y si solo lo ve su departamento puede quedarse sin mirar.',
+        ],
+        [
+          '¿Basta con la marca en pantalla, o hace falta aviso por correo?',
+          'Avisar por correo de un correo tiene su gracia, pero si no miran la app a diario es la única forma de que se enteren.',
+        ],
+        [
+          '¿Se contesta desde la app o solo se lee?',
+          'Responder desde la app es lo que pidió Ruth. Conviene confirmar que el equipo lo va a usar así y no volverá a Outlook por costumbre.',
+        ],
+      ],
+    },
+    {
+      t: 'nota', tone: 'ok', kicker: 'Y dos que ya NO hace falta preguntar',
+      p: [
+        'Las <b>tarifas 4R</b> y el <b>«pendiente de revisar» de Fútbol Salou</b>: comprobado contra el servidor el 25/09. Las 4R ya no están duplicadas y Fútbol Salou está desdoblado y publicado en «venta general» y «venta turoperador suizo».',
+        'El <b>permiso de Zoho sobre Productos y Proveedores</b>: no hace falta. En el subformulario esos dos campos son opcionales.',
+      ],
+    },
+  ],
+}
+
+export const PANELS = [ESTADO, BLOQUEA, CORREO, RECORRIDO, PRODUCTO, CRM, USUARIOS, PREGUNTAS, DECISIONES, JAVIER, PROXIMOS, RESPUESTAS]
