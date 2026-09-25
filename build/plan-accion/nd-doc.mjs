@@ -1,8 +1,23 @@
 // Renderizador de entregables Neointec · lenguaje "D".
 //
-// Sustituye a wg-doc.mjs manteniendo EL MISMO vocabulario de bloques, para que
-// los datos.mjs que ya existen se rendericen sin reescribirlos: solo cambia el
-// import del gen.mjs.
+// COPIA CANÓNICA: ~/.claude/skills/entregable-cliente/nd-doc.mjs
+// Se copia tal cual a <cliente>/build/<entregable>/ junto con logos.json.
+// Si se mejora, se mejora AQUÍ y se vuelve a copiar; nunca al revés.
+//
+// Sustituye a wg-doc.mjs manteniendo el vocabulario de bloques de los
+// entregables anteriores (stats, tabla, nota, sec, rules, principio, ruta,
+// html) y añade lo que hacía a mano la maqueta de CEEI del 8/9/2026 para que
+// el cliente CONTESTE dentro del documento:
+//   · pregunta      opciones excluyentes + nuestra recomendación + comentario
+//   · indice        tabla de todas las preguntas con su estado (se rellena sola)
+//   · flow          pasos numerados («cómo se contesta, en cuatro pasos»)
+//   · pasos         tabla Qué / Quién / Cuándo con casilla (qué pasa después)
+//   · respuestas    panel final: contadores, Copiar, Descargar .txt, texto
+//   · obs           cuadro «¿algo que no cuadre?» al pie de un panel
+//     (o render({observaciones:true}) para ponerlo en todos)
+// Todo se guarda en localStorage del navegador del cliente; el documento no
+// manda nada solo. El texto que copia lleva preguntas, comentarios,
+// observaciones por sección y el recuento de casillas.
 //
 // De dónde sale el diseño: del espacio de trabajo de Diurnay
 // (diurnay.neointec.com), leído de su CSS y de su DOM. Lo que se adopta:
@@ -291,6 +306,69 @@ pre code{background:none;color:inherit;padding:0;}
 .ruta b{font-size:11.5px;letter-spacing:.07em;color:var(--accent);}
 .ruta svg{color:var(--ink-3);}
 
+/* ---------- el cliente contesta: preguntas, comentarios, respuestas ---------- */
+.pregunta{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
+  box-shadow:var(--sombra-corta);overflow:hidden;}
+.pregunta .ph{display:flex;align-items:flex-start;gap:12px;padding:17px 20px 0;}
+.pregunta .ph .pn{font-family:var(--f-mono);font-size:12px;color:var(--cloud);background:var(--codigo);
+  border-radius:var(--r-sm);padding:3px 8px;flex:0 0 auto;margin-top:1px;}
+.pregunta .ph h3{font-size:16px;flex:1;}
+.pregunta .pc{padding:12px 20px 14px;font-size:13.5px;color:var(--ink-2);max-width:98ch;}
+.pregunta .pc p{margin-top:7px;}
+.pregunta .pc b{color:var(--ink);}
+.opts{border-top:1px solid var(--line);}
+.opt{display:grid;grid-template-columns:22px 1fr;gap:12px;padding:12px 20px;
+  border-bottom:1px solid var(--line-soft);align-items:start;cursor:pointer;
+  transition:background .12s;}
+.opt:hover{background:var(--card-2);}
+.opt.rec{background:var(--ok-soft);}
+.opt.rec:hover{background:var(--ok-soft);}
+.opt input[type=radio]{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;margin:2px 0 0;}
+.opt .ot{font-size:13px;color:var(--ink-2);}
+.opt .ot b{color:var(--ink);}
+.opt .ot .ok-l{font-family:var(--f-mono);color:var(--accent);margin-right:4px;}
+.opt.otra .ot{color:var(--ink-3);}
+.chip.rec{background:var(--ok-soft);color:var(--ok);}
+.chip.empty{background:var(--dead-soft);color:var(--dead);font-weight:400;}
+.chip.warn{background:var(--warn-soft);color:var(--warn);}
+.pregunta .cmt{margin:12px 20px 18px;width:calc(100% - 40px);}
+textarea.cmt{width:100%;font-family:var(--f);font-size:13px;line-height:1.5;color:var(--ink);
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;
+  resize:vertical;display:block;}
+textarea.cmt::placeholder{color:var(--ink-3);}
+textarea.cmt:focus{outline:2px solid var(--cloud);outline-offset:1px;border-color:var(--accent);}
+textarea.cmt.lleno{border-color:var(--accent);}
+.obs{background:var(--card);border:1px dashed var(--line);border-radius:var(--r-lg);padding:15px 19px;}
+.obs .sec-head{padding-top:0;margin-bottom:9px;}
+.obs .sec-head h3{font-size:14.5px;}
+.obs textarea.cmt{background:var(--bg);}
+
+/* pasos numerados («cómo se contesta») */
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:13px;}
+.step{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:16px 18px;box-shadow:var(--sombra-corta);display:flex;gap:12px;align-items:flex-start;}
+.step .sn{font-family:var(--f-mono);font-size:12px;font-weight:700;color:var(--cloud);background:var(--codigo);
+  border-radius:var(--r-sm);padding:3px 7px;flex:0 0 auto;}
+.step .sa{display:block;font-size:13.5px;font-weight:700;}
+.step .sm{display:block;font-size:12.5px;color:var(--ink-2);margin-top:3px;}
+.step .sw{display:inline-block;margin-top:8px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--accent);}
+
+/* panel «vuestras respuestas» */
+.btnrow{display:flex;flex-wrap:wrap;gap:9px;}
+.btn{font:700 13px/1 var(--f);padding:10px 16px;border-radius:var(--r-md);cursor:pointer;
+  border:1px solid var(--line);background:var(--card);color:var(--ink);transition:background .12s,color .12s;}
+.btn:hover{background:var(--card-2);}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--interfaz);}
+.btn.primary:hover{background:var(--flujo);}
+.btn.ghost{background:none;color:var(--ink-3);}
+.btn.hecho{background:var(--ok);border-color:var(--ok);color:var(--interfaz);}
+textarea.out{width:100%;font-family:var(--f-mono);font-size:12px;line-height:1.5;color:var(--ink);
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px;
+  resize:vertical;display:block;min-height:280px;}
+textarea.out:focus{outline:2px solid var(--cloud);outline-offset:1px;}
+@media print{ .opts,.cmt,.obs,.btnrow,textarea.out{display:none !important;} }
+
 /* ---------- modo embebido (?embed=1) ----------
    Dentro de CRM Studio el rail del documento sobra: ya hay uno. Se oculta y sus
    secciones pasan a una barra de pestañas horizontal encima del contenido. Un
@@ -341,9 +419,18 @@ pre code{background:none;color:inherit;padding:0;}
 
 /* ---------- render ---------- */
 
-export function render({ meta, panels, titulo, claveTab, claveEstado, progLabel = 'Progreso', extra = {} }) {
+export function render({ meta, panels, titulo, claveTab, claveEstado, progLabel = 'Progreso', extra = {},
+                         observaciones = false }) {
   let nCk = 0
   const ck = (id) => { nCk++; return `<td class="tick"><input type="checkbox" id="k-${id}"></td>` }
+  const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const plano = (h) => String(h ?? '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+
+  // Las preguntas se van apuntando según se renderizan: el índice, el panel de
+  // respuestas y el script del documento las necesitan todas juntas.
+  const QS = []
+  let hayRespuestas = false
+  let critLabel = 'bloquea', noCritLabel = 'puede esperar'
 
   const stats = (items) => `<div class="stats">${items.map(s =>
     `<div class="stat"><span class="v">${s.v}</span><span class="k">${s.k}</span><span class="h">${s.h}</span></div>`
@@ -383,8 +470,108 @@ ${body}
   const ruta = (pasos) => `<div class="ruta">${pasos.map((p, i) =>
     `<b>${p}</b>${i < pasos.length - 1 ? svg(ICONOS.flecha, 16) : ''}`).join('')}</div>`
 
+  /* --- lo que contesta el cliente --- */
+
+  // Cuadro de texto libre. id → textarea#cmt-<id>; label es cómo sale en el texto copiado.
+  const cmt = ({ id, label, rows = 2, placeholder = 'Matices, condiciones, o vuestra propia respuesta…' }) =>
+    `<textarea class="cmt" id="cmt-${id}" data-lbl="${esc(label)}" rows="${rows}" placeholder="${esc(placeholder)}"></textarea>`
+
+  // { n, crit, h, cuerpo:[html…], ops:[{k,t,rec}] | ['<b>A ·</b> …'], rec:'A', otra:true, comentario:true }
+  const pregunta = (b) => {
+    const n = b.n ?? (QS.length + 1)
+    const ops = b.ops.map((o, i) => {
+      if (typeof o === 'string') {
+        // Admite el formato de CEEI: '<b>A · Título.</b> Explicación' o '<b>A ·</b> Explicación'.
+        // La letra se quita del texto porque la pinta el propio bloque.
+        const k = (o.match(/<b>\s*([A-Z])\s*[·.)-]/) || [])[1] || String.fromCharCode(65 + i)
+        const t = o.replace(/<b>\s*[A-Z]\s*[·.)-]\s*/, '<b>').replace(/^<b>\s*<\/b>\s*/, '')
+        return { k, t, rec: k === b.rec }
+      }
+      return { k: o.k || String.fromCharCode(65 + i), t: o.t, rec: o.rec || o.k === b.rec }
+    })
+    QS.push({ n, crit: !!b.crit, t: plano(b.h), ops: ops.map(o => ({ k: o.k, t: plano(o.t).slice(0, 200) })) })
+    const chip = b.crit ? `<span class="chip no">${b.critLabel || critLabel}</span>`
+                        : `<span class="chip">${b.noCritLabel || noCritLabel}</span>`
+    const cuerpo = Array.isArray(b.cuerpo) ? b.cuerpo.map(x => `<p>${x}</p>`).join('') : (b.cuerpo || '')
+    const opciones = ops.map(o =>
+      `<label class="opt${o.rec ? ' rec' : ''}"><input type="radio" name="q${n}" value="${o.k}" data-lbl="${esc(plano(o.t).slice(0, 200))}">`
+      + `<div class="ot"><span class="ok-l">${o.k}</span>${o.t}${o.rec ? ' <span class="chip rec">nuestra recomendación</span>' : ''}</div></label>`
+    ).join('')
+    const otra = b.otra === false ? '' :
+      `<label class="opt otra"><input type="radio" name="q${n}" value="—" data-lbl="Ninguna de las anteriores">`
+      + `<div class="ot"><b>Ninguna de estas.</b> Lo explicamos aquí debajo.</div></label>`
+    const com = b.comentario === false ? '' : cmt({ id: `q${n}`, label: `Pregunta ${n}`, rows: 2, placeholder: b.placeholder })
+    return `<section class="pregunta" id="q${n}">
+  <div class="ph"><span class="pn">${n}</span><h3>${b.h}</h3>${chip}</div>
+  <div class="pc">${cuerpo}</div>
+  <div class="opts">${opciones}${otra}</div>
+  ${com}
+</section>`
+  }
+
+  // Tabla de todas las preguntas con su estado. Se rellena al final, cuando ya
+  // se han renderizado todas (puede ir antes que ellas en el mismo panel).
+  const indice = (b) => `<!--ND-INDICE${b.solo ? ':' + b.solo : ''}-->`
+  const pintaIndice = (solo) => {
+    const lista = solo === 'crit' ? QS.filter(q => q.crit) : QS
+    const orden = [...lista].sort((a, b) => (b.crit - a.crit) || (a.n - b.n))
+    return tabla({ cols: [{ h: 'Nº' }, { h: 'Pregunta' }, { h: 'Urgencia' }, { h: 'Vuestra respuesta' }],
+      rows: orden.map(q => [
+        `<span class="mono">${q.n}</span>`,
+        `<a href="#q${q.n}" data-goto="q${q.n}">${esc(q.t)}</a>`,
+        q.crit ? `<span class="chip no">${critLabel}</span>` : `<span class="chip">${noCritLabel}</span>`,
+        `<span id="ix-q${q.n}"><span class="chip empty">pendiente</span></span>`]) })
+      .replace(/<td class="strong">/g, '<td>')
+  }
+
+  // Pasos numerados: [{t, d, donde}]
+  const flow = (pasos) => `<div class="flow">${pasos.map((p, i) =>
+    `<div class="step"><span class="sn">${String(i + 1).padStart(2, '0')}</span><div>`
+    + `<span class="sa">${p.t}</span><span class="sm">${p.d}</span>${p.donde ? `<span class="sw">${p.donde}</span>` : ''}</div></div>`
+  ).join('')}</div>`
+
+  // Qué pasa después: [{que, d, quien, cuando}] → tabla con casilla
+  const pasos = (b) => tabla({ cap: b.cap, tick: b.tick || 'paso',
+    cols: [{ h: 'Qué' }, { h: 'Quién' }, { h: b.colCuando || 'Cuándo' }],
+    rows: b.items.map((p, i) => [
+      `<span class="mono">${String(i + 1).padStart(2, '0')}</span>&nbsp; ${p.que}${p.d ? `<div style="font-weight:400;color:var(--ink-2);margin-top:3px">${p.d}</div>` : ''}`,
+      p.quien, p.cuando || '—']) })
+
+  // «¿Algo que no cuadre en esta sección?» — id del panel, label para el texto copiado
+  const obs = (b) => `<div class="obs">
+  <div class="sec-head"><h3>${b.h3 || '¿Algo que no cuadre en esta sección?'}</h3><p class="sec-note">${b.note || 'Se guarda solo y aparece en «Vuestras respuestas».'}</p></div>
+  ${cmt({ id: `p-${b.id}`, label: b.label, rows: b.rows || 3, placeholder: b.placeholder || `Lo que haya que cambiar, quitar o añadir en «${plano(b.label)}»…` })}
+</div>`
+
+  // Panel final. { correos:['a@…'], cabecera:'RESPUESTAS DE X · Y', firma:'…', nota:[…] }
+  const respuestas = (b) => {
+    hayRespuestas = true
+    const correos = (b.correos || []).map(c => `<b>${c}</b>`).join(' y ')
+    return `<div class="stats">
+  <div class="stat"><span class="v" id="r-q">0</span><span class="k">preguntas contestadas</span><span class="h">de <span id="r-qt">0</span></span></div>
+  <div class="stat"><span class="v" id="r-crit">0</span><span class="k">de las que ${b.critK || 'bloquean'}</span><span class="h">de <span id="r-critt">0</span> · son las que nos dejan arrancar</span></div>
+  <div class="stat"><span class="v" id="r-cmt">0</span><span class="k">comentarios escritos</span><span class="h">en preguntas y secciones</span></div>
+  <div class="stat"><span class="v" id="r-ck">0</span><span class="k">puntos revisados</span><span class="h">casillas marcadas de <span id="r-ckt">0</span></span></div>
+</div>
+<div class="sec-head"><h3>Mandárnoslo</h3><p class="sec-note">Cualquiera de las dos vale.</p></div>
+<div class="btnrow">
+  <button type="button" class="btn primary" id="b-copy">Copiar todo al portapapeles</button>
+  <button type="button" class="btn" id="b-dl">Descargar como fichero .txt</button>
+  <button type="button" class="btn ghost" id="b-clear">Borrar todo y empezar de cero</button>
+</div>
+${nota({ tone: 'q', kicker: 'cómo llega hasta nosotros', p: b.nota || [
+  `Este documento no manda nada solo: lo que marcáis <b>se queda en vuestro navegador</b>, en este ordenador. `
+  + `Pulsad <b>Copiar</b> y pegadlo en un correo${correos ? ' a ' + correos : ''}, o descargad el fichero y adjuntadlo. `
+  + `Si lo abrís en otro ordenador, empezaréis de cero: mejor que lo rellene una sola persona.`] })}
+<div class="sec-head"><h3>Lo que lleváis contestado</h3></div>
+<div class="tw"><div class="scroll"><table><thead><tr><th>Nº</th><th>Pregunta</th><th>Respuesta</th><th>Vuestro comentario</th></tr></thead>
+<tbody id="r-tabla"></tbody></table></div></div>
+<div class="sec-head"><h3>El texto que se copia</h3><p class="sec-note">Se rehace solo. Podéis retocarlo aquí antes de copiarlo.</p></div>
+<textarea id="r-out" class="out" rows="20" spellcheck="false" data-cab="${esc(b.cabecera || `RESPUESTAS DE ${meta.cliente.toUpperCase()} · ${meta.sub.toUpperCase()}`)}" data-firma="${esc(b.firma || `Enviado desde «${meta.titulo}» · Neointec × ${meta.cliente}`)}"></textarea>`
+  }
+
   function bloque(b) {
-    if (extra[b.t]) return extra[b.t](b, { tabla, stats, nota, sec, rules, svg, ICONOS })
+    if (extra[b.t]) return extra[b.t](b, { tabla, stats, nota, sec, rules, svg, ICONOS, pregunta, cmt, obs, flow, pasos, esc })
     switch (b.t) {
       case 'stats': return stats(b.items)
       case 'tabla': return tabla(b)
@@ -394,15 +581,30 @@ ${body}
       case 'principio': return principio(b)
       case 'ruta': return ruta(b.pasos)
       case 'html': return b.html
+      case 'pregunta': return pregunta(b)
+      case 'indice': return indice(b)
+      case 'flow': return flow(b.pasos)
+      case 'pasos': return pasos(b)
+      case 'obs': return obs(b)
+      case 'cmt': return cmt(b)
+      case 'respuestas': return respuestas(b)
       default: throw new Error('bloque desconocido: ' + b.t)
     }
   }
 
   /* --- paneles y navegación --- */
-  const panelsHtml = panels.map((p, i) => `<div class="panel" id="p-${p.id}" role="tabpanel" aria-labelledby="t-${p.id}"${i ? ' hidden' : ''}>
+  const conObs = (p) => {
+    if (p.obs === false) return false
+    if (p.obs) return true
+    if (!observaciones) return false
+    return !p.blocks.some(b => b.t === 'respuestas' || b.t === 'obs')
+  }
+  let panelsHtml = panels.map((p, i) => `<div class="panel" id="p-${p.id}" role="tabpanel" aria-labelledby="t-${p.id}"${i ? ' hidden' : ''}>
   <div class="panel-head"><h2>${p.h2}</h2><p>${p.lede}</p></div>
   ${p.blocks.map(bloque).join('\n  ')}
+  ${conObs(p) ? obs({ id: p.id, label: p.label, placeholder: typeof p.obs === 'string' ? p.obs : undefined }) : ''}
 </div>`).join('\n\n')
+  panelsHtml = panelsHtml.replace(/<!--ND-INDICE(?::(\w+))?-->/g, (_, solo) => pintaIndice(solo))
 
   const grupos = []
   for (const p of panels) {
@@ -580,6 +782,138 @@ ${panelsHtml}
     if (st[b.id]) b.checked = true;
     b.addEventListener('change', function(){ st[b.id] = b.checked; guarda(); pinta(); });
   });
+
+  // ---------- lo que contesta el cliente ----------
+  var QS = ${JSON.stringify(QS)};
+  var radios = Array.prototype.slice.call(document.querySelectorAll('input[type=radio]'));
+  var textos = Array.prototype.slice.call(document.querySelectorAll('textarea.cmt'));
+  radios.forEach(function(r){
+    if (st['rd:' + r.name] === r.value) r.checked = true;
+    r.addEventListener('change', function(){ st['rd:' + r.name] = r.value; guarda(); pinta(); });
+  });
+  textos.forEach(function(t){
+    if (st['tx:' + t.id]) { t.value = st['tx:' + t.id]; t.classList.add('lleno'); }
+    t.addEventListener('input', function(){
+      st['tx:' + t.id] = t.value;
+      t.classList.toggle('lleno', !!t.value.trim());
+      guarda(); pinta();
+    });
+  });
+  document.addEventListener('click', function(e){
+    var a = e.target && e.target.closest ? e.target.closest('a[data-goto]') : null;
+    if (!a) return;
+    e.preventDefault();
+    var el = document.getElementById(a.getAttribute('data-goto'));
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  function opcion(n){
+    var el = document.querySelector('input[name="q' + n + '"]:checked');
+    return el ? { k: el.value, t: el.getAttribute('data-lbl') || '' } : null;
+  }
+  function comentario(id){ return (st['tx:cmt-' + id] || '').trim(); }
+  var out = document.getElementById('r-out');
+  var RAYA = '============================================================';
+  function texto(){
+    var L = [];
+    var hechas = QS.filter(function(q){ return !!opcion(q.n); });
+    var crit = QS.filter(function(q){ return q.crit; });
+    var critH = crit.filter(function(q){ return !!opcion(q.n); });
+    L.push(out ? out.getAttribute('data-cab') : 'RESPUESTAS');
+    L.push('Enviado el ' + new Date().toLocaleString('es-ES'));
+    if (QS.length) L.push(hechas.length + ' de ' + QS.length + ' preguntas contestadas'
+      + (crit.length ? ' · ' + critH.length + ' de ' + crit.length + ' de las que bloquean' : ''));
+    if (QS.length) {
+      L.push(''); L.push(RAYA); L.push('LAS PREGUNTAS'); L.push(RAYA);
+      QS.forEach(function(q){
+        var o = opcion(q.n), c = comentario('q' + q.n);
+        L.push('');
+        L.push(q.n + ' · ' + q.t + (q.crit ? '   [BLOQUEA]' : ''));
+        L.push('   Respuesta: ' + (o ? (o.k === '\\u2014' ? 'ninguna de las propuestas' : 'opción ' + o.k + ' — ' + o.t) : 'SIN CONTESTAR'));
+        if (c) L.push('   Comentario: ' + c.replace(/\\n/g, '\\n               '));
+      });
+    }
+    var obs = textos.filter(function(t){ return t.id.indexOf('cmt-q') !== 0 && (t.value || '').trim(); });
+    L.push(''); L.push(RAYA); L.push('OBSERVACIONES POR SECCIÓN'); L.push(RAYA);
+    if (!obs.length) L.push('(ninguna)');
+    obs.forEach(function(t){
+      L.push('');
+      L.push('· ' + t.getAttribute('data-lbl'));
+      L.push('   ' + t.value.trim().replace(/\\n/g, '\\n   '));
+    });
+    if (checks.length) {
+      var n = checks.filter(function(b){ return b.checked; }).length;
+      L.push(''); L.push(RAYA); L.push('REVISIÓN DEL DETALLE'); L.push(RAYA);
+      L.push(n + ' de ' + checks.length + ' puntos marcados como revisados y conformes.');
+    }
+    L.push('');
+    L.push('-- ' + (out ? out.getAttribute('data-firma') : 'Neointec') + ' --');
+    return L.join('\\n');
+  }
+  function set(id, v){ var e = document.getElementById(id); if (e) e.textContent = v; }
+  function pintaRespuestas(){
+    var hechas = QS.filter(function(q){ return !!opcion(q.n); }).length;
+    var crit = QS.filter(function(q){ return q.crit; });
+    var critH = crit.filter(function(q){ return !!opcion(q.n); }).length;
+    var nck = checks.filter(function(b){ return b.checked; }).length;
+    var ncm = textos.filter(function(t){ return (t.value || '').trim(); }).length;
+    set('r-q', hechas); set('r-qt', QS.length); set('r-crit', critH); set('r-critt', crit.length);
+    set('r-cmt', ncm); set('r-ck', nck); set('r-ckt', checks.length);
+    QS.forEach(function(q){
+      var c = document.getElementById('ix-q' + q.n); if (!c) return;
+      var o = opcion(q.n);
+      c.innerHTML = o ? '<span class="chip rec">' + (o.k === '\\u2014' ? 'otra' : o.k) + '</span>'
+                      : '<span class="chip empty">pendiente</span>';
+    });
+    var tabla = document.getElementById('r-tabla');
+    if (tabla) tabla.innerHTML = QS.map(function(q){
+      var o = opcion(q.n), c = comentario('q' + q.n);
+      return '<tr><td class="mono">' + q.n + '</td><td class="strong">' + q.t
+        + (q.crit ? ' <span class="chip no">bloquea</span>' : '') + '</td><td>'
+        + (o ? '<span class="chip rec">' + (o.k === '\\u2014' ? 'ninguna' : o.k) + '</span> ' + o.t.replace(/</g, '&lt;')
+             : '<span class="chip empty">sin contestar</span>')
+        + '</td><td>' + (c ? c.replace(/</g, '&lt;') : '<span style="color:var(--ink-3)">—</span>') + '</td></tr>';
+    }).join('');
+    if (out && document.activeElement !== out) out.value = texto();
+  }
+  var pintaBase = pinta;
+  pinta = function(){ pintaBase(); pintaRespuestas(); };
+
+  function flash(b, t){
+    var prev = b.textContent;
+    b.textContent = t; b.classList.add('hecho');
+    setTimeout(function(){ b.textContent = prev; b.classList.remove('hecho'); }, 2200);
+  }
+  var bc = document.getElementById('b-copy');
+  if (bc) bc.addEventListener('click', function(){
+    out.value = out.value || texto();
+    var ok = false;
+    // En file:// no hay navigator.clipboard (no es contexto seguro): execCommand primero.
+    try { out.focus(); out.select(); ok = document.execCommand('copy'); } catch (e) {}
+    if (!ok && navigator.clipboard) {
+      navigator.clipboard.writeText(out.value).then(function(){ flash(bc, '✓ Copiado'); },
+        function(){ flash(bc, 'Copiadlo del cuadro de abajo'); });
+      return;
+    }
+    flash(bc, ok ? '✓ Copiado' : 'Copiadlo del cuadro de abajo');
+  });
+  var bd = document.getElementById('b-dl');
+  if (bd) bd.addEventListener('click', function(){
+    var blob = new Blob([out.value || texto()], { type: 'text/plain;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'respuestas-' + new Date().toISOString().slice(0, 10) + '.txt';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+    flash(bd, '✓ Descargado');
+  });
+  var bx = document.getElementById('b-clear');
+  if (bx) bx.addEventListener('click', function(){
+    if (!confirm('Se borra todo lo marcado y escrito en este documento. ¿Seguimos?')) return;
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    location.reload();
+  });
+
   pinta();
 })();
 </script>
@@ -587,5 +921,5 @@ ${panelsHtml}
 </html>
 `
 
-  return { html, casillas: nCk, paneles: panels.length }
+  return { html, casillas: nCk, paneles: panels.length, preguntas: QS.length, respuestas: hayRespuestas }
 }

@@ -239,6 +239,69 @@ pre code{background:none;color:inherit;padding:0;}
 .ruta b{font-size:11.5px;letter-spacing:.07em;color:var(--accent);}
 .ruta svg{color:var(--ink-3);}
 
+/* ---------- el cliente contesta: preguntas, comentarios, respuestas ---------- */
+.pregunta{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
+  box-shadow:var(--sombra-corta);overflow:hidden;}
+.pregunta .ph{display:flex;align-items:flex-start;gap:12px;padding:17px 20px 0;}
+.pregunta .ph .pn{font-family:var(--f-mono);font-size:12px;color:var(--cloud);background:var(--codigo);
+  border-radius:var(--r-sm);padding:3px 8px;flex:0 0 auto;margin-top:1px;}
+.pregunta .ph h3{font-size:16px;flex:1;}
+.pregunta .pc{padding:12px 20px 14px;font-size:13.5px;color:var(--ink-2);max-width:98ch;}
+.pregunta .pc p{margin-top:7px;}
+.pregunta .pc b{color:var(--ink);}
+.opts{border-top:1px solid var(--line);}
+.opt{display:grid;grid-template-columns:22px 1fr;gap:12px;padding:12px 20px;
+  border-bottom:1px solid var(--line-soft);align-items:start;cursor:pointer;
+  transition:background .12s;}
+.opt:hover{background:var(--card-2);}
+.opt.rec{background:var(--ok-soft);}
+.opt.rec:hover{background:var(--ok-soft);}
+.opt input[type=radio]{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;margin:2px 0 0;}
+.opt .ot{font-size:13px;color:var(--ink-2);}
+.opt .ot b{color:var(--ink);}
+.opt .ot .ok-l{font-family:var(--f-mono);color:var(--accent);margin-right:4px;}
+.opt.otra .ot{color:var(--ink-3);}
+.chip.rec{background:var(--ok-soft);color:var(--ok);}
+.chip.empty{background:var(--dead-soft);color:var(--dead);font-weight:400;}
+.chip.warn{background:var(--warn-soft);color:var(--warn);}
+.pregunta .cmt{margin:12px 20px 18px;width:calc(100% - 40px);}
+textarea.cmt{width:100%;font-family:var(--f);font-size:13px;line-height:1.5;color:var(--ink);
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;
+  resize:vertical;display:block;}
+textarea.cmt::placeholder{color:var(--ink-3);}
+textarea.cmt:focus{outline:2px solid var(--cloud);outline-offset:1px;border-color:var(--accent);}
+textarea.cmt.lleno{border-color:var(--accent);}
+.obs{background:var(--card);border:1px dashed var(--line);border-radius:var(--r-lg);padding:15px 19px;}
+.obs .sec-head{padding-top:0;margin-bottom:9px;}
+.obs .sec-head h3{font-size:14.5px;}
+.obs textarea.cmt{background:var(--bg);}
+
+/* pasos numerados («cómo se contesta») */
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:13px;}
+.step{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:16px 18px;box-shadow:var(--sombra-corta);display:flex;gap:12px;align-items:flex-start;}
+.step .sn{font-family:var(--f-mono);font-size:12px;font-weight:700;color:var(--cloud);background:var(--codigo);
+  border-radius:var(--r-sm);padding:3px 7px;flex:0 0 auto;}
+.step .sa{display:block;font-size:13.5px;font-weight:700;}
+.step .sm{display:block;font-size:12.5px;color:var(--ink-2);margin-top:3px;}
+.step .sw{display:inline-block;margin-top:8px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--accent);}
+
+/* panel «vuestras respuestas» */
+.btnrow{display:flex;flex-wrap:wrap;gap:9px;}
+.btn{font:700 13px/1 var(--f);padding:10px 16px;border-radius:var(--r-md);cursor:pointer;
+  border:1px solid var(--line);background:var(--card);color:var(--ink);transition:background .12s,color .12s;}
+.btn:hover{background:var(--card-2);}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--interfaz);}
+.btn.primary:hover{background:var(--flujo);}
+.btn.ghost{background:none;color:var(--ink-3);}
+.btn.hecho{background:var(--ok);border-color:var(--ok);color:var(--interfaz);}
+textarea.out{width:100%;font-family:var(--f-mono);font-size:12px;line-height:1.5;color:var(--ink);
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px;
+  resize:vertical;display:block;min-height:280px;}
+textarea.out:focus{outline:2px solid var(--cloud);outline-offset:1px;}
+@media print{ .opts,.cmt,.obs,.btnrow,textarea.out{display:none !important;} }
+
 /* ---------- modo embebido (?embed=1) ----------
    Dentro de CRM Studio el rail del documento sobra: ya hay uno. Se oculta y sus
    secciones pasan a una barra de pestañas horizontal encima del contenido. Un
@@ -298,7 +361,7 @@ pre code{background:none;color:inherit;padding:0;}
       </div>
     </div>
     <div class="estado"><span class="pulso"></span> Acompañamiento hasta el 21/10/2026</div>
-    <nav class="nav" role="tablist" aria-label="Secciones"><span class="grupo">Dónde estamos</span><button role="tab" id="t-estado" aria-controls="p-estado" aria-selected="true"><span class="n">01</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span class="txt">El estado real</span></button><span class="grupo">Bloqueantes</span><button role="tab" id="t-bloquea" aria-controls="p-bloquea" aria-selected="false"><span class="n">02</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><span class="txt">Lo que nos para</span></button><span class="grupo">Aplicar</span><button role="tab" id="t-correo" aria-controls="p-correo" aria-selected="false"><span class="n">03</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg><span class="txt">La gestión del correo</span></button><button role="tab" id="t-recorrido" aria-controls="p-recorrido" aria-selected="false"><span class="n">04</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg><span class="txt">El recorrido</span></button><button role="tab" id="t-producto" aria-controls="p-producto" aria-selected="false"><span class="n">05</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg><span class="txt">Producto y tarifas</span></button><button role="tab" id="t-crm" aria-controls="p-crm" aria-selected="false"><span class="n">06</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg><span class="txt">El volcado al CRM</span></button><button role="tab" id="t-usuarios" aria-controls="p-usuarios" aria-selected="false"><span class="n">07</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg><span class="txt">Usuarios y permisos</span></button><span class="grupo">Vuestro turno</span><button role="tab" id="t-decisiones" aria-controls="p-decisiones" aria-selected="false"><span class="n">08</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg><span class="txt">Decisiones</span></button><button role="tab" id="t-proximos" aria-controls="p-proximos" aria-selected="false"><span class="n">09</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 14v2.2l1.6 1"/><path d="M16 2v3"/><path d="M21 7.338V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h2.338"/><path d="M3 9h5.859"/><path d="M8 2v3"/><circle cx="16" cy="16" r="6"/></svg><span class="txt">Próximos pasos</span></button></nav>
+    <nav class="nav" role="tablist" aria-label="Secciones"><span class="grupo">Dónde estamos</span><button role="tab" id="t-estado" aria-controls="p-estado" aria-selected="true"><span class="n">01</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span class="txt">El estado real</span></button><span class="grupo">Bloqueantes</span><button role="tab" id="t-bloquea" aria-controls="p-bloquea" aria-selected="false"><span class="n">02</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><span class="txt">Lo que nos para</span></button><span class="grupo">Aplicar</span><button role="tab" id="t-correo" aria-controls="p-correo" aria-selected="false"><span class="n">03</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg><span class="txt">La gestión del correo</span></button><button role="tab" id="t-recorrido" aria-controls="p-recorrido" aria-selected="false"><span class="n">04</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg><span class="txt">El recorrido</span></button><button role="tab" id="t-producto" aria-controls="p-producto" aria-selected="false"><span class="n">05</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg><span class="txt">Producto y tarifas</span></button><button role="tab" id="t-crm" aria-controls="p-crm" aria-selected="false"><span class="n">06</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg><span class="txt">El volcado al CRM</span></button><button role="tab" id="t-usuarios" aria-controls="p-usuarios" aria-selected="false"><span class="n">07</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg><span class="txt">Usuarios y permisos</span></button><span class="grupo">Hay que decidir</span><button role="tab" id="t-preguntas" aria-controls="p-preguntas" aria-selected="false"><span class="n">08</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg><span class="txt">Las siete preguntas</span></button><button role="tab" id="t-respuestas" aria-controls="p-respuestas" aria-selected="false"><span class="n">09</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg><span class="txt">Tus respuestas</span></button><span class="grupo">Vuestro turno</span><button role="tab" id="t-decisiones" aria-controls="p-decisiones" aria-selected="false"><span class="n">10</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg><span class="txt">Decisiones</span></button><button role="tab" id="t-proximos" aria-controls="p-proximos" aria-selected="false"><span class="n">11</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 14v2.2l1.6 1"/><path d="M16 2v3"/><path d="M21 7.338V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h2.338"/><path d="M3 9h5.859"/><path d="M8 2v3"/><circle cx="16" cy="16" r="6"/></svg><span class="txt">Próximos pasos</span></button></nav>
     <div class="rail-pie">
       <div class="prog">
         <span class="pk">tareas hechas</span>
@@ -354,6 +417,10 @@ pre code{background:none;color:inherit;padding:0;}
 <tr><td class="strong">El borrado se lleva la oportunidad del CRM, verificado contra Zoho</td><td>Oravia</td><td><span class="chip def">En el servidor</span></td></tr>
 </tbody></table></div></div>
   <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>El reloj</span><p>El acompañamiento propuesto el 17/09 va del <b>21 de septiembre al 21 de octubre</b>. Queda menos de un mes, y es el periodo en el que ellos usan la app en su operativa real y nos cuentan lo que aparece.</p></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-estado" data-lbl="El estado real" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «El estado real»…"></textarea>
+</div>
 </div>
 
 <div class="panel" id="p-bloquea" role="tabpanel" aria-labelledby="t-bloquea" hidden>
@@ -368,6 +435,10 @@ pre code{background:none;color:inherit;padding:0;}
 <tr><td class="tick"><input type="checkbox" id="k-bloq-3"></td><td class="strong">Permiso de Zoho para Productos y Proveedores</td><td>Oravia</td><td>Hoy da <code>OAUTH_SCOPE_MISMATCH</code>. Sin eso el subformulario de servicios no se puede rellenar aunque se programe.</td></tr>
 <tr><td class="tick"><input type="checkbox" id="k-bloq-4"></td><td class="strong">Añadir «Catalán» al campo Idioma</td><td>Oravia</td><td>Configuración → Personalización → Módulos y campos. Está en <b>tres módulos</b>: Oportunidades, Contactos y Cuentas.</td></tr>
 </tbody></table></div></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-bloquea" data-lbl="Lo que nos para" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «Lo que nos para»…"></textarea>
+</div>
 </div>
 
 <div class="panel" id="p-correo" role="tabpanel" aria-labelledby="t-correo" hidden>
@@ -392,6 +463,10 @@ pre code{background:none;color:inherit;padding:0;}
 <tr><td class="tick"><input type="checkbox" id="k-correo-2"></td><td class="strong">Escribir al contacto desde la propuesta</td><td>«Que ponga enviar email al contacto de la oportunidad». La respuesta en la reunión fue: «ese es el objetivo».</td></tr>
 <tr><td class="tick"><input type="checkbox" id="k-correo-3"></td><td class="strong">Avisar de que hay respuesta</td><td>El motor de notificaciones está puesto en la app pero sin conectar. Es lo que convierte la bandeja en algo que no hay que ir a mirar.</td></tr>
 </tbody></table></div></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-correo" data-lbl="La gestión del correo" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «La gestión del correo»…"></textarea>
+</div>
 </div>
 
 <div class="panel" id="p-recorrido" role="tabpanel" aria-labelledby="t-recorrido" hidden>
@@ -423,6 +498,10 @@ pre code{background:none;color:inherit;padding:0;}
 <tr><td class="tick"><input type="checkbox" id="k-p3-1"></td><td class="strong">Probar el borrado contra una oportunidad real del CRM</td><td><span class="chip def">Hecho el 25/09</span></td></tr>
 <tr><td class="tick"><input type="checkbox" id="k-p3-2"></td><td class="strong">Borrar los tratos de prueba que quedan sueltos en su CRM</td><td>Neointec</td></tr>
 </tbody></table></div></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-recorrido" data-lbl="El recorrido" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «El recorrido»…"></textarea>
+</div>
 </div>
 
 <div class="panel" id="p-producto" role="tabpanel" aria-labelledby="t-producto" hidden>
@@ -436,6 +515,10 @@ pre code{background:none;color:inherit;padding:0;}
 <tr><td class="tick"><input type="checkbox" id="k-prod-1"></td><td class="strong">«Tarifas Fútbol Salou 2027» pone «pendiente de revisar»: ¿a qué se refiere?</td><td><span class="chip crit">Pendiente</span></td></tr>
 <tr><td class="tick"><input type="checkbox" id="k-prod-2"></td><td class="strong">Borrar el alojamiento de prueba <code>ESTIDIANTES 4R27 3E</code></td><td><span class="chip blue">Lo hacen ellos</span></td></tr>
 </tbody></table></div></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-producto" data-lbl="Producto y tarifas" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «Producto y tarifas»…"></textarea>
+</div>
 </div>
 
 <div class="panel" id="p-crm" role="tabpanel" aria-labelledby="t-crm" hidden>
@@ -452,6 +535,10 @@ pre code{background:none;color:inherit;padding:0;}
 <tr><td class="strong">Opciones de Presupuesto</td><td>El detalle de las tres opciones, que antes iba a la Descripción</td></tr>
 </tbody></table></div></div>
   <div class="nota no"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>La duda de Javier sobre el subformulario, respondida</span><p>«Ya no recuerdo si lo cargará todo cuando se confirme el viaje o no». <b>No se carga nunca.</b></p><p>Servicios Contratados está vacío en las 1.000 oportunidades, en todas las fases: también en los 291 expedientes cerrados y en las 10 ganadas. Hoy no lo rellena nadie, ni la app ni una persona.</p><p>Para que lo rellene la app hacen falta dos cosas: el permiso de Zoho sobre Productos y Proveedores, y resolver los productos de dos líneas —Cambrils Park y MARSOPA— porque son justo el caso que el subformulario tiene que reflejar.</p></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-crm" data-lbl="El volcado al CRM" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «El volcado al CRM»…"></textarea>
+</div>
 </div>
 
 <div class="panel" id="p-usuarios" role="tabpanel" aria-labelledby="t-usuarios" hidden>
@@ -465,6 +552,68 @@ pre code{background:none;color:inherit;padding:0;}
 <tr><td class="tick"><input type="checkbox" id="k-usu-3"></td><td class="strong"><code>rgarcia</code></td><td>Administrador de Sports</td></tr>
 </tbody></table></div></div>
   <div class="nota no"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>El administrador todavía se llama como la empresa antigua</span><p>Ruth lo pidió el 27 de agosto: «las credenciales de <code>admin@viajesvelero.com</code> deberían modificarse a algún dominio de <code>@oraviatravel.com</code>». Un mes después sigue igual.</p><p>Y el 21/09 Javier pasó <b>los diez usuarios reales</b>, todos ya en <code>@oraviatravel.com</code>. Hay que darlos de alta con su departamento para que la regla de visibilidad haga algo.</p></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-usuarios" data-lbl="Usuarios y permisos" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «Usuarios y permisos»…"></textarea>
+</div>
+</div>
+
+<div class="panel" id="p-preguntas" role="tabpanel" aria-labelledby="t-preguntas" hidden>
+  <div class="panel-head"><h2>Lo que necesito de ti para seguir</h2><p>Siete puntos. Cada uno dice de dónde sale —correo, reunión o comprobación— qué pasa si se resuelve y qué pasa si no. Marca la opción y, si hace falta, escribe debajo. Al final, en «Tus respuestas», lo copias y me lo pegas.</p></div>
+  <div class="tw"><div class="scroll"><table>
+<thead><tr><th>Nº</th><th>Pregunta</th><th>Urgencia</th><th>Vuestra respuesta</th></tr></thead>
+<tbody>
+<tr><td><span class="mono">1</span></td><td><a href="#q1" data-goto="q1">A1 · El registro A del subdominio apunta a una IP que no es</a></td><td><span class="chip no">bloquea</span></td><td><span id="ix-q1"><span class="chip empty">pendiente</span></span></td></tr>
+<tr><td><span class="mono">2</span></td><td><a href="#q2" data-goto="q2">A2 · Dices que los dos buzones se usan, pero están vacíos</a></td><td><span class="chip no">bloquea</span></td><td><span id="ix-q2"><span class="chip empty">pendiente</span></span></td></tr>
+<tr><td><span class="mono">5</span></td><td><a href="#q5" data-goto="q5">A5 · Las cuatro decisiones de negocio, una por una</a></td><td><span class="chip no">bloquea</span></td><td><span id="ix-q5"><span class="chip empty">pendiente</span></span></td></tr>
+<tr><td><span class="mono">7</span></td><td><a href="#q7" data-goto="q7">A7 · El servidor no tiene copias de seguridad, y el hosting nos espera</a></td><td><span class="chip no">bloquea</span></td><td><span id="ix-q7"><span class="chip empty">pendiente</span></span></td></tr>
+<tr><td><span class="mono">3</span></td><td><a href="#q3" data-goto="q3">A3 · Tienes razón: no hace falta el módulo de Productos</a></td><td><span class="chip">puede esperar</span></td><td><span id="ix-q3"><span class="chip empty">pendiente</span></span></td></tr>
+<tr><td><span class="mono">4</span></td><td><a href="#q4" data-goto="q4">A4 · Dónde se añade «Catalán», paso a paso</a></td><td><span class="chip">puede esperar</span></td><td><span id="ix-q4"><span class="chip empty">pendiente</span></span></td></tr>
+<tr><td><span class="mono">6</span></td><td><a href="#q6" data-goto="q6">A6 · Dos preguntas de Ruth que llevan diez días sin contestar</a></td><td><span class="chip">puede esperar</span></td><td><span id="ix-q6"><span class="chip empty">pendiente</span></span></td></tr>
+</tbody></table></div></div>
+  <section class="pregunta" id="q1">
+  <div class="ph"><span class="pn">1</span><h3>A1 · El registro A del subdominio apunta a una IP que no es</h3><span class="chip no">bloquea</span></div>
+  <div class="pc"><p><b>De dónde sale:</b> Javier, 18/09: «Subdominio: presupuesto.oraviatravel.com. Registro tipo A apuntando a la IP 192.20.235.4».</p><p><b>El problema:</b> el servidor es <code>195</code>.20.235.4. Es un dígito, y con él mal el subdominio no lleva a ninguna parte.</p><p><b>Qué desbloquea:</b> sin DNS correcto no se puede sacar el certificado, así que la app sigue respondiendo por IP y sin cifrar. Hoy el token de sesión viaja en claro y <b>los enlaces que reciben los colegios llevan la IP dentro</b>: el día que cambiemos al dominio, los enlaces ya enviados dejarán de funcionar. Por eso conviene antes de mandar propuestas de verdad.</p><p><b>El correo ya está redactado</b> en <code>correo-dns-javier.md</code>.</p></div>
+  <div class="opts"><label class="opt rec"><input type="radio" name="q1" value="A" data-lbl="Se lo pido a Javier con el correo que está redactado."><div class="ot"><span class="ok-l">A</span><b>Se lo pido a Javier</b> con el correo que está redactado. <span class="chip rec">nuestra recomendación</span></div></label><label class="opt"><input type="radio" name="q1" value="B" data-lbl="Ya se lo he pedido y estoy esperando respuesta."><div class="ot"><span class="ok-l">B</span><b>Ya se lo he pedido</b> y estoy esperando respuesta.</div></label><label class="opt"><input type="radio" name="q1" value="C" data-lbl="Ya está corregido. Adelante con el certificado."><div class="ot"><span class="ok-l">C</span><b>Ya está corregido.</b> Adelante con el certificado.</div></label><label class="opt otra"><input type="radio" name="q1" value="—" data-lbl="Ninguna de las anteriores"><div class="ot"><b>Ninguna de estas.</b> Lo explicamos aquí debajo.</div></label></div>
+  <textarea class="cmt" id="cmt-q1" data-lbl="Pregunta 1" rows="2" placeholder="Matices, condiciones, o vuestra propia respuesta…"></textarea>
+</section>
+  <section class="pregunta" id="q2">
+  <div class="ph"><span class="pn">2</span><h3>A2 · Dices que los dos buzones se usan, pero están vacíos</h3><span class="chip no">bloquea</span></div>
+  <div class="pc"><p><b>Tu respuesta:</b> «se usan los dos, si no me equivoco así lo pidió Javier». Y es verdad: Javier los pidió como usuarios de la plataforma el 15/07.</p><p><b>Lo que no cuadra:</b> entré por IMAP a <code>groups@oraviatravel.com</code> y a <code>sports@oraviatravel.com</code> y los dos INBOX tienen <b>0 mensajes</b>. Si el equipo escribiera a los colegios desde ahí, habría cientos.</p><p><b>Tres explicaciones posibles:</b> que sean buzones nuevos estrenados en agosto y la correspondencia siga en los de <code>viajesvelero.com</code>; que el equipo trabaje desde otra carpeta y el INBOX quede vacío al archivar; o que cada gestor escriba desde su propia dirección y groups@ solo sirva para entrar en Zoho.</p><p><b>Qué desbloquea:</b> toda la bandeja de entrada. La app tiene que saber <b>dónde</b> mirar: si mira el INBOX y el correo está en otra carpeta, no verá nada y parecerá que está rota.</p></div>
+  <div class="opts"><label class="opt"><input type="radio" name="q2" value="A" data-lbl="Son nuevos y la correspondencia viva sigue en los buzones antiguos de viajesvelero.com."><div class="ot"><span class="ok-l">A</span><b>Son nuevos</b> y la correspondencia viva sigue en los buzones antiguos de viajesvelero.com.</div></label><label class="opt"><input type="radio" name="q2" value="B" data-lbl="Se usan, pero se archiva: el correo entra y se mueve a carpetas. Hay que mirar ahí, no en el INBOX."><div class="ot"><span class="ok-l">B</span><b>Se usan, pero se archiva:</b> el correo entra y se mueve a carpetas. Hay que mirar ahí, no en el INBOX.</div></label><label class="opt"><input type="radio" name="q2" value="C" data-lbl="Cada gestor escribe desde su dirección personal y groups@ es solo el usuario de Zoho."><div class="ot"><span class="ok-l">C</span><b>Cada gestor escribe desde su dirección personal</b> y groups@ es solo el usuario de Zoho.</div></label><label class="opt rec"><input type="radio" name="q2" value="D" data-lbl="Lo pregunto a Javier y te digo."><div class="ot"><span class="ok-l">D</span><b>Lo pregunto a Javier</b> y te digo. <span class="chip rec">nuestra recomendación</span></div></label><label class="opt otra"><input type="radio" name="q2" value="—" data-lbl="Ninguna de las anteriores"><div class="ot"><b>Ninguna de estas.</b> Lo explicamos aquí debajo.</div></label></div>
+  <textarea class="cmt" id="cmt-q2" data-lbl="Pregunta 2" rows="2" placeholder="Matices, condiciones, o vuestra propia respuesta…"></textarea>
+</section>
+  <section class="pregunta" id="q3">
+  <div class="ph"><span class="pn">3</span><h3>A3 · Tienes razón: no hace falta el módulo de Productos</h3><span class="chip">puede esperar</span></div>
+  <div class="pc"><p><b>Tu pregunta:</b> «El tema de productos no sería necesario, ya que nosotros lo gestionamos en nuestra base de datos de tarifas. ¿es así?»</p><p><b>Lo he comprobado y sí.</b> El subformulario «Servicios Contratados» de su CRM tiene veinte campos y solo uno es obligatorio: <code>Parent_Id</code>, que es el enlace al propio trato. <b>Servicio y Proveedor son opcionales.</b></p><p><b>Qué significa:</b> podemos rellenar el subformulario entero —cantidad, viajeros, precio de venta, coste, fechas de entrada y salida, régimen— sin tocar los módulos Productos ni Proveedores. Y eso es lo que alimenta sus fórmulas de margen: «Coste por viajero», «PVP por viajero», «Total Servicios Contratados».</p><p><b>Lo único que se pierde:</b> el enlace al catálogo de Productos de Zoho. Si algún día quieren un informe «cuánto hemos vendido de PortAventura», sin ese enlace habría que sacarlo del nombre en texto, no de un campo.</p><p><b>Y desaparece un bloqueante:</b> ya no haría falta pedirles que vuelvan a autorizar Zoho.</p></div>
+  <div class="opts"><label class="opt rec"><input type="radio" name="q3" value="A" data-lbl="Sin enlazar a Productos. El nombre del servicio y el proveedor van como texto. Se quita el bloqueante y se puede empezar ya."><div class="ot"><span class="ok-l">A</span><b>Sin enlazar a Productos.</b> El nombre del servicio y el proveedor van como texto. Se quita el bloqueante y se puede empezar ya. <span class="chip rec">nuestra recomendación</span></div></label><label class="opt"><input type="radio" name="q3" value="B" data-lbl="Enlazando a Productos. Hay que pedirles el permiso de Zoho y que confirmen que su catálogo de Productos tiene los hoteles y actividades con los que casar los nuestros."><div class="ot"><span class="ok-l">B</span><b>Enlazando a Productos.</b> Hay que pedirles el permiso de Zoho y que confirmen que su catálogo de Productos tiene los hoteles y actividades con los que casar los nuestros.</div></label><label class="opt otra"><input type="radio" name="q3" value="—" data-lbl="Ninguna de las anteriores"><div class="ot"><b>Ninguna de estas.</b> Lo explicamos aquí debajo.</div></label></div>
+  <textarea class="cmt" id="cmt-q3" data-lbl="Pregunta 3" rows="2" placeholder="Matices, condiciones, o vuestra propia respuesta…"></textarea>
+</section>
+  <section class="pregunta" id="q4">
+  <div class="ph"><span class="pn">4</span><h3>A4 · Dónde se añade «Catalán», paso a paso</h3><span class="chip">puede esperar</span></div>
+  <div class="pc"><p><b>Tu petición:</b> «dime dónde lo añado y lo hago yo».</p><p><b>El camino:</b> Zoho CRM → <b>Configuración</b> (la rueda dentada, arriba a la derecha) → <b>Personalización</b> → <b>Módulos y campos</b> → eliges el módulo → pestaña <b>Campos</b> → buscas <b>«Idioma»</b> → los tres puntos a su derecha → <b>Editar propiedades</b> → <b>+ Añadir opción</b> → escribes <code>Catalán</code> → Guardar.</p><p><b>Ojo, son TRES campos distintos con el mismo nombre.</b> Hay que repetirlo en <b>Oportunidades</b>, <b>Contactos</b> y <b>Cuentas</b>. Lo comprobé: cada módulo tiene su propio campo «Idioma» personalizado, y los tres tienen hoy las mismas tres opciones: Español, Francés e Inglés.</p><p><b>Escríbelo exactamente <code>Catalán</code></b>, con tilde y mayúscula inicial, como los otros tres. La app manda el valor tal cual y Zoho rechaza lo que no coincide.</p><p><b>Qué desbloquea:</b> hoy un viaje que llega en catalán se queda <b>sin idioma</b> en el CRM, porque prefiero dejar el campo vacío a inventar un valor que Zoho no reconoce.</p></div>
+  <div class="opts"><label class="opt rec"><input type="radio" name="q4" value="A" data-lbl="Lo hago yo en los tres módulos."><div class="ot"><span class="ok-l">A</span><b>Lo hago yo</b> en los tres módulos. <span class="chip rec">nuestra recomendación</span></div></label><label class="opt"><input type="radio" name="q4" value="B" data-lbl="Se lo pido a Oravia, que es su CRM y prefiero que lo toquen ellos."><div class="ot"><span class="ok-l">B</span><b>Se lo pido a Oravia</b>, que es su CRM y prefiero que lo toquen ellos.</div></label><label class="opt"><input type="radio" name="q4" value="C" data-lbl="Ya está hecho."><div class="ot"><span class="ok-l">C</span><b>Ya está hecho.</b></div></label><label class="opt otra"><input type="radio" name="q4" value="—" data-lbl="Ninguna de las anteriores"><div class="ot"><b>Ninguna de estas.</b> Lo explicamos aquí debajo.</div></label></div>
+  <textarea class="cmt" id="cmt-q4" data-lbl="Pregunta 4" rows="2" placeholder="Matices, condiciones, o vuestra propia respuesta…"></textarea>
+</section>
+  <section class="pregunta" id="q5">
+  <div class="ph"><span class="pn">5</span><h3>A5 · Las cuatro decisiones de negocio, una por una</h3><span class="chip no">bloquea</span></div>
+  <div class="pc"><p><b>Tu respuesta fue «no lo entiendo»,</b> y con razón: te las puse como una línea. Van desarrolladas.</p><p><b>1 · El tipo de pago.</b> Su CRM tiene un campo «Tipo de pago» con dos valores, Crédito y Prepago, relleno en el 90% de sus 1.000 tratos. Hoy no lo rellenamos: cuando la app crea la oportunidad —al enviar la propuesta— el colegio todavía no ha elegido opción ni se ha pactado nada, así que sería adivinar. <b>Mi propuesta: preguntarlo cuando el colegio acepta</b>, que es cuando arranca el depósito. Ver la pestaña «Decisiones».</p><p><b>2 · La forma de cobro.</b> Hoy escribimos siempre «Deposito 30%», que es el acuerdo de junio y lo que llevan 735 de sus tratos. Pero su lista mezcla porcentajes con medios de pago —Transferencia, TPV, Efectivo, Pay Gold—, así que puede que no sea un valor fijo. <b>¿Es siempre 30%, o se pacta con cada colegio?</b></p><p><b>3 · Qué es un «cliente especial».</b> Javier, 14/08, sobre PortAventura: «Cliente genérico PVP − 14%, Cliente especial PVP − 17%. El coste para ambas es PVP − 20%». La app solo conoce dos tipos: genérico y turoperador suizo. <b>Ese «especial» no existe en la app</b>, y hasta saber qué es no se puede cotizar PortAventura bien. ¿Es el turoperador suizo con otro nombre, o un tercer tipo?</p><p><b>Qué desbloquea:</b> la 1 y la 2, que la oportunidad nazca completa. La 3, poder cotizar PortAventura con el precio correcto.</p></div>
+  <div class="opts"><label class="opt"><input type="radio" name="q5" value="A" data-lbl="Las contesto yo, que me sé el acuerdo comercial."><div class="ot"><span class="ok-l">A</span><b>Las contesto yo</b>, que me sé el acuerdo comercial.</div></label><label class="opt"><input type="radio" name="q5" value="B" data-lbl="Se las pregunto a Javier y a Ruth y te traigo la respuesta."><div class="ot"><span class="ok-l">B</span><b>Se las pregunto a Javier y a Ruth</b> y te traigo la respuesta.</div></label><label class="opt rec"><input type="radio" name="q5" value="C" data-lbl="Mezcla: algunas las sé y otras hay que preguntarlas. Lo detallo abajo."><div class="ot"><span class="ok-l">C</span><b>Mezcla:</b> algunas las sé y otras hay que preguntarlas. Lo detallo abajo. <span class="chip rec">nuestra recomendación</span></div></label><label class="opt otra"><input type="radio" name="q5" value="—" data-lbl="Ninguna de las anteriores"><div class="ot"><b>Ninguna de estas.</b> Lo explicamos aquí debajo.</div></label></div>
+  <textarea class="cmt" id="cmt-q5" data-lbl="Pregunta 5" rows="2" placeholder="Matices, condiciones, o vuestra propia respuesta…"></textarea>
+</section>
+  <section class="pregunta" id="q6">
+  <div class="ph"><span class="pn">6</span><h3>A6 · Dos preguntas de Ruth que llevan diez días sin contestar</h3><span class="chip">puede esperar</span></div>
+  <div class="pc"><p><b>Tu respuesta fue «a qué te refieres».</b> Son dos preguntas que Ruth te hizo por correo el 15 de septiembre y que se quedaron sin responder cuando la conversación se fue a la formación del 21.</p><p><b>La primera, sobre las tarifas 4R:</b> «Respecto a las tarifas, ¿habéis incluido todo el documento o dejasteis fuera 4R como os indiqué, porque lo veo en la lista? Está indicado como Coste +8% pero vosotros lo habéis nombrado como Venta (cualquier cliente). ¿Cuál es la diferencia? Y por otro lado, ¿elimino el que yo cargué entonces?»</p><p><b>La segunda, sobre Fútbol Salou:</b> «Tarifas Futbol Salou 2027 pone: <i>pendiente de revisar</i>, ¿a qué se refiere?»</p><p><b>Por qué importan:</b> las dos son sobre <b>qué tarifas están cargadas y cuáles sobran</b>. Mientras no se aclare, el catálogo tiene filas duplicadas o dudosas y quien cotiza no sabe cuál coger. Y Ruth preguntó si borra la suya: si la borra y era la buena, se pierde.</p></div>
+  <div class="opts"><label class="opt"><input type="radio" name="q6" value="A" data-lbl="Las contesto yo, que sé qué se cargó y qué no."><div class="ot"><span class="ok-l">A</span><b>Las contesto yo</b>, que sé qué se cargó y qué no.</div></label><label class="opt rec"><input type="radio" name="q6" value="B" data-lbl="Las miramos juntos contra el catálogo antes de contestar."><div class="ot"><span class="ok-l">B</span><b>Las miramos juntos</b> contra el catálogo antes de contestar. <span class="chip rec">nuestra recomendación</span></div></label><label class="opt"><input type="radio" name="q6" value="C" data-lbl="Ya están contestadas por otra vía."><div class="ot"><span class="ok-l">C</span><b>Ya están contestadas</b> por otra vía.</div></label><label class="opt otra"><input type="radio" name="q6" value="—" data-lbl="Ninguna de las anteriores"><div class="ot"><b>Ninguna de estas.</b> Lo explicamos aquí debajo.</div></label></div>
+  <textarea class="cmt" id="cmt-q6" data-lbl="Pregunta 6" rows="2" placeholder="Matices, condiciones, o vuestra propia respuesta…"></textarea>
+</section>
+  <section class="pregunta" id="q7">
+  <div class="ph"><span class="pn">7</span><h3>A7 · El servidor no tiene copias de seguridad, y el hosting nos espera</h3><span class="chip no">bloquea</span></div>
+  <div class="pc"><p><b>Tu respuesta fue «tampoco entiendo».</b> Sale de un correo que reenvió Javier el 22/09 con lo que le dijeron sus técnicos.</p><p><b>Lo que dijeron, literal:</b> «Neointec se ha encargado de instalar su aplicación y todo lo necesario para que funcione, nosotros desconocemos qué tareas se han realizado en el servidor por lo que <b>ha de ser Neointec quien complete su instalación, certificados y servicios web</b>. Neointec dispone de usuario con privilegios de administrador. <b>Una vez terminen, que nos avisen para configurar y poner en marcha las copias de seguridad.</b>»</p><p><b>Qué significa:</b> dos cosas que yo tenía apuntadas como suyas son nuestras. El certificado SSL lo sacamos nosotros —es A1 más un comando—. Y las copias de seguridad las montan ellos, <b>pero están esperando a que les digamos que hemos terminado</b>.</p><p><b>El riesgo:</b> hoy el servidor lleva la base de datos con las tarifas, los clientes y las propuestas, y <b>no hay ninguna copia</b>. Si se pierde el disco, se pierde todo el trabajo de carga del catálogo.</p><p><b>Qué hay que hacer:</b> cuando el certificado esté puesto (A1 + el comando), escribir al hosting diciendo que hemos terminado para que activen las copias.</p></div>
+  <div class="opts"><label class="opt"><input type="radio" name="q7" value="A" data-lbl="Escribo yo al hosting cuando me digas que el certificado está."><div class="ot"><span class="ok-l">A</span><b>Escribo yo al hosting</b> cuando me digas que el certificado está.</div></label><label class="opt rec"><input type="radio" name="q7" value="B" data-lbl="Lo escribes tú a Javier para que se lo traslade a sus técnicos."><div class="ot"><span class="ok-l">B</span><b>Lo escribes tú</b> a Javier para que se lo traslade a sus técnicos. <span class="chip rec">nuestra recomendación</span></div></label><label class="opt"><input type="radio" name="q7" value="C" data-lbl="Que lo lleve Cristian, que fue quien habló con ellos."><div class="ot"><span class="ok-l">C</span><b>Que lo lleve Cristian</b>, que fue quien habló con ellos.</div></label><label class="opt otra"><input type="radio" name="q7" value="—" data-lbl="Ninguna de las anteriores"><div class="ot"><b>Ninguna de estas.</b> Lo explicamos aquí debajo.</div></label></div>
+  <textarea class="cmt" id="cmt-q7" data-lbl="Pregunta 7" rows="2" placeholder="Matices, condiciones, o vuestra propia respuesta…"></textarea>
+</section>
+  
 </div>
 
 <div class="panel" id="p-decisiones" role="tabpanel" aria-labelledby="t-decisiones" hidden>
@@ -483,6 +632,10 @@ pre code{background:none;color:inherit;padding:0;}
 <tr><td class="tick"><input type="checkbox" id="k-dec-5"></td><td class="strong">Idiomas por IA con modelo barato</td><td><span class="chip def">Resuelto</span></td></tr>
 <tr><td class="tick"><input type="checkbox" id="k-dec-6"></td><td class="strong">El colegio ve las gratuidades y el precio por alumno</td><td><span class="chip def">Resuelto</span></td></tr>
 </tbody></table></div></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-decisiones" data-lbl="Decisiones" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «Decisiones»…"></textarea>
+</div>
 </div>
 
 <div class="panel" id="p-proximos" role="tabpanel" aria-labelledby="t-proximos" hidden>
@@ -523,6 +676,33 @@ pre code{background:none;color:inherit;padding:0;}
 <tr><td class="tick"><input type="checkbox" id="k-ora-4"></td><td class="strong">Aclarar las tarifas 4R y el «pendiente de revisar» de Fútbol Salou</td><td>A6</td></tr>
 <tr><td class="tick"><input type="checkbox" id="k-ora-5"></td><td class="strong">Borrar el alojamiento de prueba <code>ESTIDIANTES 4R27 3E</code></td><td>Ya dijeron que lo hacen ellos</td></tr>
 </tbody></table></div></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-proximos" data-lbl="Próximos pasos" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «Próximos pasos»…"></textarea>
+</div>
+</div>
+
+<div class="panel" id="p-respuestas" role="tabpanel" aria-labelledby="t-respuestas" hidden>
+  <div class="panel-head"><h2>Copia esto y me lo pegas</h2><p>Lo que marques se guarda solo en este navegador. Cuando lo tengas, pulsa Copiar y me lo mandas por donde quieras.</p></div>
+  <div class="stats">
+  <div class="stat"><span class="v" id="r-q">0</span><span class="k">preguntas contestadas</span><span class="h">de <span id="r-qt">0</span></span></div>
+  <div class="stat"><span class="v" id="r-crit">0</span><span class="k">de las que bloquean</span><span class="h">de <span id="r-critt">0</span> · son las que nos dejan arrancar</span></div>
+  <div class="stat"><span class="v" id="r-cmt">0</span><span class="k">comentarios escritos</span><span class="h">en preguntas y secciones</span></div>
+  <div class="stat"><span class="v" id="r-ck">0</span><span class="k">puntos revisados</span><span class="h">casillas marcadas de <span id="r-ckt">0</span></span></div>
+</div>
+<div class="sec-head"><h3>Mandárnoslo</h3><p class="sec-note">Cualquiera de las dos vale.</p></div>
+<div class="btnrow">
+  <button type="button" class="btn primary" id="b-copy">Copiar todo al portapapeles</button>
+  <button type="button" class="btn" id="b-dl">Descargar como fichero .txt</button>
+  <button type="button" class="btn ghost" id="b-clear">Borrar todo y empezar de cero</button>
+</div>
+<div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>cómo llega hasta nosotros</span><p>Las marcadas como <b>bloquean</b> son las que impiden seguir: A1, A2, A5 y A7.</p><p>Lo que escribas en los cuadros de texto también se copia, así que no hace falta repetirlo en el correo.</p></div>
+<div class="sec-head"><h3>Lo que lleváis contestado</h3></div>
+<div class="tw"><div class="scroll"><table><thead><tr><th>Nº</th><th>Pregunta</th><th>Respuesta</th><th>Vuestro comentario</th></tr></thead>
+<tbody id="r-tabla"></tbody></table></div></div>
+<div class="sec-head"><h3>El texto que se copia</h3><p class="sec-note">Se rehace solo. Podéis retocarlo aquí antes de copiarlo.</p></div>
+<textarea id="r-out" class="out" rows="20" spellcheck="false" data-cab="RESPUESTAS · Consola Oravia · plan de acción" data-firma="Anthony Quinatoa · Neointec"></textarea>
+  
 </div>
     </div>
   </main>
@@ -626,6 +806,138 @@ pre code{background:none;color:inherit;padding:0;}
     if (st[b.id]) b.checked = true;
     b.addEventListener('change', function(){ st[b.id] = b.checked; guarda(); pinta(); });
   });
+
+  // ---------- lo que contesta el cliente ----------
+  var QS = [{"n":1,"crit":true,"t":"A1 · El registro A del subdominio apunta a una IP que no es","ops":[{"k":"A","t":"Se lo pido a Javier con el correo que está redactado."},{"k":"B","t":"Ya se lo he pedido y estoy esperando respuesta."},{"k":"C","t":"Ya está corregido. Adelante con el certificado."}]},{"n":2,"crit":true,"t":"A2 · Dices que los dos buzones se usan, pero están vacíos","ops":[{"k":"A","t":"Son nuevos y la correspondencia viva sigue en los buzones antiguos de viajesvelero.com."},{"k":"B","t":"Se usan, pero se archiva: el correo entra y se mueve a carpetas. Hay que mirar ahí, no en el INBOX."},{"k":"C","t":"Cada gestor escribe desde su dirección personal y groups@ es solo el usuario de Zoho."},{"k":"D","t":"Lo pregunto a Javier y te digo."}]},{"n":3,"crit":false,"t":"A3 · Tienes razón: no hace falta el módulo de Productos","ops":[{"k":"A","t":"Sin enlazar a Productos. El nombre del servicio y el proveedor van como texto. Se quita el bloqueante y se puede empezar ya."},{"k":"B","t":"Enlazando a Productos. Hay que pedirles el permiso de Zoho y que confirmen que su catálogo de Productos tiene los hoteles y actividades con los que casar los nuestros."}]},{"n":4,"crit":false,"t":"A4 · Dónde se añade «Catalán», paso a paso","ops":[{"k":"A","t":"Lo hago yo en los tres módulos."},{"k":"B","t":"Se lo pido a Oravia, que es su CRM y prefiero que lo toquen ellos."},{"k":"C","t":"Ya está hecho."}]},{"n":5,"crit":true,"t":"A5 · Las cuatro decisiones de negocio, una por una","ops":[{"k":"A","t":"Las contesto yo, que me sé el acuerdo comercial."},{"k":"B","t":"Se las pregunto a Javier y a Ruth y te traigo la respuesta."},{"k":"C","t":"Mezcla: algunas las sé y otras hay que preguntarlas. Lo detallo abajo."}]},{"n":6,"crit":false,"t":"A6 · Dos preguntas de Ruth que llevan diez días sin contestar","ops":[{"k":"A","t":"Las contesto yo, que sé qué se cargó y qué no."},{"k":"B","t":"Las miramos juntos contra el catálogo antes de contestar."},{"k":"C","t":"Ya están contestadas por otra vía."}]},{"n":7,"crit":true,"t":"A7 · El servidor no tiene copias de seguridad, y el hosting nos espera","ops":[{"k":"A","t":"Escribo yo al hosting cuando me digas que el certificado está."},{"k":"B","t":"Lo escribes tú a Javier para que se lo traslade a sus técnicos."},{"k":"C","t":"Que lo lleve Cristian, que fue quien habló con ellos."}]}];
+  var radios = Array.prototype.slice.call(document.querySelectorAll('input[type=radio]'));
+  var textos = Array.prototype.slice.call(document.querySelectorAll('textarea.cmt'));
+  radios.forEach(function(r){
+    if (st['rd:' + r.name] === r.value) r.checked = true;
+    r.addEventListener('change', function(){ st['rd:' + r.name] = r.value; guarda(); pinta(); });
+  });
+  textos.forEach(function(t){
+    if (st['tx:' + t.id]) { t.value = st['tx:' + t.id]; t.classList.add('lleno'); }
+    t.addEventListener('input', function(){
+      st['tx:' + t.id] = t.value;
+      t.classList.toggle('lleno', !!t.value.trim());
+      guarda(); pinta();
+    });
+  });
+  document.addEventListener('click', function(e){
+    var a = e.target && e.target.closest ? e.target.closest('a[data-goto]') : null;
+    if (!a) return;
+    e.preventDefault();
+    var el = document.getElementById(a.getAttribute('data-goto'));
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  function opcion(n){
+    var el = document.querySelector('input[name="q' + n + '"]:checked');
+    return el ? { k: el.value, t: el.getAttribute('data-lbl') || '' } : null;
+  }
+  function comentario(id){ return (st['tx:cmt-' + id] || '').trim(); }
+  var out = document.getElementById('r-out');
+  var RAYA = '============================================================';
+  function texto(){
+    var L = [];
+    var hechas = QS.filter(function(q){ return !!opcion(q.n); });
+    var crit = QS.filter(function(q){ return q.crit; });
+    var critH = crit.filter(function(q){ return !!opcion(q.n); });
+    L.push(out ? out.getAttribute('data-cab') : 'RESPUESTAS');
+    L.push('Enviado el ' + new Date().toLocaleString('es-ES'));
+    if (QS.length) L.push(hechas.length + ' de ' + QS.length + ' preguntas contestadas'
+      + (crit.length ? ' · ' + critH.length + ' de ' + crit.length + ' de las que bloquean' : ''));
+    if (QS.length) {
+      L.push(''); L.push(RAYA); L.push('LAS PREGUNTAS'); L.push(RAYA);
+      QS.forEach(function(q){
+        var o = opcion(q.n), c = comentario('q' + q.n);
+        L.push('');
+        L.push(q.n + ' · ' + q.t + (q.crit ? '   [BLOQUEA]' : ''));
+        L.push('   Respuesta: ' + (o ? (o.k === '\u2014' ? 'ninguna de las propuestas' : 'opción ' + o.k + ' — ' + o.t) : 'SIN CONTESTAR'));
+        if (c) L.push('   Comentario: ' + c.replace(/\n/g, '\n               '));
+      });
+    }
+    var obs = textos.filter(function(t){ return t.id.indexOf('cmt-q') !== 0 && (t.value || '').trim(); });
+    L.push(''); L.push(RAYA); L.push('OBSERVACIONES POR SECCIÓN'); L.push(RAYA);
+    if (!obs.length) L.push('(ninguna)');
+    obs.forEach(function(t){
+      L.push('');
+      L.push('· ' + t.getAttribute('data-lbl'));
+      L.push('   ' + t.value.trim().replace(/\n/g, '\n   '));
+    });
+    if (checks.length) {
+      var n = checks.filter(function(b){ return b.checked; }).length;
+      L.push(''); L.push(RAYA); L.push('REVISIÓN DEL DETALLE'); L.push(RAYA);
+      L.push(n + ' de ' + checks.length + ' puntos marcados como revisados y conformes.');
+    }
+    L.push('');
+    L.push('-- ' + (out ? out.getAttribute('data-firma') : 'Neointec') + ' --');
+    return L.join('\n');
+  }
+  function set(id, v){ var e = document.getElementById(id); if (e) e.textContent = v; }
+  function pintaRespuestas(){
+    var hechas = QS.filter(function(q){ return !!opcion(q.n); }).length;
+    var crit = QS.filter(function(q){ return q.crit; });
+    var critH = crit.filter(function(q){ return !!opcion(q.n); }).length;
+    var nck = checks.filter(function(b){ return b.checked; }).length;
+    var ncm = textos.filter(function(t){ return (t.value || '').trim(); }).length;
+    set('r-q', hechas); set('r-qt', QS.length); set('r-crit', critH); set('r-critt', crit.length);
+    set('r-cmt', ncm); set('r-ck', nck); set('r-ckt', checks.length);
+    QS.forEach(function(q){
+      var c = document.getElementById('ix-q' + q.n); if (!c) return;
+      var o = opcion(q.n);
+      c.innerHTML = o ? '<span class="chip rec">' + (o.k === '\u2014' ? 'otra' : o.k) + '</span>'
+                      : '<span class="chip empty">pendiente</span>';
+    });
+    var tabla = document.getElementById('r-tabla');
+    if (tabla) tabla.innerHTML = QS.map(function(q){
+      var o = opcion(q.n), c = comentario('q' + q.n);
+      return '<tr><td class="mono">' + q.n + '</td><td class="strong">' + q.t
+        + (q.crit ? ' <span class="chip no">bloquea</span>' : '') + '</td><td>'
+        + (o ? '<span class="chip rec">' + (o.k === '\u2014' ? 'ninguna' : o.k) + '</span> ' + o.t.replace(/</g, '&lt;')
+             : '<span class="chip empty">sin contestar</span>')
+        + '</td><td>' + (c ? c.replace(/</g, '&lt;') : '<span style="color:var(--ink-3)">—</span>') + '</td></tr>';
+    }).join('');
+    if (out && document.activeElement !== out) out.value = texto();
+  }
+  var pintaBase = pinta;
+  pinta = function(){ pintaBase(); pintaRespuestas(); };
+
+  function flash(b, t){
+    var prev = b.textContent;
+    b.textContent = t; b.classList.add('hecho');
+    setTimeout(function(){ b.textContent = prev; b.classList.remove('hecho'); }, 2200);
+  }
+  var bc = document.getElementById('b-copy');
+  if (bc) bc.addEventListener('click', function(){
+    out.value = out.value || texto();
+    var ok = false;
+    // En file:// no hay navigator.clipboard (no es contexto seguro): execCommand primero.
+    try { out.focus(); out.select(); ok = document.execCommand('copy'); } catch (e) {}
+    if (!ok && navigator.clipboard) {
+      navigator.clipboard.writeText(out.value).then(function(){ flash(bc, '✓ Copiado'); },
+        function(){ flash(bc, 'Copiadlo del cuadro de abajo'); });
+      return;
+    }
+    flash(bc, ok ? '✓ Copiado' : 'Copiadlo del cuadro de abajo');
+  });
+  var bd = document.getElementById('b-dl');
+  if (bd) bd.addEventListener('click', function(){
+    var blob = new Blob([out.value || texto()], { type: 'text/plain;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'respuestas-' + new Date().toISOString().slice(0, 10) + '.txt';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+    flash(bd, '✓ Descargado');
+  });
+  var bx = document.getElementById('b-clear');
+  if (bx) bx.addEventListener('click', function(){
+    if (!confirm('Se borra todo lo marcado y escrito en este documento. ¿Seguimos?')) return;
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    location.reload();
+  });
+
   pinta();
 })();
 </script>

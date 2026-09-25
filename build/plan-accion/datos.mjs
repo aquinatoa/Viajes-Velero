@@ -551,4 +551,170 @@ const PROXIMOS = {
   ],
 }
 
-export const PANELS = [ESTADO, BLOQUEA, CORREO, RECORRIDO, PRODUCTO, CRM, USUARIOS, DECISIONES, PROXIMOS]
+/* ---------------------------------------------------------------- preguntas */
+
+const PREGUNTAS = {
+  id: 'preguntas', icono: 'bombilla', grupo: 'Hay que decidir', label: 'Las siete preguntas',
+  h2: 'Lo que necesito de ti para seguir',
+  lede:
+    'Siete puntos. Cada uno dice de dónde sale —correo, reunión o comprobación— qué pasa si se resuelve y qué pasa si no. Marca la opción y, si hace falta, escribe debajo. Al final, en «Tus respuestas», lo copias y me lo pegas.',
+  obs: false,
+  blocks: [
+    { t: 'indice' },
+
+    {
+      t: 'pregunta', n: 1, crit: true,
+      h: 'A1 · El registro A del subdominio apunta a una IP que no es',
+      cuerpo: [
+        '<b>De dónde sale:</b> Javier, 18/09: «Subdominio: presupuesto.oraviatravel.com. Registro tipo A apuntando a la IP 192.20.235.4».',
+        '<b>El problema:</b> el servidor es <code>195</code>.20.235.4. Es un dígito, y con él mal el subdominio no lleva a ninguna parte.',
+        '<b>Qué desbloquea:</b> sin DNS correcto no se puede sacar el certificado, así que la app sigue respondiendo por IP y sin cifrar. Hoy el token de sesión viaja en claro y <b>los enlaces que reciben los colegios llevan la IP dentro</b>: el día que cambiemos al dominio, los enlaces ya enviados dejarán de funcionar. Por eso conviene antes de mandar propuestas de verdad.',
+        '<b>El correo ya está redactado</b> en <code>correo-dns-javier.md</code>.',
+      ],
+      ops: [
+        '<b>A · Se lo pido a Javier</b> con el correo que está redactado.',
+        '<b>B · Ya se lo he pedido</b> y estoy esperando respuesta.',
+        '<b>C · Ya está corregido.</b> Adelante con el certificado.',
+      ],
+      rec: 'A',
+      comentario: 'Si ya lo pediste, ¿qué día? Para saber cuándo insistir.',
+    },
+
+    {
+      t: 'pregunta', n: 2, crit: true,
+      h: 'A2 · Dices que los dos buzones se usan, pero están vacíos',
+      cuerpo: [
+        '<b>Tu respuesta:</b> «se usan los dos, si no me equivoco así lo pidió Javier». Y es verdad: Javier los pidió como usuarios de la plataforma el 15/07.',
+        '<b>Lo que no cuadra:</b> entré por IMAP a <code>groups@oraviatravel.com</code> y a <code>sports@oraviatravel.com</code> y los dos INBOX tienen <b>0 mensajes</b>. Si el equipo escribiera a los colegios desde ahí, habría cientos.',
+        '<b>Tres explicaciones posibles:</b> que sean buzones nuevos estrenados en agosto y la correspondencia siga en los de <code>viajesvelero.com</code>; que el equipo trabaje desde otra carpeta y el INBOX quede vacío al archivar; o que cada gestor escriba desde su propia dirección y groups@ solo sirva para entrar en Zoho.',
+        '<b>Qué desbloquea:</b> toda la bandeja de entrada. La app tiene que saber <b>dónde</b> mirar: si mira el INBOX y el correo está en otra carpeta, no verá nada y parecerá que está rota.',
+      ],
+      ops: [
+        '<b>A · Son nuevos</b> y la correspondencia viva sigue en los buzones antiguos de viajesvelero.com.',
+        '<b>B · Se usan, pero se archiva:</b> el correo entra y se mueve a carpetas. Hay que mirar ahí, no en el INBOX.',
+        '<b>C · Cada gestor escribe desde su dirección personal</b> y groups@ es solo el usuario de Zoho.',
+        '<b>D · Lo pregunto a Javier</b> y te digo.',
+      ],
+      rec: 'D',
+      comentario: 'Si sabes en qué carpeta cae el correo de los colegios, dímelo aquí: es lo único que necesito.',
+    },
+
+    {
+      t: 'pregunta', n: 3, crit: false,
+      h: 'A3 · Tienes razón: no hace falta el módulo de Productos',
+      cuerpo: [
+        '<b>Tu pregunta:</b> «El tema de productos no sería necesario, ya que nosotros lo gestionamos en nuestra base de datos de tarifas. ¿es así?»',
+        '<b>Lo he comprobado y sí.</b> El subformulario «Servicios Contratados» de su CRM tiene veinte campos y solo uno es obligatorio: <code>Parent_Id</code>, que es el enlace al propio trato. <b>Servicio y Proveedor son opcionales.</b>',
+        '<b>Qué significa:</b> podemos rellenar el subformulario entero —cantidad, viajeros, precio de venta, coste, fechas de entrada y salida, régimen— sin tocar los módulos Productos ni Proveedores. Y eso es lo que alimenta sus fórmulas de margen: «Coste por viajero», «PVP por viajero», «Total Servicios Contratados».',
+        '<b>Lo único que se pierde:</b> el enlace al catálogo de Productos de Zoho. Si algún día quieren un informe «cuánto hemos vendido de PortAventura», sin ese enlace habría que sacarlo del nombre en texto, no de un campo.',
+        '<b>Y desaparece un bloqueante:</b> ya no haría falta pedirles que vuelvan a autorizar Zoho.',
+      ],
+      ops: [
+        '<b>A · Sin enlazar a Productos.</b> El nombre del servicio y el proveedor van como texto. Se quita el bloqueante y se puede empezar ya.',
+        '<b>B · Enlazando a Productos.</b> Hay que pedirles el permiso de Zoho y que confirmen que su catálogo de Productos tiene los hoteles y actividades con los que casar los nuestros.',
+      ],
+      rec: 'A',
+      comentario: '¿Usan los informes por producto de Zoho? Si no los usan, la opción A no les quita nada.',
+    },
+
+    {
+      t: 'pregunta', n: 4, crit: false,
+      h: 'A4 · Dónde se añade «Catalán», paso a paso',
+      cuerpo: [
+        '<b>Tu petición:</b> «dime dónde lo añado y lo hago yo».',
+        '<b>El camino:</b> Zoho CRM → <b>Configuración</b> (la rueda dentada, arriba a la derecha) → <b>Personalización</b> → <b>Módulos y campos</b> → eliges el módulo → pestaña <b>Campos</b> → buscas <b>«Idioma»</b> → los tres puntos a su derecha → <b>Editar propiedades</b> → <b>+ Añadir opción</b> → escribes <code>Catalán</code> → Guardar.',
+        '<b>Ojo, son TRES campos distintos con el mismo nombre.</b> Hay que repetirlo en <b>Oportunidades</b>, <b>Contactos</b> y <b>Cuentas</b>. Lo comprobé: cada módulo tiene su propio campo «Idioma» personalizado, y los tres tienen hoy las mismas tres opciones: Español, Francés e Inglés.',
+        '<b>Escríbelo exactamente <code>Catalán</code></b>, con tilde y mayúscula inicial, como los otros tres. La app manda el valor tal cual y Zoho rechaza lo que no coincide.',
+        '<b>Qué desbloquea:</b> hoy un viaje que llega en catalán se queda <b>sin idioma</b> en el CRM, porque prefiero dejar el campo vacío a inventar un valor que Zoho no reconoce.',
+      ],
+      ops: [
+        '<b>A · Lo hago yo</b> en los tres módulos.',
+        '<b>B · Se lo pido a Oravia</b>, que es su CRM y prefiero que lo toquen ellos.',
+        '<b>C · Ya está hecho.</b>',
+      ],
+      rec: 'A',
+      comentario: 'Si al hacerlo ves que algún módulo ya lo tenía, dímelo.',
+    },
+
+    {
+      t: 'pregunta', n: 5, crit: true,
+      h: 'A5 · Las cuatro decisiones de negocio, una por una',
+      cuerpo: [
+        '<b>Tu respuesta fue «no lo entiendo»,</b> y con razón: te las puse como una línea. Van desarrolladas.',
+        '<b>1 · El tipo de pago.</b> Su CRM tiene un campo «Tipo de pago» con dos valores, Crédito y Prepago, relleno en el 90% de sus 1.000 tratos. Hoy no lo rellenamos: cuando la app crea la oportunidad —al enviar la propuesta— el colegio todavía no ha elegido opción ni se ha pactado nada, así que sería adivinar. <b>Mi propuesta: preguntarlo cuando el colegio acepta</b>, que es cuando arranca el depósito. Ver la pestaña «Decisiones».',
+        '<b>2 · La forma de cobro.</b> Hoy escribimos siempre «Deposito 30%», que es el acuerdo de junio y lo que llevan 735 de sus tratos. Pero su lista mezcla porcentajes con medios de pago —Transferencia, TPV, Efectivo, Pay Gold—, así que puede que no sea un valor fijo. <b>¿Es siempre 30%, o se pacta con cada colegio?</b>',
+        '<b>3 · Qué es un «cliente especial».</b> Javier, 14/08, sobre PortAventura: «Cliente genérico PVP − 14%, Cliente especial PVP − 17%. El coste para ambas es PVP − 20%». La app solo conoce dos tipos: genérico y turoperador suizo. <b>Ese «especial» no existe en la app</b>, y hasta saber qué es no se puede cotizar PortAventura bien. ¿Es el turoperador suizo con otro nombre, o un tercer tipo?',
+        '<b>Qué desbloquea:</b> la 1 y la 2, que la oportunidad nazca completa. La 3, poder cotizar PortAventura con el precio correcto.',
+      ],
+      ops: [
+        '<b>A · Las contesto yo</b>, que me sé el acuerdo comercial.',
+        '<b>B · Se las pregunto a Javier y a Ruth</b> y te traigo la respuesta.',
+        '<b>C · Mezcla:</b> algunas las sé y otras hay que preguntarlas. Lo detallo abajo.',
+      ],
+      rec: 'C',
+      comentario: 'Contesta aquí las que sepas: 1) tipo de pago, ¿al aceptar? · 2) forma de cobro, ¿siempre 30%? · 3) «cliente especial», ¿qué es?',
+    },
+
+    {
+      t: 'pregunta', n: 6, crit: false,
+      h: 'A6 · Dos preguntas de Ruth que llevan diez días sin contestar',
+      cuerpo: [
+        '<b>Tu respuesta fue «a qué te refieres».</b> Son dos preguntas que Ruth te hizo por correo el 15 de septiembre y que se quedaron sin responder cuando la conversación se fue a la formación del 21.',
+        '<b>La primera, sobre las tarifas 4R:</b> «Respecto a las tarifas, ¿habéis incluido todo el documento o dejasteis fuera 4R como os indiqué, porque lo veo en la lista? Está indicado como Coste +8% pero vosotros lo habéis nombrado como Venta (cualquier cliente). ¿Cuál es la diferencia? Y por otro lado, ¿elimino el que yo cargué entonces?»',
+        '<b>La segunda, sobre Fútbol Salou:</b> «Tarifas Futbol Salou 2027 pone: <i>pendiente de revisar</i>, ¿a qué se refiere?»',
+        '<b>Por qué importan:</b> las dos son sobre <b>qué tarifas están cargadas y cuáles sobran</b>. Mientras no se aclare, el catálogo tiene filas duplicadas o dudosas y quien cotiza no sabe cuál coger. Y Ruth preguntó si borra la suya: si la borra y era la buena, se pierde.',
+      ],
+      ops: [
+        '<b>A · Las contesto yo</b>, que sé qué se cargó y qué no.',
+        '<b>B · Las miramos juntos</b> contra el catálogo antes de contestar.',
+        '<b>C · Ya están contestadas</b> por otra vía.',
+      ],
+      rec: 'B',
+      comentario: 'Si te acuerdas de qué se decidió con las 4R, escríbelo aquí y lo compruebo contra el catálogo.',
+    },
+
+    {
+      t: 'pregunta', n: 7, crit: true,
+      h: 'A7 · El servidor no tiene copias de seguridad, y el hosting nos espera',
+      cuerpo: [
+        '<b>Tu respuesta fue «tampoco entiendo».</b> Sale de un correo que reenvió Javier el 22/09 con lo que le dijeron sus técnicos.',
+        '<b>Lo que dijeron, literal:</b> «Neointec se ha encargado de instalar su aplicación y todo lo necesario para que funcione, nosotros desconocemos qué tareas se han realizado en el servidor por lo que <b>ha de ser Neointec quien complete su instalación, certificados y servicios web</b>. Neointec dispone de usuario con privilegios de administrador. <b>Una vez terminen, que nos avisen para configurar y poner en marcha las copias de seguridad.</b>»',
+        '<b>Qué significa:</b> dos cosas que yo tenía apuntadas como suyas son nuestras. El certificado SSL lo sacamos nosotros —es A1 más un comando—. Y las copias de seguridad las montan ellos, <b>pero están esperando a que les digamos que hemos terminado</b>.',
+        '<b>El riesgo:</b> hoy el servidor lleva la base de datos con las tarifas, los clientes y las propuestas, y <b>no hay ninguna copia</b>. Si se pierde el disco, se pierde todo el trabajo de carga del catálogo.',
+        '<b>Qué hay que hacer:</b> cuando el certificado esté puesto (A1 + el comando), escribir al hosting diciendo que hemos terminado para que activen las copias.',
+      ],
+      ops: [
+        '<b>A · Escribo yo al hosting</b> cuando me digas que el certificado está.',
+        '<b>B · Lo escribes tú</b> a Javier para que se lo traslade a sus técnicos.',
+        '<b>C · Que lo lleve Cristian</b>, que fue quien habló con ellos.',
+      ],
+      rec: 'B',
+      comentario: 'Los técnicos del hosting escriben desde granota.net, por si prefieres ir directo.',
+    },
+  ],
+}
+
+/* ---------------------------------------------------------------- respuestas */
+
+const RESPUESTAS = {
+  id: 'respuestas', icono: 'flecha', grupo: 'Hay que decidir', label: 'Tus respuestas',
+  h2: 'Copia esto y me lo pegas',
+  lede:
+    'Lo que marques se guarda solo en este navegador. Cuando lo tengas, pulsa Copiar y me lo mandas por donde quieras.',
+  obs: false,
+  blocks: [
+    {
+      t: 'respuestas',
+      correos: ['aquinatoa@neointec.com'],
+      cabecera: 'RESPUESTAS · Consola Oravia · plan de acción',
+      firma: 'Anthony Quinatoa · Neointec',
+      critK: 'bloquean',
+      nota: [
+        'Las marcadas como <b>bloquean</b> son las que impiden seguir: A1, A2, A5 y A7.',
+        'Lo que escribas en los cuadros de texto también se copia, así que no hace falta repetirlo en el correo.',
+      ],
+    },
+  ],
+}
+
+export const PANELS = [ESTADO, BLOQUEA, CORREO, RECORRIDO, PRODUCTO, CRM, USUARIOS, PREGUNTAS, DECISIONES, PROXIMOS, RESPUESTAS]

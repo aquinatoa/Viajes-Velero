@@ -10,18 +10,22 @@ import { render } from './nd-doc.mjs'
 const here = dirname(fileURLToPath(import.meta.url))
 const SALIDA = join(here, '..', '..', 'PLAN-ACCION-Oravia.html')
 
-const { html, casillas, paneles } = render({
+const { html, casillas, paneles, preguntas, respuestas } = render({
   meta: META,
   panels: PANELS,
   titulo: 'Plan de acción · Consola Oravia',
   claveTab: 'oravia-plan-tab',
   claveEstado: 'oravia-plan',
   progLabel: 'tareas hechas',
+  // Cuadro «¿algo que no cuadre?» al pie de cada panel. Los que no lo quieren
+  // llevan `obs: false` en su definición.
+  observaciones: true,
 })
 
 writeFileSync(SALIDA, html, 'utf8')
 console.log('Escrito:', SALIDA)
-console.log('Paneles:', paneles, '| casillas:', casillas, '| tamaño:', (html.length / 1024).toFixed(0) + ' KB')
+console.log(`Paneles: ${paneles} · casillas: ${casillas} · preguntas: ${preguntas} · respuestas: ${respuestas ? 'sí' : 'NO'} · ${(html.length / 1024).toFixed(0)} KB`)
+if (preguntas && !respuestas) console.warn('AVISO: hay preguntas y ningun bloque de respuestas.')
 
 // Y una copia lista para publicar como artefacto, que se envuelve sola en su
 // propio <html>. Se le quita el armazón y se deja el <title>, las fuentes, el
