@@ -50,22 +50,31 @@ titulo "API"
 # systemd lanza el proceso, no cuando la aplicacion escucha: preguntar en ese
 # hueco da un 502 de nginx y un falso negativo. Si de verdad esta caida, 30 s no
 # la van a resucitar.
+# Se busca "ok":true DENTRO de la respuesta, no la respuesta entera. Comparando
+# literal contra {"ok":true}, el dia que el endpoint empezo a decir tambien que
+# revision sirve, esta comprobacion tumbo dos despliegues que estaban sanos.
+api_viva() {
+  printf '%s' "$1" | grep -q '"ok"[[:space:]]*:[[:space:]]*true'
+}
+
 salud=""
 for intento in $(seq 1 30); do
   salud="$(curl -sS --max-time 10 "$BASE/api/health" 2>/dev/null)"
-  [ "$salud" = '{"ok":true}' ] && break
+  api_viva "$salud" && break
   [ "$intento" -eq 1 ] && printf '  ... esperando a que la API responda'
   printf '.'
   sleep 1
 done
 [ "$intento" -gt 1 ] && echo
 
-if [ "$salud" = '{"ok":true}' ]; then
-  if [ "$intento" -gt 1 ]; then
-    pasa "/api/health responde ok (tras ${intento}s)"
-  else
-    pasa "/api/health responde ok"
-  fi
+if api_viva "$salud"; then
+  # Si la API dice que revision sirve, se enseña: es lo que dice si salio lo que
+  # creias que salia.
+  revision="$(printf '%s' "$salud" | grep -oE '"revision"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)"
+  detalle=""
+  [ -n "$revision" ] && detalle=" · revision ${revision}"
+  [ "$intento" -gt 1 ] && detalle="${detalle} · tras ${intento}s"
+  pasa "/api/health responde ok${detalle}"
 else
   falla "/api/health no responde tras 30s" "recibido: ${salud:-<vacio>}"
 fi
