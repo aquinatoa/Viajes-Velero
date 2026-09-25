@@ -70,6 +70,7 @@ const ESTADO = {
         ['La oportunidad del CRM se rellena por campos', 'Javier, 23/09', SIN_DESPLEGAR],
         ['El servidor dice qué revisión sirve', 'Neointec', SIN_DESPLEGAR],
         ['Envío de correo, probado de punta a punta', 'Acordado en junio', '<span class="chip dec">Probado en local</span>'],
+        ['El borrado se lleva la oportunidad del CRM, verificado contra Zoho', 'Oravia', EN_SERVIDOR],
       ],
     },
     {
@@ -265,8 +266,8 @@ const RECORRIDO = {
       cols: [{ h: 'Qué hay que hacer' }, { h: 'Quién' }],
       rows: [
         ['Generar el PDF en el idioma de la solicitud', 'Neointec'],
-        ['Probar el borrado contra una oportunidad real del CRM', 'Neointec'],
-        ['Borrar los dos tratos de prueba que quedan vivos en su CRM', 'Neointec'],
+        ['Probar el borrado contra una oportunidad real del CRM', '<span class="chip def">Hecho el 25/09</span>'],
+        ['Borrar los tratos de prueba que quedan sueltos en su CRM', 'Neointec'],
       ],
     },
   ],
@@ -505,8 +506,8 @@ const PROXIMOS = {
           'Cada gestor entra con lo suyo y solo ve sus cotizaciones',
         ],
         [
-          '<b>N3</b>&nbsp; Limpiar los dos tratos de prueba del CRM<br><span class="sec-note">Con el botón de borrar nuevo, que de paso queda verificado contra Zoho.</span>',
-          'No quedan oportunidades de prueba, y el borrado se lleva la del CRM',
+          '<b>N3</b>&nbsp; Limpiar los tratos de prueba del CRM<br><span class="sec-note"><b>Hecho el 25/09</b> para los dos que tenían solicitud en la app: se borraron desde el botón nuevo y el trato desapareció del CRM. Quedan <b>dos huérfanos</b> —«Anthony Quinatoa · Salou, mayo de 2027» y «PRUEBA ORAVIA - COTIZADOR»— que no tienen solicitud detrás, así que la app no los alcanza: hay que borrarlos en Zoho.</span>',
+          'No queda ninguna oportunidad de prueba en el embudo',
         ],
         [
           '<b>N4</b>&nbsp; Sacar el certificado y pasar la app a HTTPS<br><span class="sec-note">Cuando A1 esté hecho: <code>sudo certbot --nginx -d presupuesto.oraviatravel.com</code>, después <code>PUBLIC_BASE_URL</code> en el <code>.env</code> y reiniciar.</span>',

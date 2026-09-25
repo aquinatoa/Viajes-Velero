@@ -351,6 +351,7 @@ pre code{background:none;color:inherit;padding:0;}
 <tr><td class="strong">La oportunidad del CRM se rellena por campos</td><td>Javier, 23/09</td><td><span class="chip dec">Hecho, sin subir</span></td></tr>
 <tr><td class="strong">El servidor dice qué revisión sirve</td><td>Neointec</td><td><span class="chip dec">Hecho, sin subir</span></td></tr>
 <tr><td class="strong">Envío de correo, probado de punta a punta</td><td>Acordado en junio</td><td><span class="chip dec">Probado en local</span></td></tr>
+<tr><td class="strong">El borrado se lleva la oportunidad del CRM, verificado contra Zoho</td><td>Oravia</td><td><span class="chip def">En el servidor</span></td></tr>
 </tbody></table></div></div>
   <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>El reloj</span><p>El acompañamiento propuesto el 17/09 va del <b>21 de septiembre al 21 de octubre</b>. Queda menos de un mes, y es el periodo en el que ellos usan la app en su operativa real y nos cuentan lo que aparece.</p></div>
 </div>
@@ -419,8 +420,8 @@ pre code{background:none;color:inherit;padding:0;}
 <thead><tr><th class="tick"></th><th>Qué hay que hacer</th><th>Quién</th></tr></thead>
 <tbody>
 <tr><td class="tick"><input type="checkbox" id="k-p3-0"></td><td class="strong">Generar el PDF en el idioma de la solicitud</td><td>Neointec</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p3-1"></td><td class="strong">Probar el borrado contra una oportunidad real del CRM</td><td>Neointec</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p3-2"></td><td class="strong">Borrar los dos tratos de prueba que quedan vivos en su CRM</td><td>Neointec</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p3-1"></td><td class="strong">Probar el borrado contra una oportunidad real del CRM</td><td><span class="chip def">Hecho el 25/09</span></td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p3-2"></td><td class="strong">Borrar los tratos de prueba que quedan sueltos en su CRM</td><td>Neointec</td></tr>
 </tbody></table></div></div>
 </div>
 
@@ -504,7 +505,7 @@ pre code{background:none;color:inherit;padding:0;}
 <tbody>
 <tr><td class="tick"><input type="checkbox" id="k-neo-0"></td><td class="strong"><b>N1</b>&nbsp; Pasar al servidor las variables de correo y las dos de Zoho<br><span class="sec-note">Las nueve <code>MAIL_*</code> que ya funcionan en local, más <code>ZOHO_DEAL_STAGE="Preparando Presupuesto"</code> y <code>ZOHO_DEAL_OPTIONS_FIELD="Opciones_de_Presupuesto"</code>.</span></td><td>Una propuesta enviada desde el servidor llega, y el trato nace en «Preparando Presupuesto»</td></tr>
 <tr><td class="tick"><input type="checkbox" id="k-neo-1"></td><td class="strong"><b>N2</b>&nbsp; Dar de alta los diez usuarios reales con sus permisos<br><span class="sec-note">Y renombrar el administrador a <code>@oraviatravel.com</code>, que Ruth pidió el 27/08.</span></td><td>Cada gestor entra con lo suyo y solo ve sus cotizaciones</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-neo-2"></td><td class="strong"><b>N3</b>&nbsp; Limpiar los dos tratos de prueba del CRM<br><span class="sec-note">Con el botón de borrar nuevo, que de paso queda verificado contra Zoho.</span></td><td>No quedan oportunidades de prueba, y el borrado se lleva la del CRM</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-neo-2"></td><td class="strong"><b>N3</b>&nbsp; Limpiar los tratos de prueba del CRM<br><span class="sec-note"><b>Hecho el 25/09</b> para los dos que tenían solicitud en la app: se borraron desde el botón nuevo y el trato desapareció del CRM. Quedan <b>dos huérfanos</b> —«Anthony Quinatoa · Salou, mayo de 2027» y «PRUEBA ORAVIA - COTIZADOR»— que no tienen solicitud detrás, así que la app no los alcanza: hay que borrarlos en Zoho.</span></td><td>No queda ninguna oportunidad de prueba en el embudo</td></tr>
 <tr><td class="tick"><input type="checkbox" id="k-neo-3"></td><td class="strong"><b>N4</b>&nbsp; Sacar el certificado y pasar la app a HTTPS<br><span class="sec-note">Cuando A1 esté hecho: <code>sudo certbot --nginx -d presupuesto.oraviatravel.com</code>, después <code>PUBLIC_BASE_URL</code> en el <code>.env</code> y reiniciar.</span></td><td>La app abre por HTTPS y los enlaces de las propuestas llevan el dominio</td></tr>
 <tr><td class="tick"><input type="checkbox" id="k-neo-4"></td><td class="strong"><b>N5</b>&nbsp; Los idiomas: traducir con IA y sacar el PDF en el idioma de la solicitud<br><span class="sec-note">El bloque grande. Incluye traducir las condiciones de hotel que vienen en catalán.</span></td><td>Un correo en catalán saca todos los datos y su presupuesto sale en catalán</td></tr>
 <tr><td class="tick"><input type="checkbox" id="k-neo-5"></td><td class="strong"><b>N6</b>&nbsp; Arreglar la búsqueda por localidad<br><span class="sec-note">Que Cambrils devuelva los de Cambrils, recolocar actividades sin municipio y deduplicar suplementos.</span></td><td>Buscando una localidad salen los que están en ella, y solo esos</td></tr>
