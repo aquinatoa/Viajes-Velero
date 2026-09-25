@@ -303,10 +303,15 @@ export function ProposalDesk({
                     }`}
                     aria-hidden="true"
                   />
-                  <div className="desk__main">
-                    <div className="desk__name">{tripTitleOf(delivery)}</div>
-                    <div className="desk__why">{statusLine(delivery)}</div>
-                  </div>
+                  <button
+                    type="button"
+                    className="desk__main desk__mainbtn"
+                    onClick={() => setConversando(delivery)}
+                    title="Ver la conversación con el colegio"
+                  >
+                    <span className="desk__name">{tripTitleOf(delivery)}</span>
+                    <span className="desk__why">{statusLine(delivery)}</span>
+                  </button>
                   <span className="desk__ref">{delivery.reference}</span>
                   {lane === "accepted" && left !== null ? <AnilloDeposito dias={left} /> : null}
                   {delivery.department ? (

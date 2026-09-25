@@ -10100,3 +10100,31 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
   border-color: var(--highlight);
   box-shadow: 0 0 0 3px var(--highlight-bg, rgba(0, 0, 0, 0.04));
 }
+
+/* El nombre del viaje, pulsable.
+   Antes la fila parecía un elemento de lista y no respondía: se pulsaba encima
+   y no pasaba nada, así que parecía rota. Ahora abre la conversación. */
+.desk__mainbtn {
+  display: block;
+  text-align: left;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.desk__mainbtn .desk__name,
+.desk__mainbtn .desk__why {
+  display: block;
+}
+
+.desk__mainbtn:hover .desk__name {
+  text-decoration: underline;
+}
+
+.desk__mainbtn:focus-visible {
+  outline: 3px solid var(--highlight);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
