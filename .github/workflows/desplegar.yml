@@ -61,12 +61,36 @@ jobs:
         # La clave privada y la huella del servidor van como secrets del
         # repositorio. La huella evita aceptar a ciegas un host desconocido, que
         # es lo que deja la puerta abierta a un intermediario.
+        #
+        # La clave se admite en base64 de una sola linea, que es como conviene
+        # guardarla: pegada en crudo desde un terminal, los saltos se rompen por
+        # donde el terminal doblo el texto, ssh no puede cargarla, se desconecta
+        # sin llegar a ofrecer nada, y el servidor solo registra un cierre
+        # durante la autenticacion. Cinco despliegues murieron asi sin decir por
+        # que. Si el secret no viene en base64, se usa tal cual.
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.SSH_CLAVE_PRIVADA }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+          clave=~/.ssh/id_ed25519
+          printf '%s' "${{ secrets.SSH_CLAVE_PRIVADA }}" | base64 -d > "$clave" 2>/dev/null \
+            || printf '%s\n' "${{ secrets.SSH_CLAVE_PRIVADA }}" > "$clave"
+          chmod 600 "$clave"
+
+          # Una clave rota se detecta aqui, no cinco minutos despues con un 255.
+          if ! ssh-keygen -y -f "$clave" > /dev/null 2>&1; then
+            echo "::error::SSH_CLAVE_PRIVADA no es una clave valida. Regenerala en el servidor con:"
+            echo "::error::  sudo base64 -w0 /home/deploy/.ssh/github_actions"
+            echo "::error::y pega esa unica linea como valor del secret."
+            exit 1
+          fi
+          echo "Clave cargada: $(ssh-keygen -lf "$clave" | awk '{print $2}')"
+
           printf '%s\n' "${{ secrets.SSH_HUELLA_SERVIDOR }}" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
+          if ! grep -q 'ssh-' ~/.ssh/known_hosts; then
+            echo "::error::SSH_HUELLA_SERVIDOR no contiene ninguna clave de host. Regenerala con:"
+            echo "::error::  ssh-keyscan -H <ip-del-servidor> | grep -v '^#'"
+            exit 1
+          fi
 
       - name: Desplegar
         # El script viaja por la tuberia desde ESTE commit, no desde una copia
