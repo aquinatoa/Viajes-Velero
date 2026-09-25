@@ -177,7 +177,7 @@ export function ConfirmRequestsPanel({
     let cartera = 0;
     for (const d of deals) {
       const s = norm(d.stage);
-      const chosen = parseTrip(d.description).chosen;
+      const chosen = parseTrip(d.opcionesTexto || d.description).chosen;
       if (chosen == null && !/ganad|perdid|cerrad|finaliz/.test(s)) porConfirmar += 1;
       if (/enviad/.test(s)) enviado += 1;
       if (/ganad|finaliz/.test(s)) ganadas += 1;
@@ -281,7 +281,7 @@ export function ConfirmRequestsPanel({
                   </p>
                 ) : (
                   filtered.map((d) => {
-                    const trip = parseTrip(d.description);
+                    const trip = parseTrip(d.opcionesTexto || d.description);
                     const tone = stageTone(d.stage);
                     return (
                       <button
@@ -358,7 +358,7 @@ function Kpi({ n, label, dot }: { n: number | string; label: string; dot: "w" | 
 // ─────────────────────────────────────────────────────────────────────────────
 
 function DealDetail({ deal }: { deal: ZohoDealSummary }) {
-  const trip = useMemo(() => parseTrip(deal.description), [deal.description]);
+  const trip = useMemo(() => parseTrip(deal.opcionesTexto || deal.description), [deal.opcionesTexto, deal.description]);
   const [tab, setTab] = useState<"resumen" | "propuesta" | "historial">("resumen");
   const tone = stageTone(deal.stage);
 
@@ -495,7 +495,7 @@ function ActionRail({
   onSaved: (msg: string) => void;
   onError: (msg: string) => void;
 }) {
-  const trip = useMemo(() => parseTrip(deal.description), [deal.description]);
+  const trip = useMemo(() => parseTrip(deal.opcionesTexto || deal.description), [deal.opcionesTexto, deal.description]);
   const [chosenOption, setChosenOption] = useState<number | null>(trip.chosen);
   const [stage, setStage] = useState(deal.stage);
   const [note, setNote] = useState("");
@@ -634,7 +634,7 @@ function ConfirmCalendar({
       map.set(key, arr);
     };
     for (const d of deals) {
-      const trip = parseTrip(d.description);
+      const trip = parseTrip(d.opcionesTexto || d.description);
       const tone = stageTone(d.stage);
       if (mode === "gestion") {
         if (d.closingDate) push(d.closingDate.slice(0, 10), { id: d.id, name: d.dealName, tone, span: "one" });

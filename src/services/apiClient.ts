@@ -306,6 +306,13 @@ export interface ZohoDealSummary {
   accountName: string;
   contactName: string;
   description: string;
+  /**
+   * El detalle de las tres opciones, que desde el 25/09/2026 se escribe en el
+   * campo «Opciones de Presupuesto» del CRM y no en la Descripción. En los
+   * tratos anteriores viene de la Descripción, para que la pantalla de Viajes
+   * siga entendiéndolos.
+   */
+  opcionesTexto: string;
   nextStep: string;
   createdTime: string;
   modifiedTime: string;

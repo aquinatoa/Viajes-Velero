@@ -754,6 +754,8 @@ export type ZohoDealSummary = {
   contactName: string;
   description: string;
   nextStep: string;
+  /** El detalle de las tres opciones, tal como se escribió en el CRM. */
+  opcionesTexto: string;
   createdTime: string;
   modifiedTime: string;
   dealUrl: string;
@@ -761,9 +763,13 @@ export type ZohoDealSummary = {
 
 /** Lista los tratos del módulo Deals (los más recientes primero). */
 export async function listZohoDeals(limit = 200): Promise<ZohoDealSummary[]> {
+  // `Opciones_de_Presupuesto` va aquí porque el detalle del presupuesto se
+  // escribe ahí desde el 25/09/2026, no en la Descripción. La pantalla de
+  // Viajes lee de ese texto las tres opciones y las fechas del viaje: sin
+  // pedirlo, se quedaría en blanco para todo trato creado a partir de ahora.
   const fields = [
     "Deal_Name", "Stage", "Amount", "Closing_Date", "Account_Name", "Contact_Name",
-    "Description", "Next_Step", "Created_Time", "Modified_Time",
+    "Description", "Opciones_de_Presupuesto", "Next_Step", "Created_Time", "Modified_Time",
   ].join(",");
   const perPage = Math.min(Math.max(limit, 1), 200);
   const result = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
@@ -781,6 +787,9 @@ export async function listZohoDeals(limit = 200): Promise<ZohoDealSummary[]> {
       accountName: lookupName(deal.Account_Name),
       contactName: lookupName(deal.Contact_Name),
       description: String(deal.Description ?? ""),
+      // El detalle del presupuesto. Los tratos anteriores al 25/09/2026 lo
+      // tienen dentro de la Descripción, así que se cae ahí cuando falta.
+      opcionesTexto: String(deal.Opciones_de_Presupuesto ?? deal.Description ?? ""),
       nextStep: String(deal.Next_Step ?? ""),
       createdTime: String(deal.Created_Time ?? ""),
       modifiedTime: String(deal.Modified_Time ?? ""),
