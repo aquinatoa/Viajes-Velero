@@ -736,6 +736,72 @@ export interface ProposalDelivery {
   } | null;
 }
 
+/** Un paso del embudo, con lo que la app sabe de él. */
+export interface PasoDelEmbudo {
+  fase: string;
+  cuando: string | null;
+  detalle: string | null;
+  hecho: boolean;
+  /** La fase en la que está el trato AHORA, según el CRM. */
+  actual: boolean;
+}
+
+/** Todo lo que enseña la ficha de un presupuesto. */
+export interface FichaPresupuesto {
+  id: string;
+  reference: string;
+  estado: DeliveryStatus;
+  department: BackendDepartment | null;
+  viaje: {
+    nombre: string;
+    centro: string | null;
+    destino: string | null;
+    dateFrom: string | null;
+    dateTo: string | null;
+    participants: number | null;
+    teachers: number | null;
+    idioma: string | null;
+  };
+  contacto: { nombre: string | null; email: string };
+  crm: {
+    dealId: string | null;
+    dealUrl: string | null;
+    fase: string | null;
+    /** false si el CRM no contestó: la ficha se abre igual. */
+    respondio: boolean;
+  };
+  embudo: PasoDelEmbudo[];
+  fases: string[];
+  opciones: {
+    optionNumber: number;
+    alojamiento: string | null;
+    regimen: string | null;
+    noches: number | null;
+    totalPvpText: string | null;
+    desglose: string | null;
+    gratuidades: string | null;
+    condiciones: string | null;
+    observaciones: string | null;
+    elegida: boolean;
+    actividades: { nombre: string; proveedor: string | null; duracion: string | null; precio: string | null }[];
+  }[];
+  elegida: number | null;
+  chosenAt: string | null;
+  depositDueAt: string | null;
+  depositPaidAt: string | null;
+  correo: { total: number; entrantes: number; ultimo: string | null };
+  pdf: string | null;
+  publicToken: string;
+}
+
+/** La ficha de un presupuesto, con su embudo y sus opciones. */
+export function fichaDelPresupuestoApi(deliveryId: string) {
+  return getJson<FichaPresupuesto>(
+    `/api/deliveries/${encodeURIComponent(deliveryId)}/ficha`,
+    "No se pudo cargar el presupuesto.",
+  );
+}
+
 /** Un correo del expediente, tal como lo guarda la app. */
 export interface MensajeDeCorreo {
   id: string;

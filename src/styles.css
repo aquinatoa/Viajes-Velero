@@ -10128,3 +10128,276 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
   outline-offset: 3px;
   border-radius: 6px;
 }
+
+/* ── La ficha de un presupuesto ──────────────────────────────────────────────
+   Una pantalla, no un panel: es donde se sigue un viaje, y se pasa rato en
+   ella. La oportunidad del CRM y el presupuesto conviven, así que el embudo
+   está arriba del todo: es lo que ata una cosa con la otra. */
+.ficha {
+  padding: var(--sp-5, 22px) var(--sp-6, 28px) 40px;
+  max-width: 1100px;
+}
+
+.ficha__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.ficha__volver {
+  border: 0;
+  background: none;
+  padding: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.ficha__volver:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.ficha__t {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.2;
+}
+
+.ficha__sub {
+  margin: 5px 0 0;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+.ficha__acciones {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* El contador de mensajes, pegado al botón de la conversación. */
+.ficha__pill {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--desk-navy, #132e5d);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ficha__datos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 30px;
+  padding: 15px 18px;
+  margin-bottom: 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.ficha__dato {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+}
+
+.ficha__k {
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ficha__v {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ficha__bloque {
+  margin-bottom: 26px;
+}
+
+.ficha__h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.ficha__nota {
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* El embudo. Horizontal cuando cabe, en columna cuando no: son cinco fases con
+   texto y apretarlas en una fila estrecha las vuelve ilegibles. */
+.embudo {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 12px;
+}
+
+.embudo__p {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  opacity: 0.55;
+}
+
+.embudo__p.is-hecho {
+  opacity: 1;
+}
+
+/* La fase en la que está el trato AHORA. Es el dato que se busca al abrir. */
+.embudo__p.is-actual {
+  opacity: 1;
+  border-color: var(--desk-navy, #132e5d);
+  box-shadow: inset 0 0 0 1px var(--desk-navy, #132e5d);
+}
+
+.embudo__punto {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.embudo__p.is-hecho .embudo__punto {
+  background: var(--desk-navy, #132e5d);
+}
+
+.embudo__fase {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+.embudo__det {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.embudo__cuando {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.ficha__aviso {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.ficha__aviso--tarde {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+/* Las tres opciones. */
+.ficha__ops {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 14px;
+}
+
+.ficha__op {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.ficha__op.is-elegida {
+  border-color: var(--desk-navy, #132e5d);
+  box-shadow: inset 0 0 0 1px var(--desk-navy, #132e5d);
+}
+
+.ficha__opcab {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.ficha__opn {
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ficha__optotal {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.ficha__opnom {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.ficha__opdet,
+.ficha__opdesg,
+.ficha__opgrat {
+  margin-top: 5px;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.ficha__acts {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 9px 0 0;
+  border-top: 1px solid var(--border-soft, var(--border));
+  display: grid;
+  gap: 4px;
+}
+
+.ficha__acts li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.ficha__actp {
+  flex: 0 0 auto;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ficha__elegida {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--desk-navy, #132e5d);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}

@@ -8,6 +8,7 @@ import type { CurrentUser } from "../../domain/types";
 import { ChangePanel } from "./ChangePanel";
 import { BorrarSolicitudPanel } from "./BorrarSolicitudPanel";
 import { CorreoPanel } from "./CorreoPanel";
+import { FichaPropuesta } from "./FichaPropuesta";
 
 /**
  * Mesa de propuestas — pantalla de inicio.
@@ -182,6 +183,8 @@ export function ProposalDesk({
   const [borrando, setBorrando] = useState<ProposalDelivery | null>(null);
   /** Propuesta cuya conversación con el colegio se está mirando. */
   const [conversando, setConversando] = useState<ProposalDelivery | null>(null);
+  /** Presupuesto cuya ficha se está viendo. Ocupa la pantalla entera. */
+  const [enFicha, setEnFicha] = useState<ProposalDelivery | null>(null);
   /** Lo último que se borró, para decirlo sin que parezca que se ha perdido. */
   const [aviso, setAviso] = useState("");
 
@@ -225,6 +228,20 @@ export function ProposalDesk({
     } finally {
       setSendingId(null);
     }
+  }
+
+  // La ficha ocupa la pantalla entera: es una pantalla, no un panel. Se sale
+  // con «Volver», y al volver se recarga la lista por si algo ha cambiado.
+  if (enFicha) {
+    return (
+      <FichaPropuesta
+        delivery={enFicha}
+        onClose={() => {
+          setEnFicha(null);
+          void load();
+        }}
+      />
+    );
   }
 
   return (
@@ -306,8 +323,8 @@ export function ProposalDesk({
                   <button
                     type="button"
                     className="desk__main desk__mainbtn"
-                    onClick={() => setConversando(delivery)}
-                    title="Ver la conversación con el colegio"
+                    onClick={() => setEnFicha(delivery)}
+                    title="Abrir la ficha del presupuesto"
                   >
                     <span className="desk__name">{tripTitleOf(delivery)}</span>
                     <span className="desk__why">{statusLine(delivery)}</span>

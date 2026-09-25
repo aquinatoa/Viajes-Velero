@@ -19,6 +19,7 @@ import {
 import { searchAccommodationsDb, searchActivitiesDb } from "./searchDb";
 import { bandeja, hiloDeLaEntrega } from "./correoDb";
 import { escribirAlContacto } from "./correoSaliente";
+import { fichaDeLaPropuesta } from "./fichaPropuesta";
 import {
   borrarSolicitudDb,
   queSeVaABorrar,
@@ -2066,6 +2067,30 @@ app.get("/api/deliveries", requireAuth, async (request, response) => {
   } catch (error) {
     console.error("Error listando entregas", error);
     response.status(500).json({ error: "No se pudieron cargar las propuestas enviadas." });
+  }
+});
+
+// ── La ficha de un presupuesto ──────────────────────────────────────────────
+// Todo lo que hace falta para seguirlo, sin salir de la app. La oportunidad y
+// el presupuesto conviven: la oportunidad es donde vive el trato, el
+// presupuesto es lo que la alimenta. Por eso la ficha dice siempre en qué fase
+// está el trato y enlaza a él.
+
+app.get("/api/deliveries/:id/ficha", requireAuth, async (request, response) => {
+  try {
+    const user = (request as AuthedRequest).user;
+    const ficha = await fichaDeLaPropuesta(
+      String(request.params.id),
+      user ? deliveryVisibilityWhere(user) : {},
+    );
+    if (!ficha) {
+      response.status(404).json({ error: "Ese presupuesto no existe o no es tuyo." });
+      return;
+    }
+    response.json(ficha);
+  } catch (error) {
+    console.error("Error cargando la ficha del presupuesto", error);
+    response.status(500).json({ error: "No se pudo cargar el presupuesto." });
   }
 });
 
