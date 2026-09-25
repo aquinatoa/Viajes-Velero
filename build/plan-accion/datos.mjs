@@ -54,6 +54,14 @@ const ESTADO = {
         'Las claves estaban en el correo de Javier del <b>10 de agosto</b>. Se pidieron, se enviaron, y se quedaron seis semanas sin usar: es el retraso más caro de todo el proyecto y conviene decirlo.',
       ],
     },
+    {
+      t: 'nota', tone: 'q', kicker: 'Para qué son las casillas',
+      p: [
+        'Las marcas <b>tú</b>, a mano, cuando algo esté hecho. No se marcan solas: el documento es un fichero, no está conectado a nada.',
+        'Lo que marques se guarda en <b>este navegador y solo en este</b>. Si abres el documento en otro ordenador, salen sin marcar. Por eso conviene que lo lleve una sola persona.',
+        'El contador del lateral cuenta lo marcado sobre el total, para ver el avance de un vistazo.',
+      ],
+    },
     { t: 'sec', h3: 'Lo cerrado hasta hoy', note: 'Todo en main. Lo posterior a ea22d71 todavía no está en el servidor.' },
     {
       t: 'tabla',
@@ -117,9 +125,9 @@ const BLOQUEA = {
           '<code>ZOHO_DEAL_STAGE="Preparando Presupuesto"</code> —hoy dice «Nueva», que no es una de sus fases— y <code>ZOHO_DEAL_OPTIONS_FIELD="Opciones_de_Presupuesto"</code>.',
         ],
         [
-          'Permiso de Zoho para Productos y Proveedores',
-          'Oravia',
-          'Hoy da <code>OAUTH_SCOPE_MISMATCH</code>. Sin eso el subformulario de servicios no se puede rellenar aunque se programe.',
+          '<s>Permiso de Zoho para Productos y Proveedores</s>',
+          '<span class="chip def">Ya no hace falta</span>',
+          'Comprobado el 25/09: en el subformulario solo <code>Parent_Id</code> es obligatorio. Servicio y Proveedor son opcionales, así que se rellena sin tocar esos módulos.',
         ],
         [
           'Añadir «Catalán» al campo Idioma',
@@ -137,7 +145,7 @@ const CORREO = {
   id: 'correo', icono: 'base', grupo: 'Aplicar', label: 'La gestión del correo',
   h2: 'El encargo de fondo, desde junio',
   lede:
-    'No es una mejora suelta: es el problema que Ruth describió como «lo otro gordo que tengo». La app tiene que sustituir al correo, porque Zoho no puede.',
+    'No es una mejora suelta: es el problema que Ruth describió como «lo otro gordo que tengo». La app tiene que sustituir al correo, porque Zoho no puede. Aquí está lo que hay que construir, pieza a pieza.',
   blocks: [
     {
       t: 'principio',
@@ -164,6 +172,7 @@ const CORREO = {
         },
       ],
     },
+
     { t: 'sec', h3: 'Lo que ya funciona', note: 'Probado el 24/09 contra los buzones reales.' },
     {
       t: 'tabla',
@@ -174,35 +183,83 @@ const CORREO = {
       ],
     },
     {
-      t: 'nota', tone: 'q', kicker: 'Tres cosas que salieron al probarlo',
+      t: 'nota', tone: 'q', kicker: 'Los buzones son nuevos, y eso cambia el orden',
       p: [
-        'No es Zoho Mail: es el proveedor de Oravia, y por el 587 con STARTTLS. La app venía apuntando a <code>smtp.zoho.eu:465</code>, así que también hubo que cambiar el modo de cifrado.',
-        'Las claves <b>solo valen con <code>@oraviatravel.com</code></b>. Los buzones de <code>viajesvelero.com</code> ya están muertos: devuelven «authentication failed».',
-        'Y los dos INBOX están <b>vacíos</b>. O son buzones recién estrenados, o el equipo trabaja desde otra carpeta. Hay que preguntarlo antes de montar la lectura, porque cambia dónde mira la app.',
+        'Anthony lo confirmó el 25/09: los buzones de <code>@oraviatravel.com</code> se estrenaron en agosto y por eso están vacíos. La correspondencia viva sigue en los de <code>viajesvelero.com</code>, que ya no aceptan nuestra clave.',
+        '<b>Hay que preguntar a Javier cuándo empiezan a usarlos.</b> Hasta que el equipo escriba de verdad desde <code>groups@</code>, la bandeja de la app estará técnicamente lista y no tendrá nada que enseñar.',
       ],
     },
-    { t: 'sec', h3: 'Lo que falta construir', note: 'Por orden: cada uno se apoya en el anterior.' },
+
+    { t: 'sec', h3: 'Lo que hay que construir', note: 'En este orden: cada pieza se apoya en la anterior. Es la respuesta a «alineemos todo lo que hay que construir».' },
     {
       t: 'tabla', tick: 'correo',
-      cols: [{ h: 'Qué' }, { h: 'Para qué' }],
+      cols: [{ h: 'Pieza' }, { h: 'Qué hace' }, { h: 'Lo que hay que decidir antes' }],
       rows: [
         [
-          'Leer los buzones y guardar los mensajes',
-          'Es la base. El <code>reply-to</code> por expediente ya existe a medias: genera <code>groups+ORV-2026-0184@dominio</code>, que es una marca infalsificable para saber de qué viaje habla cada respuesta.',
+          '<b>C1</b> · Guardar los mensajes',
+          'Una tabla de mensajes colgando del expediente: quién escribe, cuándo, asunto, cuerpo y adjuntos. Sin pantalla todavía.',
+          'Nada. Se puede empezar ya.',
         ],
         [
-          'Enseñar el hilo dentro de la propuesta',
-          'Lo pidió Ruth con estas palabras: «¿tendríamos que verla por el mail sí o sí? La aplicación no te puede decir: cling, tienes aquí un mensaje de esta oportunidad».',
+          '<b>C2</b> · Leer los buzones',
+          'Un proceso que entra por IMAP cada pocos minutos a <code>groups@</code> y <code>sports@</code>, se trae lo nuevo y lo guarda.',
+          'En qué carpeta mirar, y cada cuánto. Depende de A2.',
         ],
         [
-          'Escribir al contacto desde la propuesta',
-          '«Que ponga enviar email al contacto de la oportunidad». La respuesta en la reunión fue: «ese es el objetivo».',
+          '<b>C3</b> · Emparejar cada correo con su viaje',
+          'Por el <code>reply-to</code> del expediente —<code>groups+ORV-2026-0184@…</code>—, que es infalsificable. Si no lo trae, por la referencia en el asunto. Si tampoco, por la dirección del remitente.',
+          'Si el proveedor de correo admite el <code>+</code> en las direcciones. Hay que probarlo.',
         ],
         [
-          'Avisar de que hay respuesta',
-          'El motor de notificaciones está puesto en la app pero sin conectar. Es lo que convierte la bandeja en algo que no hay que ir a mirar.',
+          '<b>C4</b> · El hilo dentro de la propuesta',
+          'La conversación completa de ese viaje, en su pantalla. Es lo que pidió Ruth: «la aplicación no te puede decir, cling, tienes aquí un mensaje de esta oportunidad».',
+          'Nada, una vez estén C1 a C3.',
+        ],
+        [
+          '<b>C5</b> · Escribir al contacto desde la propuesta',
+          'Responder sin salir de la app, con el <code>reply-to</code> ya puesto para que la respuesta vuelva bien emparejada.',
+          'Si hace falta guardar borradores de respuesta o se manda directo.',
+        ],
+        [
+          '<b>C6</b> · La bandeja general',
+          'Todo lo que entra en los dos buzones, en una sola lista: lo emparejado y —sobre todo— <b>lo que no se ha podido emparejar</b>, que es lo que alguien tiene que mirar a mano.',
+          'Quién ve qué: ¿cada gestor solo lo suyo, o la bandeja es de todos?',
+        ],
+        [
+          '<b>C7</b> · El aviso',
+          'Que la propuesta se marque sola cuando llega respuesta, y que la mesa lo enseñe. El motor de notificaciones ya está puesto en la app, sin conectar.',
+          'Si basta con la marca en pantalla o hace falta avisar por correo.',
+        ],
+        [
+          '<b>C8</b> · Correo entrante que no es respuesta',
+          'Una petición nueva que llega a <code>groups@</code> y no corresponde a ningún viaje: hoy se pega a mano en «Nueva solicitud». Podría entrar sola.',
+          'Si se quiere, o si prefieren seguir pegándolo a mano.',
         ],
       ],
+    },
+    {
+      t: 'nota', tone: 'no', kicker: 'Lo que NO va a hacer, y conviene decirlo ahora',
+      p: [
+        '<b>No es un cliente de correo.</b> No sustituye a Outlook para escribir a proveedores, ni gestiona carpetas, ni busca en todo el buzón. Solo la conversación de los viajes que están en la app.',
+        '<b>No borra ni mueve nada</b> en el buzón. Lee y deja el correo donde está, para que quien siga usando Outlook lo vea igual.',
+        '<b>No sustituye a Zoho</b> como registro de la oportunidad. Lo que hace es que el correo deje de depender de que Zoho acierte a vincularlo.',
+      ],
+    },
+    {
+      t: 'pregunta', n: 8, crit: false,
+      h: 'C · Por dónde se empieza la bandeja',
+      cuerpo: [
+        '<b>De dónde sale:</b> tu observación del 25/09: «aquí debemos alinear todo lo que debemos construir para hacer la gestión de correo de cada oportunidad y la bandeja de correo general».',
+        'Arriba están las ocho piezas. C1 se puede hacer hoy sin decidir nada; C2 espera a saber cuándo empiezan a usar los buzones.',
+        '<b>Lo que hay que elegir es el alcance de la primera entrega</b>, porque C6 —la bandeja general— es casi tanto trabajo como C1 a C5 juntas.',
+      ],
+      ops: [
+        '<b>A · Solo el hilo por expediente</b> (C1 a C5). Resuelve lo que pidió Ruth en junio: ver y contestar sin salir de la app. La bandeja general queda para después.',
+        '<b>B · El hilo y la bandeja</b> (C1 a C7). Más completo, y cubre el correo que no se empareja con ningún viaje, que es donde se pierden cosas.',
+        '<b>C · Todo, con la entrada automática de solicitudes</b> (C1 a C8). Es lo que Ruth pedía al final de la reunión de junio: que la petición entre sola.',
+      ],
+      rec: 'A',
+      comentario: 'Y dos que hay que contestar en cualquier caso: ¿la bandeja general la ve todo el mundo o cada gestor la suya? ¿Basta con la marca en pantalla o hace falta aviso por correo?',
     },
   ],
 }
@@ -305,14 +362,30 @@ const PRODUCTO = {
         },
       ],
     },
-    { t: 'sec', h3: 'Y dos dudas suyas sin contestar', note: 'De los correos del 15 de septiembre.' },
+    { t: 'sec', h3: 'Las dudas de Ruth del 15/09, comprobadas contra el servidor', note: 'Verificado el 25/09 leyendo el catálogo publicado, no de memoria.' },
     {
       t: 'tabla', tick: 'prod',
-      cols: [{ h: 'Lo que preguntó Ruth' }, { h: 'Estado' }],
+      cols: [{ h: 'Lo que preguntó Ruth' }, { h: 'Lo que hay en el servidor' }],
       rows: [
-        ['Las tarifas 4R: «coste +8%» frente a «Venta (cualquier cliente)», ¿cuál es la diferencia? ¿elimino la que cargué yo?', PENDIENTE],
-        ['«Tarifas Fútbol Salou 2027» pone «pendiente de revisar»: ¿a qué se refiere?', PENDIENTE],
-        ['Borrar el alojamiento de prueba <code>ESTIDIANTES 4R27 3E</code>', '<span class="chip blue">Lo hacen ellos</span>'],
+        [
+          'Las tarifas 4R: ¿está duplicado? ¿elimino el que cargué yo?',
+          '<b>Resuelto.</b> Quedan dos 4R —el de 3* y el de 4*—, los dos del documento «Hoteles Oravia 2027» y con 40 tarifas cada uno. La carga suelta ya no está.',
+        ],
+        [
+          '«Fútbol Salou 2027» ponía «pendiente de revisar»',
+          '<b>Resuelto.</b> Está desdoblado y publicado en dos: «venta general» y «venta turoperador suizo», que es como lo pedía Javier el 20/07.',
+        ],
+        [
+          'Borrar el alojamiento de prueba <code>ESTIDIANTES 4R27 3E</code>',
+          '<b>Hecho.</b> Ya no está en el catálogo.',
+        ],
+      ],
+    },
+    {
+      t: 'nota', tone: 'no', kicker: 'Pero al comprobarlo aparecieron dos cosas nuevas',
+      p: [
+        '<b>El catálogo de actividades que subieron el 23/09 no se leyó.</b> El fichero <code>PLANTILLA_REVISAT_COTIZADOR_ACTIVITATS_2027_v1.xlsx</code> —2 hojas, 70 filas— está atascado en «pendiente de revisar» con <b>cero candidatos</b> y este error: «No se pudo leer el documento con IA». Lo subieron hace dos días y nadie se enteró de que había fallado.',
+        '<b>Hay un alojamiento fantasma.</b> El documento de PortAventura generó sus 8 actividades bien, pero además creó un alojamiento llamado «PortAventura · Entradas grupos parques 2027», sin ninguna tarifa, con localidad Vila-seca / Salou. No hace daño porque sin tarifas no sale en las búsquedas, pero ensucia el catálogo y hay que quitarlo.',
       ],
     },
   ],
@@ -423,10 +496,11 @@ const DECISIONES = {
       t: 'tabla', tick: 'dec',
       cols: [{ h: 'Qué hay que decidir' }, { h: 'Estado' }],
       rows: [
-        ['¿Se pregunta el tipo de pago al aceptar, como se propone arriba?', DECIDE],
-        ['¿La forma de cobro es siempre depósito del 30%, o también se pacta?', DECIDE],
-        ['¿Los buzones <code>groups@</code> y <code>sports@</code> están en uso? Los dos INBOX están vacíos', DECIDE],
-        ['¿Qué es un «cliente especial», el del PVP − 17%?', DECIDE],
+        ['El tipo de pago se pregunta <b>al aceptar el presupuesto</b>', RESUELTO],
+        ['La forma de cobro es fija, pero se confirma también al aceptar', RESUELTO],
+        ['El subformulario del CRM se rellena <b>al aceptar una opción</b>, con todo el detalle', RESUELTO],
+        ['Los buzones son nuevos: hay que preguntar a Javier cuándo empiezan a usarlos', '<span class="chip blue">Pregunta a Javier</span>'],
+        ['¿Qué es un «cliente especial», el del PVP − 17%?', '<span class="chip blue">Pregunta a Javier y Ruth</span>'],
         ['El nombre de la oportunidad: centro + año', RESUELTO],
         ['Idiomas por IA con modelo barato', RESUELTO],
         ['El colegio ve las gratuidades y el precio por alumno', RESUELTO],
