@@ -729,6 +729,43 @@ export interface ProposalDelivery {
   } | null;
 }
 
+/** Un correo del expediente, tal como lo guarda la app. */
+export interface MensajeDeCorreo {
+  id: string;
+  direccion: "ENTRANTE" | "SALIENTE";
+  de: string;
+  para: string;
+  asunto: string;
+  cuerpo: string;
+  fecha: string;
+  /** MESSAGE_ID, ASUNTO o REMITENTE. Vacío si nadie supo de qué viaje era. */
+  emparejadoPor: string | null;
+  visto: boolean;
+}
+
+/** La conversación con el colegio, en orden. */
+export function hiloDelExpedienteApi(deliveryId: string) {
+  return getJson<{ mensajes: MensajeDeCorreo[] }>(
+    `/api/deliveries/${encodeURIComponent(deliveryId)}/correo`,
+    "No se pudo cargar la conversación.",
+  );
+}
+
+/**
+ * Escribe al contacto de la propuesta.
+ *
+ * `simulado` significa que no hay clave de buzón: el mensaje queda anotado en
+ * el hilo pero no ha salido. Es el mismo comportamiento que el envío de la
+ * propuesta, para poder probar el circuito antes de que el correo esté listo.
+ */
+export function escribirAlContactoApi(deliveryId: string, texto: string, asunto?: string) {
+  return postJson<{ enviado: boolean; simulado: boolean; messageId: string | null }>(
+    `/api/deliveries/${encodeURIComponent(deliveryId)}/correo`,
+    { texto, asunto },
+    "No se pudo enviar el mensaje.",
+  );
+}
+
 /** Lo que se lleva por delante borrar una solicitud. */
 export interface BorradoDeSolicitud {
   tripRequestId: string;

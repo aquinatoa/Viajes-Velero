@@ -10002,3 +10002,101 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
   white-space: nowrap;
   border: 0;
 }
+
+/* ── La conversación con el colegio ──────────────────────────────────────────
+   Lo nuestro a la derecha y lo suyo a la izquierda, como en cualquier hilo:
+   se lee quién dice qué sin tener que fijarse en el remitente. */
+.hilo {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hilo__m {
+  max-width: 82%;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 12px 4px;
+  background: var(--surface);
+}
+
+.hilo__m--nuestro {
+  align-self: flex-end;
+  border-radius: 12px 12px 4px 12px;
+  background: var(--surface-2);
+}
+
+.hilo__cab {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.hilo__quien {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.hilo__cuando {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.hilo__asunto {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.hilo__cuerpo {
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Cómo se supo de qué viaje era. Discreto: solo importa cuando algo falla. */
+.hilo__origen {
+  margin-top: 7px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.hilo__pie {
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.hilo__escribir {
+  flex: 1 1 auto;
+  display: block;
+}
+
+.hilo__escribir textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  font: inherit;
+  font-size: var(--fs-body);
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.hilo__escribir textarea:focus {
+  outline: none;
+  border-color: var(--highlight);
+  box-shadow: 0 0 0 3px var(--highlight-bg, rgba(0, 0, 0, 0.04));
+}

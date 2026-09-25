@@ -7,6 +7,7 @@ import {
 import type { CurrentUser } from "../../domain/types";
 import { ChangePanel } from "./ChangePanel";
 import { BorrarSolicitudPanel } from "./BorrarSolicitudPanel";
+import { CorreoPanel } from "./CorreoPanel";
 
 /**
  * Mesa de propuestas — pantalla de inicio.
@@ -179,6 +180,8 @@ export function ProposalDesk({
   const [cambiando, setCambiando] = useState<ProposalDelivery | null>(null);
   /** Propuesta cuya solicitud se está a punto de borrar. */
   const [borrando, setBorrando] = useState<ProposalDelivery | null>(null);
+  /** Propuesta cuya conversación con el colegio se está mirando. */
+  const [conversando, setConversando] = useState<ProposalDelivery | null>(null);
   /** Lo último que se borró, para decirlo sin que parezca que se ha perdido. */
   const [aviso, setAviso] = useState("");
 
@@ -314,6 +317,14 @@ export function ProposalDesk({
                   <button
                     type="button"
                     className="desk__rowlink"
+                    onClick={() => setConversando(delivery)}
+                    title="Ver la conversación con el colegio y escribirle"
+                  >
+                    Correo
+                  </button>
+                  <button
+                    type="button"
+                    className="desk__rowlink"
                     onClick={() => setCambiando(delivery)}
                     title="El cliente ha cambiado algo"
                   >
@@ -358,6 +369,14 @@ export function ProposalDesk({
           tituloViaje={tripTitleOf(cambiando)}
           onClose={() => setCambiando(null)}
           onApplied={() => void load()}
+        />
+      ) : null}
+
+      {conversando ? (
+        <CorreoPanel
+          delivery={conversando}
+          titulo={tripTitleOf(conversando)}
+          onClose={() => setConversando(null)}
         />
       ) : null}
 

@@ -17,6 +17,8 @@ import {
   ZohoReauthRequiredError,
 } from "./zoho";
 import { searchAccommodationsDb, searchActivitiesDb } from "./searchDb";
+import { bandeja, hiloDeLaEntrega } from "./correoDb";
+import { escribirAlContacto } from "./correoSaliente";
 import {
   borrarSolicitudDb,
   queSeVaABorrar,
@@ -2064,6 +2066,62 @@ app.get("/api/deliveries", requireAuth, async (request, response) => {
   } catch (error) {
     console.error("Error listando entregas", error);
     response.status(500).json({ error: "No se pudieron cargar las propuestas enviadas." });
+  }
+});
+
+// ── El correo de cada expediente ────────────────────────────────────────────
+// La conversación con el colegio, dentro de la propuesta. Existe porque Zoho no
+// puede: solo vincula un correo por cuenta y aun así los cuelga de la
+// oportunidad equivocada.
+
+app.get("/api/deliveries/:id/correo", requireAuth, async (request, response) => {
+  try {
+    const mensajes = await hiloDeLaEntrega(String(request.params.id));
+    response.json({ mensajes });
+  } catch (error) {
+    console.error("Error leyendo el hilo del expediente", error);
+    response.status(500).json({ error: "No se pudo cargar la conversación." });
+  }
+});
+
+app.post("/api/deliveries/:id/correo", requireAuth, async (request, response) => {
+  try {
+    const body = (request.body ?? {}) as { texto?: string; asunto?: string };
+    const resultado = await escribirAlContacto(
+      String(request.params.id),
+      String(body.texto ?? ""),
+      body.asunto,
+    );
+
+    if (!resultado.enviado && !resultado.simulado) {
+      response.status(400).json({ error: resultado.motivo ?? "No se pudo enviar el mensaje." });
+      return;
+    }
+
+    await writeAudit({
+      user: (request as AuthedRequest).user,
+      action: resultado.simulado ? "CORREO_AL_CONTACTO_SIMULADO" : "CORREO_AL_CONTACTO",
+      entity: `ProposalDelivery:${request.params.id}`,
+      detail: String(body.texto ?? "").slice(0, 160),
+    });
+
+    response.json(resultado);
+  } catch (error) {
+    console.error("Error escribiendo al contacto", error);
+    response.status(500).json({ error: "No se pudo enviar el mensaje." });
+  }
+});
+
+// La bandeja general: lo que ha entrado por los buzones. Lo que no se ha podido
+// emparejar con ningún viaje va primero, porque es lo único que obliga a
+// alguien a hacer algo.
+app.get("/api/correo/bandeja", requireAuth, async (request, response) => {
+  try {
+    const soloSinExpediente = String(request.query.sueltos ?? "") === "1";
+    response.json({ mensajes: await bandeja({ soloSinExpediente }) });
+  } catch (error) {
+    console.error("Error cargando la bandeja", error);
+    response.status(500).json({ error: "No se pudo cargar la bandeja." });
   }
 });
 
