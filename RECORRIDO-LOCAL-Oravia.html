@@ -244,6 +244,69 @@ pre code{background:none;color:inherit;padding:0;}
 .ruta b{font-size:11.5px;letter-spacing:.07em;color:var(--accent);}
 .ruta svg{color:var(--ink-3);}
 
+/* ---------- el cliente contesta: preguntas, comentarios, respuestas ---------- */
+.pregunta{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
+  box-shadow:var(--sombra-corta);overflow:hidden;}
+.pregunta .ph{display:flex;align-items:flex-start;gap:12px;padding:17px 20px 0;}
+.pregunta .ph .pn{font-family:var(--f-mono);font-size:12px;color:var(--cloud);background:var(--codigo);
+  border-radius:var(--r-sm);padding:3px 8px;flex:0 0 auto;margin-top:1px;}
+.pregunta .ph h3{font-size:16px;flex:1;}
+.pregunta .pc{padding:12px 20px 14px;font-size:13.5px;color:var(--ink-2);max-width:98ch;}
+.pregunta .pc p{margin-top:7px;}
+.pregunta .pc b{color:var(--ink);}
+.opts{border-top:1px solid var(--line);}
+.opt{display:grid;grid-template-columns:22px 1fr;gap:12px;padding:12px 20px;
+  border-bottom:1px solid var(--line-soft);align-items:start;cursor:pointer;
+  transition:background .12s;}
+.opt:hover{background:var(--card-2);}
+.opt.rec{background:var(--ok-soft);}
+.opt.rec:hover{background:var(--ok-soft);}
+.opt input[type=radio]{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;margin:2px 0 0;}
+.opt .ot{font-size:13px;color:var(--ink-2);}
+.opt .ot b{color:var(--ink);}
+.opt .ot .ok-l{font-family:var(--f-mono);color:var(--accent);margin-right:4px;}
+.opt.otra .ot{color:var(--ink-3);}
+.chip.rec{background:var(--ok-soft);color:var(--ok);}
+.chip.empty{background:var(--dead-soft);color:var(--dead);font-weight:400;}
+.chip.warn{background:var(--warn-soft);color:var(--warn);}
+.pregunta .cmt{margin:12px 20px 18px;width:calc(100% - 40px);}
+textarea.cmt{width:100%;font-family:var(--f);font-size:13px;line-height:1.5;color:var(--ink);
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;
+  resize:vertical;display:block;}
+textarea.cmt::placeholder{color:var(--ink-3);}
+textarea.cmt:focus{outline:2px solid var(--cloud);outline-offset:1px;border-color:var(--accent);}
+textarea.cmt.lleno{border-color:var(--accent);}
+.obs{background:var(--card);border:1px dashed var(--line);border-radius:var(--r-lg);padding:15px 19px;}
+.obs .sec-head{padding-top:0;margin-bottom:9px;}
+.obs .sec-head h3{font-size:14.5px;}
+.obs textarea.cmt{background:var(--bg);}
+
+/* pasos numerados («cómo se contesta») */
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:13px;}
+.step{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:16px 18px;box-shadow:var(--sombra-corta);display:flex;gap:12px;align-items:flex-start;}
+.step .sn{font-family:var(--f-mono);font-size:12px;font-weight:700;color:var(--cloud);background:var(--codigo);
+  border-radius:var(--r-sm);padding:3px 7px;flex:0 0 auto;}
+.step .sa{display:block;font-size:13.5px;font-weight:700;}
+.step .sm{display:block;font-size:12.5px;color:var(--ink-2);margin-top:3px;}
+.step .sw{display:inline-block;margin-top:8px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--accent);}
+
+/* panel «vuestras respuestas» */
+.btnrow{display:flex;flex-wrap:wrap;gap:9px;}
+.btn{font:700 13px/1 var(--f);padding:10px 16px;border-radius:var(--r-md);cursor:pointer;
+  border:1px solid var(--line);background:var(--card);color:var(--ink);transition:background .12s,color .12s;}
+.btn:hover{background:var(--card-2);}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--interfaz);}
+.btn.primary:hover{background:var(--flujo);}
+.btn.ghost{background:none;color:var(--ink-3);}
+.btn.hecho{background:var(--ok);border-color:var(--ok);color:var(--interfaz);}
+textarea.out{width:100%;font-family:var(--f-mono);font-size:12px;line-height:1.5;color:var(--ink);
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px;
+  resize:vertical;display:block;min-height:280px;}
+textarea.out:focus{outline:2px solid var(--cloud);outline-offset:1px;}
+@media print{ .opts,.cmt,.obs,.btnrow,textarea.out{display:none !important;} }
+
 /* ---------- modo embebido (?embed=1) ----------
    Dentro de CRM Studio el rail del documento sobra: ya hay uno. Se oculta y sus
    secciones pasan a una barra de pestañas horizontal encima del contenido. Un
@@ -303,12 +366,12 @@ pre code{background:none;color:inherit;padding:0;}
         <span class="sub">Consola de operaciones · prueba en local</span>
       </div>
     </div>
-    <div class="estado"><span class="pulso"></span> Para probar en local · 24/09/2026</div>
-    <nav class="nav" role="tablist" aria-label="Secciones"><span class="grupo">Antes de empezar</span><button role="tab" id="t-arranque" aria-controls="p-arranque" aria-selected="true"><span class="n">01</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg><span class="txt">Arrancar</span></button><span class="grupo">El recorrido</span><button role="tab" id="t-leer" aria-controls="p-leer" aria-selected="false"><span class="n">02</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 11 2 2 4-4"/><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="txt">1 · Leer</span></button><button role="tab" id="t-sinedad" aria-controls="p-sinedad" aria-selected="false"><span class="n">03</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg><span class="txt">2 · Sin edad</span></button><button role="tab" id="t-actividades" aria-controls="p-actividades" aria-selected="false"><span class="n">04</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg><span class="txt">3 · Actividades</span></button><button role="tab" id="t-aviso" aria-controls="p-aviso" aria-selected="false"><span class="n">05</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg><span class="txt">4 · El aviso</span></button><button role="tab" id="t-opciones" aria-controls="p-opciones" aria-selected="false"><span class="n">06</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span class="txt">5 · Opciones</span></button><button role="tab" id="t-borradores" aria-controls="p-borradores" aria-selected="false"><span class="n">07</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 14v2.2l1.6 1"/><path d="M16 2v3"/><path d="M21 7.338V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h2.338"/><path d="M3 9h5.859"/><path d="M8 2v3"/><circle cx="16" cy="16" r="6"/></svg><span class="txt">6 · Borradores</span></button><button role="tab" id="t-cierre" aria-controls="p-cierre" aria-selected="false"><span class="n">08</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg><span class="txt">7 · Cerrar</span></button><span class="grupo">Si te queda tiempo</span><button role="tab" id="t-documental" aria-controls="p-documental" aria-selected="false"><span class="n">09</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg><span class="txt">Suplementos</span></button><button role="tab" id="t-queda" aria-controls="p-queda" aria-selected="false"><span class="n">10</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg><span class="txt">Qué falta</span></button></nav>
+    <div class="estado"><span class="pulso"></span> Para probar en local · 25/09/2026</div>
+    <nav class="nav" role="tablist" aria-label="Secciones"><span class="grupo">Antes de empezar</span><button role="tab" id="t-arranque" aria-controls="p-arranque" aria-selected="true"><span class="n">01</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg><span class="txt">Arrancar</span></button><span class="grupo">El recorrido</span><button role="tab" id="t-chat" aria-controls="p-chat" aria-selected="false"><span class="n">02</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 11 2 2 4-4"/><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="txt">1 · La petición</span></button><button role="tab" id="t-contestar" aria-controls="p-contestar" aria-selected="false"><span class="n">03</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg><span class="txt">2 · Contestar</span></button><button role="tab" id="t-podio" aria-controls="p-podio" aria-selected="false"><span class="n">04</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg><span class="txt">3 · El podio</span></button><button role="tab" id="t-lista" aria-controls="p-lista" aria-selected="false"><span class="n">05</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg><span class="txt">4 · La lista</span></button><button role="tab" id="t-detalle" aria-controls="p-detalle" aria-selected="false"><span class="n">06</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg><span class="txt">5 · El detalle</span></button><button role="tab" id="t-actividades" aria-controls="p-actividades" aria-selected="false"><span class="n">07</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg><span class="txt">6 · Actividades</span></button><button role="tab" id="t-borradores" aria-controls="p-borradores" aria-selected="false"><span class="n">08</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 14v2.2l1.6 1"/><path d="M16 2v3"/><path d="M21 7.338V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h2.338"/><path d="M3 9h5.859"/><path d="M8 2v3"/><circle cx="16" cy="16" r="6"/></svg><span class="txt">7 · Borradores</span></button><button role="tab" id="t-mesa" aria-controls="p-mesa" aria-selected="false"><span class="n">09</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></svg><span class="txt">8 · La mesa</span></button><button role="tab" id="t-cierre" aria-controls="p-cierre" aria-selected="false"><span class="n">10</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg><span class="txt">9 · Cerrar</span></button><span class="grupo">Si te queda tiempo</span><button role="tab" id="t-catalogo" aria-controls="p-catalogo" aria-selected="false"><span class="n">11</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><span class="txt">El catálogo</span></button><button role="tab" id="t-queda" aria-controls="p-queda" aria-selected="false"><span class="n">12</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg><span class="txt">Qué falta</span></button></nav>
     <div class="rail-pie">
       <div class="prog">
         <span class="pk">paradas comprobadas</span>
-        <span class="pv"><span id="cn">0</span> / 35</span>
+        <span class="pv"><span id="cn">0</span> / 62</span>
         <span class="pt"><span class="pf" id="cf"></span></span>
       </div>
       <div class="fuentes"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg><div><strong>Leído de</strong>
@@ -322,128 +385,197 @@ pre code{background:none;color:inherit;padding:0;}
     <header class="topbar">
       <div class="tt">
         <span>ORAVIA TRAVEL GROUP — Consola de operaciones · prueba en local</span>
-        <small>Consultoría Neointec · Neointec × Oravia Travel Group · 23 de septiembre de 2026</small>
+        <small>Consultoría Neointec · Neointec × Oravia Travel Group · 25 de septiembre de 2026</small>
       </div>
-      <span class="dist"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <b>Copia local</b>&nbsp;espejo del servidor, 34 alojamientos y 20 actividades</span>
-      <span class="dist"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <b>Siete commits</b>&nbsp;lo corregido y sin desplegar</span>
-      <span class="dist"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <b>Comprobado</b>&nbsp;consultando la app el 23/09/2026</span>
+      <span class="dist"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <b>Copia local</b>&nbsp;34 alojamientos y 20 actividades, espejo del servidor</span>
+      <span class="dist"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <b>Sin desplegar</b>&nbsp;nada de esto está todavía en el servidor</span>
+      <span class="dist"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <b>Comprobado</b>&nbsp;consultando la app el 25/09/2026</span>
     </header>
 
     <div class="wrap">
       <div class="hero">
-        <div class="hero-marca"><span class="sigla">OR</span><span>Neointec × Oravia Travel Group · 23 de septiembre de 2026</span></div>
-        <span class="eti">Recorrido guiado · v2</span>
+        <div class="hero-marca"><span class="sigla">OR</span><span>Neointec × Oravia Travel Group · 25 de septiembre de 2026</span></div>
+        <span class="eti">Recorrido guiado · v3</span>
         <h1>Recorrido guiado en local: qué hacer y qué tiene que pasar</h1>
-        <p class="lede">Once paradas para probar en la copia local todo lo que se ha corregido y que todavía no está en el servidor. Cada una dice qué hacer, qué tiene que pasar y, cuando es importante, por qué. Si algo no coincide con lo que aquí pone, eso es lo que hay que contarme.</p>
+        <p class="lede">Diez paradas para probar en la copia local todo lo corregido y que todavía no está en el servidor. Cada una dice qué hacer y qué tiene que pasar; cuando importa, también por qué. Al pie de cada parada hay un cuadro para escribir lo que NO coincida: eso es exactamente lo que hay que contarme.</p>
         <div class="tags"><span>PRUEBA EN LOCAL</span><span>PASO A PASO</span><span>ANTES DE DESPLEGAR</span></div>
-        <div class="hechos"><article><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span><div><strong>11 paradas</strong><span>con lo que tiene que pasar en cada una</span></div></article><article><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg></span><div><strong>34 alojamientos</strong><span>y 20 actividades en la copia local</span></div></article><article><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><div><strong>217 pruebas</strong><span>automáticas, en verde</span></div></article></div>
+        <div class="hechos"><article><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span><div><strong>10 paradas</strong><span>con lo que tiene que pasar en cada una</span></div></article><article><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg></span><div><strong>34 alojamientos</strong><span>y 20 actividades en la copia local</span></div></article><article><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><div><strong>318 pruebas</strong><span>automáticas, en verde</span></div></article></div>
       </div>
 
 <div class="panel" id="p-arranque" role="tabpanel" aria-labelledby="t-arranque">
   <div class="panel-head"><h2>Levantar la copia local</h2><p>Ya está arrancada. Esto es por si hay que volver a levantarla otro día, o si se cierra la terminal.</p></div>
-  <div class="tw"><div class="scroll"><table><caption>Tres terminales, en este orden</caption>
+  <div class="tw"><div class="scroll"><table><caption>Dos terminales, en este orden</caption>
 <thead><tr><th>Qué</th><th>Comando</th><th>Qué tiene que salir</th></tr></thead>
 <tbody>
-<tr><td class="strong">La base de datos</td><td><code>npm run db:local</code></td><td>Se queda abierta. PostgreSQL embebido, sin Docker.</td></tr>
+<tr><td class="strong">La base de datos</td><td><code>npm run db:local</code></td><td>Se queda abierta. PostgreSQL embebido en el 5433, sin Docker.</td></tr>
 <tr><td class="strong">La app</td><td><code>npm run dev</code></td><td>API en el 8787 y web en el 5173.</td></tr>
-<tr><td class="strong">El catálogo</td><td><code>node --import tsx scripts/espejar-catalogo.mjs --limpiar</code></td><td>34 alojamientos, 20 actividades, 4 documentos.</td></tr>
 </tbody></table></div></div>
-  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Por qué el espejo</span><p>La copia local tenía 29 alojamientos sembrados de un Excel y <b>cero actividades</b>. Sin actividades no se podía probar aquí ni la búsqueda ni el programa por opción, que es justo uno de los bloques corregidos.</p><p>El espejo trae lo mismo que hay en el servidor. Tiene un límite conocido: algunas búsquedas de alojamiento dan menos resultados que en producción, porque el resumen del servidor no trae dos campos por los que la búsqueda agrupa. Sirve para probar el recorrido, no para comparar cifras.</p></div>
+  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Dos trampas que ya han costado tiempo</span><p><b>Vite no recoge los cambios si lleva días encendido.</b> Si algo de lo que aquí pone no aparece, casi siempre es esto: parar el servidor, borrar <code>node_modules/.vite</code> y arrancarlo otra vez.</p><p><b>La API no se recarga sola.</b> Tocar algo de <code>server/</code> obliga a reiniciar <code>npm run api</code> a mano.</p></div>
   <div class="tw"><div class="scroll"><table><caption>Dónde entrar</caption>
 <thead><tr><th>Qué</th><th>Dónde</th></tr></thead>
 <tbody>
 <tr><td class="strong">La app</td><td><code>http://localhost:5173</code></td></tr>
 <tr><td class="strong">Usuario</td><td><code>admin@viajesvelero.com</code></td></tr>
-<tr><td class="strong">Contraseña</td><td>la de siempre</td></tr>
+<tr><td class="strong">Contraseña</td><td>la de <code>.env</code> (<code>ADMIN_PASSWORD</code>)</td></tr>
 </tbody></table></div></div>
+  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>El catálogo ya está</span><p>La copia local tiene los mismos <b>34 alojamientos, 20 actividades y 4 documentos</b> que el servidor. No hace falta volver a espejarlo.</p><p>Tiene un límite conocido: algunas búsquedas dan menos resultados que en producción, porque el resumen del servidor no trae dos campos por los que la búsqueda agrupa. Sirve para probar el recorrido, no para comparar cifras.</p></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-arranque" data-lbl="Arrancar" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «Arrancar»…"></textarea>
+</div>
 </div>
 
-<div class="panel" id="p-leer" role="tabpanel" aria-labelledby="t-leer" hidden>
-  <div class="panel-head"><h2>Pegar el correo y ver qué entiende</h2><p>La primera parada prueba tres correcciones de golpe: el centro, la edad y el nombre de la oportunidad.</p></div>
-  <div class="sec-head"><h3>Qué hacer</h3><p class="sec-note">Arriba a la derecha, botón «Nueva solicitud». Pega esto tal cual.</p></div>
+<div class="panel" id="p-chat" role="tabpanel" aria-labelledby="t-chat" hidden>
+  <div class="panel-head"><h2>La petición ya es un chat</h2><p>Era un buzón: pegabas el correo, la app leía lo que podía y, si faltaba algo, lo enseñaba como una lista de campos vacíos. Un campo vacío no dice qué escribir ni por qué hace falta. Ahora pregunta.</p></div>
+  <div class="sec-head"><h3>Qué hacer</h3><p class="sec-note">Arriba a la derecha, «Nueva solicitud». Pega esto tal cual y pulsa la flecha azul de enviar.</p></div>
   <div class="tw"><table><tbody><tr><td class="strong" style="white-space:pre-wrap;font-family:var(--f-mono);font-size:12px;line-height:1.7">Buenos días:
 
-Soy Marta Ferrer, del IES Jaume Balmes de Barcelona. Estamos preparando el
-viaje de fin de curso a Salou del 18 al 22 de mayo de 2027.
+Soy Marta Ferrer, del IES Jaume Balmes. Estamos preparando el viaje de fin
+de curso para mayo de 2027, del 12 al 16.
 
-Seríamos 48 alumnos de entre 15 y 17 años, más 4 profesores acompañantes.
-Nos interesa un hotel de 3 estrellas en pensión completa.
+Seríamos 48 alumnos de entre 15 y 17 años. Nos interesa un hotel de 3
+estrellas en pensión completa.
 
-Tenemos dos alumnos celíacos y una alumna con movilidad reducida. El
-presupuesto que manejamos es de unos 300 € por alumno.
+Tenemos dos alumnos celíacos y una alumna con movilidad reducida.
 
 Un saludo,
 Marta Ferrer
 marta@iesjaumebalmes.cat</td></tr></tbody></table></div>
-  <div class="sec-head"><h3>Qué tiene que pasar</h3><p class="sec-note">Pulsa «Ver lo que hemos entendido».</p></div>
+  <div class="nota ok"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Fíjate en que este correo NO dice el destino</span><p>Es a propósito: es lo que hace que el chat tenga que preguntar. Si el mensaje trae el pueblo, no lo pregunta.</p></div>
+  <div class="sec-head"><h3>Qué tiene que pasar · lo que saca solo</h3><p class="sec-note">Sin que nadie escriba nada.</p></div>
   <div class="tw"><div class="scroll"><table>
 <thead><tr><th class="tick"></th><th>Campo</th><th>Tiene que salir</th><th>Qué prueba</th></tr></thead>
 <tbody>
-<tr><td class="tick"><input type="checkbox" id="k-p1-0"></td><td class="strong">Centro</td><td><code>IES Jaume Balmes</code></td><td><b>Campo nuevo.</b> Antes no existía, y por eso la cuenta de Zoho se creaba con el nombre de la persona.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p1-1"></td><td class="strong">Nombre del viaje</td><td><code>IES JAUME BALMES 2027</code></td><td>Ahora sigue vuestra convención. Antes salía «Viaje fin de curso Salou 2027».</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p1-2"></td><td class="strong">Destino</td><td><code>Salou</code></td><td></td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p1-3"></td><td class="strong">Desde · Hasta</td><td><code>2027-05-18</code> · <code>2027-05-22</code></td><td></td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p1-4"></td><td class="strong">Alumnos · Profesores</td><td><code>48</code> · <code>4</code></td><td></td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p1-5"></td><td class="strong">Edades</td><td><code>15-17</code></td><td>El campo que no existía en la reunión.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p1-6"></td><td class="strong">Régimen</td><td><code>pensión completa</code></td><td></td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p1-7"></td><td class="strong">Categoría</td><td><code>3*</code></td><td></td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p1-8"></td><td class="strong">Presupuesto por alumno</td><td><code>300</code></td><td>Antes se llamaba «Tope» y no se entendía.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p1a-0"></td><td class="strong">Centro</td><td><code>IES Jaume Balmes</code></td><td>Antes no existía el campo, y la cuenta de Zoho se creaba con el nombre de la persona.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p1a-1"></td><td class="strong">Contacto</td><td><code>Marta Ferrer</code> · <code>marta@iesjaumebalmes.cat</code></td><td>El nombre sale de la firma, no de una línea aparte.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p1a-2"></td><td class="strong">Nombre del viaje</td><td><code>IES JAUME BALMES 2027</code></td><td>Vuestra convención. Antes salía «Viaje fin de curso Salou 2027».</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p1a-3"></td><td class="strong">Desde · Hasta</td><td><code>2027-05-12</code> · <code>2027-05-16</code></td><td><b>Nuevo.</b> «mayo de 2027, del 12 al 16» —el mes delante— antes daba dos fechas vacías.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p1a-4"></td><td class="strong">Alumnos</td><td><code>48</code></td><td></td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p1a-5"></td><td class="strong">Edades</td><td><code>15-17</code></td><td>El campo que no existía en la reunión.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p1a-6"></td><td class="strong">Régimen · Categoría</td><td><code>pensión completa</code> · <code>3*</code></td><td></td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p1a-7"></td><td class="strong">Lo que pide el centro</td><td><code>Alergias / dietas</code> y <code>Habitación adaptada</code></td><td>Los detecta del texto corrido, sin marcar nada.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p1a-8"></td><td class="strong">Destino</td><td>vacío</td><td>El correo no lo dice. Por eso lo pregunta.</td></tr>
 </tbody></table></div></div>
-  <div class="nota ok"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Fíjate en dos detalles</span><p>El correo no dice el nombre en una línea aparte y aun así saca «Marta Ferrer» de la firma.</p><p>Y sin que nadie marque nada, detecta los dos requisitos especiales: alergias y habitación adaptada.</p></div>
-</div>
-
-<div class="panel" id="p-sinedad" role="tabpanel" aria-labelledby="t-sinedad" hidden>
-  <div class="panel-head"><h2>Un correo sin edad ya no bloquea</h2><p>Lo pidió Javier y se confirmó en la reunión: «a veces no sabemos la edad al principio, no debería ser un requisito obligatorio».</p></div>
-  <div class="sec-head"><h3>Qué hacer</h3><p class="sec-note">Borra el contenido del campo «Edades» y vuelve a buscar.</p></div>
+  <div class="sec-head"><h3>Qué tiene que pasar · lo que pregunta</h3><p class="sec-note">Exactamente tres preguntas, en este orden.</p></div>
   <div class="tw"><div class="scroll"><table>
-<thead><tr><th class="tick"></th><th>Qué tiene que pasar</th><th>Qué NO tiene que pasar</th></tr></thead>
+<thead><tr><th class="tick"></th><th>#</th><th>Pregunta</th><th>Cómo se contesta</th></tr></thead>
 <tbody>
-<tr><td class="tick"><input type="checkbox" id="k-p2-0"></td><td class="strong">Se puede seguir. Las actividades salen todas y se descarta a mano.</td><td>Que aparezca en rojo «hace falta una edad o rango de edad» y no deje avanzar.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p2-1"></td><td class="strong">La edad sigue apareciendo como dato pendiente, en aviso.</td><td>Que desaparezca del todo: sigue siendo útil, solo que no obligatoria.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p1b-0"></td><td class="strong">1</td><td><b>¿A qué destino quieren ir?</b><br><s>Sin el destino no se puede buscar ningún alojamiento: es lo primero que filtra.</s></td><td>Escribe <code>Salou</code> abajo y Enter. <b>No se puede saltar</b>: sale en amarillo y sin «No lo han dicho».</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p1b-1"></td><td class="strong">2</td><td><b>¿Han dicho cuánto pueden gastar por alumno?</b></td><td>Escribe <code>300</code>. O pulsa «No lo han dicho» y no vuelve a preguntarlo.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p1b-2"></td><td class="strong">3</td><td><b>¿Cuántos profesores van?</b></td><td>Escribe <code>4</code>.</td></tr>
 </tbody></table></div></div>
-  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>En el servidor esto todavía falla</span><p>Era crítico en tres sitios a la vez: al leer el mensaje, al validar antes de enviar, y en la búsqueda de actividades, que devolvía cero en vez de buscar.</p></div>
+  <div class="rules"><div class="rule"><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span><span class="rt">Una sola casilla de respuesta</span><span class="rd">Se escribe abajo y solo abajo. El texto de ayuda cambia con la pregunta: «Salou, Cambrils, Andorra…», luego «300». La pregunta solo lleva atajos, nunca un segundo campo.</span></span></div><div class="rule"><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span><span class="rt">Un botón de enviar, con icono</span><span class="rd">Ya no hay «Añadir mensaje» ni «Ver lo que hemos entendido». La flecha hace lo que toque: si hay pregunta abierta, la contesta; si no, añade el mensaje y lo lee entero.</span></span></div><div class="rule"><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span><span class="rt">Enter envía, Mayús+Enter parte la línea</span><span class="rd">Pegar un correo de ocho líneas sigue funcionando igual.</span></span></div><div class="rule"><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span><span class="rt">Cada pregunta dice por qué se pregunta</span><span class="rd">Debajo del título, en gris. «¿Qué régimen?» es un trámite; «es lo que más mueve el precio» es una razón para contestar.</span></span></div></div>
+  <div class="nota ok"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Y al terminar</span><p>Cierra con <b>«Ya tengo lo necesario para recomendar»</b> en verde, y con lo que sigue sin saber. Si has contestado las tres, dice que lo sabe todo.</p><p>Cada respuesta relanza la búsqueda al momento: contestas «Salou» y la lista de la derecha aparece; contestas 300 € y se pintan los sellos de <code>cabe</code>.</p></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-chat" data-lbl="1 · La petición" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «1 · La petición»…"></textarea>
+</div>
 </div>
 
-<div class="panel" id="p-actividades" role="tabpanel" aria-labelledby="t-actividades" hidden>
-  <div class="panel-head"><h2>Las actividades aparecen</h2><p>Es la corrección más gorda de esta tanda. En el servidor, buscar Salou devuelve CERO actividades teniendo 402 tarifas publicadas.</p></div>
-  <div class="sec-head"><h3>Qué hacer</h3><p class="sec-note">Vuelve a poner las edades y mira el bloque de actividades.</p></div>
-  <div class="stats"><div class="stat"><span class="v">19</span><span class="k">actividades en Salou</span><span class="h">en local, ahora</span></div><div class="stat"><span class="v">0</span><span class="k">en el servidor</span><span class="h">con la misma búsqueda</span></div><div class="stat"><span class="v">402</span><span class="k">tarifas publicadas</span><span class="h">las que no se encontraban</span></div></div>
-  <div class="tw"><div class="scroll"><table>
-<thead><tr><th class="tick"></th><th>Destino</th><th>Tienen que salir</th></tr></thead>
-<tbody>
-<tr><td class="tick"><input type="checkbox" id="k-p3-0"></td><td class="strong">Salou</td><td><span class="mono">19</span> actividades</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p3-1"></td><td class="strong">Vila-seca</td><td><span class="mono">19</span></td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p3-2"></td><td class="strong">Cambrils</td><td><span class="mono">11</span></td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p3-3"></td><td class="strong">Jaca</td><td><span class="mono">0</span> · correcto, es otra comarca</td></tr>
-</tbody></table></div></div>
-  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Qué estaba pasando</span><p>Una actividad tiene <b>dos sitios distintos</b> y la app solo guardaba uno. Dónde ocurre, que es «PortAventura Park», y en qué pueblo está, que es Vila-seca o Salou.</p><p>Ocho actividades tenían el nombre del parque y las otras doce no tenían nada. Ninguna de las dos formas aparece buscando por localidad, que es lo único que escribe un colegio.</p><p>Y algo que conviene saber: el arreglo que hice hace dos semanas <b>no bastaba</b>. Rellenaba la ubicación con la del documento solo cuando la IA no decía nada, y en PortAventura la IA sí decía algo.</p></div>
-</div>
-
-<div class="panel" id="p-aviso" role="tabpanel" aria-labelledby="t-aviso" hidden>
-  <div class="panel-head"><h2>El aviso dice qué falta, no manda a adivinar</h2><p>Esto costó veinte minutos de la reunión del 21, con once personas delante.</p></div>
-  <div class="sec-head"><h3>Qué hacer</h3><p class="sec-note">Tres pruebas, una por cada caso. Borra el campo, busca, y lee el aviso.</p></div>
-  <div class="tw"><div class="scroll"><table>
-<thead><tr><th class="tick"></th><th>Borra esto</th><th>Tiene que decir</th></tr></thead>
-<tbody>
-<tr><td class="tick"><input type="checkbox" id="k-p4-0"></td><td class="strong">El destino</td><td>«Falta el destino: la petición no dice a qué pueblo van»</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p4-1"></td><td class="strong">Las fechas</td><td>«Faltan las fechas del viaje»</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p4-2"></td><td class="strong">Pon 2026 en las fechas</td><td>«No hay tarifas de 2026. El catálogo cargado cubre 2027»</td></tr>
-</tbody></table></div></div>
-  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Lo que pasaba en la reunión</span><p>La petición del colegio no traía destino, solo decía la actividad. Pero el aviso era siempre el mismo, «revisa el destino o las fechas», así que se probó 2026, 2027, octubre y junio antes de caer en que lo que faltaba era el pueblo.</p><p>«Revisa A o B» cuando el sistema sabe cuál de los dos falla no es ayudar: es repartir el trabajo de diagnóstico al que menos información tiene.</p></div>
-</div>
-
-<div class="panel" id="p-opciones" role="tabpanel" aria-labelledby="t-opciones" hidden>
-  <div class="panel-head"><h2>Elegir los hoteles</h2><p>Aquí se prueban dos correcciones visuales que en el servidor ya funcionan, y una que no.</p></div>
+<div class="panel" id="p-contestar" role="tabpanel" aria-labelledby="t-contestar" hidden>
+  <div class="panel-head"><h2>Lo que pasa cuando la respuesta no es la esperada</h2><p>Tres comportamientos que conviene ver, porque son los que evitan que se guarde un dato a medias.</p></div>
   <div class="tw"><div class="scroll"><table>
 <thead><tr><th class="tick"></th><th>Qué hacer</th><th>Qué tiene que pasar</th></tr></thead>
 <tbody>
-<tr><td class="tick"><input type="checkbox" id="k-p5-0"></td><td class="strong">Mirar la lista</td><td>Quince alojamientos en Salou, con su precio <b>por alumno</b> y la etiqueta <code>cabe</code> si entra en los 300 €.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p5-1"></td><td class="strong">Buscar «Cambrils» en el destino</td><td>Salen también los de Salou, con la etiqueta <code>cerca</code>. Están a diez minutos y muchas veces son la mejor opción; lo que faltaba era decirlo.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p5-2"></td><td class="strong">Pulsar «Detalle» en cualquiera</td><td>Se abre su ficha: gratuidades, condiciones y de qué documento salió la tarifa.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p5-3"></td><td class="strong">Marcar tres de 3 estrellas</td><td>Por ejemplo Santa Mónica Playa, Planas y Eurosalou: tres precios claramente distintos.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p5-4"></td><td class="strong">Probar «Comparar»</td><td>Las tres opciones en columnas.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p2-0"></td><td class="strong">Empieza otra solicitud y, a «¿qué día llegan?», escribe <code>el puente de mayo</code></td><td>Contesta en el hilo: <b>«No he entendido esa fecha. Puedes escribirla como 12/05/2027 o “12 de mayo de 2027”»</b> y vuelve a preguntar. <b>No</b> guarda media fecha.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p2-1"></td><td class="strong">A esa misma pregunta, escribe <code>del 12 al 16 de mayo de 2027</code></td><td>Coge las <b>dos</b> fechas y ya no pregunta la salida. Volver a preguntar algo que te acaban de decir es lo que hace abandonar un chat.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p2-2"></td><td class="strong">A «¿cuántos alumnos son?», escribe <code>unos 48</code></td><td>Lo entiende: <code>48</code>. Nadie escribe solo el número.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p2-3"></td><td class="strong">A «¿cuántos alumnos son?», escribe <code>bastantes</code></td><td>Dice «Ahí necesito un número. Por ejemplo: 48.»</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p2-4"></td><td class="strong">Pulsa «No lo han dicho» en el tope por alumno</td><td>Se anota en el hilo y <b>no se vuelve a preguntar</b>. Pero el cierre sigue diciendo «sigo sin saber el tope por alumno»: haberlo preguntado no es saberlo.</td></tr>
 </tbody></table></div></div>
-  <div class="nota no"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>No marques este</span><p><code>ESTIDIANTES 4R27 3E</code> es un registro de una prueba antigua, con errata en el nombre. Duplica un hotel del maestro y al mismo precio. Está en la lista de cosas a borrar.</p></div>
+  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Por qué «No lo han dicho» no rellena nada</span><p>Si el colegio no dijo el régimen, la petición se queda <b>sin régimen</b> y el encaje no lo comprueba. Ponerle «pensión completa» porque es lo habitual sería inventarse lo que pidió un cliente, y eso acaba en un presupuesto que no corresponde a nada.</p><p>Por lo mismo, las tres que bloquean —destino, fechas y alumnos— no ofrecen esa salida: sin ellas no hay nada que buscar, y dejarte saltarlas solo lleva a una pantalla vacía sin explicación.</p></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-contestar" data-lbl="2 · Contestar" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «2 · Contestar»…"></textarea>
+</div>
+</div>
+
+<div class="panel" id="p-podio" role="tabpanel" aria-labelledby="t-podio" hidden>
+  <div class="panel-head"><h2>El podio de los tres recomendados</h2><p>La funcionalidad que se había trabajado y se perdió por el camino. Vuelve, pero ordenando por otra cosa: por cuántas de las cosas que pidió ESTE centro cumple cada hotel.</p></div>
+  <div class="stats"><div class="stat"><span class="v">3</span><span class="k">recomendados</span><span class="h">de 19 alojamientos en Salou</span></div><div class="stat"><span class="v">0</span><span class="k">incumplimientos</span><span class="h">ninguno de los tres falla nada</span></div><div class="stat"><span class="v">19</span><span class="k">en la lista larga</span><span class="h">debajo, completa</span></div></div>
+  <div class="sec-head"><h3>Qué tiene que salir</h3><p class="sec-note">Con la petición de Marta: Salou, 12-16 mayo 2027, 48 alumnos, 3★, pensión completa, tope 300 €.</p></div>
+  <div class="tw"><div class="scroll"><table>
+<thead><tr><th class="tick"></th><th></th><th>Alojamiento</th><th>Por alumno</th><th>El motivo que pone debajo</th></tr></thead>
+<tbody>
+<tr><td class="tick"><input type="checkbox" id="k-p3-0"></td><td class="strong">1º</td><td>Hotel Santa Mónica Playa 3* (Salou)</td><td><span class="mono">134 €</span></td><td>Cumple 4 de 5 · 1 por confirmar</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p3-1"></td><td class="strong">2º</td><td>Hotel Planas 3* (Salou)</td><td><span class="mono">173 €</span></td><td>Cumple 4 de 6 · 2 por confirmar</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p3-2"></td><td class="strong">3º</td><td>4R Hotels 3* – Salou &amp; Calafell</td><td><span class="mono">138 €</span></td><td>Cumple 4 de 7 · 3 por confirmar</td></tr>
+</tbody></table></div></div>
+  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Por qué el primero no es el más barato</span><p>El 4R sale a 138 € y el Planas a 173 €, y el Santa Mónica va delante de los dos a 134 €. Pero el orden no es el precio: es <b>cuántas de las cosas que pidió el colegio confirma el documento del hotel</b>. El Santa Mónica es el único de los tres cuya tarifa menciona los menús para alergias.</p><p><b>Al podio no sube nada que incumpla algo.</b> Un 2★ cuando pidieron 3★ puede encajar perfecto en destino y fechas y puntuar altísimo; recomendarlo es hacerte perder el tiempo. Por eso el podio puede tener tres, dos, uno o ninguno.</p><p>Cada tarjeta lleva su motivo escrito. Un puesto sin motivo es una opinión; con el motivo, se puede discutir.</p></div>
+  <div class="tw"><div class="scroll"><table><caption>Y comprueba que el podio se comporta</caption>
+<thead><tr><th class="tick"></th><th>Qué hacer</th><th>Qué tiene que pasar</th></tr></thead>
+<tbody>
+<tr><td class="tick"><input type="checkbox" id="k-p3b-0"></td><td class="strong">Pulsar una tarjeta del podio</td><td>Se marca como opción, igual que en la lista. El texto pasa a «Quitar de las opciones».</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p3b-1"></td><td class="strong">Buscar sin tope y sin requisitos</td><td>El podio <b>desaparece</b>. Sin nada que comprobar, destacar tres hoteles sería un adorno sin motivo.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p3b-2"></td><td class="strong">Mirar la lista larga de abajo</td><td>Los tres del podio salen también ahí, con la etiqueta <code>recomendado</code>, para que no parezcan dos búsquedas distintas.</td></tr>
+</tbody></table></div></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-podio" data-lbl="3 · El podio" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «3 · El podio»…"></textarea>
+</div>
+</div>
+
+<div class="panel" id="p-lista" role="tabpanel" aria-labelledby="t-lista" hidden>
+  <div class="panel-head"><h2>Las filas, compactas y con el encaje a la vista</h2><p>«Los bloques no están bien estructurados» y las tarjetas eran demasiado grandes. Ahora cada fila cabe de un vistazo y lleva debajo lo que cumple y lo que no.</p></div>
+  <div class="tw"><div class="scroll"><table>
+<thead><tr><th class="tick"></th><th>Qué hacer</th><th>Qué tiene que pasar</th></tr></thead>
+<tbody>
+<tr><td class="tick"><input type="checkbox" id="k-p4-0"></td><td class="strong">Mirar una fila</td><td>Nombre, categoría, régimen y pueblo en una línea; el precio <b>por alumno</b> a la derecha; y debajo la tira de comprobaciones.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p4-1"></td><td class="strong">Leer la tira</td><td><code>✓ 3 estrellas</code> · <code>✓ Pensión completa</code> · <code>✓ 134 € por alumno</code> · <code>— Habitación adaptada</code>. Si hay más de cuatro, sale <code>+3</code> al final.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p4-2"></td><td class="strong">Pasar el ratón por una marca</td><td>Sale el porqué: «Su tope era 300 €», «Su tarifa no dice nada».</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p4-3"></td><td class="strong">Mirar el sello del tope</td><td><code>cabe</code> en verde si entra en los 300 €; <code>+55 €</code> en ámbar si se pasa, diciendo cuánto.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p4-4"></td><td class="strong">Buscar <code>Cambrils</code> en el destino</td><td>Salen <span class="mono">17</span>, de los cuales <span class="mono">9</span> llevan la etiqueta <code>cerca</code>: están a diez minutos y muchas veces son la mejor opción, pero hay que decirlo.</td></tr>
+</tbody></table></div></div>
+  <div class="nota no"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>El guion NO es una cruz</span><p><code>✓</code> es cumple. <code>✗</code> en rojo es que el documento del hotel dice algo que lo contradice. <code>—</code> en gris es <b>que su documento no habla del tema</b>.</p><p>Mezclarlos sería mentir: un hotel puede tener habitación adaptada y no haberlo escrito en su tarifa, y decirle a un colegio que lleva una alumna en silla de ruedas que ese hotel «no la tiene» es contestarle mal.</p></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-lista" data-lbl="4 · La lista" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «4 · La lista»…"></textarea>
+</div>
+</div>
+
+<div class="panel" id="p-detalle" role="tabpanel" aria-labelledby="t-detalle" hidden>
+  <div class="panel-head"><h2>Qué estás seleccionando exactamente</h2><p>«Si le doy en detalles me muestra un pop up muy pequeño… no me da la seguridad de que estoy seleccionando un alojamiento con las características y necesidades de la petición». Ya no es un popover de 330 px: se despliega dentro de la fila, a todo el ancho.</p></div>
+  <div class="sec-head"><h3>Qué hacer</h3><p class="sec-note">Pulsa «Ver todo el detalle» en el Hotel Santa Mónica Playa.</p></div>
+  <div class="tw"><div class="scroll"><table>
+<thead><tr><th class="tick"></th><th>Bloque</th><th>Qué tiene que traer</th></tr></thead>
+<tbody>
+<tr><td class="tick"><input type="checkbox" id="k-p5-0"></td><td class="strong"><b>Esto es lo que vas a reservar</b></td><td>Estancia (4 noches, 12 may → 16 may 2027), grupo (48 alumnos · 4 profesores), régimen, habitación, temporada, estancia mínima.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p5-1"></td><td class="strong">El desglose del precio</td><td>Alumnos: precio × 48 × 4 noches. Profesores: su línea, diciendo si es <b>uso individual</b> o <b>«sin tarifa individual: mismo precio»</b>. Y el <b>total del alojamiento</b>. Es el mismo cálculo que después sale en el PDF.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p5-2"></td><td class="strong"><b>Lo que pidió el centro</b></td><td>La lista entera, con el porqué de cada línea, no solo la tira corta de la fila.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p5-3"></td><td class="strong"><b>Lo que tiene este hotel para estas fechas</b></td><td>Tabla de tarifas con la seleccionada marcada. En el Santa Mónica salen <span class="mono">6</span>: la elegida y <span class="mono">5</span> más.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p5-4"></td><td class="strong">Gratuidades, condiciones y observaciones</td><td>Enteras, en listas, no amontonadas en un párrafo. Y al pie, de qué documento salió.</td></tr>
+</tbody></table></div></div>
+  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Dos cosas de la tabla de tarifas</span><p><b>Solo salen las que valen para las fechas del viaje.</b> El Santa Mónica tiene 42 tarifas cargadas; para el 12-16 de mayo valen 6. Enseñar las 42 no es enseñar alternativas: es invitar a elegir un precio de octubre para un viaje de mayo.</p><p><b>No se pueden elegir</b>, y lo dice. Se enseñan para saber qué más tiene el hotel; la búsqueda elige la marcada por lo que pidió el centro.</p></div>
+  <div class="nota no"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>El aviso ámbar: tarifas que no se distinguen</span><p>En algunos hoteles verás un aviso en ámbar. Es real y conviene entenderlo: el Santa Mónica tiene <b>media pensión a 28,75 €, a 43,12 € y a 51,75 € para las mismas fechas</b>, y en el catálogo no hay <b>nada</b> que diga en qué se diferencian: el campo de habitación está vacío en las 42.</p><p>El documento sí lo distinguía —habitación, edificio, lo que sea— y el importador no lo guardó. Hasta recuperarlo, dejar elegir tarifa sería dejar elegir a ciegas.</p></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-detalle" data-lbl="5 · El detalle" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «5 · El detalle»…"></textarea>
+</div>
+</div>
+
+<div class="panel" id="p-actividades" role="tabpanel" aria-labelledby="t-actividades" hidden>
+  <div class="panel-head"><h2>Las actividades aparecen</h2><p>En el servidor, buscar Salou devuelve CERO actividades teniendo 402 tarifas publicadas. En local salen.</p></div>
+  <div class="sec-head"><h3>Qué hacer</h3><p class="sec-note">Pestaña «Actividades», cambiando el destino de la petición.</p></div>
+  <div class="tw"><div class="scroll"><table>
+<thead><tr><th class="tick"></th><th>Destino</th><th>Alojamientos</th><th>Actividades</th><th></th></tr></thead>
+<tbody>
+<tr><td class="tick"><input type="checkbox" id="k-p6-0"></td><td class="strong">Salou</td><td><span class="mono">19</span></td><td><span class="mono">19</span></td><td></td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p6-1"></td><td class="strong">Vila-seca</td><td><span class="mono">16</span></td><td><span class="mono">19</span></td><td></td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p6-2"></td><td class="strong">Cambrils</td><td><span class="mono">17</span></td><td><span class="mono">11</span></td><td></td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p6-3"></td><td class="strong">Jaca</td><td><span class="mono">3</span></td><td><span class="mono">0</span></td><td>Correcto: es otra comarca</td></tr>
+</tbody></table></div></div>
+  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Qué estaba pasando</span><p>Una actividad tiene <b>dos sitios distintos</b> y la app solo guardaba uno: dónde ocurre —«PortAventura Park»— y en qué pueblo está —Vila-seca o Salou—.</p><p>Ocho actividades tenían el nombre del parque y las otras doce no tenían nada. Ninguna de las dos formas aparece buscando por localidad, que es lo único que escribe un colegio.</p></div>
+  <div class="tw"><div class="scroll"><table><caption>Y el programa por opción</caption>
+<thead><tr><th class="tick"></th><th>Qué hacer</th><th>Qué tiene que pasar</th></tr></thead>
+<tbody>
+<tr><td class="tick"><input type="checkbox" id="k-p6b-0"></td><td class="strong">Marcar dos o tres actividades</td><td>Entran en el programa base, que va en las tres opciones.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p6b-1"></td><td class="strong">Volver a Alojamientos y pulsar «Comparar»</td><td>Las opciones en columnas, y se puede quitar o añadir una actividad en una sola de ellas.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p6b-2"></td><td class="strong">Mirar una fila con el programa cambiado</td><td>Debajo pone qué se ha quitado y qué se ha añadido respecto a la base.</td></tr>
+</tbody></table></div></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-actividades" data-lbl="6 · Actividades" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «6 · Actividades»…"></textarea>
+</div>
 </div>
 
 <div class="panel" id="p-borradores" role="tabpanel" aria-labelledby="t-borradores" hidden>
@@ -451,44 +583,89 @@ marta@iesjaumebalmes.cat</td></tr></tbody></table></div>
   <div class="tw"><div class="scroll"><table>
 <thead><tr><th class="tick"></th><th>Qué hacer</th><th>Qué tiene que pasar</th></tr></thead>
 <tbody>
-<tr><td class="tick"><input type="checkbox" id="k-p6-0"></td><td class="strong">Sal del lienzo con «Salir» y vuelve a entrar en «Nueva solicitud»</td><td>Arriba aparece una lista de <b>solicitudes a medias</b> con su título compuesto: centro, destino y fecha.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p6-1"></td><td class="strong">Pulsar una de la lista</td><td>Se recupera entera: los mensajes, los campos corregidos a mano y los hoteles marcados. Y vuelve a buscar, porque las tarifas pueden haber cambiado.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p6-2"></td><td class="strong">Empezar OTRA solicitud distinta</td><td><b>La anterior no se pierde.</b> Este era el fallo: solo había un borrador y empezar otro pisaba el anterior.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p6-3"></td><td class="strong">Volver a la lista</td><td>Están las dos.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p7-0"></td><td class="strong">Sal del lienzo con «Salir» y vuelve a entrar en «Nueva solicitud»</td><td>Arriba, una lista de <b>solicitudes a medias</b> con su título compuesto: centro, destino y fecha.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p7-1"></td><td class="strong">Pulsar una de la lista</td><td>Se recupera entera: los mensajes, los campos corregidos a mano, los hoteles marcados <b>y el hilo del chat</b>. Y vuelve a buscar, porque las tarifas pueden haber cambiado.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p7-2"></td><td class="strong">Mirar el chat recuperado</td><td><b>Están las preguntas y las respuestas</b>, y no vuelve a preguntar lo que ya se contestó. Sin esto, retomarlo mañana empezaba otra vez.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p7-3"></td><td class="strong">Empezar OTRA solicitud distinta</td><td><b>La anterior no se pierde.</b> Este era el fallo: solo había un borrador y empezar otro pisaba el anterior.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p7-4"></td><td class="strong">Volver a la lista</td><td>Están las dos.</td></tr>
 </tbody></table></div></div>
-  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Dos decisiones que conviene que veas</span><p><b>La visibilidad es más abierta que la de las propuestas, a propósito.</b> Un cotizador ve los borradores de su departamento, no solo los suyos. Es lo que pidió Ruth: si quien lo empezó está de baja, su compañera tiene que poder continuarlo.</p><p><b>No hay cerrojo duro.</b> Si otra persona lo tiene abierto se avisa de quién es y se puede tomar igualmente. Un cerrojo de verdad convierte unas vacaciones en un bloqueo. La reserva caduca a los 30 minutos.</p></div>
+  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Dos decisiones que conviene que veas</span><p><b>La visibilidad es más abierta que la de las propuestas, a propósito.</b> Un cotizador ve los borradores de su departamento, no solo los suyos. Lo pidió Ruth: si quien lo empezó está de baja, su compañera tiene que poder continuarlo.</p><p><b>No hay cerrojo duro.</b> Si otra persona lo tiene abierto se avisa de quién es y se puede tomar igualmente. Un cerrojo de verdad convierte unas vacaciones en un bloqueo. La reserva caduca a los 30 minutos.</p></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-borradores" data-lbl="7 · Borradores" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «7 · Borradores»…"></textarea>
+</div>
+</div>
+
+<div class="panel" id="p-mesa" role="tabpanel" aria-labelledby="t-mesa" hidden>
+  <div class="panel-head"><h2>La ficha, el correo y el borrado</h2><p>Tres pantallas nuevas que cuelgan de la lista de presupuestos de la pantalla principal. No estaban en el recorrido anterior.</p></div>
+  <div class="tw"><div class="scroll"><table>
+<thead><tr><th class="tick"></th><th>Qué hacer</th><th>Qué tiene que pasar</th></tr></thead>
+<tbody>
+<tr><td class="tick"><input type="checkbox" id="k-p8-0"></td><td class="strong"><b>Pulsar el título</b> de un presupuesto de la lista</td><td>Se abre su <b>ficha</b> a pantalla completa: el viaje, el contacto, la oportunidad del CRM con su fase actual, las opciones enviadas, el correo y el PDF. La oportunidad contiene el presupuesto y el presupuesto alimenta la oportunidad; por eso conviven en la misma ficha.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p8-1"></td><td class="strong">Si Zoho no contesta</td><td>La ficha <b>se abre igual</b>, diciendo que no ha podido leer el CRM. Lo nuestro no depende de que el CRM esté disponible.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p8-2"></td><td class="strong">Pulsar <b>«Correo»</b></td><td>La conversación con ese colegio: lo enviado y lo recibido, en hilo. Y un cuadro para escribirle.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p8-3"></td><td class="strong">Pulsar <b>«Ha cambiado algo»</b></td><td>Para cuando el cliente cambia fechas o número de alumnos.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p8-4"></td><td class="strong">Pulsar <b>«Borrar»</b> en una solicitud de prueba</td><td>Dice exactamente qué se va a borrar —la solicitud, sus propuestas y <b>su oportunidad del CRM</b>— y pide confirmar.</td></tr>
+</tbody></table></div></div>
+  <div class="nota no"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>El borrado toca el CRM REAL</span><p>Borra primero en Zoho y después aquí. Si Zoho falla, <b>no borra nada</b>: quedarse con el trato huérfano en el CRM y sin el registro aquí es peor que no borrar.</p><p>Y hay una regla que no se salta: <b>una propuesta que el colegio ya ha abierto no se borra.</b> Si tiene visitas o está enviada, dice por qué no puede.</p></div>
+  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Lo del correo, sin clave de buzón</span><p>En local no hay credenciales de correo, así que el envío sale <b>simulado</b>: dice «preparada, no ha salido». Eso no es un error.</p></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-mesa" data-lbl="8 · La mesa" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «8 · La mesa»…"></textarea>
+</div>
 </div>
 
 <div class="panel" id="p-cierre" role="tabpanel" aria-labelledby="t-cierre" hidden>
   <div class="panel-head"><h2>Hasta dónde llegar en local</h2><p>Aquí hay que parar antes del final, y conviene saber por qué.</p></div>
-  <div class="nota no"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>En local, el CRM es el REAL de Oravia</span><p>Las credenciales de Zoho de la copia local son las de producción. Pulsar «Revisar y enviar» <b>crea una oportunidad de verdad</b> en su CRM.</p><p>Así que: o paras antes de ese botón, o le pones al viaje un nombre con <code>PRUEBA</code> delante y lo borras después.</p></div>
+  <div class="nota no"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>En local, el CRM es el REAL de Oravia</span><p>Las credenciales de Zoho de la copia local son las de producción. Pulsar «Revisar y enviar» <b>crea una oportunidad de verdad</b> en su CRM.</p><p>Así que: o paras antes de ese botón, o le pones al viaje un nombre con <code>PRUEBA</code> delante y lo borras después —ahora se puede, desde la propia app—.</p></div>
   <div class="tw"><div class="scroll"><table>
 <thead><tr><th class="tick"></th><th>Qué hacer</th><th>Qué tiene que pasar</th></tr></thead>
 <tbody>
-<tr><td class="tick"><input type="checkbox" id="k-p7-0"></td><td class="strong">Si decides seguir: poner <code>PRUEBA</code> en el nombre del viaje</td><td>Para poder encontrarlo en Zoho y borrarlo.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p7-1"></td><td class="strong">Pulsar «Revisar y enviar»</td><td>Aparece la referencia <code>ORV-2026-####</code> y la pantalla de revisión.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p7-2"></td><td class="strong">Descargar el PDF</td><td>Dos páginas, no cuatro. Sin páginas en blanco. El desglose multiplica bien contra el total.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p7-3"></td><td class="strong">Leer las observaciones del PDF</td><td>No puede aparecer «precios netos (coste)» ni el nombre de ningún fichero interno.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-p7-4"></td><td class="strong">El correo sale simulado</td><td>En local no hay clave de buzón, así que dice «preparada, no ha salido». Eso no es un error.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p9-0"></td><td class="strong">Si decides seguir: poner <code>PRUEBA</code> en el nombre del viaje</td><td>Para poder encontrarlo en Zoho y borrarlo.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p9-1"></td><td class="strong">Pulsar «Revisar y enviar»</td><td>Aparece la referencia <code>ORV-2026-####</code> y la pantalla de revisión.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p9-2"></td><td class="strong">Descargar el PDF</td><td>Tres partes: <b>1 · Los alojamientos</b>, <b>2 · Las actividades</b> y <b>3 · Resumen del viaje</b>. Sin páginas en blanco.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p9-3"></td><td class="strong">Mirar la parte 1</td><td>Cada alojamiento con sus <b>políticas, gratuidades y condiciones</b> en líneas legibles, no con etiquetas técnicas.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p9-4"></td><td class="strong">Mirar la parte 2</td><td>Las actividades con el total por alumno <b>y</b> para el grupo.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p9-5"></td><td class="strong">Leer las observaciones</td><td>No puede aparecer «precios netos (coste)» ni el nombre de ningún fichero interno.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-p9-6"></td><td class="strong">Volver a la mesa y borrar la prueba</td><td>Se va de aquí y del CRM.</td></tr>
 </tbody></table></div></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-cierre" data-lbl="9 · Cerrar" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «9 · Cerrar»…"></textarea>
+</div>
 </div>
 
-<div class="panel" id="p-documental" role="tabpanel" aria-labelledby="t-documental" hidden>
-  <div class="panel-head"><h2>Los suplementos repetidos</h2><p>Es la última corrección y solo se ve subiendo un documento nuevo, así que va aparte.</p></div>
-  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Qué pasaba</span><p>El maestro de hoteles es una hoja con una fila por tarifa, y las condiciones del hotel están escritas <b>en cada fila</b>. Un hotel con seis temporadas, dos regímenes y tres ocupaciones repite sus suplementos treinta y seis veces.</p><p>La lectura los proponía todos, y alguien tenía que aprobarlos o descartarlos de uno en uno.</p></div>
-  <div class="tw"><div class="scroll"><table>
-<thead><tr><th class="tick"></th><th>Qué hacer</th><th>Qué tiene que pasar</th></tr></thead>
+<div class="panel" id="p-catalogo" role="tabpanel" aria-labelledby="t-catalogo" hidden>
+  <div class="panel-head"><h2>Por qué salen tantos guiones</h2><p>Si al mirar el encaje te parece que hay demasiados «no consta», no es el motor: es lo que el catálogo tiene publicado. Estos números son de la copia local, hoy.</p></div>
+  <div class="stats"><div class="stat"><span class="v">2</span><span class="k">de 34 hablan de dietas</span><span class="h">Santa Mónica y Trainera</span></div><div class="stat"><span class="v">1</span><span class="k">habla de accesibilidad</span><span class="h">de 34</span></div><div class="stat"><span class="v">5</span><span class="k">sin nada publicado</span><span class="h">ni condiciones ni gratuidades</span></div></div>
+  <div class="tw"><div class="scroll"><table><caption>Los cinco sin nada</caption>
+<thead><tr><th class="tick"></th><th>Alojamiento</th><th></th></tr></thead>
 <tbody>
-<tr><td class="tick"><input type="checkbox" id="k-doc-0"></td><td class="strong">Subir un documento en Tarifas y leerlo con IA</td><td>Tarda entre dos y veinte minutos. <b>Tiene coste</b>, así que solo si hace falta.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-doc-1"></td><td class="strong">Mirar los avisos del documento</td><td>Dice cuántos suplementos se agruparon y cuántos distintos quedan.</td></tr>
-<tr><td class="tick"><input type="checkbox" id="k-doc-2"></td><td class="strong">Mirar un suplemento agrupado</td><td>Pone «repetido en 36 filas del documento». Esa cuenta es información: uno que sale en las 36 filas es del hotel; uno que sale en 2 puede ser de una temporada.</td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-cat-0"></td><td class="strong">CAMBRILS PARK-FUTBOL SALOU</td><td></td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-cat-1"></td><td class="strong">Mediterrània MED1</td><td></td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-cat-2"></td><td class="strong">Mediterrània MED2/3</td><td></td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-cat-3"></td><td class="strong">Villa Bonita / Aloha</td><td></td></tr>
+<tr><td class="tick"><input type="checkbox" id="k-cat-4"></td><td class="strong">PortAventura · Entradas grupos parques 2027</td><td><b>Además no tiene ninguna tarifa.</b> Es un registro de entradas que quedó como si fuera un alojamiento. No sale en las búsquedas, pero no debería estar ahí.</td></tr>
 </tbody></table></div></div>
+  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Lo que hay que hacer con esto</span><p>Los 34 alojamientos se publicaron el 22/09, <b>antes</b> de arreglar el extractor de textos. El motor que reparte gratuidades, condiciones y observaciones ya está corregido y probado, pero lo publicado sigue siendo lo viejo.</p><p>La app <b>ya no guarda el fichero original</b> de esos cuatro documentos, así que no se pueden reprocesar: hay que <b>volver a subirlos</b>. Republicar ya es seguro: el borrado en cascada que se llevaba por delante las opciones de las propuestas está arreglado.</p><p>Cuando preparéis la versión actualizada, lo que más peso tiene para que dejen de salir guiones es que el documento traiga, por hotel: <b>qué habitación es cada precio</b>, gratuidades, cancelación y depósito, tasas, y si hay menús para alergias y habitación adaptada.</p></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-catalogo" data-lbl="El catálogo" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «El catálogo»…"></textarea>
+</div>
 </div>
 
 <div class="panel" id="p-queda" role="tabpanel" aria-labelledby="t-queda" hidden>
-  <div class="panel-head"><h2>Lo que NO se puede probar en local</h2><p>Para que no pierdas tiempo buscándolo.</p></div>
-  <div class="rules"><div class="rule no"><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span><span class="rt">Los idiomas</span><span class="rd">Catalán, inglés y francés siguen sin leerse. Espera a que decidáis si lo lee la IA.</span></span></div><div class="rule no"><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span><span class="rt">Los correos por oportunidad</span><span class="rd">Requiere el módulo de correo de Zoho, que no hemos tocado.</span></span></div><div class="rule no"><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span><span class="rt">El envío de verdad</span><span class="rd">En local el correo sale simulado: no hay clave de buzón.</span></span></div><div class="rule no"><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span><span class="rt">La página pública</span><span class="rd">Funciona, pero el enlace apunta a localhost.</span></span></div><div class="rule"><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span><span class="rt">Las cifras exactas del catálogo</span><span class="rd">El espejo agrupa algunas tarifas de más. Para comparar números, el servidor.</span></span></div></div>
-  <div class="nota q"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Y lo más importante</span><p>Todo esto son <b>siete commits en main que no llegan al servidor</b>, tres de ellos con migración de base de datos. El despliegue automático sigue fallando en el paso de SSH.</p><p>Lo que pruebes hoy en local no lo tiene Oravia hasta que eso se arregle.</p></div>
+  <div class="panel-head"><h2>Lo que NO se puede probar en local, y lo que sé que falla</h2><p>Para que no pierdas tiempo buscándolo.</p></div>
+  <div class="sec-head"><h3>No se puede probar aquí</h3></div>
+  <div class="rules"><div class="rule no"><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span><span class="rt">El envío de correo de verdad</span><span class="rd">En local no hay clave de buzón: sale simulado.</span></span></div><div class="rule no"><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span><span class="rt">La bandeja de entrada</span><span class="rd">Bloqueada en el servidor: <code>groups@oraviatravel.com</code> acepta el correo y no aparece en ninguna carpeta.</span></span></div><div class="rule no"><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span><span class="rt">Los idiomas</span><span class="rd">Catalán, inglés y francés siguen sin leerse.</span></span></div><div class="rule no"><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span><span class="rt">La página pública</span><span class="rd">Funciona, pero el enlace apunta a localhost.</span></span></div><div class="rule"><span class="ic"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span><span class="rt">Las cifras exactas del catálogo</span><span class="rd">El espejo agrupa algunas tarifas de más. Para comparar números, el servidor.</span></span></div></div>
+  <div class="sec-head"><h3>Y algo que he visto probando esto</h3></div>
+  <div class="nota no"><span class="nt"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>El pueblo del colegio se lee como destino</span><p>Si el correo dice <code>del IES Jaume Balmes <b>de Barcelona</b></code> y <b>no</b> dice a dónde van, la app se queda con <b>Barcelona</b> como destino. Entonces el chat no pregunta el destino —cree que lo tiene— y la búsqueda devuelve cero alojamientos.</p><p>Solo pasa cuando el destino real no está escrito: si el correo dice «a Salou», gana Salou. Y devuelve cero, no una lista equivocada. Aun así hay que arreglarlo: decidme si lo meto.</p></div>
+  <div class="sec-head"><h3>Y lo más importante</h3></div>
+  <div class="principio"><svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg><div><span class="pk">Nada de esto está en el servidor</span><strong>Todo lo que pruebes hoy en local sigue sin llegar a Oravia. El despliegue no corre desde el 23 de septiembre, y hay migraciones de base de datos pendientes. Lo que veas aquí, ellos no lo tienen.</strong></div></div>
+  <div class="obs">
+  <div class="sec-head"><h3>¿Algo que no cuadre en esta sección?</h3><p class="sec-note">Se guarda solo y aparece en «Vuestras respuestas».</p></div>
+  <textarea class="cmt" id="cmt-p-queda" data-lbl="Qué falta" rows="3" placeholder="Lo que haya que cambiar, quitar o añadir en «Qué falta»…"></textarea>
+</div>
 </div>
     </div>
   </main>
@@ -571,7 +748,7 @@ marta@iesjaumebalmes.cat</td></tr></tbody></table></div>
   else if (guardada && !guardada.hidden) show(saved, false);
   else { var pri = tabs.filter(function(t){ return !t.hidden })[0]; if (pri) show(pri.id, false); }
 
-  var KEY = 'oravia-local';
+  var KEY = 'oravia-local-v3';
   var st = {};
   try { st = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
   function guarda(){ try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} }
@@ -592,6 +769,138 @@ marta@iesjaumebalmes.cat</td></tr></tbody></table></div>
     if (st[b.id]) b.checked = true;
     b.addEventListener('change', function(){ st[b.id] = b.checked; guarda(); pinta(); });
   });
+
+  // ---------- lo que contesta el cliente ----------
+  var QS = [];
+  var radios = Array.prototype.slice.call(document.querySelectorAll('input[type=radio]'));
+  var textos = Array.prototype.slice.call(document.querySelectorAll('textarea.cmt'));
+  radios.forEach(function(r){
+    if (st['rd:' + r.name] === r.value) r.checked = true;
+    r.addEventListener('change', function(){ st['rd:' + r.name] = r.value; guarda(); pinta(); });
+  });
+  textos.forEach(function(t){
+    if (st['tx:' + t.id]) { t.value = st['tx:' + t.id]; t.classList.add('lleno'); }
+    t.addEventListener('input', function(){
+      st['tx:' + t.id] = t.value;
+      t.classList.toggle('lleno', !!t.value.trim());
+      guarda(); pinta();
+    });
+  });
+  document.addEventListener('click', function(e){
+    var a = e.target && e.target.closest ? e.target.closest('a[data-goto]') : null;
+    if (!a) return;
+    e.preventDefault();
+    var el = document.getElementById(a.getAttribute('data-goto'));
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  function opcion(n){
+    var el = document.querySelector('input[name="q' + n + '"]:checked');
+    return el ? { k: el.value, t: el.getAttribute('data-lbl') || '' } : null;
+  }
+  function comentario(id){ return (st['tx:cmt-' + id] || '').trim(); }
+  var out = document.getElementById('r-out');
+  var RAYA = '============================================================';
+  function texto(){
+    var L = [];
+    var hechas = QS.filter(function(q){ return !!opcion(q.n); });
+    var crit = QS.filter(function(q){ return q.crit; });
+    var critH = crit.filter(function(q){ return !!opcion(q.n); });
+    L.push(out ? out.getAttribute('data-cab') : 'RESPUESTAS');
+    L.push('Enviado el ' + new Date().toLocaleString('es-ES'));
+    if (QS.length) L.push(hechas.length + ' de ' + QS.length + ' preguntas contestadas'
+      + (crit.length ? ' · ' + critH.length + ' de ' + crit.length + ' de las que bloquean' : ''));
+    if (QS.length) {
+      L.push(''); L.push(RAYA); L.push('LAS PREGUNTAS'); L.push(RAYA);
+      QS.forEach(function(q){
+        var o = opcion(q.n), c = comentario('q' + q.n);
+        L.push('');
+        L.push(q.n + ' · ' + q.t + (q.crit ? '   [BLOQUEA]' : ''));
+        L.push('   Respuesta: ' + (o ? (o.k === '\u2014' ? 'ninguna de las propuestas' : 'opción ' + o.k + ' — ' + o.t) : 'SIN CONTESTAR'));
+        if (c) L.push('   Comentario: ' + c.replace(/\n/g, '\n               '));
+      });
+    }
+    var obs = textos.filter(function(t){ return t.id.indexOf('cmt-q') !== 0 && (t.value || '').trim(); });
+    L.push(''); L.push(RAYA); L.push('OBSERVACIONES POR SECCIÓN'); L.push(RAYA);
+    if (!obs.length) L.push('(ninguna)');
+    obs.forEach(function(t){
+      L.push('');
+      L.push('· ' + t.getAttribute('data-lbl'));
+      L.push('   ' + t.value.trim().replace(/\n/g, '\n   '));
+    });
+    if (checks.length) {
+      var n = checks.filter(function(b){ return b.checked; }).length;
+      L.push(''); L.push(RAYA); L.push('REVISIÓN DEL DETALLE'); L.push(RAYA);
+      L.push(n + ' de ' + checks.length + ' puntos marcados como revisados y conformes.');
+    }
+    L.push('');
+    L.push('-- ' + (out ? out.getAttribute('data-firma') : 'Neointec') + ' --');
+    return L.join('\n');
+  }
+  function set(id, v){ var e = document.getElementById(id); if (e) e.textContent = v; }
+  function pintaRespuestas(){
+    var hechas = QS.filter(function(q){ return !!opcion(q.n); }).length;
+    var crit = QS.filter(function(q){ return q.crit; });
+    var critH = crit.filter(function(q){ return !!opcion(q.n); }).length;
+    var nck = checks.filter(function(b){ return b.checked; }).length;
+    var ncm = textos.filter(function(t){ return (t.value || '').trim(); }).length;
+    set('r-q', hechas); set('r-qt', QS.length); set('r-crit', critH); set('r-critt', crit.length);
+    set('r-cmt', ncm); set('r-ck', nck); set('r-ckt', checks.length);
+    QS.forEach(function(q){
+      var c = document.getElementById('ix-q' + q.n); if (!c) return;
+      var o = opcion(q.n);
+      c.innerHTML = o ? '<span class="chip rec">' + (o.k === '\u2014' ? 'otra' : o.k) + '</span>'
+                      : '<span class="chip empty">pendiente</span>';
+    });
+    var tabla = document.getElementById('r-tabla');
+    if (tabla) tabla.innerHTML = QS.map(function(q){
+      var o = opcion(q.n), c = comentario('q' + q.n);
+      return '<tr><td class="mono">' + q.n + '</td><td class="strong">' + q.t
+        + (q.crit ? ' <span class="chip no">bloquea</span>' : '') + '</td><td>'
+        + (o ? '<span class="chip rec">' + (o.k === '\u2014' ? 'ninguna' : o.k) + '</span> ' + o.t.replace(/</g, '&lt;')
+             : '<span class="chip empty">sin contestar</span>')
+        + '</td><td>' + (c ? c.replace(/</g, '&lt;') : '<span style="color:var(--ink-3)">—</span>') + '</td></tr>';
+    }).join('');
+    if (out && document.activeElement !== out) out.value = texto();
+  }
+  var pintaBase = pinta;
+  pinta = function(){ pintaBase(); pintaRespuestas(); };
+
+  function flash(b, t){
+    var prev = b.textContent;
+    b.textContent = t; b.classList.add('hecho');
+    setTimeout(function(){ b.textContent = prev; b.classList.remove('hecho'); }, 2200);
+  }
+  var bc = document.getElementById('b-copy');
+  if (bc) bc.addEventListener('click', function(){
+    out.value = out.value || texto();
+    var ok = false;
+    // En file:// no hay navigator.clipboard (no es contexto seguro): execCommand primero.
+    try { out.focus(); out.select(); ok = document.execCommand('copy'); } catch (e) {}
+    if (!ok && navigator.clipboard) {
+      navigator.clipboard.writeText(out.value).then(function(){ flash(bc, '✓ Copiado'); },
+        function(){ flash(bc, 'Copiadlo del cuadro de abajo'); });
+      return;
+    }
+    flash(bc, ok ? '✓ Copiado' : 'Copiadlo del cuadro de abajo');
+  });
+  var bd = document.getElementById('b-dl');
+  if (bd) bd.addEventListener('click', function(){
+    var blob = new Blob([out.value || texto()], { type: 'text/plain;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'respuestas-' + new Date().toISOString().slice(0, 10) + '.txt';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+    flash(bd, '✓ Descargado');
+  });
+  var bx = document.getElementById('b-clear');
+  if (bx) bx.addEventListener('click', function(){
+    if (!confirm('Se borra todo lo marcado y escrito en este documento. ¿Seguimos?')) return;
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    location.reload();
+  });
+
   pinta();
 })();
 </script>
