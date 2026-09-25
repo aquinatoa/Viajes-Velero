@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildProposal,
   logCrmSyncAttempt,
@@ -40,8 +40,26 @@ import {
   type BorradorSolicitud,
 } from "./draft";
 import type { ClientSegment } from "../../domain/documentImportTypes";
+import { podio, razonDelPodio } from "../../domain/podio";
+import { leerRango, leerUnaFecha } from "../../domain/fechas";
+import { interpretarRespuesta } from "../../domain/interpretarRespuesta";
+import {
+  bloquesParaValidar,
+  firmaDeLaPeticion,
+  loQueFaltaDeVerdad,
+} from "../../domain/validacionDeLaPeticion";
+import {
+  conservarLoContestado,
+  loQueSeIgnora,
+  sePuedeRecomendar,
+  siguientePregunta,
+  type Hueco,
+} from "../../domain/loQueFalta";
+import { applyDefaultMarkup } from "../../services/pricing";
 import type {
+  AccommodationRate,
   AccommodationSearchMatch,
+  ComprobacionDeEncaje,
   FindCandidateOpportunitiesResult,
   ActivitySearchMatch,
   NormalizedRequestDraft,
@@ -88,13 +106,42 @@ interface Hito {
   estado: HitoEstado;
 }
 
+/**
+ * Un turno ya cerrado del chat: lo que se preguntó y lo que se contestó.
+ *
+ * La pregunta PENDIENTE no se guarda aquí: se calcula en cada pintada desde lo
+ * que falta. Guardarla obligaría a mantener dos verdades sobre el mismo hueco,
+ * y acabarían discrepando en cuanto alguien corrija un campo a mano.
+ */
+interface TurnoDelChat {
+  pregunta: string;
+  /**
+   * Lo contestado. Vacío cuando la app solo dice algo —«no he entendido esa
+   * fecha»—: en un chat, no entender algo también es un turno.
+   */
+  respuesta: string;
+}
+
+/**
+ * El precio de venta de una tarifa, con la MISMA regla con la que se cotiza.
+ *
+ * `server/pricing.ts` y `services/proposalService.ts` aplican el margen del 8%
+ * cuando el documento solo trae el neto. Esta pantalla no lo hacía: enseñaba el
+ * neto pelado, así que un hotel sin PVP salía en la lista un 8% más barato de
+ * lo que después decía el presupuesto. Es exactamente el malentendido que este
+ * repaso venía a quitar.
+ */
+function precioDeTarifa(tarifa: { pvpAmount: number; netSaleAmount: number }): number {
+  return tarifa.pvpAmount || (tarifa.netSaleAmount ? applyDefaultMarkup(tarifa.netSaleAmount) : 0);
+}
+
 /** Precio por alumno de una opción: el hotel más las actividades con precio. */
 function precioPorAlumno(
   hotel: AccommodationSearchMatch,
   actividades: ActivitySearchMatch[],
   noches: number,
 ): number {
-  const base = (hotel.rate.pvpAmount || hotel.rate.netSaleAmount || 0) * Math.max(noches, 1);
+  const base = precioDeTarifa(hotel.rate) * Math.max(noches, 1);
   const extras = actividades.reduce((suma, item) => suma + (item.rate.salePvpAmount || 0), 0);
   return Math.round((base + extras) * 100) / 100;
 }
@@ -207,6 +254,28 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
   /** Tope por alumno y requisitos especiales, sacados del propio mensaje. */
   const [tope, setTope] = useState<number | null>(null);
   const [requisitos, setRequisitos] = useState<string[]>([]);
+  /** Lo que se ha ido preguntando y contestando en el chat de la petición. */
+  const [conversacion, setConversacion] = useState<TurnoDelChat[]>([]);
+  /**
+   * Preguntas ya hechas que se quedaron sin respuesta.
+   *
+   * Se guardan para NO repetirlas. Insistir con el tope por alumno cuando ya
+   * han dicho que no lo tienen es lo que hace que se deje de leer la pantalla.
+   * Las que bloquean -destino, fechas, alumnos- no entran aquí: esas se
+   * preguntan hasta que se contestan, porque sin ellas no hay nada que buscar.
+   */
+  const [preguntadas, setPreguntadas] = useState<string[]>([]);
+  /** La ventana de «Lo que hemos entendido» está abierta. */
+  const [revisandoPeticion, setRevisandoPeticion] = useState(false);
+  /**
+   * La huella de la petición tal y como se validó.
+   *
+   * No un simple «validado: true»: así el visto bueno CADUCA. Si después
+   * cambia algo -un segundo correo del colegio, una respuesta en el chat, un
+   * campo corregido a mano- la huella deja de coincidir y se vuelve a pedir.
+   * Un «revisado» sobre datos que ya han cambiado no vale nada.
+   */
+  const [firmaValidada, setFirmaValidada] = useState<string | null>(null);
   /** Solicitudes previas del mismo cliente: evita crear dos tratos del mismo viaje. */
   const [previas, setPrevias] = useState<FindCandidateOpportunitiesResult | null>(null);
   const [parseResult, setParseResult] = useState<ParseTripRequestResult | null>(null);
@@ -246,6 +315,17 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
   const [dealId, setDealId] = useState<string | null>(null);
   const [entrega, setEntrega] = useState<ProposalDeliveryResult | null>(null);
   const [enviada, setEnviada] = useState(false);
+  /**
+   * Cómo acabó el envío, para decirlo a la cara.
+   *
+   * Antes solo quedaba una franja ámbar arriba del lienzo y la pantalla igual
+   * que estaba: con la propuesta ya fuera, se seguía mirando la misma lista de
+   * hoteles sin saber si había que hacer algo más. Y un fallo salía en el mismo
+   * sitio y con el mismo aspecto que cualquier otro aviso.
+   */
+  const [resultadoEnvio, setResultadoEnvio] = useState<
+    { estado: "enviada" | "preparada" | "fallo"; motivo: string | null } | null
+  >(null);
 
   /** El borrador que se está escribiendo, ya en el servidor. */
   const [borradorId, setBorradorId] = useState<string | null>(null);
@@ -356,6 +436,8 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
       setEntendido(estado.entendido);
       setTope(estado.tope ?? null);
       setRequisitos(estado.requisitos ?? []);
+      setConversacion(estado.conversacion ?? []);
+      setPreguntadas(estado.preguntadas ?? []);
       setElegidos(estado.elegidos ?? []);
       setProgramaBase(estado.programaBase ?? []);
       setExcepciones(estado.excepciones ?? {});
@@ -365,7 +447,10 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
       // Las tarifas pueden haber cambiado desde que se guardó: se vuelve a
       // buscar en vez de enseñar precios viejos.
       if (estado.entendido?.destinationText) {
-        await buscarHoteles(estado.entendido, estado.canal ?? "GENERIC");
+        await buscarHoteles(estado.entendido, estado.canal ?? "GENERIC", {
+          requisitos: estado.requisitos ?? [],
+          tope: estado.tope ?? null,
+        });
       }
     } catch (err) {
       setError(mensajeDeError(err, "No se pudo abrir el borrador."));
@@ -373,6 +458,49 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
       setOcupado("");
     }
   }
+
+  /**
+   * Quién es ese correo en el CRM, en cuanto se sabe.
+   *
+   * Va en un efecto y no dentro de «leer» para que valga en los tres caminos
+   * por los que puede aparecer un correo: leído del mensaje, escrito a mano en
+   * la ventana de revisión, o corregido después. Antes solo se intentaba al
+   * leer, y encima con el valor anterior del estado, así que en la práctica no
+   * se consultaba.
+   *
+   * Importa porque sin esto se crea una segunda ficha del mismo colegio cada
+   * vez que alguien escribe el nombre de otra manera. En el Zoho de Oravia
+   * quedaron tres cuentas llamadas «Marta Ferrer».
+   */
+  const ultimoCorreoConsultado = useRef<string>("");
+  useEffect(() => {
+    const correo = form.email.trim().toLowerCase();
+    // Sin arroba no es un correo todavía: se está escribiendo.
+    if (!correo || !/.+@.+\..+/.test(correo)) return;
+    if (correo === ultimoCorreoConsultado.current) return;
+
+    const reloj = window.setTimeout(() => {
+      ultimoCorreoConsultado.current = correo;
+      void traerContactoDelCrm(correo);
+    }, 600);
+    return () => window.clearTimeout(reloj);
+  }, [form.email]);
+
+  /**
+   * El hilo del chat, para poder llevarlo al final.
+   *
+   * La tarjeta tiene altura fija y el que se desplaza es el hilo, no la
+   * página. Sin esto, cada respuesta nueva quedaba fuera de la vista y había
+   * que bajar a mano para leer lo que acababa de contestar la app.
+   */
+  const hiloRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const hilo = hiloRef.current;
+    if (!hilo) return;
+    hilo.scrollTop = hilo.scrollHeight;
+    // `entendido` y `preguntadas` en vez de la pregunta pendiente: esta se
+    // calcula mas abajo y son justo los dos estados que la hacen cambiar.
+  }, [conversacion, mensajes, entendido, preguntadas]);
 
   // Guardado continuo, con un respiro para no escribir en cada tecla.
   const guardadoRef = useRef<number | null>(null);
@@ -389,6 +517,10 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
         entendido,
         tope,
         requisitos,
+        // El hilo del chat viaja con el borrador: sin esto, retomarlo mañana
+        // volvía a preguntar lo que el colegio ya había contestado.
+        conversacion,
+        preguntadas,
         elegidos,
         programaBase,
         excepciones,
@@ -420,7 +552,7 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
     return () => {
       if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
     };
-  }, [mensajes, borrador, form, entendido, tope, requisitos, elegidos, programaBase, excepciones, preciosFijados, solicitudId, canal, enviada]);
+  }, [mensajes, borrador, form, entendido, tope, requisitos, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, solicitudId, canal, enviada]);
 
   /** Recupera el borrador y vuelve a buscar hoteles: las tarifas pueden haber cambiado. */
   function recuperar() {
@@ -432,6 +564,8 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
     setForm(recuperable.form);
     setEntendido(recuperable.entendido);
     setTope(recuperable.tope);
+    setConversacion(recuperable.conversacion ?? []);
+    setPreguntadas(recuperable.preguntadas ?? []);
     setRequisitos(recuperable.requisitos);
     setElegidos(recuperable.elegidos);
     setProgramaBase(recuperable.programaBase);
@@ -444,7 +578,10 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
         warnings: [],
         requestStatus: "READY_FOR_SEARCH",
       });
-      void buscarHoteles(recuperable.entendido);
+      void buscarHoteles(recuperable.entendido, canal, {
+        requisitos: recuperable.requisitos ?? [],
+        tope: recuperable.tope ?? null,
+      });
     }
     setRecuperable(null);
     setAviso("Recuperado el borrador. Las tarifas se han vuelto a consultar.");
@@ -465,8 +602,52 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
 
   const noches = entendido ? nochesEntre(entendido.dateFrom, entendido.dateTo) : 0;
 
-  /** Busca hoteles y actividades para una petición ya entendida. */
-  async function buscarHoteles(datos: NormalizedRequestDraft, canalPedido: ClientSegment = canal) {
+  // La petición tal y como está ahora mismo, con lo que no cabe en el borrador
+  // normalizado: el tope y los requisitos. Es lo que mira el chat para decidir
+  // qué preguntar y lo que mira la búsqueda para comprobar el encaje.
+  const peticionEnCurso = entendido
+    ? { ...entendido, topePorAlumno: tope, requisitos }
+    : null;
+  const pregunta = peticionEnCurso ? siguientePregunta(peticionEnCurso, preguntadas) : null;
+  const seIgnora = peticionEnCurso ? loQueSeIgnora(peticionEnCurso, preguntadas) : [];
+
+  // Hay lo mínimo para interpretar la petición: destino, fechas y alumnos.
+  // Hasta aquí no se enseña nada de «Lo que hemos entendido»: un bloque de
+  // catorce campos medio vacíos mientras el chat pregunta lo básico no se
+  // revisa, y al no revisarse se manda un presupuesto sobre lo que la app
+  // adivinó.
+  const hayLoMinimo = peticionEnCurso ? sePuedeRecomendar(peticionEnCurso) : false;
+
+  const firmaAhora = entendido
+    ? firmaDeLaPeticion({
+        ...entendido,
+        topePorAlumno: tope,
+        requisitos,
+        centreName: form.centreName ?? "",
+        email: form.email,
+        firstName: form.firstName,
+        lastName: form.lastName,
+        opportunityName: form.opportunityName ?? "",
+        canal,
+      })
+    : "";
+  const peticionValidada = Boolean(firmaValidada) && firmaValidada === firmaAhora;
+
+  /**
+   * Busca hoteles y actividades para una petición ya entendida.
+   *
+   * Los requisitos y el tope llegan por parámetro, no del estado. Quien llama
+   * acaba de hacer `setRequisitos` / `setTope` en el mismo manejador, y React
+   * no ha actualizado nada todavía: leyéndolos del estado, la PRIMERA búsqueda
+   * -la única que importa- iba sin requisitos y sin tope, así que ningún
+   * alojamiento traía comprobaciones y no había podio. Por defecto se usan los
+   * del estado, que es lo correcto cuando solo cambia el canal.
+   */
+  async function buscarHoteles(
+    datos: NormalizedRequestDraft,
+    canalPedido: ClientSegment = canal,
+    pedido: { requisitos: string[]; tope: number | null } = { requisitos, tope },
+  ) {
     setOcupado("buscando");
     try {
       // `boardType` es el nombre que espera la búsqueda; el régimen del mensaje
@@ -484,6 +665,12 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
         // (el turoperador suizo) no aparecían NUNCA: quedaban cargadas y
         // muertas.
         clientSegment: canalPedido,
+        // Lo que el centro pidió en prosa y el tope por alumno. Se leían del
+        // mensaje y se pintaban en pantalla, pero no llegaban a la búsqueda:
+        // los dos celíacos y la alumna con movilidad reducida no influían en
+        // nada. Sin esto no se puede decir si un alojamiento encaja.
+        requisitos: pedido.requisitos,
+        topePorAlumno: pedido.tope,
       };
       const [alojamientos, planes] = await Promise.all([
         searchAccommodationsApi(filtros),
@@ -552,8 +739,17 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
         ? "Pega el mensaje del cliente"
         : faltaEnPeticion.length
           ? `Falta ${faltaEnPeticion.join(", ")}`
-          : "Entendida",
-      estado: ocupado === "leyendo" ? "trabajando" : !entendido ? "pendiente" : faltaEnPeticion.length ? "aviso" : "hecho",
+          : peticionValidada
+            ? "Entendida y confirmada"
+            : "Falta confirmarla",
+      estado:
+        ocupado === "leyendo"
+          ? "trabajando"
+          : !entendido
+            ? "pendiente"
+            : faltaEnPeticion.length || !peticionValidada
+              ? "aviso"
+              : "hecho",
     };
 
     const sinPrecio = elegidos.some((id) =>
@@ -611,18 +807,207 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
     };
 
     return [peticion, opciones, enviar];
-  }, [entendido, elegidos, programaBase, excepciones, form.email, form.firstName, form.lastName, ocupado, entrega, enviada, actividades, hoteles, tope, noches]);
+  }, [entendido, elegidos, programaBase, excepciones, form.email, form.firstName, form.lastName, ocupado, entrega, enviada, actividades, hoteles, tope, noches, peticionValidada]);
 
-  const puedeRevisar = hitos[2].estado === "hecho" && !enviada && elegidos.length > 0;
+  // El visto bueno es la puerta de salida, no la de entrada. Buscar se busca
+  // en cuanto hay lo mínimo -si no, la pantalla se queda muerta mientras se
+  // revisa-, pero nada sale hacia el colegio ni hacia el CRM sin que alguien
+  // haya leído y confirmado lo que se entendió.
+  const puedeRevisar =
+    hitos[2].estado === "hecho" && !enviada && elegidos.length > 0 && peticionValidada;
 
   // ── Acciones ────────────────────────────────────────────────────────────────
 
-  function añadirMensaje() {
-    const texto = borrador.trim();
-    if (!texto) return;
-    setMensajes((actuales) => [...actuales, texto]);
-    setBorrador("");
+  /**
+   * Una respuesta del chat.
+   *
+   * `valor === null` es «no lo han dicho»: cierra la pregunta y NO rellena el
+   * dato. Si el colegio no dijo el régimen, la petición se queda sin régimen y
+   * el encaje no lo comprueba; ponerle «pensión completa» porque es lo habitual
+   * sería inventarse lo que pidió un cliente.
+   *
+   * Y en cuanto hay lo justo se vuelve a buscar, sin esperar al final: el chat
+   * tiene que enseñar el efecto de cada respuesta. Los valores nuevos se pasan
+   * a mano a la búsqueda porque el estado de React todavía no los tiene.
+   */
+  async function contestar(
+    hueco: Hueco,
+    valor: string | string[] | number | null,
+    dicho: string,
+    ademas?: Partial<NormalizedRequestDraft>,
+  ) {
+    if (!entendido) return;
+    setConversacion((hilo) => [...hilo, { pregunta: hueco.pregunta, respuesta: dicho }]);
+
+    if (valor === null) {
+      setPreguntadas((ya) => (ya.includes(hueco.clave) ? ya : [...ya, hueco.clave]));
+      return;
+    }
+
+    let nuevo = entendido;
+    let nuevoTope = tope;
+    let nuevosReq = requisitos;
+
+    switch (hueco.clave) {
+      case "destinationText":
+        nuevo = { ...entendido, destinationText: String(valor) };
+        break;
+      case "dateFrom":
+        nuevo = { ...entendido, dateFrom: String(valor) };
+        break;
+      case "dateTo":
+        nuevo = { ...entendido, dateTo: String(valor) };
+        break;
+      case "participants":
+        nuevo = { ...entendido, participants: Number(valor) };
+        break;
+      case "teachers":
+        nuevo = { ...entendido, teachers: Number(valor) };
+        break;
+      case "regimeRequested":
+        nuevo = { ...entendido, regimeRequested: String(valor) };
+        break;
+      case "categoryRequested":
+        nuevo = { ...entendido, categoryRequested: String(valor) };
+        break;
+      case "topePorAlumno":
+        nuevoTope = Number(valor);
+        break;
+      case "requisitos":
+        nuevosReq = Array.isArray(valor) ? valor : [String(valor)];
+        break;
+    }
+
+    // Escribir «del 12 al 16 de mayo» contestando a «¿qué día llegan?» da las
+    // dos fechas de una vez. Volver a preguntar la salida cuando acaban de
+    // decirla es el tipo de cosa que hace abandonar un chat.
+    if (ademas) nuevo = { ...nuevo, ...ademas };
+
+    setEntendido(nuevo);
+    setTope(nuevoTope);
+    setRequisitos(nuevosReq);
+    setAviso("");
+
+    if (sePuedeRecomendar({ ...nuevo, topePorAlumno: nuevoTope, requisitos: nuevosReq })) {
+      try {
+        await buscarHoteles(nuevo, canal, { requisitos: nuevosReq, tope: nuevoTope });
+      } catch (err) {
+        setError(mensajeDeError(err, "No se pudo buscar con esa respuesta."));
+      }
+    }
   }
+
+  /**
+   * Una respuesta escrita en el compositor.
+   *
+   * Hay UN solo sitio donde escribir, y aquí se decide qué hacer con lo que
+   * pone. Lo importante es que casi nunca contesta exactamente a lo que se
+   * preguntó: a «¿a qué destino quieren ir?» se contestó «Seríamos 48 alumnos
+   * de entre 15 y 17 años. Nos interesa un hotel de 3 estrellas en pensión
+   * completa» y la app guardó esa frase ENTERA como destino.
+   *
+   * Así que la respuesta se lee con los mismos lectores que leen el correo del
+   * colegio, se aprovecha TODO lo que traiga, y si no contesta a lo que se
+   * preguntaba, se dice y se insiste.
+   */
+  async function contestarEscribiendo(hueco: Hueco, texto: string) {
+    const hoy = new Date();
+
+    // Los lectores de siempre, aplicados a la respuesta: es un mensaje más.
+    const leido = readTripMessage(texto).normalized;
+    const extrasLeidos = extractRequestExtras(texto);
+    const rango = leerRango(texto, hoy);
+    const unaFecha = leerUnaFecha(texto, hoy);
+
+    const lectura = {
+      destinationText: leido.destinationText,
+      dateFrom: rango.desde || (hueco.clave === "dateFrom" ? unaFecha : leido.dateFrom) || "",
+      dateTo: rango.hasta || (hueco.clave === "dateTo" ? unaFecha : leido.dateTo) || "",
+      participants: leido.participants,
+      teachers: leido.teachers,
+      ageRangeText: leido.ageRangeText,
+      regimeRequested: leido.regimeRequested,
+      categoryRequested: leido.categoryRequested,
+      topePorAlumno: extrasLeidos.budgetPerStudent,
+      requisitos: extrasLeidos.specialRequirements,
+    };
+
+    const r = interpretarRespuesta(hueco, texto, lectura);
+
+    // Lo dicho por la persona, y lo que la app contesta, van al hilo antes de
+    // nada: si la búsqueda tarda, la conversación no se queda congelada.
+    setConversacion((hilo) => [
+      ...hilo,
+      { pregunta: hueco.pregunta, respuesta: texto },
+      ...(r.dice ? [{ pregunta: r.dice, respuesta: "" }] : []),
+    ]);
+
+    if (Object.keys(r.aplicar).length === 0) {
+      if (!r.contesta) return;
+    }
+
+    const nuevo: NormalizedRequestDraft = {
+      ...(entendido as NormalizedRequestDraft),
+      ...(r.aplicar.destinationText ? { destinationText: r.aplicar.destinationText } : {}),
+      ...(r.aplicar.dateFrom ? { dateFrom: r.aplicar.dateFrom } : {}),
+      ...(r.aplicar.dateTo ? { dateTo: r.aplicar.dateTo } : {}),
+      ...(r.aplicar.participants ? { participants: r.aplicar.participants } : {}),
+      ...(r.aplicar.teachers !== undefined && r.aplicar.teachers !== null
+        ? { teachers: r.aplicar.teachers }
+        : {}),
+      ...(r.aplicar.ageRangeText
+        ? {
+            ageRangeText: r.aplicar.ageRangeText,
+            // El buscador saca el número de `averageAgeText` cuando no hay
+            // guion; solo con `ageRangeText` la edad se vería y no filtraría.
+            averageAgeText: /^\d{1,2}$/.test(r.aplicar.ageRangeText.trim())
+              ? `${r.aplicar.ageRangeText.trim()} años`
+              : (entendido as NormalizedRequestDraft).averageAgeText,
+          }
+        : {}),
+      ...(r.aplicar.regimeRequested ? { regimeRequested: r.aplicar.regimeRequested } : {}),
+      ...(r.aplicar.categoryRequested ? { categoryRequested: r.aplicar.categoryRequested } : {}),
+    };
+
+    const nuevoTope = r.aplicar.topePorAlumno ?? tope;
+    const nuevosReq = r.aplicar.requisitos?.length
+      ? [...new Set([...requisitos, ...r.aplicar.requisitos])]
+      : requisitos;
+
+    setEntendido(nuevo);
+    setTope(nuevoTope);
+    setRequisitos(nuevosReq);
+    setAviso("");
+
+    if (sePuedeRecomendar({ ...nuevo, topePorAlumno: nuevoTope, requisitos: nuevosReq })) {
+      try {
+        await buscarHoteles(nuevo, canal, { requisitos: nuevosReq, tope: nuevoTope });
+      } catch (err) {
+        setError(mensajeDeError(err, "No se pudo buscar con esa respuesta."));
+      }
+    }
+  }
+
+  /**
+   * El botón de enviar, que hace lo que toque según dónde esté la conversación.
+   *
+   * Si hay una pregunta abierta, lo escrito la contesta. Si no la hay, es un
+   * mensaje nuevo del colegio y se vuelve a leer todo.
+   */
+  async function enviarDelCompositor() {
+    const texto = borrador.trim();
+    if (!texto || ocupado !== "") return;
+    if (pregunta) {
+      setBorrador("");
+      await contestarEscribiendo(pregunta, texto);
+      return;
+    }
+    await leerYBuscar();
+  }
+
+  // `añadirMensaje` ya no existe: con un solo botón de enviar, apilar mensajes
+  // sin leerlos era un paso que no llevaba a ninguna parte. Enviar añade el
+  // mensaje Y lo lee, que es lo que se quería hacer las dos veces.
 
   /**
    * Trae el contacto del CRM y rellena lo que falte.
@@ -680,27 +1065,40 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
       };
       setForm(entrada);
 
-      // Si ese correo ya está en el CRM, sus datos mandan sobre lo que
-      // adivinemos del mensaje. Teclear el contacto en cada solicitud acaba
-      // creando una segunda ficha del mismo colegio con el nombre escrito de
-      // otra manera. No bloquea: si Zoho no contesta, se sigue igual.
-      if (form.email) void traerContactoDelCrm(form.email);
+      // La consulta al CRM la dispara el efecto de más abajo, mirando
+      // `form.email`. Aquí NO se llama: `form` todavía tiene el valor viejo
+      // -`setForm` acaba de encolarse- y en la primera lectura eso es la cadena
+      // vacía, así que la condición era falsa y el CRM no se consultaba NUNCA.
+      // Es el mismo fallo que tenían los requisitos: leer del estado dentro del
+      // manejador que lo acaba de cambiar.
 
       // Leer NO exige datos de contacto: el correo hace falta para enviar.
       const resultado = readTripMessage(texto);
       setParseResult(resultado);
-      setEntendido(resultado.normalized);
+      // Lo leído ahora manda, pero lo que este mensaje NO diga no borra lo que
+      // ya se había contestado en el chat. Sin esto, un segundo correo del
+      // colegio -que no repite el destino- borraba el «Salou» recién dicho y la
+      // app lo volvía a preguntar.
+      const leido = conservarLoContestado(resultado.normalized, entendido);
+      setEntendido(leido);
 
       const extras = extractRequestExtras(texto);
-      setTope(extras.budgetPerStudent);
-      setRequisitos(extras.specialRequirements);
+      const topeLeido = extras.budgetPerStudent ?? tope;
+      const reqLeidos = extras.specialRequirements.length ? extras.specialRequirements : requisitos;
+      setTope(topeLeido);
+      setRequisitos(reqLeidos);
 
       if (borrador.trim()) {
         setMensajes((actuales) => [...actuales, borrador.trim()]);
         setBorrador("");
       }
 
-      await buscarHoteles(resultado.normalized);
+      // Sin destino, fechas y alumnos no hay nada que buscar: el chat lo
+      // pregunta y se busca en cuanto esté. Lanzar la búsqueda igualmente
+      // devolvía cero hoteles y un aviso, que es la pantalla vacía de siempre.
+      if (sePuedeRecomendar({ ...leido, topePorAlumno: topeLeido, requisitos: reqLeidos })) {
+        await buscarHoteles(leido, canal, { requisitos: reqLeidos, tope: topeLeido });
+      }
     } catch (err) {
       setError(mensajeDeError(err, "No se pudo leer el mensaje."));
     } finally {
@@ -803,7 +1201,16 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
       const candidatas = await findCandidateOpportunities(cliente, entendido);
       setPrevias(candidatas);
 
-      const guardada = await saveNormalizedTripRequest(cliente.id, form, parseResult, solicitudId);
+      // `entendido` y no `parseResult`: lo segundo es la primera lectura del
+      // mensaje y no recoge ni las correcciones a mano ni lo contestado en el
+      // chat. Guardando aquello, el documento salía «para 0 alumnos».
+      const guardada = await saveNormalizedTripRequest(
+        cliente.id,
+        form,
+        parseResult,
+        entendido,
+        solicitudId,
+      );
       setSolicitudId(guardada.id);
 
       const actividadesPorOpcion: Record<number, string[]> = {};
@@ -905,14 +1312,17 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
       void recargarBorradores();
       setRevisando(false);
       borrarBorrador();
-      setAviso(
-        enviada.simulated
-          ? `Propuesta ${enviada.reference} preparada. No ha salido: falta la clave del buzón del departamento.`
-          : `Propuesta ${enviada.reference} enviada a ${enviada.recipientEmail}.`,
-      );
-      onFinished?.();
+      // «Preparada» NO es «enviada»: en local no hay clave de buzón y el
+      // colegio no recibe nada. Darlo por enviado es lo que hace que alguien
+      // se quede esperando una respuesta que nunca iba a llegar.
+      setResultadoEnvio({
+        estado: enviada.simulated ? "preparada" : "enviada",
+        motivo: enviada.simulated ? "falta la clave del buzón del departamento" : null,
+      });
     } catch (err) {
-      setError(mensajeDeError(err, "No se pudo enviar la propuesta."));
+      const motivo = mensajeDeError(err, "No se pudo enviar la propuesta.");
+      setError(motivo);
+      setResultadoEnvio({ estado: "fallo", motivo });
     } finally {
       setOcupado("");
     }
@@ -930,10 +1340,12 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
 
   /** Lo siguiente que hay que hacer, dicho en una frase. */
   function siguientePaso(): string {
-    if (!entendido) return "Pega el mensaje del cliente y pulsa Ver lo que hemos entendido.";
-    if (!hoteles) return "Pulsa Ver lo que hemos entendido para buscar hoteles.";
+    if (!entendido) return "Pega el mensaje del cliente en La petición y pulsa enviar.";
+    if (pregunta) return `Contesta en La petición: ${pregunta.pregunta}`;
+    if (!hoteles) return "Contesta lo que falte en La petición y buscaré los hoteles.";
     if (hoteles.matches.length === 0) return "No hay hoteles para esas fechas: revisa el destino o las fechas.";
     if (elegidos.length === 0) return `Elige hasta ${MAX_OPCIONES} hoteles: cada uno será una opción.`;
+    if (!peticionValidada) return "Revisa «Lo que hemos entendido» y confírmalo antes de enviar.";
     if (programaBase.length === 0) return "Elige las actividades del programa, o envía solo con alojamiento.";
     if (!form.email.trim() || !form.firstName.trim() || !form.lastName.trim()) {
       return "Rellena el correo y el nombre de contacto del centro para poder enviar.";
@@ -1016,6 +1428,12 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
                 <button type="button" className="cv__draft" onClick={() => void continuarBorrador(d.id)}>
                   <span className="cv__draftt">{d.title}</span>
                   <span className="cv__draftm">
+                    {/* Por dónde se quedó. Dos intentos del mismo colegio —uno
+                        enviado y otro abandonado— daban dos líneas idénticas, y
+                        la pregunta «¿por qué me sigue apareciendo una pendiente
+                        si ya la envié?» no tenía respuesta en la pantalla. */}
+                    {d.avance ? <b>{d.avance}</b> : null}
+                    {d.avance ? " · " : ""}
                     {haceCuanto(d.updatedAt)}
                     {/* «Alguien» solo si de verdad es otra persona. Cada
                         autoguardado deja la reserva puesta, así que sin
@@ -1073,9 +1491,18 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
           <div className="cv__card">
             <div className="cv__cardh">
               <span className="cv__lbl">La petición</span>
-              <span className="cv__note">{mensajes.length} mensaje{mensajes.length === 1 ? "" : "s"}</span>
+              <span className="cv__note">
+                {mensajes.length} mensaje{mensajes.length === 1 ? "" : "s"}
+                {conversacion.length > 0 ? ` · ${conversacion.length} contestadas` : ""}
+              </span>
             </div>
             <div className="cv__cardb">
+              {/* El hilo: lo único que se desplaza. La tarjeta tiene altura
+                  fija y el compositor se queda abajo, como en cualquier chat.
+                  Antes crecía la tarjeta y se desplazaba la página entera, así
+                  que con seis turnos el sitio donde escribir se iba fuera de
+                  la pantalla. */}
+              <div className="cv__hilo" ref={hiloRef}>
               {mensajes.length === 0 ? (
                 <p className="cv__empty">Pega abajo el correo o el WhatsApp del colegio.</p>
               ) : (
@@ -1085,147 +1512,165 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
                   </p>
                 ))
               )}
+
+              {/* El hilo: lo que la app ha ido preguntando y lo contestado.
+                  Antes esto era una lista de campos vacíos con el rótulo «faltan
+                  datos». Un campo vacío no dice qué escribir ni por qué hace
+                  falta; una pregunta sí. */}
+              {conversacion.map((turno, indice) => (
+                <Fragment key={indice}>
+                  <p className="cv__bubble cv__bubble--app">{turno.pregunta}</p>
+                  {/* Sin respuesta cuando la app solo avisa de algo: «no he
+                      entendido esa fecha». Pintar una burbuja vacia debajo
+                      pareceria que se contesto y no se ve. */}
+                  {turno.respuesta ? (
+                    <p className="cv__bubble cv__bubble--yo">{turno.respuesta}</p>
+                  ) : null}
+                </Fragment>
+              ))}
+
+              {pregunta ? (
+                <div className={pregunta.bloquea ? "cv__preg cv__preg--stop" : "cv__preg"}>
+                  <p className="cv__pregt">{pregunta.pregunta}</p>
+                  {/* El porqué va con la pregunta. «¿Qué régimen?» es un
+                      trámite; «¿qué régimen? es lo que más mueve el precio» es
+                      una razón para pararse a contestar. */}
+                  <p className="cv__pregp">{pregunta.porque}</p>
+                  <RespuestaAlHueco hueco={pregunta} onContestar={contestar} />
+                </div>
+              ) : entendido ? (
+                <div className="cv__listo">
+                  <p className="cv__listot">Ya tengo lo necesario para recomendar.</p>
+                  <p className="cv__listop">
+                    {seIgnora.length === 0
+                      ? "Y sé todo lo que pidieron: la lista de la derecha ya está comprobada contra cada punto."
+                      : `Sigo sin saber ${seIgnora.join(", ")}. Los alojamientos salen igual, pero esos puntos no se comprueban.`}
+                  </p>
+                </div>
+              ) : null}
+
+              </div>
+
+              <div className="cv__pie">
               <textarea
                 className="cv__composer"
                 value={borrador}
                 onChange={(evento) => setBorrador(evento.target.value)}
-                placeholder="Hola, somos el IES… queremos un fin de curso a…"
-                rows={3}
+                placeholder={textoDeAyuda(pregunta, mensajes.length)}
+                rows={pregunta ? 2 : 3}
+                onKeyDown={(evento) => {
+                  // Enter envía; Mayús+Enter parte la línea, como en cualquier
+                  // chat. Pegar un correo de ocho líneas tiene que seguir
+                  // siendo posible.
+                  if (evento.key === "Enter" && !evento.shiftKey) {
+                    evento.preventDefault();
+                    void enviarDelCompositor();
+                  }
+                }}
               />
               <div className="cv__composerrow">
-                <button type="button" className="cv__ghost cv__ghost--sm" onClick={añadirMensaje} disabled={!borrador.trim()}>
-                  Añadir mensaje
+                <span className="cv__pista">
+                  {pregunta
+                    ? "Escribe la respuesta y pulsa Enter"
+                    : "Pega aquí lo que te vaya llegando del colegio"}
+                </span>
+                <button
+                  type="button"
+                  className="cv__enviar"
+                  onClick={enviarDelCompositor}
+                  disabled={!borrador.trim() || ocupado !== ""}
+                  aria-label={pregunta ? "Contestar" : "Enviar el mensaje y leerlo"}
+                  title={pregunta ? "Contestar" : "Enviar el mensaje y leerlo"}
+                >
+                  {ocupado === "leyendo" ? (
+                    <span className="cv__enviando" aria-hidden="true" />
+                  ) : (
+                    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+                      <path
+                        d="M3.4 20.4 21 12 3.4 3.6 3.4 10.2 15.6 12 3.4 13.8Z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                  )}
                 </button>
-                <button type="button" className="cv__primary cv__primary--sm" onClick={leerYBuscar} disabled={ocupado !== ""}>
-                  {ocupado === "leyendo" ? "Leyendo…" : "Ver lo que hemos entendido"}
-                </button>
+              </div>
               </div>
             </div>
           </div>
 
-          {requisitos.length ? (
-            <div className="cv__card">
-              <div className="cv__cardh">
-                <span className="cv__lbl">Lo que pide el centro</span>
-                <span className="cv__note">del propio mensaje</span>
-              </div>
-              <ul className="cv__reqs">
-                {requisitos.map((requisito) => (
-                  <li key={requisito}>{requisito}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {previas && previas.opportunities.length ? (
-            <div className="cv__card cv__card--warn">
-              <div className="cv__cardh">
-                <span className="cv__lbl">Ojo: este cliente ya tenía solicitudes</span>
-              </div>
-              <ul className="cv__reqs">
-                {previas.opportunities.map((oportunidad) => (
-                  <li key={oportunidad.id}>{oportunidad.name}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {entendido ? (
-            <div className="cv__card">
-              <div className="cv__cardh">
-                <span className="cv__lbl">Lo que hemos entendido</span>
-                <span className="cv__note">editable</span>
-              </div>
-              <div className="cv__cardb cv__fields">
-                <Campo etiqueta="Destino" valor={entendido.destinationText} onChange={(v) => setEntendido({ ...entendido, destinationText: v })} />
-                <Campo etiqueta="Desde" valor={entendido.dateFrom} onChange={(v) => setEntendido({ ...entendido, dateFrom: v })} placeholder="2026-10-15" />
-                <Campo etiqueta="Hasta" valor={entendido.dateTo} onChange={(v) => setEntendido({ ...entendido, dateTo: v })} placeholder="2026-10-19" />
-                <Campo etiqueta="Alumnos" valor={entendido.participants?.toString() ?? ""} onChange={(v) => setEntendido({ ...entendido, participants: Number(v) || null })} />
-                <Campo etiqueta="Profesores" valor={entendido.teachers?.toString() ?? ""} onChange={(v) => setEntendido({ ...entendido, teachers: Number(v) || null })} />
-                {/* La edad no estaba y la busqueda la exige: el aviso "hace falta
-                    una edad o rango de edad" no tenia donde contestarse y dejaba
-                    la solicitud atascada. Se escriben los DOS campos porque el
-                    buscador saca el numero de `averageAgeText` cuando no hay
-                    guion; solo con `ageRangeText` la edad se veria pero no
-                    filtraria nada. */}
-                <Campo
-                  etiqueta="Edades"
-                  valor={entendido.ageRangeText}
-                  onChange={(v) => {
-                    const limpio = v.trim();
-                    const suelta = limpio.match(/^(\d{1,2})$/);
-                    setEntendido({
-                      ...entendido,
-                      ageRangeText: v,
-                      averageAgeText: suelta ? `${suelta[1]} años` : "",
-                    });
-                  }}
-                  placeholder="15-17, o 15"
-                  resaltar={!entendido.ageRangeText.trim() && !entendido.averageAgeText.trim()}
-                />
-                <Campo etiqueta="Régimen" valor={entendido.regimeRequested} onChange={(v) => setEntendido({ ...entendido, regimeRequested: v })} />
-                {/* El centro es la CUENTA del CRM. Sin el, la app creaba la
-                    cuenta con el nombre de la persona y en el Zoho de Oravia
-                    quedaron tres cuentas llamadas «Marta Ferrer». */}
-                <Campo
-                  etiqueta="Centro"
-                  valor={form.centreName ?? ""}
-                  onChange={(v) => setForm({ ...form, centreName: v })}
-                  placeholder="IES Jaume Balmes"
-                  resaltar={!(form.centreName ?? "").trim()}
-                  ayuda="El colegio, club o agencia. Es lo que da nombre a la cuenta en Zoho."
-                />
-                <Campo etiqueta="Correo del centro" valor={form.email} onChange={(v) => setForm({ ...form, email: v })} placeholder="direccion@colegio.es" resaltar={!form.email.trim()} />
-                <Campo etiqueta="Contacto · nombre" valor={form.firstName} onChange={(v) => setForm({ ...form, firstName: v })} placeholder="Javier" resaltar={!form.firstName.trim()} />
-                <Campo etiqueta="Contacto · apellidos" valor={form.lastName} onChange={(v) => setForm({ ...form, lastName: v })} placeholder="Martínez" resaltar={!form.lastName.trim()} />
-                {/* Que el contacto venga del CRM hay que decirlo: si no, el
-                    operador no sabe si lo escribió él o si son los datos buenos
-                    de Zoho, y vuelve a teclearlo por si acaso. */}
-                {contactoCrm ? (
-                  <p className="cv__crmhit">
-                    <b>{contactoCrm.fullName}</b> ya está en el CRM
-                    {contactoCrm.accountName ? ` · ${contactoCrm.accountName}` : ""}
-                    {contactoCrm.deals.length
-                      ? ` · ${contactoCrm.deals.length} oportunidad(es): ${contactoCrm.deals
-                          .map((d) => `${d.dealName} (${d.stage})`)
-                          .join(", ")}`
-                      : " · sin oportunidades abiertas"}
-                  </p>
-                ) : null}
-                <Campo etiqueta="Nombre del viaje" valor={form.opportunityName ?? ""} onChange={(v) => setForm({ ...form, opportunityName: v })} placeholder="Fin de curso Roma 2026" />
-                {/* «Tope por alumno» no se entendia. Es el presupuesto que dice
-                    el colegio, y solo sirve para marcar en la lista lo que se
-                    pasa: no descarta nada ni cambia ningun precio. */}
-                <Campo
-                  etiqueta="Presupuesto por alumno"
-                  valor={tope?.toString() ?? ""}
-                  onChange={(v) => setTope(Number(v) || null)}
-                  placeholder="sin tope"
-                  ayuda="Lo que dice el colegio que puede pagar. Solo marca en la lista lo que se pasa: no descarta nada."
-                />
-                {/* Sin esto no se sabe qué tarifa aplica: el mismo hotel tiene
-                    una pactada con el turoperador suizo y otra general. */}
-                <label className="cv__field">
-                  <span>Cotizamos para</span>
-                  <select
-                    value={canal}
-                    onChange={(evento) => {
-                      const elegido = evento.target.value as ClientSegment;
-                      setCanal(elegido);
-                      if (entendido) void buscarHoteles(entendido, elegido);
-                    }}
-                  >
-                    <option value="GENERIC">Colegio, club o agencia</option>
-                    <option value="SWISS_TTOO">Turoperador suizo</option>
-                  </select>
-                </label>
-              </div>
-            </div>
-          ) : null}
+          {/* Aquí vivían «Lo que pide el centro», el aviso de solicitudes
+              previas y «Lo que hemos entendido» con sus catorce campos, y
+              después la barra de revisión. Todo eso está ahora en la ventana y
+              en la columna de la derecha: aquí solo hay chat, con altura fija
+              y su propio desplazamiento. */}
         </section>
 
         {/* ── Las opciones ── */}
         <section className="cv__right" aria-label="Las opciones">
+          {/* Las opciones no se enseñan hasta que alguien ha leído y confirmado
+              lo que se entendió. Enseñarlas antes invita a elegir tres hoteles
+              sobre un destino que la app dedujo y nadie miró; y con el podio
+              delante, nadie vuelve atrás a revisar nada.
+
+              La búsqueda sí corre por detrás: al confirmar, la lista ya está.
+              Lo que se retiene es el enseñarla, no el trabajo. */}
+          {!peticionValidada ? (
+            <div className="cv__puerta">
+              <p className="cv__puertat">
+                {!entendido
+                  ? "Aquí aparecerán los alojamientos y las actividades."
+                  : !hayLoMinimo
+                    ? "Primero, lo mínimo para poder buscar"
+                    : "Falta un paso: confirmar lo que hemos entendido"}
+              </p>
+              <p className="cv__puertap">
+                {!entendido
+                  ? "Pega el mensaje del colegio en La petición y pulsa enviar."
+                  : !hayLoMinimo
+                    ? pregunta
+                      ? `Contesta en el chat: ${pregunta.pregunta}`
+                      : "Contesta lo que falte en el chat."
+                    : "Léelo y confírmalo. Con eso se busca, y con eso se cotiza."}
+                {/* Que el contacto ya exista cambia lo que hay que revisar, así
+                    que se dice antes de abrir la ventana, no dentro. */}
+                {hayLoMinimo && contactoCrm ? (
+                  <b>
+                    {contactoCrm.deals.length
+                      ? ` Ojo: ya está en el CRM, con ${contactoCrm.deals.length} oportunidad(es) abiertas.`
+                      : " Este contacto ya está en el CRM."}
+                  </b>
+                ) : null}
+              </p>
+              {hayLoMinimo && entendido ? (
+                <button
+                  type="button"
+                  className="cv__primary"
+                  onClick={() => setRevisandoPeticion(true)}
+                >
+                  Lo que hemos entendido
+                </button>
+              ) : null}
+              {hayLoMinimo && hoteles ? (
+                <p className="cv__puertan">
+                  {hoteles.matches.length} alojamientos encontrados, listos para cuando confirmes.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <>
+          <div className="cv__revisado">
+            <span>
+              <b>Revisado por ti.</b> Si cambia algo de la petición, habrá que volver a confirmarlo.
+            </span>
+            <button
+              type="button"
+              className="cv__ghost cv__ghost--sm"
+              onClick={() => setRevisandoPeticion(true)}
+            >
+              Lo que hemos entendido
+            </button>
+          </div>
+
           {hoteles ? (
             <>
               {/* Dos pestañas, alojamientos y actividades. Antes iba todo en una
@@ -1311,6 +1756,10 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
               matchActividad={matchActividad}
               programaBase={programaBase}
               onAlternar={alternarHotel}
+              alumnos={entendido?.participants ?? 0}
+              profesores={entendido?.teachers ?? 0}
+              desde={entendido?.dateFrom ?? ""}
+              hasta={entendido?.dateTo ?? ""}
               destinoPedido={entendido?.destinationText ?? ""}
               detalle={detalle}
               onDetalle={(id) => setDetalle((actual) => (actual === id ? null : id))}
@@ -1438,9 +1887,75 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
               ) : null}
             </div>
           ) : null}
+            </>
+          )}
         </section>
       </div>
 
+
+      {resultadoEnvio ? (
+        <AvisoDelEnvio
+          estado={resultadoEnvio.estado}
+          referencia={entrega?.reference ?? null}
+          destinatario={entrega?.recipientEmail ?? null}
+          motivo={resultadoEnvio.motivo}
+          hayDocumento={Boolean(entrega)}
+          onVerDocumento={verDocumento}
+          onReintentar={() => {
+            setResultadoEnvio(null);
+            void enviarAhora();
+          }}
+          onVolver={() => {
+            setResultadoEnvio(null);
+            setRevisando(true);
+          }}
+          // Terminado el envío, esta pantalla ya no tiene nada que hacer: se
+          // vuelve al inicio, donde está la lista de presupuestos.
+          onInicio={() => {
+            setResultadoEnvio(null);
+            onFinished?.();
+          }}
+        />
+      ) : null}
+
+      {revisandoPeticion && entendido ? (
+        <PanelEntendido
+          entendido={entendido}
+          setEntendido={setEntendido}
+          form={form}
+          setForm={setForm}
+          tope={tope}
+          setTope={setTope}
+          requisitos={requisitos}
+          canal={canal}
+          setCanal={setCanal}
+          contactoCrm={contactoCrm}
+          previas={previas}
+          validado={peticionValidada}
+          onValidar={() => {
+            // La huella se guarda con los datos de ESTE momento, no un
+            // «validado: true». Si mañana cambian las fechas, deja de coincidir
+            // y el visto bueno se cae solo.
+            setFirmaValidada(
+              firmaDeLaPeticion({
+                ...entendido,
+                topePorAlumno: tope,
+                requisitos,
+                centreName: form.centreName ?? "",
+                email: form.email,
+                firstName: form.firstName,
+                lastName: form.lastName,
+                opportunityName: form.opportunityName ?? "",
+                canal,
+              }),
+            );
+            setRevisandoPeticion(false);
+            // Lo corregido cambia la búsqueda: se vuelve a buscar al confirmar.
+            void buscarHoteles(entendido, canal, { requisitos, tope });
+          }}
+          onCerrar={() => setRevisandoPeticion(false)}
+        />
+      ) : null}
 
       {revisando ? (
         <div className="rv" role="dialog" aria-modal="true" aria-label="Revisar antes de enviar">
@@ -1464,6 +1979,69 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
                 </p>
               ) : (
                 <>
+                  <section className="rv__block">
+                    <h3 className="rv__bt">Sobre qué se ha hecho</h3>
+                    <dl className="rv__datos">
+                      <div>
+                        <dt>Destino</dt>
+                        <dd>{entendido?.destinationText || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt>Fechas</dt>
+                        <dd>
+                          {entendido?.dateFrom && entendido?.dateTo
+                            ? `${entendido.dateFrom} → ${entendido.dateTo}`
+                            : "—"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Noches</dt>
+                        <dd>{noches || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt>Grupo</dt>
+                        <dd>
+                          {entendido?.participants ?? 0} alumnos
+                          {entendido?.teachers ? ` · ${entendido.teachers} profesores` : ""}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Régimen</dt>
+                        <dd>{entendido?.regimeRequested || "sin especificar"}</dd>
+                      </div>
+                      <div>
+                        <dt>Categoría</dt>
+                        <dd>{entendido?.categoryRequested || "sin especificar"}</dd>
+                      </div>
+                      {tope ? (
+                        <div>
+                          <dt>Presupuesto</dt>
+                          <dd>{tope} € por alumno</dd>
+                        </div>
+                      ) : null}
+                      <div>
+                        <dt>Actividades</dt>
+                        <dd>
+                          {programaBase.length === 0
+                            ? "ninguna"
+                            : `${programaBase.length} en el programa`}
+                        </dd>
+                      </div>
+                    </dl>
+                    {requisitos.length ? (
+                      <p className="rv__sub">Piden: {requisitos.join(" · ")}</p>
+                    ) : null}
+                    {/* El total de cada opción se multiplica por el grupo, así
+                        que sin alumnos el documento sale a cero y sin sumar
+                        actividades. Pasó: salió «para 0 alumnos». */}
+                    {!entendido?.participants ? (
+                      <p className="rv__ojo">
+                        Sin número de alumnos el documento sale con los totales a cero y sin sumar las
+                        actividades. Vuelve y contéstalo antes de enviar.
+                      </p>
+                    ) : null}
+                  </section>
+
                   <section className="rv__block">
                     <h3 className="rv__bt">A quién va</h3>
                     <p className="rv__line">
@@ -1605,6 +2183,673 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
 
 /* ── Piezas ────────────────────────────────────────────────────────────────── */
 
+/**
+ * El texto de ayuda del compositor, que cambia con la pregunta abierta.
+ *
+ * Es lo que sustituye al campo propio de cada pregunta: si solo hay un sitio
+ * donde escribir, ese sitio tiene que decir qué se espera ahora mismo.
+ */
+/**
+ * La ventana de «Lo que hemos entendido».
+ *
+ * Antes era un bloque más de la columna izquierda, debajo del chat: catorce
+ * campos sueltos que aparecían desde el primer momento, medio vacíos, mientras
+ * el chat todavía preguntaba lo básico. Nadie revisa catorce campos vacíos, y
+ * al no revisarlos se manda un presupuesto sobre lo que la app adivinó.
+ *
+ * Ahora es un alto en el camino: aparece cuando hay lo mínimo, se LEE, y se
+ * valida o se corrige. Dos modos en la misma ventana, no dos pantallas:
+ *
+ *   LEER      agrupado como se lee —el viaje, el grupo, lo que piden, el
+ *             centro— y con lo que falta de verdad en ámbar.
+ *   MODIFICAR los mismos bloques, editables ahí mismo.
+ *
+ * No hay un botón de «dímelo en el chat» aquí dentro a propósito. Dos caminos
+ * para la misma corrección acaban con medio dato cambiado en cada uno: la
+ * ventana corrige, el chat conversa.
+ */
+/**
+ * Qué ha pasado al enviar, dicho a la cara.
+ *
+ * Antes, enviar dejaba una franja ámbar arriba del lienzo y la pantalla igual
+ * que estaba. Con la propuesta ya fuera, quien cotiza se quedaba mirando la
+ * misma lista de hoteles sin saber si tenía que hacer algo más, y el fallo
+ * -cuando lo había- salía en el mismo sitio y con el mismo aspecto que un
+ * aviso cualquiera.
+ *
+ * Tres desenlaces, y los tres se dicen distinto:
+ *
+ *   ENVIADA    salió. Se cierra y se vuelve al inicio.
+ *   PREPARADA  el documento está, pero NO ha salido: falta la clave del buzón.
+ *              Esto pasa siempre en local y no puede parecer un envío.
+ *   FALLO      no salió. Aquí lo importante no es el error, es que nada se ha
+ *              perdido y que reintentar no duplica: el trato de Zoho, la
+ *              solicitud y el documento ya están creados y se reutilizan.
+ */
+function AvisoDelEnvio({
+  estado,
+  referencia,
+  destinatario,
+  motivo,
+  hayDocumento,
+  onVerDocumento,
+  onReintentar,
+  onVolver,
+  onInicio,
+}: {
+  estado: "enviada" | "preparada" | "fallo";
+  referencia: string | null;
+  destinatario: string | null;
+  motivo: string | null;
+  hayDocumento: boolean;
+  onVerDocumento: () => void;
+  onReintentar: () => void;
+  onVolver: () => void;
+  onInicio: () => void;
+}) {
+  const fallo = estado === "fallo";
+
+  // Escape solo cuando hay algo que reintentar: con la propuesta ya enviada,
+  // cerrar sin querer y quedarse en el lienzo confunde más que ayuda.
+  useEffect(() => {
+    if (!fallo) return;
+    const alPulsar = (evento: KeyboardEvent) => {
+      if (evento.key === "Escape") onVolver();
+    };
+    window.addEventListener("keydown", alPulsar);
+    return () => window.removeEventListener("keydown", alPulsar);
+  }, [fallo, onVolver]);
+
+  return (
+    <div className="cv__velo" role="dialog" aria-modal="true" aria-label="Resultado del envío">
+      <div className={`cv__fin cv__fin--${estado}`}>
+        <span className="cv__finico" aria-hidden="true">
+          {estado === "enviada" ? "✓" : estado === "preparada" ? "!" : "✕"}
+        </span>
+
+        <p className="cv__fint">
+          {estado === "enviada"
+            ? "Enviada"
+            : estado === "preparada"
+              ? "Preparada, pero no ha salido"
+              : "No se ha podido enviar"}
+        </p>
+
+        <p className="cv__finp">
+          {estado === "enviada" ? (
+            <>
+              La propuesta <b>{referencia}</b> está en el correo de <b>{destinatario}</b>.
+            </>
+          ) : estado === "preparada" ? (
+            <>
+              La propuesta <b>{referencia}</b> está generada y guardada, pero{" "}
+              <b>el colegio no ha recibido nada</b>: {motivo ?? "falta la clave del buzón del departamento"}.
+            </>
+          ) : (
+            <>{motivo ?? "El servidor de correo no aceptó el envío."}</>
+          )}
+        </p>
+
+        {fallo ? (
+          <div className="cv__finsalvo">
+            <p className="cv__finsalvot">No se ha perdido nada</p>
+            <ul>
+              <li>La solicitud y la propuesta están guardadas.</li>
+              <li>El trato del CRM está creado.</li>
+              <li>El documento está generado.</li>
+            </ul>
+            <p className="cv__finsalvop">
+              Reintentar no duplica nada: reutiliza lo que ya existe, incluida la referencia.
+            </p>
+          </div>
+        ) : null}
+
+        <div className="cv__finacc">
+          {hayDocumento ? (
+            <button type="button" className="cv__ghost cv__ghost--sm" onClick={onVerDocumento}>
+              Ver el documento
+            </button>
+          ) : null}
+          {fallo ? (
+            <>
+              <button type="button" className="cv__ghost cv__ghost--sm" onClick={onVolver}>
+                Volver a la propuesta
+              </button>
+              <button type="button" className="cv__primary cv__primary--sm" onClick={onReintentar}>
+                Reintentar el envío
+              </button>
+            </>
+          ) : (
+            <button type="button" className="cv__primary cv__primary--sm" onClick={onInicio}>
+              Ir al inicio
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PanelEntendido({
+  entendido,
+  setEntendido,
+  form,
+  setForm,
+  tope,
+  setTope,
+  requisitos,
+  canal,
+  setCanal,
+  contactoCrm,
+  previas,
+  validado,
+  onValidar,
+  onCerrar,
+}: {
+  entendido: NormalizedRequestDraft;
+  setEntendido: (valor: NormalizedRequestDraft) => void;
+  form: ParseTripRequestInput;
+  setForm: (valor: ParseTripRequestInput) => void;
+  tope: number | null;
+  setTope: (valor: number | null) => void;
+  requisitos: string[];
+  canal: ClientSegment;
+  setCanal: (valor: ClientSegment) => void;
+  contactoCrm: ContactoDelCrm | null;
+  previas: FindCandidateOpportunitiesResult | null;
+  validado: boolean;
+  onValidar: () => void;
+  onCerrar: () => void;
+}) {
+  const [editando, setEditando] = useState(false);
+
+  const datos = {
+    ...entendido,
+    topePorAlumno: tope,
+    requisitos,
+    centreName: form.centreName ?? "",
+    email: form.email,
+    firstName: form.firstName,
+    lastName: form.lastName,
+    opportunityName: form.opportunityName ?? "",
+    canal,
+  };
+  const bloques = bloquesParaValidar(datos);
+  const faltan = loQueFaltaDeVerdad(datos);
+
+  // Escape cierra, como cualquier ventana. Sin esto hay que buscar la aspa.
+  useEffect(() => {
+    const alPulsar = (evento: KeyboardEvent) => {
+      if (evento.key === "Escape") onCerrar();
+    };
+    window.addEventListener("keydown", alPulsar);
+    return () => window.removeEventListener("keydown", alPulsar);
+  }, [onCerrar]);
+
+  return (
+    <div className="cv__velo" role="dialog" aria-modal="true" aria-label="Lo que hemos entendido">
+      <div className="cv__vent">
+        <header className="cv__venth">
+          <div>
+            <p className="cv__venttl">Lo que hemos entendido</p>
+            <p className="cv__ventsub">
+              {editando
+                ? "Corrige lo que haga falta. Se guarda al confirmar."
+                : "Léelo antes de seguir: esto es lo que se va a usar para buscar los alojamientos y lo que irá al presupuesto."}
+            </p>
+          </div>
+          <button type="button" className="cv__ventx" onClick={onCerrar} aria-label="Cerrar">
+            ✕
+          </button>
+        </header>
+
+        <div className="cv__ventb">
+          {/* Quién es este correo en el CRM. Va ARRIBA, antes que los datos,
+              porque cambia lo que hay que hacer: si el contacto ya existe, sus
+              datos mandan sobre lo que hayamos adivinado del mensaje, y si
+              además tiene oportunidades abiertas puede que este viaje sea una
+              de ellas y no haga falta crear otra. */}
+          {contactoCrm ? (
+            <div className={contactoCrm.deals.length ? "cv__ventavi" : "cv__ventcrmok"}>
+              <p className="cv__ventavit">
+                {contactoCrm.deals.length
+                  ? "Este contacto ya está en el CRM, y con oportunidades abiertas"
+                  : "Este contacto ya está en el CRM"}
+              </p>
+              <p className="cv__ventavip">
+                <b>{contactoCrm.fullName}</b>
+                {contactoCrm.accountName ? ` · ${contactoCrm.accountName}` : " · sin cuenta asociada"}
+                {contactoCrm.phone ? ` · ${contactoCrm.phone}` : ""}
+              </p>
+              {contactoCrm.deals.length ? (
+                <>
+                  <ul>
+                    {contactoCrm.deals.map((d) => (
+                      <li key={d.id ?? d.dealName}>
+                        {d.dealName} <span className="cv__ventchip">{d.stage}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="cv__ventavip">
+                    Si este viaje es una de ellas, mejor continuarla que crear una segunda oportunidad del
+                    mismo viaje.
+                  </p>
+                </>
+              ) : null}
+            </div>
+          ) : form.email.trim() ? (
+            <div className="cv__ventcrmno">
+              <b>{form.email.trim()}</b> no está en el CRM: se creará el contacto y su cuenta al enviar.
+            </div>
+          ) : null}
+
+          {/* Un trato repetido no se descubre en el CRM tres días después. */}
+          {previas && previas.opportunities.length ? (
+            <div className="cv__ventavi">
+              <p className="cv__ventavit">Ojo: este cliente ya tenía solicitudes</p>
+              <ul>
+                {previas.opportunities.map((oportunidad) => (
+                  <li key={oportunidad.id}>{oportunidad.name}</li>
+                ))}
+              </ul>
+              <p className="cv__ventavip">
+                Si es el mismo viaje, mejor continuar aquella que crear una segunda oportunidad.
+              </p>
+            </div>
+          ) : null}
+
+          {faltan.length && !editando ? (
+            <div className="cv__ventfalta">
+              Falta <b>{faltan.join(", ")}</b>. Se puede seguir buscando, pero sin eso no se puede enviar.
+            </div>
+          ) : null}
+
+          {editando ? (
+            <CamposEntendido
+              entendido={entendido}
+              setEntendido={setEntendido}
+              form={form}
+              setForm={setForm}
+              tope={tope}
+              setTope={setTope}
+              canal={canal}
+              setCanal={setCanal}
+              contactoCrm={contactoCrm}
+            />
+          ) : (
+            bloques.map((bloque) => (
+              <section key={bloque.titulo} className="cv__ventbloq">
+                <p className="cv__ventbt">{bloque.titulo}</p>
+                <p className="cv__ventbp">{bloque.para}</p>
+                <dl className="cv__ventgrid">
+                  {bloque.filas.map((f) => (
+                    <div key={f.que} className={f.falta ? "cv__ventfila is-falta" : "cv__ventfila"}>
+                      <dt>{f.que}</dt>
+                      <dd>{f.valor}</dd>
+                      {f.nota ? <p className="cv__ventnota">{f.nota}</p> : null}
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            ))
+          )}
+
+          {!editando ? (
+            <p className="cv__ventpie">
+              ¿Falta algo que aquí no aparece? Cierra y escríbelo en el chat: lo que se conversa se queda
+              en el hilo, y lo que se corrige se corrige aquí.
+            </p>
+          ) : null}
+        </div>
+
+        <footer className="cv__ventf">
+          {editando ? (
+            <>
+              <button type="button" className="cv__ghost cv__ghost--sm" onClick={() => setEditando(false)}>
+                Volver a leerlo
+              </button>
+              <button
+                type="button"
+                className="cv__primary cv__primary--sm"
+                onClick={() => {
+                  setEditando(false);
+                  onValidar();
+                }}
+              >
+                Guardar y confirmar
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="cv__ghost cv__ghost--sm" onClick={() => setEditando(true)}>
+                Modificar
+              </button>
+              <button type="button" className="cv__primary cv__primary--sm" onClick={onValidar}>
+                {validado ? "Sigue estando bien" : "Está todo bien"}
+              </button>
+            </>
+          )}
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Los mismos datos, editables, y agrupados igual que al leerlos.
+ *
+ * Es el modo «Modificar» de la ventana. Estaba suelto en la columna izquierda
+ * como catorce campos en fila; agrupado en los mismos cuatro bloques que la
+ * lectura, se corrige donde se acaba de ver el fallo.
+ */
+function CamposEntendido({
+  entendido,
+  setEntendido,
+  form,
+  setForm,
+  tope,
+  setTope,
+  canal,
+  setCanal,
+  contactoCrm,
+}: {
+  entendido: NormalizedRequestDraft;
+  setEntendido: (valor: NormalizedRequestDraft) => void;
+  form: ParseTripRequestInput;
+  setForm: (valor: ParseTripRequestInput) => void;
+  tope: number | null;
+  setTope: (valor: number | null) => void;
+  canal: ClientSegment;
+  setCanal: (valor: ClientSegment) => void;
+  contactoCrm: ContactoDelCrm | null;
+}) {
+  return (
+    <>
+      <section className="cv__ventbloq">
+        <p className="cv__ventbt">El viaje</p>
+        <div className="cv__fields">
+          <Campo
+            etiqueta="Destino"
+            valor={entendido.destinationText}
+            onChange={(v) => setEntendido({ ...entendido, destinationText: v })}
+            resaltar={!entendido.destinationText.trim()}
+            ayuda="Busca en toda la comarca: pidiendo Cambrils también salen los de Salou."
+          />
+          <Campo
+            etiqueta="Desde"
+            valor={entendido.dateFrom}
+            onChange={(v) => setEntendido({ ...entendido, dateFrom: v })}
+            placeholder="2027-05-12"
+          />
+          <Campo
+            etiqueta="Hasta"
+            valor={entendido.dateTo}
+            onChange={(v) => setEntendido({ ...entendido, dateTo: v })}
+            placeholder="2027-05-16"
+          />
+        </div>
+      </section>
+
+      <section className="cv__ventbloq">
+        <p className="cv__ventbt">El grupo</p>
+        <div className="cv__fields">
+          <Campo
+            etiqueta="Alumnos"
+            valor={entendido.participants?.toString() ?? ""}
+            onChange={(v) => setEntendido({ ...entendido, participants: Number(v) || null })}
+          />
+          <Campo
+            etiqueta="Profesores"
+            valor={entendido.teachers?.toString() ?? ""}
+            onChange={(v) => setEntendido({ ...entendido, teachers: Number(v) || null })}
+            ayuda="Se alojan y se cobran, muchas veces en habitación individual."
+          />
+          {/* La edad no estaba y la busqueda la exige: el aviso «hace falta una
+              edad o rango de edad» no tenia donde contestarse y dejaba la
+              solicitud atascada. Se escriben los DOS campos porque el buscador
+              saca el numero de `averageAgeText` cuando no hay guion; solo con
+              `ageRangeText` la edad se veria pero no filtraria nada. */}
+          <Campo
+            etiqueta="Edades"
+            valor={entendido.ageRangeText}
+            onChange={(v) => {
+              const limpio = v.trim();
+              const suelta = limpio.match(/^(\d{1,2})$/);
+              setEntendido({
+                ...entendido,
+                ageRangeText: v,
+                averageAgeText: suelta ? `${suelta[1]} años` : "",
+              });
+            }}
+            placeholder="15-17, o 15"
+            ayuda="Descarta actividades por edad. No es obligatoria."
+          />
+        </div>
+      </section>
+
+      <section className="cv__ventbloq">
+        <p className="cv__ventbt">Lo que piden</p>
+        <div className="cv__fields">
+          <Campo
+            etiqueta="Régimen"
+            valor={entendido.regimeRequested}
+            onChange={(v) => setEntendido({ ...entendido, regimeRequested: v })}
+            placeholder="pensión completa"
+          />
+          <Campo
+            etiqueta="Categoría"
+            valor={entendido.categoryRequested}
+            onChange={(v) => setEntendido({ ...entendido, categoryRequested: v })}
+            placeholder="3*"
+          />
+          {/* «Tope por alumno» no se entendia. Es el presupuesto que dice el
+              colegio, y solo sirve para marcar en la lista lo que se pasa: no
+              descarta nada ni cambia ningun precio. */}
+          <Campo
+            etiqueta="Presupuesto por alumno"
+            valor={tope?.toString() ?? ""}
+            onChange={(v) => setTope(Number(v) || null)}
+            placeholder="sin tope"
+            ayuda="Solo marca en la lista lo que se pasa: no descarta nada."
+          />
+        </div>
+      </section>
+
+      <section className="cv__ventbloq">
+        <p className="cv__ventbt">El centro y el contacto</p>
+        <div className="cv__fields">
+          {/* El centro es la CUENTA del CRM. Sin el, la app creaba la cuenta
+              con el nombre de la persona y en el Zoho de Oravia quedaron tres
+              cuentas llamadas «Marta Ferrer». */}
+          <Campo
+            etiqueta="Centro"
+            valor={form.centreName ?? ""}
+            onChange={(v) => setForm({ ...form, centreName: v })}
+            placeholder="IES Jaume Balmes"
+            resaltar={!(form.centreName ?? "").trim()}
+            ayuda="El colegio, club o agencia. Es lo que da nombre a la cuenta en Zoho."
+          />
+          <Campo
+            etiqueta="Correo del centro"
+            valor={form.email}
+            onChange={(v) => setForm({ ...form, email: v })}
+            placeholder="direccion@colegio.es"
+            resaltar={!form.email.trim()}
+          />
+          <Campo
+            etiqueta="Contacto · nombre"
+            valor={form.firstName}
+            onChange={(v) => setForm({ ...form, firstName: v })}
+            placeholder="Marta"
+            resaltar={!form.firstName.trim()}
+          />
+          <Campo
+            etiqueta="Contacto · apellidos"
+            valor={form.lastName}
+            onChange={(v) => setForm({ ...form, lastName: v })}
+            placeholder="Ferrer"
+            resaltar={!form.lastName.trim()}
+          />
+          <Campo
+            etiqueta="Nombre del viaje"
+            valor={form.opportunityName ?? ""}
+            onChange={(v) => setForm({ ...form, opportunityName: v })}
+            placeholder="IES JAUME BALMES 2027"
+          />
+          {/* Sin esto no se sabe qué tarifa aplica: el mismo hotel tiene una
+              pactada con el turoperador suizo y otra general. */}
+          <label className="cv__field">
+            <span>Cotizamos para</span>
+            <select value={canal} onChange={(evento) => setCanal(evento.target.value as ClientSegment)}>
+              <option value="GENERIC">Colegio, club o agencia</option>
+              <option value="SWISS_TTOO">Turoperador suizo</option>
+            </select>
+          </label>
+        </div>
+        {/* Que el contacto venga del CRM hay que decirlo: si no, el operador no
+            sabe si lo escribió él o si son los datos buenos de Zoho, y vuelve a
+            teclearlo por si acaso. */}
+        {contactoCrm ? (
+          <p className="cv__crmhit">
+            <b>{contactoCrm.fullName}</b> ya está en el CRM
+            {contactoCrm.accountName ? ` · ${contactoCrm.accountName}` : ""}
+          </p>
+        ) : null}
+      </section>
+    </>
+  );
+}
+
+function textoDeAyuda(hueco: Hueco | null, mensajes: number): string {
+  if (!hueco) {
+    return mensajes === 0
+      ? "Hola, somos el IES… queremos un fin de curso a…"
+      : "Escribe o pega lo siguiente que te digan…";
+  }
+  switch (hueco.clave) {
+    case "destinationText":
+      return "Salou, Cambrils, Andorra…";
+    case "dateFrom":
+      return "12/05/2027 · o «del 12 al 16 de mayo de 2027»";
+    case "dateTo":
+      return "16/05/2027";
+    case "participants":
+      return "48";
+    case "teachers":
+      return "4";
+    case "topePorAlumno":
+      return "300";
+    default:
+      return "Escribe la respuesta…";
+  }
+}
+
+/**
+ * Los atajos de una pregunta: elegir de una lista y «No lo han dicho».
+ *
+ * Aquí NO hay ninguna casilla de texto. La había, y con el compositor de abajo
+ * quedaban dos sitios donde escribir la misma respuesta: «no pueden haber dos
+ * casillas de respuesta». Lo que se escribe va siempre al compositor; esto son
+ * solo las respuestas de un toque.
+ */
+function RespuestaAlHueco({
+  hueco,
+  onContestar,
+}: {
+  hueco: Hueco;
+  onContestar: (hueco: Hueco, valor: string | string[] | number | null, dicho: string) => void;
+}) {
+  const [marcados, setMarcados] = useState<string[]>([]);
+
+  // Al cambiar de pregunta se limpia lo marcado: sin esto, los requisitos
+  // señalados se arrastraban a la pregunta siguiente.
+  useEffect(() => {
+    setMarcados([]);
+  }, [hueco.clave, hueco.pregunta]);
+
+  const noLoHanDicho = (
+    <button
+      type="button"
+      className="cv__nodicho"
+      onClick={() =>
+        onContestar(
+          hueco,
+          null,
+          hueco.clave === "requisitos" ? "No hay nada especial" : "No lo han dicho",
+        )
+      }
+    >
+      {hueco.clave === "requisitos" ? "No hay nada especial" : "No lo han dicho"}
+    </button>
+  );
+
+  if (hueco.tipo === "opciones") {
+    return (
+      <div className="cv__respuesta">
+        <div className="cv__ops">
+          {(hueco.opciones ?? []).map((o) => (
+            <button
+              key={o.valor}
+              type="button"
+              className="cv__op"
+              onClick={() => onContestar(hueco, o.valor, o.etiqueta)}
+            >
+              {o.etiqueta}
+            </button>
+          ))}
+        </div>
+        {noLoHanDicho}
+      </div>
+    );
+  }
+
+  if (hueco.tipo === "varias") {
+    const alternar = (valor: string) =>
+      setMarcados((ya) => (ya.includes(valor) ? ya.filter((x) => x !== valor) : [...ya, valor]));
+    return (
+      <div className="cv__respuesta">
+        <div className="cv__ops">
+          {(hueco.opciones ?? []).map((o) => (
+            <button
+              key={o.valor}
+              type="button"
+              className={marcados.includes(o.valor) ? "cv__op is-on" : "cv__op"}
+              aria-pressed={marcados.includes(o.valor)}
+              onClick={() => alternar(o.valor)}
+            >
+              {marcados.includes(o.valor) ? "✓ " : ""}
+              {o.etiqueta}
+            </button>
+          ))}
+        </div>
+        <div className="cv__respuestarow">
+          <button
+            type="button"
+            className="cv__primary cv__primary--sm"
+            disabled={marcados.length === 0}
+            onClick={() => {
+              const dicho = (hueco.opciones ?? [])
+                .filter((o) => marcados.includes(o.valor))
+                .map((o) => o.etiqueta)
+                .join(", ");
+              onContestar(hueco, marcados, dicho);
+            }}
+          >
+            Listo
+          </button>
+          {noLoHanDicho}
+        </div>
+      </div>
+    );
+  }
+
+  // Lo que se escribe va al compositor. Aqui solo queda, cuando se puede, la
+  // salida: lo que bloquea no se puede saltar, porque sin destino no hay nada
+  // que buscar y ofrecerlo solo lleva a una pantalla vacia sin explicacion.
+  if (hueco.bloquea) return null;
+  return <div className="cv__respuesta">{noLoHanDicho}</div>;
+}
+
 function Campo({
   etiqueta,
   valor,
@@ -1630,11 +2875,396 @@ function Campo({
   );
 }
 
+/**
+ * Un ✓, una ✗ o un — por cada cosa que pidió el centro.
+ *
+ * La tira va en la propia fila, no dentro del detalle: la queja era que había
+ * que abrir un popover diminuto para saber si el hotel servía, y con veinte
+ * hoteles eso son veinte aperturas. Aquí se ve de un vistazo y el detalle queda
+ * para leer la letra pequeña.
+ *
+ * El guion NO es una cruz. «No consta» quiere decir que el documento del hotel
+ * no habla del tema, no que no lo tenga.
+ */
+function TiraDeEncaje({ encaje, corta = false }: { encaje?: ComprobacionDeEncaje[]; corta?: boolean }) {
+  if (!encaje || encaje.length === 0) return null;
+  const items = corta ? encaje.slice(0, 4) : encaje;
+  const restantes = encaje.length - items.length;
+
+  return (
+    <span className="cv__enc">
+      {items.map((c, i) => (
+        <span
+          key={`${c.que}-${i}`}
+          className={`cv__encit cv__encit--${c.estado}`}
+          title={c.detalle ? `${c.que} · ${c.detalle}` : c.que}
+        >
+          <b>{c.estado === "cumple" ? "✓" : c.estado === "no_cumple" ? "✗" : "—"}</b>
+          {c.que}
+        </span>
+      ))}
+      {restantes > 0 ? <span className="cv__encmas">+{restantes}</span> : null}
+    </span>
+  );
+}
+
+/** Una fecha ISO escrita como la escribiría una persona: «12 may 2027». */
+function fechaCorta(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "short", year: "numeric" }).format(d);
+}
+
+/**
+ * El podio: los tres que mejor encajan con lo que pidió ESTE centro.
+ *
+ * No es la cabecera de la lista con otro color. La lista ordena por la
+ * puntuación de la búsqueda —parecido con los filtros— y el podio por cuántas
+ * de las cosas que pidió el colegio cumple cada hotel. Al podio no sube nada
+ * que incumpla algo, así que puede tener dos, uno o ninguno.
+ */
+function Podio({
+  tres,
+  elegidos,
+  noches,
+  tope,
+  onAlternar,
+  onDetalle,
+}: {
+  tres: AccommodationSearchMatch[];
+  elegidos: string[];
+  noches: number;
+  tope: number | null;
+  onAlternar: (id: string) => void;
+  onDetalle: (id: string) => void;
+}) {
+  if (tres.length === 0) return null;
+
+  return (
+    <section className="cv__podio" aria-label="Los que mejor encajan">
+      <p className="cv__podioh">
+        <span className="cv__lbl">Los que mejor encajan</span>
+        <span>
+          Ordenados por lo que pidió el centro, no por precio. Ninguno de estos incumple nada de lo que
+          pidieron.
+        </span>
+      </p>
+      <ol className="cv__podiol">
+        {tres.map((item, i) => {
+          const puesto = elegidos.includes(item.accommodation.id);
+          const precio = precioPorAlumno(item, [], noches);
+          return (
+            <li key={item.accommodation.id} className={puesto ? "cv__pcard is-on" : "cv__pcard"}>
+              <button
+                type="button"
+                className="cv__pmain"
+                onClick={() => onAlternar(item.accommodation.id)}
+                aria-pressed={puesto}
+              >
+                <span className="cv__ppos">{i + 1}º</span>
+                <span className="cv__pt">{item.accommodation.accommodationName}</span>
+                <span className="cv__ps">
+                  {[item.accommodation.categoryType, item.rate.boardType, item.accommodation.locality]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+                <span className="cv__pp">
+                  {euros(precio)}
+                  <b>por alumno</b>
+                  {tope ? (
+                    <i className={precio > tope ? "cv__tope cv__tope--out" : "cv__tope cv__tope--in"}>
+                      {precio > tope ? `+${euros(precio - tope)}` : "cabe"}
+                    </i>
+                  ) : null}
+                </span>
+                <span className="cv__prazon">{razonDelPodio(item)}</span>
+                <TiraDeEncaje encaje={item.encaje} />
+                <span className="cv__pcta">{puesto ? "Quitar de las opciones" : "Elegir este"}</span>
+              </button>
+              <button type="button" className="cv__plink" onClick={() => onDetalle(item.accommodation.id)}>
+                Ver todo el detalle
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+/**
+ * Qué se está seleccionando exactamente, antes de mandárselo a un colegio.
+ *
+ * Sustituye al popover de 330 px que enseñaba cuatro líneas. Lo pidió así:
+ * «si agrupamos por hotel y en detalles mostramos todo… para que sepamos qué
+ * estamos seleccionando y qué estamos reservando para que no haya malentendidos
+ * antes de pasar a revisar y enviar».
+ *
+ * De ahí el orden de los bloques: primero lo que se reserva con su precio
+ * —habitación, régimen, temporada, total del grupo—, después lo que pidió el
+ * centro punto por punto, y solo entonces las OTRAS tarifas del mismo hotel.
+ * Ese último bloque es el que faltaba: el 4R tiene cuarenta tarifas, la
+ * búsqueda elige una, y hasta ahora no había forma de saber que existían las
+ * demás.
+ */
+function DetalleAlojamiento({
+  item,
+  noches,
+  alumnos,
+  profesores,
+  desde,
+  hasta,
+}: {
+  item: AccommodationSearchMatch;
+  noches: number;
+  alumnos: number;
+  profesores: number;
+  desde: string;
+  hasta: string;
+}) {
+  const nAlumno = precioDeTarifa(item.rate);
+  const nProfesor = item.singleRate ? precioDeTarifa(item.singleRate) : nAlumno;
+  const dias = Math.max(noches, 1);
+  const totalAlumnos = nAlumno * alumnos * dias;
+  const totalProfesores = nProfesor * profesores * dias;
+  const total = totalAlumnos + totalProfesores;
+
+  const alternativas = item.alternativas ?? [];
+  const nombreTarifa = (r: AccommodationRate) =>
+    [r.boardType, r.occupancyLabel, r.includedService].filter(Boolean).join(" · ") || "sin describir";
+
+  // Dos tarifas con la misma descripcion y distinto precio son dos cosas
+  // distintas que el documento no distinguio: el Santa Monica tiene media
+  // pension a 28,75 EUR y a 51,75 EUR para las mismas fechas, y en el catalogo
+  // no hay nada -ni habitacion, ni servicio, ni hoja de origen- que diga en que
+  // se diferencian. Callarlo seria dejar elegir a ciegas.
+  const descripciones = [item.rate, ...alternativas].map(nombreTarifa);
+  const hayIndistinguibles = descripciones.some((d, i) => descripciones.indexOf(d) !== i);
+
+  return (
+    <div className="cv__det" role="region" aria-label={`Detalle de ${item.accommodation.accommodationName}`}>
+      {/* 1 · Lo que se reserva. Es la razon de ser de este panel. */}
+      <div className="cv__detbloq">
+        <p className="cv__deth">Esto es lo que vas a reservar</p>
+        <p className="cv__detsub">
+          {item.accommodation.accommodationName}
+          {item.accommodation.locality ? ` · ${item.accommodation.locality}` : ""}
+          {item.accommodation.categoryType ? ` · ${item.accommodation.categoryType}` : ""}
+        </p>
+        <dl className="cv__detgrid">
+          <div>
+            <dt>Estancia</dt>
+            <dd>
+              {dias} {dias === 1 ? "noche" : "noches"}
+              {desde && hasta ? ` · ${fechaCorta(desde)} → ${fechaCorta(hasta)}` : ""}
+            </dd>
+          </div>
+          <div>
+            <dt>Grupo</dt>
+            <dd>
+              {alumnos} {alumnos === 1 ? "alumno" : "alumnos"}
+              {profesores > 0 ? ` · ${profesores} ${profesores === 1 ? "profesor" : "profesores"}` : ""}
+            </dd>
+          </div>
+          <div>
+            <dt>Régimen</dt>
+            <dd>{item.rate.boardType || "sin especificar en la tarifa"}</dd>
+          </div>
+          <div>
+            <dt>Habitación</dt>
+            <dd>{item.rate.occupancyLabel || "la que trae la tarifa (sin detallar)"}</dd>
+          </div>
+          {item.rate.includedService ? (
+            <div>
+              <dt>Incluye además</dt>
+              <dd>{item.rate.includedService}</dd>
+            </div>
+          ) : null}
+          <div>
+            <dt>Temporada</dt>
+            <dd>
+              {item.rate.seasonName || String(item.rate.year || "") || "sin nombre"}
+              {item.rate.dateFrom && item.rate.dateTo
+                ? ` · ${fechaCorta(item.rate.dateFrom)} → ${fechaCorta(item.rate.dateTo)}`
+                : ""}
+            </dd>
+          </div>
+          {item.rate.minNights ? (
+            <div>
+              <dt>Estancia mínima</dt>
+              <dd>{item.rate.minNights} noches</dd>
+            </div>
+          ) : null}
+          {item.rate.clientSegment ? (
+            <div>
+              <dt>Tarifa de</dt>
+              <dd>{item.rate.clientSegment}</dd>
+            </div>
+          ) : null}
+        </dl>
+
+        <table className="cv__dettabla cv__dettabla--precio">
+          <tbody>
+            <tr>
+              <th scope="row">Alumnos</th>
+              <td>
+                {euros(nAlumno)} × {alumnos} × {dias} {dias === 1 ? "noche" : "noches"}
+              </td>
+              <td className="cv__num">{euros(totalAlumnos)}</td>
+            </tr>
+            {profesores > 0 ? (
+              <tr>
+                <th scope="row">Profesores</th>
+                <td>
+                  {euros(nProfesor)} × {profesores} × {dias} {dias === 1 ? "noche" : "noches"}
+                  {/* Sin tarifa individual los profesores se cotizan al precio de
+                      los alumnos. Callarlo es prometer una habitacion individual
+                      que nadie ha tarifado. */}
+                  {item.singleRate ? " · uso individual" : " · sin tarifa individual: mismo precio"}
+                </td>
+                <td className="cv__num">{euros(totalProfesores)}</td>
+              </tr>
+            ) : null}
+            <tr className="cv__dettotal">
+              <th scope="row">Total del alojamiento</th>
+              <td>solo el hotel, sin actividades</td>
+              <td className="cv__num">{euros(total)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* 2 · Contra lo que pidio el centro, punto por punto. */}
+      {item.encaje && item.encaje.length > 0 ? (
+        <div className="cv__detbloq">
+          <p className="cv__deth">Lo que pidió el centro</p>
+          <ul className="cv__detenc">
+            {item.encaje.map((c, i) => (
+              <li key={`${c.que}-${i}`} className={`cv__detenc--${c.estado}`}>
+                <b>{c.estado === "cumple" ? "✓" : c.estado === "no_cumple" ? "✗" : "—"}</b>
+                <span>
+                  {c.que}
+                  {c.detalle ? <em>{c.detalle}</em> : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="cv__detnota">
+            Un guion no es un no: quiere decir que el documento de este hotel no habla del tema. Hay que
+            preguntárselo antes de prometerlo.
+          </p>
+        </div>
+      ) : null}
+
+      {/* 3 · Las demas tarifas del mismo hotel. Esto es lo que no existia. */}
+      {alternativas.length > 0 ? (
+        <div className="cv__detbloq">
+          <p className="cv__deth">
+            Lo que tiene este hotel para estas fechas{" "}
+            <span className="cv__detn">{alternativas.length + 1}</span>
+          </p>
+          <div className="cv__detscroll">
+            <table className="cv__dettabla">
+              <thead>
+                <tr>
+                  <th scope="col">Tarifa</th>
+                  <th scope="col">Temporada</th>
+                  <th scope="col">Mín.</th>
+                  <th scope="col" className="cv__num">
+                    Por persona y noche
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="cv__detsel">
+                  <td>
+                    {nombreTarifa(item.rate)} <span className="cv__detchip">la seleccionada</span>
+                  </td>
+                  <td>{item.rate.seasonName || item.rate.year || "—"}</td>
+                  <td>{item.rate.minNights || "—"}</td>
+                  <td className="cv__num">{euros(nAlumno)}</td>
+                </tr>
+                {alternativas.map((r) => (
+                  <tr key={r.id}>
+                    <td>{nombreTarifa(r)}</td>
+                    <td>{r.seasonName || r.year || "—"}</td>
+                    <td>{r.minNights || "—"}</td>
+                    <td className="cv__num">{euros(precioDeTarifa(r))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="cv__detnota">
+            Solo las tarifas válidas para las fechas del viaje; las de otras temporadas no se enseñan. La
+            búsqueda elige la marcada por lo que pidió el centro; de momento las demás no se pueden elegir
+            desde aquí.
+          </p>
+          {hayIndistinguibles ? (
+            <p className="cv__detaviso">
+              Hay tarifas con la misma descripción y distinto precio. El documento no dejó registrado en qué
+              se diferencian —habitación, edificio, servicio—, así que no se puede saber cuál corresponde a
+              este grupo sin preguntárselo al hotel.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* 4 · Todo lo que el documento del hotel dice, entero. */}
+      {item.accommodation.freePolicy ? (
+        <div className="cv__detbloq">
+          <p className="cv__deth">Gratuidades</p>
+          <p className="cv__dettxt">{item.accommodation.freePolicy}</p>
+        </div>
+      ) : null}
+      {item.accommodation.conditionsText ? (
+        <div className="cv__detbloq">
+          <p className="cv__deth">Condiciones</p>
+          <ul className="cv__detlista">
+            {item.accommodation.conditionsText.split(" | ").map((linea, i) => (
+              <li key={i}>{linea.replace(/^\[([A-Z_]+)\]\s*/, "")}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {item.accommodation.observations ? (
+        <div className="cv__detbloq">
+          <p className="cv__deth">Observaciones</p>
+          <ul className="cv__detlista">
+            {item.accommodation.observations.split(" | ").map((linea, i) => (
+              <li key={i}>{linea}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {!item.accommodation.freePolicy &&
+      !item.accommodation.conditionsText &&
+      !item.accommodation.observations ? (
+        <div className="cv__detbloq">
+          <p className="cv__detnota">
+            De este alojamiento no se publicó ninguna condición ni gratuidad. Si su documento las traía, hay
+            que volver a publicarlo: lo que no está aquí tampoco saldrá en el presupuesto.
+          </p>
+        </div>
+      ) : null}
+
+      <p className="cv__detpie">
+        De: {item.accommodation.sourceDocumentName || item.accommodation.sourceFile || "origen sin registrar"}
+      </p>
+    </div>
+  );
+}
+
 function ListaOpciones({
   hoteles,
   elegidos,
   noches,
   tope,
+  alumnos,
+  profesores,
+  desde,
+  hasta,
   actividadesDe,
   matchActividad,
   programaBase,
@@ -1647,6 +3277,10 @@ function ListaOpciones({
   elegidos: string[];
   noches: number;
   tope: number | null;
+  alumnos: number;
+  profesores: number;
+  desde: string;
+  hasta: string;
   actividadesDe: (opcion: number) => string[];
   matchActividad: (id: string) => ActivitySearchMatch | undefined;
   programaBase: string[];
@@ -1655,108 +3289,124 @@ function ListaOpciones({
   detalle: string | null;
   onDetalle: (id: string) => void;
 }) {
-  return (
-    <ul className="cv__hotels">
-      {hoteles.slice(0, 20).map((item) => {
-        const puesto = elegidos.includes(item.accommodation.id);
-        const opcion = elegidos.indexOf(item.accommodation.id) + 1;
-        const enOpcion = puesto ? actividadesDe(opcion) : [];
-        const fuera = puesto ? programaBase.filter((id) => !enOpcion.includes(id)) : [];
-        const dentro = puesto ? enOpcion.filter((id) => !programaBase.includes(id)) : [];
-        const precio = puesto
-          ? precioPorAlumno(item, enOpcion.map(matchActividad).filter(Boolean) as ActivitySearchMatch[], noches)
-          : precioPorAlumno(item, [], noches);
+  const tres = podio(hoteles);
+  const enElPodio = new Set(tres.map((item) => item.accommodation.id));
 
-        return (
-          <li key={item.accommodation.id} className={puesto ? "cv__hotel is-on" : "cv__hotel"}>
-            <button type="button" className="cv__hotelmain" onClick={() => onAlternar(item.accommodation.id)} aria-pressed={puesto}>
-              <span className="cv__hotelchk">{puesto ? opcion : ""}</span>
-              <span className="cv__hotelm">
-                <span className="cv__hotelt">{item.accommodation.accommodationName}</span>
-                <span className="cv__hotels2">
-                  {[item.accommodation.categoryType, item.rate.boardType, item.accommodation.locality]
-                    .filter(Boolean)
-                    .join(" · ")}
-                  {/* Un hotel de otro pueblo de la misma comarca tambien sale, a
-                      proposito: pidiendo Cambrils aparece Salou, que esta a diez
-                      minutos. Lo que faltaba era decirlo. Sin esta marca la
-                      lista parecia ignorar el destino. */}
-                  {esDeOtraLocalidad(item.accommodation.locality, destinoPedido) ? (
-                    <span className="cv__cerca">cerca</span>
-                  ) : null}
+  return (
+    <>
+      <Podio
+        tres={tres}
+        elegidos={elegidos}
+        noches={noches}
+        tope={tope}
+        onAlternar={onAlternar}
+        onDetalle={onDetalle}
+      />
+
+      {tres.length > 0 ? (
+        <p className="cv__opsh cv__opsh--sub">
+          <span className="cv__lbl">Todos los alojamientos con tarifa</span>
+        </p>
+      ) : null}
+
+      <ul className="cv__hotels">
+        {hoteles.slice(0, 20).map((item) => {
+          const puesto = elegidos.includes(item.accommodation.id);
+          const opcion = elegidos.indexOf(item.accommodation.id) + 1;
+          const enOpcion = puesto ? actividadesDe(opcion) : [];
+          const fuera = puesto ? programaBase.filter((id) => !enOpcion.includes(id)) : [];
+          const dentro = puesto ? enOpcion.filter((id) => !programaBase.includes(id)) : [];
+          const precio = puesto
+            ? precioPorAlumno(item, enOpcion.map(matchActividad).filter(Boolean) as ActivitySearchMatch[], noches)
+            : precioPorAlumno(item, [], noches);
+          const abierto = detalle === item.accommodation.id;
+
+          return (
+            <li key={item.accommodation.id} className={puesto ? "cv__hotel is-on" : "cv__hotel"}>
+              <button
+                type="button"
+                className="cv__hotelmain"
+                onClick={() => onAlternar(item.accommodation.id)}
+                aria-pressed={puesto}
+              >
+                <span className="cv__hotelchk">{puesto ? opcion : ""}</span>
+                <span className="cv__hotelm">
+                  <span className="cv__hotelt">
+                    {item.accommodation.accommodationName}
+                    {enElPodio.has(item.accommodation.id) ? (
+                      <span className="cv__reco">recomendado</span>
+                    ) : null}
+                  </span>
+                  <span className="cv__hotels2">
+                    {[
+                      item.accommodation.categoryType,
+                      item.rate.boardType,
+                      item.rate.occupancyLabel,
+                      item.accommodation.locality,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                    {/* Un hotel de otro pueblo de la misma comarca tambien sale, a
+                        proposito: pidiendo Cambrils aparece Salou, que esta a diez
+                        minutos. Lo que faltaba era decirlo. Sin esta marca la
+                        lista parecia ignorar el destino. */}
+                    {esDeOtraLocalidad(item.accommodation.locality, destinoPedido) ? (
+                      <span className="cv__cerca">cerca</span>
+                    ) : null}
+                  </span>
+                  {/* La tira de ✓ y — va en la fila, no dentro del detalle: con
+                      veinte hoteles, abrir veinte fichas para saber cual sirve
+                      era justamente la queja. */}
+                  <TiraDeEncaje encaje={item.encaje} corta />
                 </span>
-              </span>
-              <span className="cv__hotelp">
-                {euros(precio)}
-                <b>por alumno</b>
-              </span>
-              {tope ? (
-                <span className={precio > tope ? "cv__tope cv__tope--out" : "cv__tope cv__tope--in"}>
-                  {precio > tope ? `+${euros(precio - tope)}` : "cabe"}
+                <span className="cv__hotelp">
+                  {euros(precio)}
+                  <b>por alumno</b>
                 </span>
+                {tope ? (
+                  <span className={precio > tope ? "cv__tope cv__tope--out" : "cv__tope cv__tope--in"}>
+                    {precio > tope ? `+${euros(precio - tope)}` : "cabe"}
+                  </span>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                className="cv__info"
+                aria-expanded={abierto}
+                onClick={() => onDetalle(item.accommodation.id)}
+              >
+                {abierto ? "Ocultar el detalle" : "Ver todo el detalle"}
+              </button>
+              {abierto ? (
+                <DetalleAlojamiento
+                  item={item}
+                  noches={noches}
+                  alumnos={alumnos}
+                  profesores={profesores}
+                  desde={desde}
+                  hasta={hasta}
+                />
               ) : null}
-            </button>
-            <button
-              type="button"
-              className="cv__info"
-              aria-expanded={detalle === item.accommodation.id}
-              aria-label={`Detalle de ${item.accommodation.accommodationName}`}
-              onClick={() => onDetalle(item.accommodation.id)}
-            >
-              Detalle
-            </button>
-            {detalle === item.accommodation.id ? (
-              <div className="cv__pop" role="dialog" aria-label={item.accommodation.accommodationName}>
-                <p className="cv__popt">{item.accommodation.accommodationName}</p>
-                <p className="cv__pops">
-                  {[item.accommodation.categoryType, item.accommodation.accommodationType, item.accommodation.locality]
-                    .filter(Boolean)
-                    .join(" · ")}
+              {puesto && (fuera.length || dentro.length) ? (
+                <p className="cv__delta">
+                  <span>Programa base</span>
+                  {fuera.map((id) => (
+                    <span key={id} className="cv__delta--out">
+                      sin {matchActividad(id)?.activity.activityName ?? "una actividad"}
+                    </span>
+                  ))}
+                  {dentro.map((id) => (
+                    <span key={id} className="cv__delta--in">
+                      + {matchActividad(id)?.activity.activityName ?? "una actividad"}
+                    </span>
+                  ))}
                 </p>
-                <p className="cv__popr">
-                  <span>Precio por alumno</span>
-                  <strong>{euros(precio)}</strong>
-                </p>
-                <p className="cv__popr">
-                  <span>Régimen</span>
-                  <strong>{item.rate.boardType || "sin especificar"}</strong>
-                </p>
-                {item.accommodation.freePolicy ? (
-                  <p className="cv__popr">
-                    <span>Gratuidades</span>
-                    <strong>{item.accommodation.freePolicy}</strong>
-                  </p>
-                ) : null}
-                {item.accommodation.conditionsText ? (
-                  <p className="cv__popc">{item.accommodation.conditionsText}</p>
-                ) : null}
-                {item.accommodation.observations ? (
-                  <p className="cv__popc">{item.accommodation.observations}</p>
-                ) : null}
-                <p className="cv__popf">
-                  De: {item.accommodation.sourceDocumentName || item.accommodation.sourceFile || "origen sin registrar"}
-                </p>
-              </div>
-            ) : null}
-            {puesto && (fuera.length || dentro.length) ? (
-              <p className="cv__delta">
-                <span>Programa base</span>
-                {fuera.map((id) => (
-                  <span key={id} className="cv__delta--out">
-                    sin {matchActividad(id)?.activity.activityName ?? "una actividad"}
-                  </span>
-                ))}
-                {dentro.map((id) => (
-                  <span key={id} className="cv__delta--in">
-                    + {matchActividad(id)?.activity.activityName ?? "una actividad"}
-                  </span>
-                ))}
-              </p>
-            ) : null}
-          </li>
-        );
-      })}
-    </ul>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 

@@ -237,7 +237,9 @@ export function App() {
     return (
       <RequestCanvas
         onExit={() => navigatePath(routeForPage("home"))}
-        onFinished={() => undefined}
+        // Terminado el envio, el lienzo no tiene nada mas que hacer: se
+        // vuelve al inicio, que es donde esta la lista de presupuestos.
+        onFinished={() => navigatePath(routeForPage("home"))}
         currentUserId={currentUser.id}
       />
     );

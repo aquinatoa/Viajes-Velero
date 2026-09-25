@@ -1005,6 +1005,12 @@ export interface BorradorEnLista {
   /** Quién lo tiene abierto ahora mismo, si alguien lo tiene. */
   lockedByUserId: string | null;
   updatedAt: string;
+  /**
+   * Por dónde se quedó: «la petición, sin alojamientos elegidos», «3
+   * alojamientos · 3 actividades». Sin esto, dos intentos del mismo colegio
+   * son dos líneas idénticas y no hay forma de saber cuál se envió.
+   */
+  avance?: string;
 }
 
 export interface BorradorCompleto extends BorradorEnLista {

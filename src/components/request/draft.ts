@@ -39,6 +39,16 @@ export interface BorradorSolicitud {
   entendido: NormalizedRequestDraft | null;
   tope: number | null;
   requisitos: string[];
+  /**
+   * El hilo del chat de la petición: qué se preguntó y qué se contestó.
+   *
+   * Viaja con el borrador porque es trabajo hecho. Sin esto, retomar mañana
+   * una solicitud a medias volvía a preguntar lo que el colegio ya había
+   * contestado ayer por teléfono.
+   */
+  conversacion?: { pregunta: string; respuesta: string }[];
+  /** Preguntas que se hicieron y se quedaron sin respuesta: no se repiten. */
+  preguntadas?: string[];
   elegidos: string[];
   programaBase: string[];
   excepciones: Record<number, { fuera: string[]; dentro: string[] }>;

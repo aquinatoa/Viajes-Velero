@@ -1,3 +1,4 @@
+import { leerRango } from "../domain/fechas";
 import { z } from "zod";
 import type {
   Client,
@@ -102,122 +103,26 @@ function findDestination(text: string) {
   return scored[0].candidate;
 }
 
-const SPANISH_MONTHS: Record<string, number> = {
-  enero: 1,
-  febrero: 2,
-  marzo: 3,
-  abril: 4,
-  mayo: 5,
-  junio: 6,
-  julio: 7,
-  agosto: 8,
-  septiembre: 9,
-  setiembre: 9,
-  octubre: 10,
-  noviembre: 11,
-  diciembre: 12
-};
-
 function stripAccents(value: string) {
-  return value.normalize("NFD").replace(/[̀-ͯ]/g, "");
-}
-
-function monthNumber(token: string | undefined): number | null {
-  if (!token) return null;
-  return SPANISH_MONTHS[stripAccents(token).toLowerCase()] ?? null;
-}
-
-function toIso(year: number, month: number, day: number): string {
-  const mm = String(month).padStart(2, "0");
-  const dd = String(day).padStart(2, "0");
-  return `${year}-${mm}-${dd}`;
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 /**
- * Extrae el rango de fechas del texto libre. Reconoce, por orden:
- *   1. ISO: "2026-05-18 ... 2026-05-22"
- *   2. Lenguaje natural en español: "del 18 al 22 de mayo de 2026",
- *      "del 2 de mayo al 6 de junio de 2026", "entre el 18 y el 22 de mayo de 2026".
- *   3. Numérico DD/MM/AAAA: "18/05/2026 ... 22/05/2026" (también con - o .).
- *   4. Español SIN año: "del 10 al 14 de mayo" → el próximo mayo que llegue.
+ * El rango de fechas del mensaje.
  *
- * `hoy` se recibe en vez de mirar el reloj para que el caso 4 sea comprobable:
- * una prueba que dependa de la fecha del día caduca sola.
+ * La lectura entera vive ahora en `domain/fechas`: la usa este lector y la usa
+ * el chat de la petición cuando alguien contesta una fecha escribiéndola. Antes
+ * estaba aquí dentro y solo entendía el orden «día primero», así que «el viaje
+ * para mayo de 2027, del 12 al 16» —con el mes delante— devolvía dos fechas
+ * vacías. Dos lecturas distintas de la misma frase en la misma pantalla era
+ * cuestión de tiempo que discreparan.
+ *
+ * `hoy` sigue recibiéndose en vez de mirar el reloj: una fecha sin año se lee
+ * como la próxima vez que llegue, y eso hay que poder comprobarlo.
  */
 function extractDates(text: string, hoy: Date) {
-  const empty = { dateFrom: "", dateTo: "" };
-
-  // 1) ISO (AAAA-MM-DD)
-  const isoDates = [...text.matchAll(/\b(20\d{2}-\d{2}-\d{2})\b/g)].map((match) => match[1]);
-  if (isoDates.length >= 2) {
-    return { dateFrom: isoDates[0], dateTo: isoDates[1] };
-  }
-
-  const lower = text.toLowerCase();
-
-  // 2) Español: D1 [de MES1] (al|a|y|hasta|-) [el] D2 de MES2 [de] AAAA
-  const es = lower.match(
-    /(\d{1,2})\s*(?:de\s+([a-záéíóúñ]+)\s+)?(?:al|a|y|hasta|–|-)\s*(?:el\s+)?(\d{1,2})\s+de\s+([a-záéíóúñ]+)\s+(?:de\s+)?(20\d{2})/
-  );
-  if (es) {
-    const day1 = Number(es[1]);
-    const day2 = Number(es[3]);
-    const month2 = monthNumber(es[4]);
-    const month1 = monthNumber(es[2]) ?? month2;
-    const year = Number(es[5]);
-    if (month1 && month2) {
-      return { dateFrom: toIso(year, month1, day1), dateTo: toIso(year, month2, day2) };
-    }
-  }
-
-  // 3) Numérico DD/MM/AAAA (o con - o .)
-  const numeric = [...text.matchAll(/\b(\d{1,2})[/.-](\d{1,2})[/.-](20\d{2})\b/g)].map((m) =>
-    toIso(Number(m[3]), Number(m[2]), Number(m[1]))
-  );
-  if (numeric.length >= 2) {
-    return { dateFrom: numeric[0], dateTo: numeric[1] };
-  }
-
-  // 4) Español SIN año: "del 10 al 14 de mayo".
-  //
-  // Un colegio que escribe en septiembre para el viaje de mayo casi nunca pone
-  // el año: es obvio para quien escribe. Antes esto no daba fecha ninguna y la
-  // solicitud se quedaba con dos huecos críticos.
-  const sinAnio = lower.match(
-    /(\d{1,2})\s*(?:de\s+([a-záéíóúñ]+)\s+)?(?:al|a|y|hasta|–|-)\s*(?:el\s+)?(\d{1,2})\s+de\s+([a-záéíóúñ]+)\b/
-  );
-  if (sinAnio) {
-    const day1 = Number(sinAnio[1]);
-    const day2 = Number(sinAnio[3]);
-    const month2 = monthNumber(sinAnio[4]);
-    const month1 = monthNumber(sinAnio[2]) ?? month2;
-    if (month1 && month2) {
-      const year = proximoAnioCon(month1, day1, hoy);
-      // Si el viaje cruza el fin de año ("del 28 de diciembre al 3 de enero"),
-      // la vuelta cae en el año siguiente.
-      const yearFin = month2 < month1 ? year + 1 : year;
-      return { dateFrom: toIso(year, month1, day1), dateTo: toIso(yearFin, month2, day2) };
-    }
-  }
-
-  return empty;
-}
-
-/**
- * El primer año en el que ese día y ese mes aún no han pasado.
- *
- * Nadie pide presupuesto para un viaje que ya ocurrió, así que ante una fecha
- * sin año la lectura correcta es la próxima vez que llegue.
- */
-function proximoAnioCon(month: number, day: number, referencia: Date): number {
-  const year = referencia.getUTCFullYear();
-  const esteAnio = Date.UTC(year, month - 1, day);
-  const hoySinHora = Date.UTC(
-    referencia.getUTCFullYear(),
-    referencia.getUTCMonth(),
-    referencia.getUTCDate()
-  );
-  return esteAnio >= hoySinHora ? year : year + 1;
+  const { desde, hasta } = leerRango(text, hoy);
+  return { dateFrom: desde, dateTo: hasta };
 }
 
 function extractParticipants(text: string) {
@@ -920,21 +825,46 @@ export const upsertClientFromRequest = (input: ParseTripRequestInput): Promise<C
  * que hace que reintentar el cierre del lienzo no deje solicitudes (ni tratos)
  * duplicados.
  */
-export const saveNormalizedTripRequest = (
+/**
+ * El cuerpo con el que se guarda una solicitud.
+ *
+ * `normalized` es la petición TAL Y COMO ESTÁ AHORA, no la primera lectura del
+ * mensaje. Es la corrección de un fallo que se llevaba por delante todo lo que
+ * se hubiera arreglado a mano o contestado en el chat: se guardaba
+ * `parseResult.normalized`, que es lo que se entendió la primera vez y ya no
+ * se vuelve a tocar.
+ *
+ * Se veía en el documento. En una petición cuyo correo no decía cuántos
+ * alumnos eran —se contestó «48» en el chat— el PDF salía con «para 0 alumnos»
+ * y el resumen del viaje no sumaba ninguna actividad, porque las actividades se
+ * multiplican por el número de personas y ese número era cero.
+ */
+export function payloadDeLaSolicitud(
   clientId: string,
   source: ParseTripRequestInput,
   parseResult: ParseTripRequestResult,
+  normalized: NormalizedRequestDraft,
   existingId?: string | null,
-): Promise<TripRequest> => {
-  return saveTripRequestApi({
+) {
+  return {
     id: existingId ?? null,
     clientId,
     centreName: source.centreName ?? null,
     opportunityName: source.opportunityName ?? null,
     originalMessage: source.rawTripRequestText,
     requestStatus: parseResult.requestStatus,
-    ...parseResult.normalized,
-  });
+    ...normalized,
+  };
+}
+
+export const saveNormalizedTripRequest = (
+  clientId: string,
+  source: ParseTripRequestInput,
+  parseResult: ParseTripRequestResult,
+  normalized: NormalizedRequestDraft,
+  existingId?: string | null,
+): Promise<TripRequest> => {
+  return saveTripRequestApi(payloadDeLaSolicitud(clientId, source, parseResult, normalized, existingId));
 };
 
 /**
