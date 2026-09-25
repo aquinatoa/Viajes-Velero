@@ -17,6 +17,7 @@
  * base por cada ajuste de interfaz, y un borrador a medias no es un dato con el
  * que haya que razonar: es un apunte para seguir donde se dejó.
  */
+import { avanceDelBorrador } from "./avanceDelBorrador";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -96,9 +97,22 @@ export async function listarBorradoresDb(where: Record<string, unknown> = {}) {
       lockedByUserId: true,
       lockedAt: true,
       updatedAt: true,
+      // Hace falta para decir por dónde se quedó cada uno. Dos intentos del
+      // mismo colegio tenían exactamente la misma línea, y entonces no hay
+      // forma de saber cuál es el que ya se envió y cuál se abandonó.
+      payload: true,
     },
   });
-  return rows.map(aLista);
+  return rows.map((row) => {
+    let carga: unknown = null;
+    try {
+      carga = JSON.parse(row.payload);
+    } catch {
+      // Un borrador con el contenido roto no puede tumbar la lista entera.
+    }
+    const { payload: _, ...resto } = row;
+    return { ...aLista(resto), avance: avanceDelBorrador(carga as never) };
+  });
 }
 
 export async function leerBorradorDb(id: string): Promise<BorradorGuardado | null> {

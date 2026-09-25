@@ -17,6 +17,7 @@ import {
   extractCentreName,
   extractClientInfo,
   extractRequestExtras,
+  payloadDeLaSolicitud,
   readTripMessage,
 } from "../src/services/requestService";
 
@@ -427,6 +428,45 @@ prueba("en catalán igual, sin tragarse la frase", () => {
     extractCentreName("Som de l'Institut Vedruna Balaguer i volem anar a Salou."),
     "Institut Vedruna Balaguer",
   );
+});
+
+console.log("\nLo que se guarda es lo corregido, no la primera lectura");
+
+prueba("manda la petición de ahora, no la que se entendió al principio", () => {
+  // El fallo que lo destapó salió en el PDF: el correo no decía cuántos
+  // alumnos eran, se contestó «48» en el chat, y el documento salió «para 0
+  // alumnos» y con el resumen del viaje sin sumar ninguna actividad -porque
+  // las actividades se multiplican por el número de personas, y era cero-.
+  const mensaje = "Somos el IES Jaume Balmes. Queremos ir del 12 al 16 de mayo de 2027.";
+  const parseResult = readTripMessage(mensaje);
+  assert.equal(parseResult.normalized.participants, null, "la premisa: el mensaje no los dice");
+
+  const corregida = { ...parseResult.normalized, participants: 48, teachers: 4, destinationText: "Salou" };
+  const payload = payloadDeLaSolicitud(
+    "cliente-1",
+    { clientType: "new", email: "", firstName: "", lastName: "", opportunityName: "", rawTripRequestText: mensaje },
+    parseResult,
+    corregida,
+  );
+
+  assert.equal(payload.participants, 48);
+  assert.equal(payload.teachers, 4);
+  assert.equal(payload.destinationText, "Salou");
+});
+
+prueba("y conserva lo que no se tocó", () => {
+  const mensaje = "Somos el IES Jaume Balmes. Queremos ir a Salou del 12 al 16 de mayo de 2027.";
+  const parseResult = readTripMessage(mensaje);
+  const payload = payloadDeLaSolicitud(
+    "cliente-1",
+    { clientType: "new", email: "", firstName: "", lastName: "", opportunityName: "", rawTripRequestText: mensaje },
+    parseResult,
+    parseResult.normalized,
+  );
+  assert.equal(payload.dateFrom, "2027-05-12");
+  assert.equal(payload.dateTo, "2027-05-16");
+  assert.equal(payload.originalMessage, mensaje);
+  assert.equal(payload.clientId, "cliente-1");
 });
 
 console.log(`\n${pasadas} pasadas, ${fallidas} fallidas\n`);
