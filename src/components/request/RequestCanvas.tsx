@@ -87,6 +87,8 @@ const MAX_OPCIONES = 3;
 
 export interface RequestCanvasProps {
   onFinished?: () => void;
+  /** Grupos o Deportivo del usuario. Null en los roles globales (ADMIN). */
+  departamentoDelUsuario?: "GROUPS" | "SPORTS" | null;
   onExit: () => void;
   /**
    * Quién está trabajando. Hace falta para no llamar «alguien» a uno mismo: la
@@ -238,7 +240,12 @@ function mensajeDeError(error: unknown, porDefecto: string): string {
   return error instanceof Error ? error.message : porDefecto;
 }
 
-export function RequestCanvas({ onFinished, onExit, currentUserId = null }: RequestCanvasProps) {
+export function RequestCanvas({
+  onFinished,
+  onExit,
+  currentUserId = null,
+  departamentoDelUsuario = null,
+}: RequestCanvasProps) {
   // La petición
   const [mensajes, setMensajes] = useState<string[]>([]);
   const [borrador, setBorrador] = useState("");
@@ -285,6 +292,19 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
    * turoperador suizo y tarifa general, y valen distinto. Por defecto, colegio.
    */
   const [canal, setCanal] = useState<ClientSegment>("GENERIC");
+
+  /**
+   * Grupos o Turismo Deportivo.
+   *
+   * Decide DOS cosas: el campo «Departamento» del trato -que Oravia rellena en
+   * el 99% de los suyos- y desde qué buzón sale el correo. Iban por separado:
+   * sin departamento el correo salía igualmente de Grupos y el trato se quedaba
+   * sin clasificar. Arranca con el del usuario; un ADMIN no tiene ninguno, así
+   * que lo elige en la ventana de revisión.
+   */
+  const [departamento, setDepartamento] = useState<"GROUPS" | "SPORTS" | "">(
+    departamentoDelUsuario ?? "",
+  );
 
   // Lo que se construye
   const [hoteles, setHoteles] = useState<SearchAccommodationsResult | null>(null);
@@ -436,6 +456,7 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
       setEntendido(estado.entendido);
       setTope(estado.tope ?? null);
       setRequisitos(estado.requisitos ?? []);
+      setDepartamento(estado.departamento ?? departamentoDelUsuario ?? "");
       setConversacion(estado.conversacion ?? []);
       setPreguntadas(estado.preguntadas ?? []);
       setElegidos(estado.elegidos ?? []);
@@ -517,6 +538,7 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
         entendido,
         tope,
         requisitos,
+        departamento,
         // El hilo del chat viaja con el borrador: sin esto, retomarlo mañana
         // volvía a preguntar lo que el colegio ya había contestado.
         conversacion,
@@ -552,7 +574,7 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
     return () => {
       if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
     };
-  }, [mensajes, borrador, form, entendido, tope, requisitos, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, solicitudId, canal, enviada]);
+  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, solicitudId, canal, enviada]);
 
   /** Recupera el borrador y vuelve a buscar hoteles: las tarifas pueden haber cambiado. */
   function recuperar() {
@@ -564,6 +586,7 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
     setForm(recuperable.form);
     setEntendido(recuperable.entendido);
     setTope(recuperable.tope);
+    setDepartamento(recuperable.departamento ?? departamentoDelUsuario ?? "");
     setConversacion(recuperable.conversacion ?? []);
     setPreguntadas(recuperable.preguntadas ?? []);
     setRequisitos(recuperable.requisitos);
@@ -629,6 +652,7 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
         lastName: form.lastName,
         opportunityName: form.opportunityName ?? "",
         canal,
+        departamento,
       })
     : "";
   const peticionValidada = Boolean(firmaValidada) && firmaValidada === firmaAhora;
@@ -1210,6 +1234,10 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
         parseResult,
         entendido,
         solicitudId,
+        // Lo elegido aquí manda sobre el departamento del usuario: un ADMIN no
+        // tiene ninguno, y de este mismo dato salen el campo del CRM y el buzón
+        // desde el que se envía.
+        departamento || null,
       );
       setSolicitudId(guardada.id);
 
@@ -1929,6 +1957,8 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
           requisitos={requisitos}
           canal={canal}
           setCanal={setCanal}
+          departamento={departamento}
+          setDepartamento={setDepartamento}
           contactoCrm={contactoCrm}
           previas={previas}
           validado={peticionValidada}
@@ -1947,6 +1977,7 @@ export function RequestCanvas({ onFinished, onExit, currentUserId = null }: Requ
                 lastName: form.lastName,
                 opportunityName: form.opportunityName ?? "",
                 canal,
+                departamento,
               }),
             );
             setRevisandoPeticion(false);
@@ -2340,6 +2371,8 @@ function PanelEntendido({
   requisitos,
   canal,
   setCanal,
+  departamento,
+  setDepartamento,
   contactoCrm,
   previas,
   validado,
@@ -2355,6 +2388,8 @@ function PanelEntendido({
   requisitos: string[];
   canal: ClientSegment;
   setCanal: (valor: ClientSegment) => void;
+  departamento: "GROUPS" | "SPORTS" | "";
+  setDepartamento: (valor: "GROUPS" | "SPORTS" | "") => void;
   contactoCrm: ContactoDelCrm | null;
   previas: FindCandidateOpportunitiesResult | null;
   validado: boolean;
@@ -2373,6 +2408,7 @@ function PanelEntendido({
     lastName: form.lastName,
     opportunityName: form.opportunityName ?? "",
     canal,
+    departamento,
   };
   const bloques = bloquesParaValidar(datos);
   const faltan = loQueFaltaDeVerdad(datos);
@@ -2474,6 +2510,8 @@ function PanelEntendido({
               setTope={setTope}
               canal={canal}
               setCanal={setCanal}
+              departamento={departamento}
+              setDepartamento={setDepartamento}
               contactoCrm={contactoCrm}
             />
           ) : (
@@ -2551,6 +2589,8 @@ function CamposEntendido({
   setTope,
   canal,
   setCanal,
+  departamento,
+  setDepartamento,
   contactoCrm,
 }: {
   entendido: NormalizedRequestDraft;
@@ -2561,6 +2601,8 @@ function CamposEntendido({
   setTope: (valor: number | null) => void;
   canal: ClientSegment;
   setCanal: (valor: ClientSegment) => void;
+  departamento: "GROUPS" | "SPORTS" | "";
+  setDepartamento: (valor: "GROUPS" | "SPORTS" | "") => void;
   contactoCrm: ContactoDelCrm | null;
 }) {
   return (
@@ -2704,6 +2746,24 @@ function CamposEntendido({
               <option value="GENERIC">Colegio, club o agencia</option>
               <option value="SWISS_TTOO">Turoperador suizo</option>
             </select>
+          </label>
+          {/* El departamento decide DOS cosas: el campo «Departamento» del
+              trato -que Oravia rellena en el 99% de los suyos- y desde qué
+              buzón sale el correo. Iban por separado: sin departamento el
+              correo salía igualmente de Grupos y el trato se quedaba sin
+              clasificar. Viene relleno con el del usuario; quien lo tiene no lo
+              toca nunca, y un ADMIN -que es rol global y no tiene- lo elige. */}
+          <label className={departamento ? "cv__field" : "cv__field cv__field--ojo"}>
+            <span>Departamento</span>
+            <select
+              value={departamento}
+              onChange={(evento) => setDepartamento(evento.target.value as "GROUPS" | "SPORTS" | "")}
+            >
+              <option value="">Sin elegir</option>
+              <option value="GROUPS">Grupos</option>
+              <option value="SPORTS">Turismo Deportivo</option>
+            </select>
+            <small>Clasifica el trato en el CRM y elige el buzón desde el que sale el correo.</small>
           </label>
         </div>
         {/* Que el contacto venga del CRM hay que decirlo: si no, el operador no

@@ -39,6 +39,8 @@ export interface BorradorSolicitud {
   entendido: NormalizedRequestDraft | null;
   tope: number | null;
   requisitos: string[];
+  /** Grupos o Deportivo: clasifica el trato y elige el buzón del correo. */
+  departamento?: "GROUPS" | "SPORTS" | "";
   /**
    * El hilo del chat de la petición: qué se preguntó y qué se contestó.
    *

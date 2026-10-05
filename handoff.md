@@ -1822,3 +1822,245 @@ vacíos. Un campo vacío no dice qué escribir ni por qué hace falta.
   arreglarlo.
 - `groups@oraviatravel.com` sigue sin recibir nada; SSL; los diez usuarios reales; el bloque de
   idiomas.
+
+---
+
+## La ficha del presupuesto, y lo que salió al mirarla · 25/09/2026
+
+> Segunda mitad de la misma sesión, después del commit `657b07a`. Todo lo de esta
+> sección está **sin commitear**. **417 pruebas en verde**, `vite build` limpio.
+
+La ficha enseñaba dónde está el expediente y qué se ofreció, y ahí se acababa:
+«estoy aquí y no sé cuál es el próximo paso que debo hacer». Al abrirla de verdad
+aparecieron tres fallos de fondo que no tenían nada que ver con la ficha.
+
+### La ficha
+
+- **Los colores del embudo salen de su CRM.** Leídos del picklist `Stage` de
+  Zoho —«Presupuesto Enviado» azul petróleo, «Pendiente de deposito» naranja,
+  «Oportunidad Ganada» verde—. Se cachean una hora: es configuración, no un dato
+  del trato. Si Zoho no contesta se pinta con lo nuestro; **no se inventa un
+  color parecido**, porque alguien lo daría por bueno. Se busca sin tildes ni
+  mayúsculas: una tilde de diferencia dejaría la fase gris sin que nadie supiera
+  por qué. `server/coloresDelEmbudo.ts`.
+- **«Lo siguiente»**: qué hay que hacer ahora, con su porqué y su plazo, y el
+  botón que toque. Una sola cosa cada vez. Cambia según el estado real: a los 3
+  días sin abrirse «puede no haber llegado»; si han escrito, eso va antes que
+  cualquier seguimiento; con opción elegida, el depósito, en rojo si venció.
+  Se calcula en el navegador porque «quedan 3 días» cambia a medianoche.
+  `src/domain/siguientePaso.ts`.
+- **«En el CRM»**: los campos de la oportunidad leídos de Zoho **con los vacíos
+  incluidos**, y el resumen «15 de 16». Es la comprobación de la queja de Ruth
+  —«no rellena ningún campo de la oportunidad»— sin abrir Zoho.
+  `server/camposDelTrato.ts`.
+- **Apuntar la opción que han aceptado.** Hasta hoy la ÚNICA vía era el botón de
+  la página pública, y el correo que manda la app pide lo contrario:
+  «respondiendo a este correo nos decís cuál preferís». Contestaban por correo y
+  no se enteraba nadie: ni arrancaba el plazo del depósito ni se movía la fase.
+  Ahora se apunta desde la ficha, con confirmación y el hotel delante, y **no
+  pisa** una elección hecha desde la web.
+- **Y se propone sola**: `src/domain/opcionAceptada.ts` lee la última respuesta y
+  dice qué opción parece que aceptan, **con el trozo de texto en el que se ha
+  fijado**. Propone, no aplica: marcarla arranca un plazo de pago y mueve la fase
+  en el CRM de un cliente. Reconoce «la opción 2», «nos quedamos con la 1», «la
+  segunda» y el nombre del hotel; y NO reconoce «la 2 no nos vale», «ni idea» ni
+  una respuesta cortés que no elige nada.
+- **Recotizar desde la ficha.** El panel de «Ha cambiado algo» estaba solo en la
+  lista: si entrabas a la ficha, tenías que salir para poder cambiar algo.
+- La ficha se reparte el ancho de la pantalla: estaba capada a 1.360 px.
+
+### Tres fallos de fondo que aparecieron al mirarla
+
+- **El importe de los tratos salía cien veces mayor.** El lector se quedaba con
+  los dígitos y tiraba la coma: «5.951,94 €» → **595194**, y el depósito del 30 %
+  calculado sobre eso. Había **tres copias** del lector y **dos estaban mal**.
+  Ahora hay una sola, `src/domain/importe.ts`, con 12 pruebas. **Dos tratos de
+  prueba de su CRM real siguen con el importe mal**: `734060000032099001` y
+  `734060000032084001`. Anthony los borra.
+- **La recogida del correo entrante estaba escrita y nadie la arrancaba.**
+  `arrancarLaRecogida()` existía, se podía importar, y el bucle no corría nunca:
+  una respuesta de un colegio no aparecía en su expediente y **no había ni un
+  error que lo dijera**. Arranca ya con el servidor, detrás de `MAIL_RECOGER=1`,
+  apagado por defecto porque el buzón que consulta es el real de Oravia.
+- **El campo Departamento salía vacío.** Se cogía del departamento del usuario, y
+  el admin es rol global y no tiene ninguno. Y ese mismo `null` elegía el **buzón
+  desde el que sale el correo**, que sin departamento cae en Grupos: el correo
+  salía como Grupos y el trato decía que no tenía departamento. **El mismo dato
+  valía «Grupos» para una cosa y «nada» para la otra.** Ahora se pregunta en la
+  ventana de revisión, relleno con el del usuario, en ámbar mientras no se elija,
+  y cambiarlo invalida el visto bueno.
+
+### El buzón: comprobado en las dos direcciones
+
+`groups@oraviatravel.com` **envía pero no recibe**. La propuesta ORV-2026-0007
+salió a las 13:10 y llegó; la respuesta de las 13:34 a esa misma dirección **no
+está en ninguna de las cinco carpetas** —INBOX, Enviados, Borradores, No deseado
+y Papelera, todas a cero— y **no ha rebotado**. El IMAP conecta bien: no es de
+credenciales. Es del proveedor.
+
+Las tres preguntas para ellos están en `PROXIMO-CORREO-Oravia.md`: ¿buzón real o
+alias de envío?, ¿hay redirección?, ¿el MX apunta al mismo servidor que el IMAP?
+
+### La configuración
+
+- **`.env.servidor`** (nuevo, ignorado por git): las 40 variables del servidor,
+  cada una con para qué sirve. 38 verificadas; hay que rellenar a mano
+  `DATABASE_URL` y `ZOHO_REDIRECT_URI` —que además tiene que estar dada de alta
+  en la consola de Zoho con ese valor exacto—.
+- **`.env` local ampliado a 46 variables.** Le faltaban ocho que el código lee.
+  Todas tenían valor por defecto salvo **`PUBLIC_BASE_URL`**, que vacío deja el
+  correo del colegio **sin enlace a la propuesta**.
+- Dos avisos escritos en los dos ficheros: **`MAIL_TEST_RECIPIENT` vacío siempre
+  en el servidor** —con valor, todo el correo se desvía ahí y los colegios no
+  reciben nada— y **`MAIL_RECOGER=1` en el servidor, 0 en local**.
+- `NODE_EXTRA_CA_CERTS` y `__VELERO_CA_RELAUNCHED` no se escriben a mano: las
+  pone `loadEnv.ts` al relanzarse con el bundle de CA.
+
+### Ficheros nuevos de esta mitad
+
+`src/domain/importe.ts`, `src/domain/siguientePaso.ts`,
+`src/domain/opcionAceptada.ts`, `server/coloresDelEmbudo.ts`,
+`server/camposDelTrato.ts` y sus cuatro ficheros de prueba.
+
+### Pendiente al cerrar
+
+- **Subir los 4 commits** (`git push origin main`) y **commitear esta segunda
+  mitad**: 16 ficheros tocados y 10 nuevos.
+- **Borrar los dos tratos de prueba** del CRM.
+- **`.gitignore`**: `Tarifas 26-27 Oravia/` —los Excel y el PDF reales de
+  tarifas—, las propuestas en `.docx/.pdf`, `Coste Azure/` y `Fuentes/` están
+  sueltos y sin ignorar. Un `git add .` los subiría al repo.
+- El proyecto vive dentro de **OneDrive de Neointec**, así que el `.env` con las
+  claves de los buzones de Oravia y su `refresh_token` se sincroniza a la nube.
+  No es nuevo, pero conviene decidir si se mueve fuera.
+
+---
+
+## Lo que contestó Javier, y lo que sabemos ahora · 28/09/2026
+
+> Sesión con Javier y Ruth: **martes 29 a las 10:00**. Lo accionable del día está
+> en `TRABAJOS-28-09.md`.
+
+### El correo entrante: resuelto el misterio, y no era lo que creíamos
+
+`groups@oraviatravel.com` **no es un buzón: es un grupo de Zoho Mail** con siete
+miembros. `sports@oraviatravel.com` es otro, con cinco. Javier explica por qué:
+*«tuvimos que hacer groups@ y sports@ como grupo porque no había forma de poner
+2 correos por cuenta de zoho»*.
+
+Eso explica **todo** lo que medimos el 25/09 y que parecía imposible:
+
+- El MX de `oraviatravel.com` es su servidor de siempre (`217.116.0.227`), que
+  **redirige** a `zoho.oraviatravel.com`, cuyo MX es **`mx.zoho.eu`** —Zoho Mail,
+  centro de datos europeo, el mismo que su CRM—.
+- El buzón contra el que hacíamos IMAP estaba a cero en las cinco carpetas
+  porque **un grupo reparte los mensajes entre sus miembros y no guarda nada**
+  en ningún buzón al que se pueda entrar con usuario y contraseña.
+- Y el correo de los colegios sí entra: se ve en el grupo.
+
+**Consecuencia**: la petición que le hicimos —«creadnos un buzón y metedlo en los
+grupos»— es posible pero **consume una licencia de Zoho Mail** y él no sabe
+hacerla. La alternativa buena es leer el grupo **con el mismo acceso OAuth que ya
+usamos para su CRM**, sin buzones nuevos ni contraseñas. **Pendiente de
+comprobar** que la API de Zoho Mail deja leer el buzón de un grupo y no solo el
+de un usuario.
+
+### El subformulario de la Oportunidad: existe, y lo usan
+
+La Oportunidad tiene **un solo subformulario**, «Servicios Contratados»
+(`Servicios_Contratados`), con 20 columnas. Y **no está vacío**: es donde vive el
+desglose real del presupuesto.
+
+Columnas que importan: `N_Presupuesto`, `Tipo_de_Servicio` (Alojamiento ·
+Actividad · Transporte · Seguro), **`Servicio` → enlace a Products**,
+**`Proveedor` → enlace a Vendors**, `Viajeros`, `Cantidad`, `Unidad_de_uso`
+(P.Pax · P.Neto), `Precio`, `Coste`, `Fecha_Entrada`, `Fecha_Salida`, `Regimen`,
+`Hora`, `Comentarios`, `Validado`. `Total_Servicio` y `T_Coste` son **fórmulas**:
+las calcula Zoho, no se escriben.
+
+**Cómo lo rellenan** (leído de sus tratos reales, GRUP LAURA 2027 es el modelo):
+una línea por cada cosa facturable, separando por grupo —35 alumnos, 2 profesores
+en doble, 1 profesor individual, el suplemento de camas hechas— y **las
+gratuidades como línea aparte a precio 0**. `Comentarios` lleva el texto que
+vende: régimen, noches, IVA y si hay gratuidades.
+
+Es **exactamente** el desglose que ya calcula nuestro PDF. Lo que falta es
+volcarlo al elegir la opción.
+
+**El bloqueo**: `Servicio` y `Proveedor` son enlaces, así que hay que buscar el
+registro y pasar su id. Y **el token no tiene permiso** sobre Products ni
+Vendors: la lectura devuelve «la autenticación ha expirado», que es lo que Zoho
+contesta cuando el token no alcanza. Ya están añadidos a los permisos del código
+—`ZohoCRM.modules.products.READ` y `ZohoCRM.modules.vendors.READ`, en lectura—
+pero **hay que reautorizar y cambiar el refresh token del `.env`**.
+
+**Y tiene que reautorizar Javier**: la app no manda el campo Propietario, así que
+Zoho pone al usuario que autorizó, y hoy las oportunidades salen con
+«Propietario: Javier Vinader». Si reautoriza otra persona, cambian de dueño.
+
+### Los canales de cliente: confirmado el modelo
+
+Javier: *«son 2-3 clientes. Normalmente es un porcentaje como el que comentas
+para PortAventura, pero **también puede ser un neto**. El año pasado te pasamos
+un excel con Neto Venta y Neto Venta especial.»*
+
+Las dos reglas, en este orden:
+
+1. **Precio propio** para ese canal, si lo hay. Manda.
+2. **Si no**, un **porcentaje sobre el PVP**.
+
+Con eso, añadir un canal es **una fila en una tabla**, no otro Excel de tarifas.
+Hoy son dos valores escritos a mano en el código (`GENERIC`, `SWISS_TTOO`) y los
+42 precios del suizo son un documento entero aparte: con el tercer canal eso deja
+de escalar. **Falta** el Excel de «Neto Venta / Neto Venta especial» y la lista de
+los 2-3 clientes con su porcentaje o su neto.
+
+### La forma de cobro
+
+Confirmada: **30 % de depósito y el resto a 30 días de la llegada**. Lo que manda
+la app —`Forma de Cobro = "Deposito 30%"`— es correcto.
+
+Pero su picklist **solo admite un valor** y tiene los dos por separado
+(`Deposito 30%` y `Prepago 30 días antes llegada`), así que **el segundo
+vencimiento no cabe en ese campo**. Preguntar dónde quieren que viva.
+
+### El subdominio: ya no bloquea
+
+`presupuesto.oraviatravel.com` resuelve a **195.20.235.4**, la IP correcta, y
+también en el DNS público. **El certificado se puede emitir.** Después,
+`PUBLIC_BASE_URL=https://presupuesto.oraviatravel.com` en el servidor.
+
+### Lo demás de su respuesta
+
+- **El catálogo de actividades**: lo vuelven a subir hoy. Vigilar que la lectura
+  termine, porque la vez anterior falló y se quedó en «pendiente de revisar» sin
+  cargar nada.
+- **Los dos tratos de prueba** con el importe mal (`734060000032099001` y
+  `734060000032084001`): vía libre para borrarlos.
+
+### Ficheros de trabajo
+
+- `TRABAJOS-28-09.md` — lo accionable de hoy.
+- `correo-respuesta-javier-28-09.md` — el correo que se le envió.
+- `PROXIMO-CORREO-Oravia.md` — cerrado: sus preguntas ya están contestadas.
+
+### Corrección de la tarde: los buzones no están en Zoho
+
+Lo de arriba —«el buzón estaba a cero porque un grupo no guarda nada»— es cierto
+pero no es la causa. Al ir a comprobar si la API de Zoho Mail deja leer un grupo
+salió lo de verdad:
+
+- **La API no lo deja.** Los únicos endpoints de mensajes de la API de grupos son
+  la cola de moderación. No hay «buzón del grupo». La alternativa que le
+  ofrecimos esta mañana por correo **no se puede construir** y hay que retirarla.
+- **El IMAP de la app apunta a Dinahosting, no a Zoho**
+  (`imap.servidor-correo.net` → 217.116.0.237). Las dos cuentas existen ahí y
+  están a cero **con `uidNext=1`**: no han recibido nunca nada. El MX del dominio
+  es `mx.oraviatravel.com` (Dinahosting), que reenvía todo a
+  `zoho.oraviatravel.com`. Mirábamos un servidor por el que el correo no se queda.
+- **Y la app envía por el SMTP de Dinahosting**, no por Zoho: pasa SPF y DMARC,
+  pero no queda en el historial del trato, que era el requisito del 17/06.
+
+Las opciones, la tabla de decisión y lo que hay que preguntarle están en
+`TRABAJOS-28-09.md`, sección «El correo entrante, comprobado». El diagnóstico se
+repite cuando haga falta con `node scripts/diagnostico-buzones.mjs`.

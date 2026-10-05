@@ -40,6 +40,16 @@ export interface PeticionParaValidar {
   lastName?: string | null;
   opportunityName?: string | null;
   canal?: string | null;
+  /**
+   * Grupos o Turismo Deportivo.
+   *
+   * Decide DOS cosas a la vez: el campo «Departamento» de la oportunidad —que
+   * Oravia rellena en el 99% de sus tratos— y desde qué buzón sale el correo.
+   * Iban por separado: sin departamento el correo salía igualmente de Grupos y
+   * el trato se quedaba sin clasificar. El mismo dato no puede valer «Grupos»
+   * para una cosa y «nada» para la otra.
+   */
+  departamento?: string | null;
 }
 
 export interface FilaParaValidar {
@@ -79,6 +89,11 @@ export function nochesDe(desde?: string | null, hasta?: string | null): number |
 const CANALES: Record<string, string> = {
   GENERIC: "Colegio, club o agencia",
   SWISS_TTOO: "Turoperador suizo",
+};
+
+export const DEPARTAMENTOS: Record<string, string> = {
+  GROUPS: "Grupos",
+  SPORTS: "Turismo Deportivo",
 };
 
 /**
@@ -187,6 +202,15 @@ export function bloquesParaValidar(p: PeticionParaValidar): BloqueParaValidar[] 
           valor: CANALES[texto(p.canal)] ?? CANALES.GENERIC,
           nota: "El mismo hotel tiene una tarifa pactada con el turoperador suizo y otra general.",
         },
+        {
+          que: "Departamento",
+          valor: DEPARTAMENTOS[texto(p.departamento)] ?? "",
+          // Falta y hace falta: sin él, el trato del CRM sale sin clasificar
+          // -Oravia lo rellena en el 99% de los suyos- y el correo se va por
+          // Grupos aunque el viaje sea de Deportivo.
+          falta: !DEPARTAMENTOS[texto(p.departamento)],
+          nota: "Clasifica el trato en el CRM y decide desde qué buzón sale el correo.",
+        },
       ],
     },
   ];
@@ -227,5 +251,6 @@ export function firmaDeLaPeticion(p: PeticionParaValidar): string {
     texto(p.lastName).toLowerCase(),
     texto(p.opportunityName).toLowerCase(),
     texto(p.canal),
+    texto(p.departamento),
   ]);
 }

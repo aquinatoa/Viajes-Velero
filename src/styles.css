@@ -11546,3 +11546,268 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
   justify-content: center;
   margin-top: 6px;
 }
+
+/* ── El embudo con los colores del CRM ────────────────────────────────────────
+   «Por dónde va» se pintaba con nuestro azul para todo. En Zoho cada fase
+   tiene su color y Oravia lo mira todos los días: «Presupuesto Enviado» es azul
+   petróleo, «Pendiente de deposito» naranja, «Oportunidad Ganada» verde.
+   Pintarlas aquí de otro color obliga a traducir entre dos pantallas que dicen
+   lo mismo.
+
+   `--fase` la pone la propia fila, con el color leído del CRM. Las filas sin
+   color -CRM caído, o fase sin color asignado- no llevan `tiene-color` y se
+   quedan con el azul de siempre. */
+.embudo__p.tiene-color .embudo__punto {
+  background: var(--fase);
+}
+
+/* Las que aún no han pasado: el color, pero apagado. Se reconoce la fase sin
+   que la tarjeta cante como si ya estuviera hecha. */
+.embudo__p.tiene-color:not(.is-hecho):not(.is-actual) .embudo__punto {
+  background: var(--fase);
+  opacity: 0.45;
+}
+
+/* La fase en la que está el trato AHORA: es el dato que se busca al abrir, y
+   es donde el color del CRM ayuda más. */
+.embudo__p.tiene-color.is-actual {
+  border-color: var(--fase);
+  box-shadow: inset 0 0 0 1px var(--fase);
+  /* Un velo del propio color, calculado por el navegador: así vale igual para
+     un verde clarísimo que para un granate. */
+  background: color-mix(in srgb, var(--fase) 10%, var(--surface));
+}
+
+.embudo__p.tiene-color.is-actual .embudo__punto {
+  opacity: 1;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fase) 22%, transparent);
+}
+
+/* Una barra del color arriba de la tarjeta hecha: se lee el recorrido de un
+   vistazo, como en el embudo del CRM. */
+.embudo__p.tiene-color.is-hecho {
+  border-top: 2px solid var(--fase);
+  padding-top: 10px;
+}
+
+/* Sin `color-mix` -navegadores viejos- se queda el fondo blanco y el borde de
+   color, que sigue siendo legible. Nada depende de ese relleno. */
+
+/* ── La ficha, a dos columnas ─────────────────────────────────────────────────
+   El espacio de la derecha estaba en blanco y ahí falta lo que de verdad se
+   busca al abrir: qué hay que hacer ahora, y qué hay relleno en la oportunidad
+   de Zoho sin tener que abrir Zoho. */
+.ficha {
+  max-width: 1360px;
+}
+
+.ficha__cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: var(--sp-5, 22px);
+  align-items: start;
+}
+
+@media (max-width: 1080px) {
+  .ficha__cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ficha__main {
+  min-width: 0;
+}
+
+.ficha__aside {
+  display: grid;
+  gap: var(--sp-3, 14px);
+  position: sticky;
+  top: var(--sp-4, 18px);
+}
+
+/* ── Lo siguiente ─────────────────────────────────────────────────────────── */
+.ficha__toca {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--surface);
+  padding: 13px 15px 15px;
+  display: grid;
+  justify-items: start;
+  gap: 5px;
+}
+
+.ficha__tocal {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ficha__tocat {
+  margin: 0;
+  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-size: 15.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.ficha__tocap {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.ficha__toca > a,
+.ficha__toca > button {
+  margin-top: 6px;
+}
+
+/* La urgencia se ve antes de leer. Tres estados, no cinco: más matices no se
+   distinguen de un vistazo, que es para lo que sirve el color. */
+.ficha__toca--atencion {
+  border-color: rgba(252, 187, 55, 0.65);
+  background: #fffdf7;
+}
+
+.ficha__toca--atencion .ficha__tocat {
+  color: #6b4708;
+}
+
+.ficha__toca--urgente {
+  border-color: rgba(178, 58, 72, 0.45);
+  background: rgba(178, 58, 72, 0.05);
+}
+
+.ficha__toca--urgente .ficha__tocat {
+  color: var(--danger);
+}
+
+.ficha__toca--hecho {
+  border-color: rgba(29, 122, 85, 0.35);
+  background: rgba(29, 122, 85, 0.06);
+}
+
+.ficha__toca--hecho .ficha__tocat {
+  color: #166247;
+}
+
+/* ── Lo que hay en el CRM ─────────────────────────────────────────────────── */
+.ficha__crm {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--surface);
+  padding: 13px 15px 15px;
+}
+
+.ficha__crmn {
+  float: right;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-2);
+}
+
+.ficha__campos {
+  margin: 10px 0 0;
+  display: grid;
+  gap: 7px;
+}
+
+.ficha__campo {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ficha__campos > .ficha__campo:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.ficha__campo dt {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ficha__campo dd {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: right;
+  word-break: break-word;
+}
+
+/* Lo vacío se enseña, no se esconde: es justo lo que hay que ver. */
+.ficha__campo.is-vacio dd {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.ficha__crmvacio {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.ficha__crmlink {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+/* ── La ficha ocupa la pantalla ───────────────────────────────────────────────
+   Estaba capada a 1.360 px: en un monitor ancho quedaba una franja blanca a la
+   derecha de la columna del CRM, y a la vez las tres opciones salían
+   apretadas. Ahora se reparte el ancho que haya, con un tope alto para que en
+   una pantalla muy grande las líneas no se vuelvan ilegibles de largas. */
+.ficha {
+  max-width: 1760px;
+  width: 100%;
+}
+
+/* La columna de la derecha puede crecer un poco cuando sobra sitio: los
+   valores del CRM -«IES Jaume Balmes», «Presupuesto Enviado»- se partían en
+   dos líneas contra la etiqueta. */
+.ficha__cols {
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 26%, 420px);
+  gap: var(--sp-5, 22px);
+}
+
+/* Y las opciones respiran: con más ancho caben tres de verdad, no tres
+   encogidas. */
+.ficha__ops {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+@media (max-width: 1180px) {
+  .ficha__cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Un campo que hace falta y no está. Se usa en el departamento: sin él, el
+   trato del CRM sale sin clasificar y el correo se va por Grupos aunque el
+   viaje sea de Deportivo. */
+.cv__field--ojo select,
+.cv__field--ojo input {
+  border-color: rgba(252, 187, 55, 0.75);
+  background: #fffdf7;
+}
+
+.cv__field small {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+}

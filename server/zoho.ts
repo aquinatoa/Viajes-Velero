@@ -1,3 +1,4 @@
+import { CAMPOS_QUE_SE_PIDEN } from "./camposDelTrato";
 import "./loadEnv";
 // El embudo vive en `crmPipeline`, que a su vez importa de aquí dos funciones.
 // El ciclo es inocuo: ninguno de los dos módulos LEE lo del otro mientras se
@@ -77,10 +78,29 @@ function currentRefreshToken() {
 export function getZohoAuthUrl() {
   ensureZohoConfig();
 
+  /**
+   * Los permisos que pedimos sobre su CRM.
+   *
+   * Products y Vendors son de LECTURA y hacen falta para el subformulario
+   * «Servicios Contratados» de la Oportunidad: sus columnas Servicio y
+   * Proveedor no son texto, son enlaces a esos dos modulos, asi que para
+   * escribir una linea hay que poder buscar antes el registro y quedarse con
+   * su id. Sin esto, la lectura devuelve «la autenticacion ha expirado», que
+   * es lo que Zoho contesta cuando el token no alcanza.
+   *
+   * Se piden en lectura y no en ALL a proposito: la app no tiene por que
+   * poder crear ni borrar productos ni proveedores del cliente.
+   *
+   * Cambiar esta lista NO basta: hay que volver a autorizar y cambiar el
+   * refresh token del .env, porque el que hay se emitio con los permisos
+   * viejos y los tokens no se amplian solos.
+   */
   const scopes = [
     "ZohoCRM.modules.contacts.ALL",
     "ZohoCRM.modules.accounts.ALL",
     "ZohoCRM.modules.deals.ALL",
+    "ZohoCRM.modules.products.READ",
+    "ZohoCRM.modules.vendors.READ",
     "ZohoCRM.settings.modules.READ",
     "ZohoCRM.settings.fields.READ"
   ].join(",");
@@ -798,15 +818,77 @@ export async function listZohoDeals(limit = 200): Promise<ZohoDealSummary[]> {
   );
 }
 
-/** Fases válidas del pipeline (para validar el avance de fase). */
-export async function getZohoDealStages(): Promise<string[]> {
+/**
+ * Los campos de un modulo, tal y como estan configurados en su CRM.
+ *
+ * Solo lectura. Hace falta para saber que hay de verdad en su Oportunidad -no
+ * lo que suponemos-: que campos existen, cuales son subformularios y que
+ * columnas tiene cada uno.
+ */
+export async function getZohoModuleFields(modulo: string): Promise<Record<string, unknown>[]> {
+  const result = await zohoRequest<{ fields?: Record<string, unknown>[] }>(
+    `settings/fields?module=${encodeURIComponent(modulo)}`,
+    { method: "GET" },
+  );
+  return result.fields ?? [];
+}
+
+/** Lectura cruda de registros, para inspeccionar lo que de verdad tienen. */
+export async function getZohoRecords(
+  modulo: string,
+  campos: string[],
+  cuantos = 20,
+): Promise<Record<string, unknown>[]> {
+  const result = await zohoRequest<{ data?: Record<string, unknown>[] }>(
+    `${modulo}?fields=${campos.join(",")}&per_page=${cuantos}&sort_by=Modified_Time&sort_order=desc`,
+    { method: "GET" },
+  );
+  return result.data ?? [];
+}
+
+/** Una fase del embudo tal y como la tiene configurada Oravia. */
+export interface FaseDelCrm {
+  /** El nombre que se ve, no el valor interno: pueden ser distintos. */
+  nombre: string;
+  /** El color que le pusieron en Zoho, en hexadecimal («#4ca6f7»). */
+  color: string | null;
+}
+
+/**
+ * Las fases del embudo con su color.
+ *
+ * Los colores no son decoración: son los que Oravia ve todos los días en su
+ * CRM, y pintar las mismas fases de otro color en nuestra pantalla obliga a
+ * traducir mentalmente entre dos sitios que dicen lo mismo.
+ *
+ * Zoho los guarda en `colour_code` de cada valor del picklist, sin almohadilla
+ * y a veces vacío -una fase sin color asignado-. Se devuelve tal cual: el que
+ * no tenga color se pinta con el nuestro, que es lo honesto.
+ */
+export async function getZohoDealStagesConColor(): Promise<FaseDelCrm[]> {
   const result = await zohoRequest<{
-    fields?: { api_name?: string; pick_list_values?: { display_value?: string }[] }[];
+    fields?: {
+      api_name?: string;
+      pick_list_values?: { display_value?: string; colour_code?: string | null }[];
+    }[];
   }>(`settings/fields?module=${zohoConfig.dealsModule}`, { method: "GET" });
+
   const stageField = result.fields?.find((f) => f.api_name === "Stage");
   return (stageField?.pick_list_values ?? [])
-    .map((p) => String(p.display_value ?? ""))
-    .filter(Boolean);
+    .map((p) => {
+      const crudo = String(p.colour_code ?? "").trim();
+      return {
+        nombre: String(p.display_value ?? "").trim(),
+        // Zoho lo manda sin almohadilla; y si no hay color, viene vacío.
+        color: /^#?[0-9a-fA-F]{6}$/.test(crudo) ? (crudo.startsWith("#") ? crudo : `#${crudo}`) : null,
+      };
+    })
+    .filter((f) => f.nombre);
+}
+
+/** Fases válidas del pipeline (para validar el avance de fase). */
+export async function getZohoDealStages(): Promise<string[]> {
+  return (await getZohoDealStagesConColor()).map((f) => f.nombre);
 }
 
 /**
@@ -816,6 +898,21 @@ export async function getZohoDealStages(): Promise<string[]> {
  * propuesta de un viaje ya ganado lo devolvería a «Presupuesto Enviado».
  * Devuelve cadena vacía si el trato no tiene fase o ya no existe.
  */
+/**
+ * El trato con los campos que enseña la ficha.
+ *
+ * Solo lectura, y solo los campos del viaje y del cobro: es lo que Ruth echó
+ * en falta -«no rellena ningún campo de la oportunidad»- y lo que hay que
+ * poder comprobar sin abrir Zoho. Devuelve null si el trato ya no existe.
+ */
+export async function getZohoDealDetalle(dealId: string): Promise<Record<string, unknown> | null> {
+  const result = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
+    `${zohoConfig.dealsModule}/${dealId}?fields=${CAMPOS_QUE_SE_PIDEN.join(",")}`,
+    { method: "GET" },
+  );
+  return result.data?.[0] ?? null;
+}
+
 export async function getZohoDealStage(dealId: string): Promise<string> {
   const result = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
     `${zohoConfig.dealsModule}/${dealId}?fields=Stage`,

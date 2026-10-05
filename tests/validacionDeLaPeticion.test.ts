@@ -55,6 +55,7 @@ const COMPLETA = {
   lastName: "Ferrer",
   opportunityName: "IES JAUME BALMES 2027",
   canal: "GENERIC",
+  departamento: "GROUPS",
 };
 
 const fila = (p: typeof COMPLETA | Record<string, unknown>, que: string) =>
@@ -125,6 +126,29 @@ prueba("una petición completa no tiene nada en ámbar", () => {
 
 prueba("sin apellidos, el contacto está incompleto", () => {
   assert.equal(fila({ ...COMPLETA, lastName: "" }, "Contacto")?.falta, true);
+});
+
+console.log("\nEl departamento, que vale para dos cosas a la vez");
+
+prueba("sin departamento sale en ámbar", () => {
+  // No es un detalle: sin él, el trato del CRM sale sin clasificar —Oravia lo
+  // rellena en el 99% de los suyos— y el correo se va por Grupos aunque el
+  // viaje sea de Deportivo.
+  assert.equal(fila({ ...COMPLETA, departamento: "" }, "Departamento")?.falta, true);
+});
+
+prueba("y con él, se lee con su nombre de verdad", () => {
+  assert.equal(fila(COMPLETA, "Departamento")?.valor, "Grupos");
+  assert.equal(
+    fila({ ...COMPLETA, departamento: "SPORTS" }, "Departamento")?.valor,
+    "Turismo Deportivo",
+  );
+});
+
+prueba("cambiarlo invalida el visto bueno", () => {
+  // Cambia el buzón desde el que sale el correo: no puede colarse con una
+  // revisión hecha sobre el otro.
+  assert.notEqual(firmaDeLaPeticion(COMPLETA), firmaDeLaPeticion({ ...COMPLETA, departamento: "SPORTS" }));
 });
 
 console.log("\nLa firma: el visto bueno tiene que caducar");

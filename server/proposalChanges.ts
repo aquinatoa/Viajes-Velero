@@ -17,6 +17,7 @@
  * la suya.
  */
 
+import { importeDe } from "../src/domain/importe";
 import { PrismaClient } from "@prisma/client";
 import { searchAccommodationsDb } from "./searchDb";
 
@@ -49,11 +50,9 @@ export interface VistaPreviaCambio {
 }
 
 /** Número que aparece en un texto de importe ("6.528 €" → 6528). */
-function importeDe(texto: string | null | undefined): number | null {
-  if (!texto) return null;
-  const digitos = texto.replace(/[^\d]/g, "");
-  return digitos ? Number(digitos) : null;
-}
+// El lector vive en `src/domain/importe` y es el mismo para todos: aquí había
+// una copia que tiraba la coma, así que «5.951,94 €» se leía como 595194.
+
 
 function noches(desde: Date | null, hasta: Date | null): number {
   if (!desde || !hasta) return 0;

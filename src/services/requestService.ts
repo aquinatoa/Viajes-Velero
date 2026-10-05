@@ -845,10 +845,15 @@ export function payloadDeLaSolicitud(
   parseResult: ParseTripRequestResult,
   normalized: NormalizedRequestDraft,
   existingId?: string | null,
+  department?: "GROUPS" | "SPORTS" | null,
 ) {
   return {
     id: existingId ?? null,
     clientId,
+    // De aquí salen el campo «Departamento» del trato y el buzón desde el que
+    // se envía. Sin esto el servidor caía al del usuario, y un ADMIN no tiene:
+    // el trato se quedaba sin clasificar y el correo salía igual por Grupos.
+    department: department ?? null,
     centreName: source.centreName ?? null,
     opportunityName: source.opportunityName ?? null,
     originalMessage: source.rawTripRequestText,
@@ -863,8 +868,11 @@ export const saveNormalizedTripRequest = (
   parseResult: ParseTripRequestResult,
   normalized: NormalizedRequestDraft,
   existingId?: string | null,
+  department?: "GROUPS" | "SPORTS" | null,
 ): Promise<TripRequest> => {
-  return saveTripRequestApi(payloadDeLaSolicitud(clientId, source, parseResult, normalized, existingId));
+  return saveTripRequestApi(
+    payloadDeLaSolicitud(clientId, source, parseResult, normalized, existingId, department),
+  );
 };
 
 /**

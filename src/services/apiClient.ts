@@ -744,6 +744,14 @@ export interface PasoDelEmbudo {
   hecho: boolean;
   /** La fase en la que está el trato AHORA, según el CRM. */
   actual: boolean;
+  /**
+   * El color que esa fase tiene EN SU CRM, en hexadecimal.
+   *
+   * Null si Zoho no contestó o la fase no tiene color asignado: entonces se
+   * pinta con el nuestro, que es lo honesto. Un color «parecido» inventado
+   * alguien lo daría por bueno.
+   */
+  color: string | null;
 }
 
 /** Todo lo que enseña la ficha de un presupuesto. */
@@ -769,6 +777,16 @@ export interface FichaPresupuesto {
     fase: string | null;
     /** false si el CRM no contestó: la ficha se abre igual. */
     respondio: boolean;
+    /**
+     * Qué hay relleno en la oportunidad, y qué no.
+     *
+     * Los vacíos también vienen: es lo que hay que ver. Ruth reportó que el
+     * trato salía con los campos sin rellenar, y comprobarlo obligaba a abrir
+     * Zoho y mirar campo por campo.
+     */
+    campos?: { etiqueta: string; valor: string; loPoneLaApp: boolean; nota?: string }[];
+    /** Cuántos de los que rellena la app están de verdad rellenos. */
+    relleno?: { rellenos: number; total: number };
   };
   embudo: PasoDelEmbudo[];
   fases: string[];
@@ -785,11 +803,26 @@ export interface FichaPresupuesto {
     elegida: boolean;
     actividades: { nombre: string; proveedor: string | null; duracion: string | null; precio: string | null }[];
   }[];
+  /**
+   * Cuándo salió, si la han abierto y cuántas veces.
+   *
+   * Hacen falta para decir qué toca hacer ahora: «salió hace 4 días y el
+   * enlace sigue sin abrirse» es una razón para escribir; la fase del embudo,
+   * no.
+   */
+  sentAt: string | null;
+  firstViewedAt: string | null;
+  viewCount: number;
   elegida: number | null;
   chosenAt: string | null;
   depositDueAt: string | null;
   depositPaidAt: string | null;
-  correo: { total: number; entrantes: number; ultimo: string | null };
+  correo: { total: number; entrantes: number; ultimo: string | null; sinVer?: number };
+  /**
+   * Qué opción parece que aceptan en su última respuesta. Se propone, no se
+   * aplica: marcarla arranca el plazo del depósito y mueve la fase del CRM.
+   */
+  sugerida?: { numero: number; porque: string; confianza: "alta" | "media" } | null;
   pdf: string | null;
   publicToken: string;
 }
@@ -1017,6 +1050,20 @@ export interface BorradorCompleto extends BorradorEnLista {
   payload: unknown;
   lockedAt: string | null;
   createdAt: string;
+}
+
+/**
+ * Apuntar la opción que el colegio ha aceptado por correo.
+ *
+ * La página pública tiene la suya; ésta es para cuando contestan al correo, que
+ * es justo lo que el correo les pide. No pisa una elección que ya exista.
+ */
+export function marcarOpcionApi(deliveryId: string, optionNumber: number) {
+  return postJson<{ reference: string; chosenOptionNumber: number; depositDueAt: string | null }>(
+    `/api/deliveries/${encodeURIComponent(deliveryId)}/opcion`,
+    { optionNumber },
+    "No se pudo apuntar la opción.",
+  );
 }
 
 export function listarBorradoresApi() {

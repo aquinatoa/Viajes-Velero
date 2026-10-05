@@ -241,6 +241,11 @@ export function App() {
         // vuelve al inicio, que es donde esta la lista de presupuestos.
         onFinished={() => navigatePath(routeForPage("home"))}
         currentUserId={currentUser.id}
+        // El departamento del que cotiza. Un ADMIN no tiene: es un rol global,
+        // ve los dos. Entonces se pregunta en la ventana de revisión, porque el
+        // mismo dato decide el campo del CRM y el buzón desde el que sale el
+        // correo, y hasta ahora iban por separado.
+        departamentoDelUsuario={currentUser.department}
       />
     );
   }

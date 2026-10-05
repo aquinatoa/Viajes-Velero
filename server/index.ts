@@ -1,3 +1,5 @@
+import { marcarOpcionElegida } from "./proposalDelivery";
+import { arrancarLaRecogida } from "./correoEntrante";
 import "./loadEnv";
 import express from "express";
 import cors from "cors";
@@ -2191,6 +2193,45 @@ app.get("/api/public/proposals/:token", async (request, response) => {
   }
 });
 
+/**
+ * Apuntar la opción que el colegio ha aceptado por correo.
+ *
+ * Va con sesión: lo hace quien cotiza, leyendo la respuesta. La página pública
+ * sigue teniendo la suya, y la que llegue primero manda.
+ */
+app.post("/api/deliveries/:id/opcion", requireAuth, async (request, response) => {
+  try {
+    const user = (request as AuthedRequest).user;
+    const optionNumber = Number((request.body as { optionNumber?: number })?.optionNumber);
+    if (!Number.isFinite(optionNumber) || optionNumber < 1) {
+      response.status(400).json({ error: "Falta indicar qué opción han aceptado." });
+      return;
+    }
+
+    // La visibilidad de siempre, comprobada dentro: nadie marca una opción de
+    // un expediente que no puede ver.
+    const delivery = await marcarOpcionElegida(
+      String(request.params.id),
+      optionNumber,
+      user?.name ?? user?.email ?? null,
+      user ? deliveryVisibilityWhere(user) : {},
+    );
+    if (!delivery) {
+      response.status(404).json({ error: "Ese presupuesto ya no existe." });
+      return;
+    }
+    response.json({
+      reference: delivery.reference,
+      chosenOptionNumber: delivery.chosenOptionNumber,
+      chosenAt: delivery.chosenAt,
+      depositDueAt: delivery.depositDueAt,
+    });
+  } catch (error) {
+    console.error("Error apuntando la opción elegida", error);
+    response.status(500).json({ error: "No se pudo apuntar la opción." });
+  }
+});
+
 app.post("/api/public/proposals/:token/choose", async (request, response) => {
   try {
     const optionNumber = Number((request.body as { optionNumber?: number })?.optionNumber);
@@ -2260,6 +2301,22 @@ app.post("/api/proposals/:id/changes/apply", requireAuth, async (request, respon
 app.listen(port, async () => {
   await ensureAdminFromEnv();
   await rescatarLecturasInterrumpidas();
+
+  // La recogida del correo entrante. Estaba escrita y NADIE la arrancaba: el
+  // modulo existia, se podia importar, y el bucle no corria nunca. Una
+  // respuesta de un colegio no aparecia en su expediente y no habia ni un
+  // error que lo dijera.
+  //
+  // Va detras de `MAIL_RECOGER`, que por defecto esta apagado, porque el
+  // buzon que consulta es el REAL de Oravia: arrancarlo en el portatil de
+  // alguien lo pone a mirar su correo de produccion cada cinco minutos. En el
+  // servidor se enciende poniendo MAIL_RECOGER=1.
+  if ((process.env.MAIL_RECOGER ?? "").trim() === "1") {
+    arrancarLaRecogida();
+  } else {
+    console.info("[correo] recogida apagada (MAIL_RECOGER distinto de 1).");
+  }
+
   console.log(`Viajes Velero API escuchando en http://localhost:${port}`);
 });
 
