@@ -26,3 +26,16 @@ dist.zip
 
 # Base de datos local de desarrollo (scripts/dev-db.mjs)
 .pg-local/
+
+# Material del cliente y documentos comerciales. NO van al repositorio: son
+# tarifas reales, logotipos y propuestas firmadas, y un `git add .` distraido
+# los subiria sin que nadie lo notase.
+Tarifas 26-27 Oravia/
+Fuentes/
+Coste Azure/
+ViajesVelero_Propuesta_Final.*
+Alojamiento-Azure-ViajesVelero.html
+Kickoff-PuestaEnMarcha-Oravia.html
+MIGRACION-Azure-Postgres.md
+logo-footer-1.png
+build/
