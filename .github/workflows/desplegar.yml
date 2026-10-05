@@ -58,31 +58,61 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Preparar SSH
-        # La clave privada y la huella del servidor van como secrets del
-        # repositorio. La huella evita aceptar a ciegas un host desconocido, que
+        # La huella del servidor evita aceptar a ciegas un host desconocido, que
         # es lo que deja la puerta abierta a un intermediario.
         #
-        # La clave se admite en base64 de una sola linea, que es como conviene
-        # guardarla: pegada en crudo desde un terminal, los saltos se rompen por
-        # donde el terminal doblo el texto, ssh no puede cargarla, se desconecta
-        # sin llegar a ofrecer nada, y el servidor solo registra un cierre
-        # durante la autenticacion. Cinco despliegues murieron asi sin decir por
-        # que. Si el secret no viene en base64, se usa tal cual.
+        # La clave se acepta como venga: base64 de una linea, base64 partido por
+        # el terminal, texto en crudo, o texto cuyos saltos se perdieron al
+        # copiar. Cada una de esas formas ha costado un despliegue fallido, y el
+        # valor no se puede inspeccionar a mano porque es un secret: lo unico
+        # sensato es admitirlas todas y decir cual se uso.
         run: |
           mkdir -p ~/.ssh
           clave=~/.ssh/id_ed25519
-          printf '%s' "${{ secrets.SSH_CLAVE_PRIVADA }}" | base64 -d > "$clave" 2>/dev/null \
-            || printf '%s\n' "${{ secrets.SSH_CLAVE_PRIVADA }}" > "$clave"
-          chmod 600 "$clave"
+          secreto="${{ secrets.SSH_CLAVE_PRIVADA }}"
 
-          # Una clave rota se detecta aqui, no cinco minutos despues con un 255.
-          if ! ssh-keygen -y -f "$clave" > /dev/null 2>&1; then
-            echo "::error::SSH_CLAVE_PRIVADA no es una clave valida. Regenerala en el servidor con:"
-            echo "::error::  sudo base64 -w0 /home/deploy/.ssh/github_actions"
-            echo "::error::y pega esa unica linea como valor del secret."
+          escribir_y_validar() {
+            # El salto final importa: una clave OpenSSH sin el no vale, y la
+            # sustitucion de comandos de bash se lo come sin avisar.
+            printf '%s\n' "$1" > "$clave"
+            chmod 600 "$clave"
+            ssh-keygen -y -f "$clave" > /dev/null 2>&1
+          }
+
+          modo=""
+          compacto="$(printf '%s' "$secreto" | tr -d '[:space:]')"
+          if descifrado="$(printf '%s' "$compacto" | base64 -d 2>/dev/null)" \
+             && escribir_y_validar "$descifrado"; then
+            modo="base64"
+          elif escribir_y_validar "$secreto"; then
+            modo="texto en crudo"
+          else
+            cuerpo="$(printf '%s' "$secreto" \
+              | sed -e 's/.*BEGIN OPENSSH PRIVATE KEY-----//' \
+                    -e 's/-----END OPENSSH PRIVATE KEY.*//' \
+              | tr -d '[:space:]')"
+            if [ -n "$cuerpo" ] && escribir_y_validar "-----BEGIN OPENSSH PRIVATE KEY-----
+          $(printf '%s' "$cuerpo" | fold -w 70)
+          -----END OPENSSH PRIVATE KEY-----"; then
+              modo="texto replegado"
+            fi
+          fi
+
+          if [ -z "$modo" ]; then
+            # Que forma tiene lo recibido, sin exponerlo: es lo unico que
+            # permite saber si se pego la clave publica, un valor truncado o
+            # nada en absoluto.
+            tiene_begin=no; case "$secreto" in *BEGIN*) tiene_begin=si;; esac
+            tiene_publica=no; case "$secreto" in ssh-ed25519*|ssh-rsa*) tiene_publica=si;; esac
+            echo "::error::SSH_CLAVE_PRIVADA no sirve en ninguna de sus formas."
+            echo "::error::Recibido: $(printf '%s' "$secreto" | wc -c) caracteres, \
+          $(printf '%s' "$secreto" | wc -l) saltos de linea, marcador BEGIN: $tiene_begin, \
+          parece clave publica: $tiene_publica"
+            echo "::error::Una clave ed25519 son ~400 caracteres en base64, o ~460 en crudo."
+            echo "::error::Regenerala con: sudo base64 -w0 /home/deploy/.ssh/github_actions"
             exit 1
           fi
-          echo "Clave cargada: $(ssh-keygen -lf "$clave" | awk '{print $2}')"
+          echo "Clave cargada ($modo): $(ssh-keygen -lf "$clave" | awk '{print $2}')"
 
           printf '%s\n' "${{ secrets.SSH_HUELLA_SERVIDOR }}" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
