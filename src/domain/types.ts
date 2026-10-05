@@ -149,6 +149,23 @@ export interface SearchFilters {
    * Vacío = cliente general.
    */
   clientSegment?: string | null;
+  /**
+   * Lo que el centro pidió en prosa: dietas, accesibilidad, lo que sea.
+   *
+   * Se leía del mensaje y se pintaba en pantalla, pero no llegaba a la
+   * búsqueda: los dos celíacos y la alumna con movilidad reducida no influían
+   * en nada. Sin esto no se puede decir si un alojamiento encaja.
+   */
+  requisitos?: string[] | null;
+  /** Tope por alumno que dijo el colegio, para poder decir si cabe. */
+  topePorAlumno?: number | null;
+}
+
+/** Una comprobación del alojamiento contra lo que pidió el centro. */
+export interface ComprobacionDeEncaje {
+  que: string;
+  estado: "cumple" | "no_cumple" | "no_consta";
+  detalle?: string;
 }
 
 export interface Accommodation {
@@ -245,6 +262,19 @@ export interface AccommodationSearchMatch {
   singleRate?: AccommodationRate | null;
   score: number;
   matchReasons: string[];
+  /**
+   * Qué cumple y qué no de lo que pidió el centro.
+   *
+   * Es lo que convierte una lista de hoteles en una decisión: sin esto la
+   * pantalla enseña precios y no dice si el alojamiento sirve para ESTE grupo.
+   */
+  encaje?: ComprobacionDeEncaje[];
+  /**
+   * Las demás tarifas del mismo alojamiento: otro régimen, otra habitación,
+   * otra temporada. Se calculaban y se tiraban, así que quien cotiza veía una
+   * sola de las cuarenta que tiene el 4R y no sabía que había alternativas.
+   */
+  alternativas?: AccommodationRate[];
 }
 
 export interface ActivitySearchMatch {

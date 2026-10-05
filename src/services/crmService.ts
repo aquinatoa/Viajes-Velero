@@ -1,3 +1,4 @@
+import { importeDe } from "../domain/importe";
 import type {
   Client,
   CrmPayload,
@@ -111,11 +112,21 @@ export const prepareCrmPayload = ({
   };
 };
 
-/** Importe (€) en número a partir del total formateado de una opción ("6.528 €" → 6528). */
+/**
+ * Importe (€) en número a partir del total formateado de una opción.
+ *
+ * Esto se quedaba con los dígitos y tiraba la coma: «5.951,94 €» salía como
+ * 595194, cien veces el importe real, y con él el depósito del 30%. Ese número
+ * está ahora mismo en tratos reales del CRM de Oravia.
+ *
+ * Se coló porque con importes redondos funcionaba -«6.528 €» → 6528- y en
+ * cuanto los totales llevaron céntimos dejó de funcionar sin avisar: un número
+ * cien veces mayor no da ningún error, se guarda tan campante.
+ *
+ * Ahora hay UN solo lector, en `domain/importe`, y tiene pruebas.
+ */
 function amountFromText(text: string | undefined): number | null {
-  if (!text) return null;
-  const digits = text.replace(/[^\d]/g, "");
-  return digits ? Number(digits) : null;
+  return importeDe(text);
 }
 
 /**

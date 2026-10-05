@@ -15,8 +15,13 @@ const { html, casillas, paneles } = render({
   panels: PANELS,
   titulo: 'Recorrido local · Consola Oravia',
   claveTab: 'oravia-local-tab',
-  claveEstado: 'oravia-local',
+  // v3 reestructura el recorrido entero: clave nueva para que no herede
+  // marcas de paradas que ya no existen.
+  claveEstado: 'oravia-local-v3',
   progLabel: 'paradas comprobadas',
+  // Cuadro «¿algo que no cuadre?» al pie de cada parada: es lo que se le pide
+  // que devuelva.
+  observaciones: true,
 })
 
 writeFileSync(SALIDA, html, 'utf8')

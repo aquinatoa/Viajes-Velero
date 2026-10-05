@@ -6555,19 +6555,18 @@ tr.is-selected {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .cv__hotel {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  /* Sin `overflow: hidden` a proposito.
-     El detalle (.cv__pop) se coloca a `top: 100%`, es decir ENTERO por debajo
-     del borde de esta tarjeta, y esta es su referencia de posicion. Recortando
-     aqui no se veia recortado: no se veia en absoluto, y el boton "Detalle"
-     parecia estropeado. El recorte solo estaba para redondear el fondo del
-     boton de dentro al pasar el raton, y eso se resuelve en el propio boton. */
+  overflow: hidden;
+  /* Vuelve a recortar: el detalle ya no es un popover colocado a `top: 100%`
+     -que con `overflow: hidden` no se veia en absoluto- sino un bloque que se
+     despliega DENTRO de la fila. Recortando, el fondo del boton de dentro se
+     redondea con la tarjeta. */
 }
 
 .cv__hotel.is-on {
@@ -6580,7 +6579,7 @@ tr.is-selected {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 11px 14px;
+  padding: 8px 14px;
   background: none;
   border: 0;
   text-align: left;
@@ -6618,8 +6617,9 @@ tr.is-selected {
 
 .cv__hotelt {
   display: block;
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 600;
+  line-height: 1.3;
 }
 
 .cv__hotels2 {
@@ -7694,41 +7694,771 @@ tr.is-selected {
   color: var(--danger);
 }
 
-/* â”€â”€ 3 Â· Popover de detalle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.cv__hotel {
-  position: relative;
+/* ── El paso a la revisión, al pie del chat ────────────────────────────────────
+   La columna izquierda es solo el chat. Esto es lo único que queda debajo, y
+   no aparece hasta que hay con qué interpretar la petición: destino, fechas y
+   alumnos. Antes, «Lo que hemos entendido» era un bloque de catorce campos que
+   se veía desde el primer momento, medio vacío, mientras el chat preguntaba lo
+   básico. Nadie revisa eso, y al no revisarlo se manda un presupuesto sobre lo
+   que la app adivinó. */
+.cv__revisa {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-top: var(--sp-3);
+  padding: 11px 13px;
+  border: 1px solid rgba(252, 187, 55, 0.6);
+  background: #fffdf7;
+  border-radius: var(--radius-lg);
+  animation: pop-in 0.18s var(--ease-out);
 }
 
-.cv__info {
-  border: 1px solid var(--border-strong);
+.cv__revisa.is-ok {
+  border-color: rgba(29, 122, 85, 0.32);
+  background: rgba(29, 122, 85, 0.06);
+}
+
+.cv__revisat {
+  min-width: 0;
+}
+
+.cv__revisatt {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #6b4708;
+}
+
+.cv__revisa.is-ok .cv__revisatt {
+  color: #166247;
+}
+
+.cv__revisatp {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ── La ventana de «Lo que hemos entendido» ──────────────────────────────── */
+.cv__velo {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  place-items: center;
+  padding: var(--sp-4);
+  background: rgba(11, 26, 56, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.cv__vent {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 2 * var(--sp-4));
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 64px rgba(4, 12, 28, 0.3);
+  animation: vent-in 0.18s var(--ease-out);
+}
+
+@keyframes vent-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cv__vent,
+  .cv__revisa {
+    animation: none;
+  }
+}
+
+.cv__venth {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.cv__venttl {
+  margin: 0;
+  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-size: var(--fs-h2);
+  font-weight: 600;
+}
+
+.cv__ventsub {
+  margin: 3px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.cv__ventx {
+  margin-left: auto;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   background: var(--surface);
   color: var(--muted);
+  font-size: 13px;
+}
+
+.cv__ventx:hover {
+  color: var(--ink);
+  border-color: var(--border-strong);
+}
+
+.cv__ventb {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-4) var(--sp-5);
+  display: grid;
+  gap: var(--sp-4);
+  align-content: start;
+}
+
+/* Un trato repetido no se descubre en el CRM tres días después. */
+.cv__ventavi {
+  border: 1px solid rgba(252, 187, 55, 0.6);
+  background: #fffdf7;
   border-radius: var(--radius);
-  padding: 6px 11px;
+  padding: 10px 13px 12px;
+  color: #6b4708;
+}
+
+.cv__ventavit {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.cv__ventavi ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  display: grid;
+  gap: 3px;
+}
+
+.cv__ventavip {
+  margin: 7px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.cv__ventfalta {
+  border: 1px solid rgba(252, 187, 55, 0.6);
+  background: #fffdf7;
+  border-radius: var(--radius);
+  padding: 9px 13px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #6b4708;
+}
+
+.cv__ventbloq {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px 14px;
+}
+
+.cv__ventbt {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Para qué sirve el bloque. Sin esto, «Cotizamos para» es una pregunta sin
+   contexto; con esto, se entiende que cambia qué tarifas se ofrecen. */
+.cv__ventbp {
+  margin: 4px 0 11px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.cv__ventgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 11px var(--sp-4);
+  margin: 0;
+}
+
+.cv__ventfila dt {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cv__ventfila dd {
+  margin: 1px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Falta Y hace falta. Lo que simplemente no dijeron va en gris, sin alarma:
+   a la tercera alarma por nada, nadie mira los ámbares. */
+.cv__ventfila.is-falta dd {
+  color: var(--cv-warn, #8a5a08);
+}
+
+.cv__ventfila.is-falta dt::after {
+  content: " · falta";
+  color: var(--cv-warn, #8a5a08);
+  font-weight: 700;
+}
+
+.cv__ventnota {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.cv__ventcrm {
+  margin: 0;
+  padding: 9px 13px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.cv__ventpie {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.cv__ventf {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-5) var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+
+/* En la ventana los campos van a dos columnas: en la barra lateral iban a una
+   y catorce campos en fila no se revisan. */
+.cv__ventbloq .cv__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 11px var(--sp-4);
+  margin-top: 11px;
+}
+
+
+/* La puerta de las opciones: lo que se ve a la derecha mientras no se haya
+   confirmado lo entendido. Enseñar el podio antes invita a elegir tres hoteles
+   sobre un destino que la app dedujo y nadie miró. */
+.cv__puerta {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: var(--sp-5);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.cv__puertat {
+  margin: 0;
+  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-size: var(--fs-lead);
+  font-weight: 600;
+}
+
+.cv__puertap {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--muted);
+  max-width: 62ch;
+}
+
+.cv__puertan {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* El contacto del CRM dentro de la ventana de revisión. */
+.cv__ventcrmok {
+  border: 1px solid rgba(29, 122, 85, 0.3);
+  background: rgba(29, 122, 85, 0.06);
+  border-radius: var(--radius);
+  padding: 10px 13px 12px;
+  color: #166247;
+}
+
+.cv__ventcrmno {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  padding: 9px 13px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.cv__ventchip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ── El chat de La petición ───────────────────────────────────────────────────
+   Antes esto era un buzón: pegabas el correo y, si faltaba algo, la app lo
+   enseñaba como una lista de campos vacíos. Un campo vacío no dice qué escribir
+   ni por qué hace falta. Ahora pregunta, una cosa cada vez, y dice el porqué. */
+
+/* Lo que pregunta la app */
+.cv__bubble--app {
+  background: rgba(19, 46, 93, 0.06);
+  border-color: rgba(19, 46, 93, 0.2);
+  color: var(--ink-2);
+  margin-bottom: 4px;
+}
+
+/* Lo que hemos contestado nosotros */
+.cv__bubble--yo {
+  margin-left: auto;
+  max-width: 82%;
+  width: fit-content;
+  background: var(--cv-navy);
+  border-color: var(--cv-navy);
+  color: #fff;
+  font-weight: 500;
+}
+
+/* La pregunta pendiente */
+.cv__preg {
+  border: 1px solid rgba(19, 46, 93, 0.22);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 12px 13px 13px;
+  margin: 0 0 11px;
+  animation: pop-in 0.16s var(--ease-out);
+}
+
+/* La que no se puede saltar: sin destino no hay nada que buscar. */
+.cv__preg--stop {
+  border-color: rgba(252, 187, 55, 0.65);
+  background: #fffdf7;
+}
+
+.cv__pregt {
+  margin: 0;
+  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.cv__pregp {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.cv__respuesta {
+  margin-top: 9px;
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.cv__respuestarow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Aquí vivía la casilla propia de cada pregunta. Fuera: con el compositor de
+   abajo quedaban dos sitios donde escribir la misma respuesta y no se sabía
+   cuál usar. Ahora se escribe en uno solo. */
+
+.cv__ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cv__op {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+  transition: border-color 0.14s var(--ease-out), color 0.14s var(--ease-out);
+}
+
+.cv__op:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.cv__op.is-on {
+  background: var(--cv-navy);
+  border-color: var(--cv-navy);
+  color: #fff;
+}
+
+/* «No lo han dicho» tiene que estar y tiene que verse menos que contestar.
+   Es una respuesta válida -un colegio puede no haberlo dicho- pero forzarla
+   cuando sí se sabe deja la petición más pobre de lo que era. */
+.cv__nodicho {
+  justify-self: start;
+  border: 0;
+  background: none;
+  padding: 2px 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.cv__nodicho:hover {
+  color: var(--ink-2);
+}
+
+/* El pie del compositor: la pista a la izquierda, el botón de enviar a la
+   derecha. Antes había dos botones con texto -«Añadir mensaje» y «Ver lo que
+   hemos entendido»- para una tarjeta que es un chat. */
+.cv__composerrow {
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.cv__pista {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.cv__enviar {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--cv-navy);
+  color: #fff;
+  transition: background 0.14s var(--ease-out), opacity 0.14s var(--ease-out);
+}
+
+.cv__enviar:hover:not(:disabled) {
+  background: #0d2148;
+}
+
+.cv__enviar:disabled {
+  background: var(--border-strong);
+  opacity: 0.7;
+}
+
+.cv__enviar svg {
+  /* La punta de la flecha cae a la derecha del centro óptico del círculo. */
+  margin-left: 1px;
+}
+
+.cv__enviando {
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: cv-girar 0.7s linear infinite;
+}
+
+@keyframes cv-girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cv__enviando {
+    animation-duration: 2s;
+  }
+}
+
+/* Cuando ya no queda nada que preguntar */
+.cv__listo {
+  border: 1px solid rgba(29, 122, 85, 0.3);
+  background: rgba(29, 122, 85, 0.07);
+  border-radius: var(--radius-lg);
+  padding: 10px 13px 12px;
+  margin: 0 0 11px;
+}
+
+.cv__listot {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #166247;
+}
+
+.cv__listop {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+/* ── 3 · El podio, la tira de encaje y el detalle ─────────────────────────── */
+
+/* La tira de ✓ / ✗ / — de cada fila.
+   Va en la fila y no dentro del detalle: la queja era tener que abrir un
+   popover de 330 px por cada hotel para saber si servía. */
+.cv__enc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.cv__encit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px 1px 5px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  font-size: 11px;
+  line-height: 1.7;
+  white-space: nowrap;
+}
+
+.cv__encit b {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.cv__encit--cumple {
+  color: #166247;
+  background: rgba(29, 122, 85, 0.1);
+  border-color: rgba(29, 122, 85, 0.22);
+}
+
+.cv__encit--no_cumple {
+  color: var(--danger);
+  background: rgba(178, 58, 72, 0.1);
+  border-color: rgba(178, 58, 72, 0.25);
+}
+
+/* «No consta» no es una cruz: el documento del hotel no habla del tema. Por eso
+   es gris y no rojo, y por eso el signo es un guion. */
+.cv__encit--no_consta {
+  color: var(--muted);
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+.cv__encmas {
+  align-self: center;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ── El podio ─────────────────────────────────────────────────────────────── */
+.cv__podio {
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-3) var(--sp-3) var(--sp-4);
+  background: rgba(19, 46, 93, 0.04);
+  border: 1px solid rgba(19, 46, 93, 0.16);
+  border-radius: var(--radius-lg);
+}
+
+.cv__podioh {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+
+.cv__podiol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: var(--sp-3);
+}
+
+.cv__pcard {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.cv__pcard.is-on {
+  border-color: var(--cv-navy);
+  box-shadow: 0 0 0 2px rgba(19, 46, 93, 0.12);
+}
+
+.cv__pmain {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  padding: 11px 12px 12px;
+  background: none;
+  border: 0;
+  text-align: left;
+}
+
+.cv__pmain:hover {
+  background: var(--surface-2);
+}
+
+.cv__ppos {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--cv-navy);
+}
+
+.cv__pt {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.cv__ps {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.cv__pp {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 6px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cv__pp b {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.cv__pp i {
+  font-style: normal;
+  margin-left: auto;
+}
+
+/* El motivo del puesto. Un podio sin motivo es una opinión; con el motivo,
+   quien cotiza puede discutirlo. */
+.cv__prazon {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.cv__pcta {
+  margin-top: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+.cv__pcard.is-on .cv__pcta {
+  color: var(--muted);
+}
+
+.cv__plink {
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: none;
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.cv__plink:hover {
+  color: var(--brand);
+  background: var(--surface-2);
+}
+
+/* Marca de «este ya sale recomendado arriba», para que la lista larga y el
+   podio no parezcan dos búsquedas distintas. */
+.cv__reco {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: rgba(19, 46, 93, 0.1);
+  color: var(--cv-navy);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
+.cv__opsh--sub {
+  margin: 0 0 8px;
+}
+
+/* ── El detalle ───────────────────────────────────────────────────────────── */
+.cv__info {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+  padding: 7px 14px;
+  text-align: left;
   font-size: var(--fs-small);
   font-weight: 600;
-  margin-right: var(--sp-3);
-  transition: color 0.16s var(--ease-out), border-color 0.16s var(--ease-out);
+  transition: color 0.16s var(--ease-out), background 0.16s var(--ease-out);
 }
 
 .cv__info:hover,
 .cv__info[aria-expanded="true"] {
   color: var(--brand);
-  border-color: var(--brand);
-}
-
-.cv__pop {
-  position: absolute;
-  right: var(--sp-3);
-  top: calc(100% - 6px);
-  z-index: var(--z-drawer);
-  width: min(330px, calc(100vw - 48px));
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 18px 44px rgba(11, 26, 56, 0.18);
-  padding: var(--sp-3) var(--sp-4) var(--sp-4);
-  animation: pop-in 0.14s var(--ease-out);
+  background: var(--surface-2);
 }
 
 @keyframes pop-in {
@@ -7738,48 +8468,229 @@ tr.is-selected {
   }
 }
 
-.cv__popt {
+/* Ya no es un popover: se despliega debajo, a todo el ancho de la fila.
+   «Si le doy en detalles, me muestra un pop up muy pequeño… no me da la
+   seguridad de que estoy seleccionando un alojamiento con las características
+   y necesidades de la petición». */
+.cv__det {
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  display: grid;
+  gap: var(--sp-3);
+  animation: pop-in 0.14s var(--ease-out);
+}
+
+.cv__detbloq {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 13px 13px;
+}
+
+.cv__deth {
   margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.cv__detn {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  letter-spacing: 0;
+}
+
+.cv__detsub {
+  margin: 3px 0 10px;
   font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
-  font-size: var(--fs-lead);
+  font-size: 15px;
   font-weight: 600;
 }
 
-.cv__pops {
-  margin: 1px 0 var(--sp-2);
-  font-size: var(--fs-small);
+/* Lo que se reserva: cada dato con su nombre, no una frase corrida. */
+.cv__detgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 9px var(--sp-4);
+  margin: 0 0 12px;
+}
+
+.cv__detgrid dt {
+  font-size: 11px;
   color: var(--muted);
 }
 
-.cv__popr {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  margin: 0;
-  padding: 5px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: var(--fs-body);
+.cv__detgrid dd {
+  margin: 1px 0 0;
+  font-size: 13px;
+  font-weight: 500;
 }
 
-.cv__popr:last-of-type {
+.cv__dettabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.cv__dettabla th,
+.cv__dettabla td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.cv__dettabla thead th {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.cv__dettabla tbody tr:last-child th,
+.cv__dettabla tbody tr:last-child td {
   border-bottom: 0;
 }
 
-.cv__popr span {
+.cv__dettabla--precio {
+  border-top: 1px solid var(--border);
+}
+
+.cv__dettabla--precio th[scope="row"] {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cv__dettabla--precio td:nth-child(2) {
   color: var(--muted);
 }
 
-.cv__popc {
-  margin: var(--sp-2) 0 0;
-  font-size: var(--fs-small);
-  color: var(--ink-2);
+.cv__num {
+  text-align: right;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cv__dettotal th,
+.cv__dettotal td {
+  border-top: 1px solid var(--border-strong);
+  font-weight: 700;
+  font-size: 13.5px;
+}
+
+.cv__dettotal td:nth-child(2) {
+  font-weight: 400;
+}
+
+/* La tarifa que la búsqueda ha elegido, dentro de todas las del hotel. */
+.cv__detsel td {
+  background: rgba(19, 46, 93, 0.05);
+  font-weight: 600;
+}
+
+.cv__detchip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--cv-navy);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.cv__detscroll {
+  overflow-x: auto;
+  margin-top: 6px;
+}
+
+/* El encaje, entero y con su porqué. */
+.cv__detenc {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.cv__detenc li {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.cv__detenc b {
+  flex: none;
+  width: 14px;
+  text-align: center;
+}
+
+.cv__detenc em {
+  display: block;
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.cv__detenc--cumple b {
+  color: var(--cv-ok);
+}
+
+.cv__detenc--no_cumple b {
+  color: var(--danger);
+}
+
+.cv__detenc--no_consta b {
+  color: var(--muted);
+}
+
+.cv__detaviso {
+  margin: 8px 0 0;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  background: rgba(252, 187, 55, 0.16);
+  border: 1px solid rgba(252, 187, 55, 0.5);
+  color: #6b4708;
+  font-size: 12px;
   line-height: 1.5;
 }
 
-.cv__popf {
-  margin: var(--sp-3) 0 0;
-  padding-top: var(--sp-2);
-  border-top: 1px solid var(--border);
+.cv__detnota {
+  margin: 9px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.cv__dettxt {
+  margin: 7px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.cv__detlista {
+  margin: 7px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.cv__detpie {
+  margin: 0;
   font-size: var(--fs-micro);
   color: var(--muted);
 }
@@ -7811,7 +8722,7 @@ tr.is-selected {
     transition: none;
   }
 
-  .cv__pop,
+  .cv__det,
   .cv__resume {
     animation: none;
   }
@@ -10400,4 +11311,503 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
   color: #fff;
   font-size: 11px;
   font-weight: 700;
+}
+
+/* ── El lienzo ocupa la pantalla y cada columna se desplaza sola ──────────────
+   Antes crecía la página entera: con seis turnos de chat, el sitio donde se
+   escribe se iba fuera de la pantalla y había que bajar a mano para contestar.
+   Ahora la altura la pone la ventana, y lo que se desplaza es el hilo. */
+.cv {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cv__panes {
+  min-height: 0;
+}
+
+.cv__left {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* La derecha se desplaza como una columna normal: ahí sí hay una lista larga. */
+.cv__right {
+  min-height: 0;
+  overflow-y: auto;
+  display: block;
+}
+
+.cv__right > * + * {
+  margin-top: var(--sp-3);
+}
+
+/* La tarjeta del chat ocupa todo el alto disponible de su columna. */
+.cv__left .cv__card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cv__left .cv__cardb {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+/* Lo único que se desplaza. */
+.cv__hilo {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px var(--sp-4) 4px;
+}
+
+/* El pie se queda abajo, siempre a la vista. */
+.cv__pie {
+  flex: none;
+  padding: 10px var(--sp-4) 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.cv__pie .cv__composerrow {
+  margin-top: 8px;
+}
+
+/* La tira que sustituye a la puerta una vez confirmado: el control no puede
+   desaparecer justo después de usarlo. */
+.cv__revisado {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: 9px 13px;
+  border: 1px solid rgba(29, 122, 85, 0.3);
+  background: rgba(29, 122, 85, 0.06);
+  border-radius: var(--radius-lg);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.cv__revisado b {
+  color: #166247;
+}
+
+/* «Sobre qué se ha hecho»: la petición que ha generado el documento, en el
+   panel de revisión. Faltaba, y sin ella se aprobaba un envío sin ver sobre
+   qué datos estaba montado. */
+.rv__datos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 9px var(--sp-3);
+  margin: 8px 0 0;
+}
+
+.rv__datos dt {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.rv__datos dd {
+  margin: 1px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rv__ojo {
+  margin: 10px 0 0;
+  padding: 8px 11px;
+  border: 1px solid rgba(252, 187, 55, 0.6);
+  background: #fffdf7;
+  border-radius: var(--radius);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #6b4708;
+}
+
+/* ── El desenlace del envío ───────────────────────────────────────────────────
+   Antes, enviar dejaba una franja ámbar arriba y la pantalla igual que estaba:
+   con la propuesta ya fuera, se seguía mirando la misma lista de hoteles. Y un
+   fallo salía en el mismo sitio y con el mismo aspecto que cualquier aviso. */
+.cv__fin {
+  width: min(460px, 100%);
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 64px rgba(4, 12, 28, 0.3);
+  padding: var(--sp-5);
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 10px;
+  animation: vent-in 0.18s var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cv__fin {
+    animation: none;
+  }
+}
+
+.cv__finico {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.cv__fin--enviada .cv__finico {
+  background: rgba(29, 122, 85, 0.12);
+  color: #166247;
+}
+
+/* «Preparada» no es «enviada»: en local no hay clave de buzón y el colegio no
+   recibe nada. En verde parecería un envío. */
+.cv__fin--preparada .cv__finico {
+  background: rgba(252, 187, 55, 0.22);
+  color: #6b4708;
+}
+
+.cv__fin--fallo .cv__finico {
+  background: rgba(178, 58, 72, 0.12);
+  color: var(--danger);
+}
+
+.cv__fint {
+  margin: 0;
+  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-size: var(--fs-h2);
+  font-weight: 600;
+}
+
+.cv__finp {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  max-width: 44ch;
+}
+
+/* Lo que de verdad hace falta saber cuando falla: que no se ha perdido nada y
+   que reintentar no crea un segundo trato en el CRM. */
+.cv__finsalvo {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  padding: 10px 13px 12px;
+  margin-top: 2px;
+}
+
+.cv__finsalvot {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.cv__finsalvo ul {
+  margin: 7px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 3px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.cv__finsalvop {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.cv__finacc {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+/* ── El embudo con los colores del CRM ────────────────────────────────────────
+   «Por dónde va» se pintaba con nuestro azul para todo. En Zoho cada fase
+   tiene su color y Oravia lo mira todos los días: «Presupuesto Enviado» es azul
+   petróleo, «Pendiente de deposito» naranja, «Oportunidad Ganada» verde.
+   Pintarlas aquí de otro color obliga a traducir entre dos pantallas que dicen
+   lo mismo.
+
+   `--fase` la pone la propia fila, con el color leído del CRM. Las filas sin
+   color -CRM caído, o fase sin color asignado- no llevan `tiene-color` y se
+   quedan con el azul de siempre. */
+.embudo__p.tiene-color .embudo__punto {
+  background: var(--fase);
+}
+
+/* Las que aún no han pasado: el color, pero apagado. Se reconoce la fase sin
+   que la tarjeta cante como si ya estuviera hecha. */
+.embudo__p.tiene-color:not(.is-hecho):not(.is-actual) .embudo__punto {
+  background: var(--fase);
+  opacity: 0.45;
+}
+
+/* La fase en la que está el trato AHORA: es el dato que se busca al abrir, y
+   es donde el color del CRM ayuda más. */
+.embudo__p.tiene-color.is-actual {
+  border-color: var(--fase);
+  box-shadow: inset 0 0 0 1px var(--fase);
+  /* Un velo del propio color, calculado por el navegador: así vale igual para
+     un verde clarísimo que para un granate. */
+  background: color-mix(in srgb, var(--fase) 10%, var(--surface));
+}
+
+.embudo__p.tiene-color.is-actual .embudo__punto {
+  opacity: 1;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fase) 22%, transparent);
+}
+
+/* Una barra del color arriba de la tarjeta hecha: se lee el recorrido de un
+   vistazo, como en el embudo del CRM. */
+.embudo__p.tiene-color.is-hecho {
+  border-top: 2px solid var(--fase);
+  padding-top: 10px;
+}
+
+/* Sin `color-mix` -navegadores viejos- se queda el fondo blanco y el borde de
+   color, que sigue siendo legible. Nada depende de ese relleno. */
+
+/* ── La ficha, a dos columnas ─────────────────────────────────────────────────
+   El espacio de la derecha estaba en blanco y ahí falta lo que de verdad se
+   busca al abrir: qué hay que hacer ahora, y qué hay relleno en la oportunidad
+   de Zoho sin tener que abrir Zoho. */
+.ficha {
+  max-width: 1360px;
+}
+
+.ficha__cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: var(--sp-5, 22px);
+  align-items: start;
+}
+
+@media (max-width: 1080px) {
+  .ficha__cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ficha__main {
+  min-width: 0;
+}
+
+.ficha__aside {
+  display: grid;
+  gap: var(--sp-3, 14px);
+  position: sticky;
+  top: var(--sp-4, 18px);
+}
+
+/* ── Lo siguiente ─────────────────────────────────────────────────────────── */
+.ficha__toca {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--surface);
+  padding: 13px 15px 15px;
+  display: grid;
+  justify-items: start;
+  gap: 5px;
+}
+
+.ficha__tocal {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ficha__tocat {
+  margin: 0;
+  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-size: 15.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.ficha__tocap {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.ficha__toca > a,
+.ficha__toca > button {
+  margin-top: 6px;
+}
+
+/* La urgencia se ve antes de leer. Tres estados, no cinco: más matices no se
+   distinguen de un vistazo, que es para lo que sirve el color. */
+.ficha__toca--atencion {
+  border-color: rgba(252, 187, 55, 0.65);
+  background: #fffdf7;
+}
+
+.ficha__toca--atencion .ficha__tocat {
+  color: #6b4708;
+}
+
+.ficha__toca--urgente {
+  border-color: rgba(178, 58, 72, 0.45);
+  background: rgba(178, 58, 72, 0.05);
+}
+
+.ficha__toca--urgente .ficha__tocat {
+  color: var(--danger);
+}
+
+.ficha__toca--hecho {
+  border-color: rgba(29, 122, 85, 0.35);
+  background: rgba(29, 122, 85, 0.06);
+}
+
+.ficha__toca--hecho .ficha__tocat {
+  color: #166247;
+}
+
+/* ── Lo que hay en el CRM ─────────────────────────────────────────────────── */
+.ficha__crm {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--surface);
+  padding: 13px 15px 15px;
+}
+
+.ficha__crmn {
+  float: right;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-2);
+}
+
+.ficha__campos {
+  margin: 10px 0 0;
+  display: grid;
+  gap: 7px;
+}
+
+.ficha__campo {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ficha__campos > .ficha__campo:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.ficha__campo dt {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ficha__campo dd {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: right;
+  word-break: break-word;
+}
+
+/* Lo vacío se enseña, no se esconde: es justo lo que hay que ver. */
+.ficha__campo.is-vacio dd {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.ficha__crmvacio {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.ficha__crmlink {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+/* ── La ficha ocupa la pantalla ───────────────────────────────────────────────
+   Estaba capada a 1.360 px: en un monitor ancho quedaba una franja blanca a la
+   derecha de la columna del CRM, y a la vez las tres opciones salían
+   apretadas. Ahora se reparte el ancho que haya, con un tope alto para que en
+   una pantalla muy grande las líneas no se vuelvan ilegibles de largas. */
+.ficha {
+  max-width: 1760px;
+  width: 100%;
+}
+
+/* La columna de la derecha puede crecer un poco cuando sobra sitio: los
+   valores del CRM -«IES Jaume Balmes», «Presupuesto Enviado»- se partían en
+   dos líneas contra la etiqueta. */
+.ficha__cols {
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 26%, 420px);
+  gap: var(--sp-5, 22px);
+}
+
+/* Y las opciones respiran: con más ancho caben tres de verdad, no tres
+   encogidas. */
+.ficha__ops {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+@media (max-width: 1180px) {
+  .ficha__cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Un campo que hace falta y no está. Se usa en el departamento: sin él, el
+   trato del CRM sale sin clasificar y el correo se va por Grupos aunque el
+   viaje sea de Deportivo. */
+.cv__field--ojo select,
+.cv__field--ojo input {
+  border-color: rgba(252, 187, 55, 0.75);
+  background: #fffdf7;
+}
+
+.cv__field small {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
 }

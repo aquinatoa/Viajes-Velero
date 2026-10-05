@@ -16,9 +16,12 @@
  * alguien vea su presupuesto.
  */
 
+import { opcionAceptadaEn } from "../src/domain/opcionAceptada";
+import { camposDelTrato, cuentaDeRellenos } from "./camposDelTrato";
+import { clave, coloresDelEmbudo } from "./coloresDelEmbudo";
 import { PrismaClient } from "@prisma/client";
 import { FASES, FASE_DE_HITO } from "./crmPipeline";
-import { getZohoDealStage } from "./zoho";
+import { getZohoDealDetalle, getZohoDealStage } from "./zoho";
 
 const prisma = new PrismaClient();
 
@@ -32,6 +35,14 @@ export interface PasoDelEmbudo {
   hecho: boolean;
   /** La fase en la que está el trato AHORA, según el CRM. */
   actual: boolean;
+  /**
+   * El color que tiene esa fase EN SU CRM.
+   *
+   * Null cuando el CRM no contesta o la fase no tiene color asignado: se pinta
+   * con lo nuestro. Inventarse uno parecido sería peor, porque alguien lo daría
+   * por bueno.
+   */
+  color: string | null;
 }
 
 /**
@@ -43,6 +54,7 @@ export interface PasoDelEmbudo {
  * pasó», que es lo que cada uno sabe de verdad.
  */
 function embudoDe(
+  colores: Record<string, string>,
   delivery: {
     createdAt: Date;
     sentAt: Date | null;
@@ -100,6 +112,7 @@ function embudoDe(
     ...h,
     hecho: h.cuando !== null,
     actual: faseEnElCrm !== null && normal(faseEnElCrm) === normal(h.fase),
+    color: colores[clave(h.fase)] ?? null,
   }));
 }
 
@@ -126,9 +139,14 @@ export async function fichaDeLaPropuesta(deliveryId: string, visibilidad: Record
   // CRM lento no puede dejar a nadie sin ver su presupuesto.
   let faseEnElCrm: string | null = null;
   let crmRespondio = true;
+  // Lo que hay relleno en la oportunidad, para poder comprobarlo sin abrir
+  // Zoho. Es la queja de Ruth: «no rellena ningún campo de la oportunidad».
+  let campos: ReturnType<typeof camposDelTrato> = [];
   if (solicitud.crmDealId) {
     try {
-      faseEnElCrm = (await getZohoDealStage(solicitud.crmDealId)) || null;
+      const trato = await getZohoDealDetalle(solicitud.crmDealId);
+      faseEnElCrm = String(trato?.Stage ?? "") || null;
+      campos = camposDelTrato(trato);
     } catch {
       crmRespondio = false;
     }
@@ -161,9 +179,11 @@ export async function fichaDeLaPropuesta(deliveryId: string, visibilidad: Record
       dealUrl: solicitud.crmDealUrl,
       fase: faseEnElCrm,
       respondio: crmRespondio,
+      campos,
+      relleno: cuentaDeRellenos(campos),
     },
 
-    embudo: embudoDe(delivery, faseEnElCrm),
+    embudo: embudoDe(await coloresDelEmbudo(), delivery, faseEnElCrm),
     fases: FASES,
 
     opciones: delivery.proposal.accommodationOptions.map((o) => ({
@@ -187,6 +207,13 @@ export async function fichaDeLaPropuesta(deliveryId: string, visibilidad: Record
         })),
     })),
 
+    // Hacen falta para decir qué toca hacer ahora: cuándo salió, si la han
+    // abierto y cuándo. La ficha decía dónde está el expediente y no hacia
+    // dónde moverlo.
+    sentAt: delivery.sentAt?.toISOString() ?? null,
+    firstViewedAt: delivery.firstViewedAt?.toISOString() ?? null,
+    viewCount: delivery.viewCount,
+
     elegida: delivery.chosenOptionNumber,
     chosenAt: delivery.chosenAt?.toISOString() ?? null,
     depositDueAt: delivery.depositDueAt?.toISOString() ?? null,
@@ -196,7 +223,31 @@ export async function fichaDeLaPropuesta(deliveryId: string, visibilidad: Record
       total: delivery.mensajes.length,
       entrantes: delivery.mensajes.filter((m) => m.direccion === "ENTRANTE").length,
       ultimo: delivery.mensajes.at(-1)?.fecha.toISOString() ?? null,
+      sinVer: delivery.mensajes.filter((m) => m.direccion === "ENTRANTE" && !m.visto).length,
     },
+
+    /**
+     * Qué opción parece que aceptan en su última respuesta.
+     *
+     * El correo que manda la app les pide justo eso -«respondiendo a este
+     * correo nos decís cuál preferís»- y hasta ahora la única vía que marcaba
+     * la opción era el botón de la página pública. Contestaban y no se enteraba
+     * nadie.
+     *
+     * Se PROPONE, no se aplica: marcarla arranca el plazo del depósito y mueve
+     * la fase en el CRM de un cliente. Va con el trozo de texto en el que se ha
+     * fijado, para que quien confirma pueda discutirlo.
+     */
+    sugerida: (() => {
+      if (delivery.chosenOptionNumber) return null;
+      const ultima = [...delivery.mensajes].reverse().find((m) => m.direccion === "ENTRANTE");
+      if (!ultima) return null;
+      const nombres: Record<number, string> = {};
+      for (const o of delivery.proposal.accommodationOptions) {
+        nombres[o.optionNumber] = o.accommodationNameSnapshot ?? "";
+      }
+      return opcionAceptadaEn(ultima.cuerpo, nombres);
+    })(),
 
     pdf: delivery.pdfPath ? `/api/deliveries/${delivery.id}/pdf` : null,
     publicToken: delivery.publicToken,

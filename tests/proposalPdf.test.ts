@@ -283,6 +283,62 @@ prueba("una opción sin actividades no inventa importes", () => {
   assert.match(textoDos, /11\.000,00/);
 });
 
+// ── El resumen aguanta que la solicitud venga sin el grupo ───────────────────
+//
+// Pasó de verdad y se vio en un PDF: la solicitud se guardaba con la PRIMERA
+// lectura del mensaje, así que el número de alumnos contestado en el chat no
+// llegaba. El resumen salió «para 0 alumnos», la columna de actividades con un
+// guion, y el total del viaje igual al del alojamiento a secas.
+//
+// El fallo está corregido aguas arriba, pero el documento no puede depender de
+// que un solo sitio tenga el dato: cada opción lleva el suyo.
+
+const rutaTres = await buildProposalPdf({
+  reference: "ORV-2026-9997",
+  clientName: "María López",
+  centreName: null,
+  tripTitle: "IES JAUME BALMES 2027",
+  destination: "Salou",
+  dateFrom: new Date("2027-05-18T00:00:00Z"),
+  dateTo: new Date("2027-05-22T00:00:00Z"),
+  // La solicitud llega SIN grupo: es exactamente lo que pasaba.
+  participants: null,
+  teachers: null,
+  options: [CON_ACTIVIDADES],
+  preparedBy: "Oravia Travel Group",
+});
+
+const pdfTres = await getDocument({
+  data: new Uint8Array(readFileSync(path.resolve(rutaTres))),
+  useSystemFonts: true,
+}).promise;
+
+let textoTres = "";
+for (let p = 1; p <= pdfTres.numPages; p += 1) {
+  const contenido = await (await pdfTres.getPage(p)).getTextContent();
+  textoTres += " " + contenido.items.map((i) => ("str" in i ? i.str : "")).join(" ");
+}
+textoTres = textoTres.replace(/\s+/g, " ");
+
+console.log("\nSi la solicitud viene sin el grupo, manda el de las opciones");
+
+prueba("no sale «para 0 alumnos»", () => {
+  // La opción lleva 55 alumnos y 5 profesores; la solicitud, nada.
+  assert.ok(!/para 0 alumnos/.test(textoTres), "sigue saliendo «para 0 alumnos»");
+  assert.match(textoTres, /para 55 alumnos/);
+});
+
+prueba("las actividades se siguen sumando", () => {
+  // 75 € por persona x 60 personas = 4.500. Con el grupo a cero salían a cero
+  // y en la columna se imprimía un guion.
+  assert.match(textoTres, /4\.500,00/);
+});
+
+prueba("y el total del viaje no es solo el alojamiento", () => {
+  // 9.200 de alojamiento + 4.500 de actividades.
+  assert.match(textoTres, /13\.700,00/);
+});
+
 rmSync(ALMACEN, { recursive: true, force: true });
 
 console.log(`\n${pasadas} pasadas, ${fallidas} fallidas\n`);

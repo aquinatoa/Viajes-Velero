@@ -1,11 +1,12 @@
 # Handoff - Oravia (antes Viajes Velero Ops)
 
 > Documento de compactación de contexto para continuar el trabajo en una conversación nueva
-> sin arrastrar todo el historial. Última actualización: **2026-09-15**.
+> sin arrastrar todo el historial. Última actualización: **2026-09-23** (escrita el 24/09).
 >
-> **Lo último está AL FINAL**, en «Septiembre de 2026». Lo anterior a esa sección se conservó
-> tal cual se escribió y hay partes caducadas: donde ponga «31/31 tests» hoy son **75**, y la
-> rama `feat/documental-review-workspace` se fusionó hace tiempo.
+> **Lo último está AL FINAL**, en «Estado a 23/09/2026», dentro de «Septiembre de 2026». Lo anterior
+> se conservó tal cual se escribió y hay partes caducadas: donde ponga «31/31 tests» o «75» hoy son
+> **198**, la rama `feat/documental-review-workspace` se fusionó hace tiempo, y el despliegue
+> automático, que «no había funcionado nunca», funcionó por primera vez el 23/09/2026.
 >
 > **App**: consola interna de operaciones de **Oravia Travel Group** (React+TS+Vite / Express /
 > Prisma+PostgreSQL). Convierte el mensaje de un colegio en una propuesta de hasta tres opciones, la
@@ -1416,6 +1417,10 @@ una solicitud de prueba crea un trato de verdad en su CRM.
 
 ## Estado real a 15/09/2026
 
+> **Caducado en parte el 23/09/2026.** El despliegue automático funcionó ese día y el servidor sirve
+> `a201040`. Lo demás de esta sección (actividades sin ubicación, `ESTIDIANTES 4R27 3E`) sigue
+> pendiente de ejecutar en el servidor. Ver «Estado a 23/09/2026» al final.
+
 **Catálogo en producción**: 35 alojamientos con 782 tarifas y 20 actividades con 402, de cinco
 documentos. Los alojamientos se cotizan bien. Las **402 tarifas de actividad no aparecen nunca**,
 porque se publicaron sin ubicacion y la busqueda descarta por ahi antes de puntuar.
@@ -1436,6 +1441,9 @@ ejecuta `prisma migrate deploy`.
 sin temporada, y el maestro ya trae ese hotel. Está duplicado en el catálogo.
 
 ## Bloques pendientes de revisar
+
+> **A 23/09/2026 esto ya no es así**: los bloques 2, 3, 4, 5 y 6 se trabajaron del 21 al 23. El
+> estado de cada uno está en «Estado a 23/09/2026», al final. Se conserva lo de abajo tal cual.
 
 El recorrido de la app tiene siete bloques. Solo el primero está trabajado.
 
@@ -1469,7 +1477,8 @@ y al final el **5** y el **6**.
 
 ### Tareas sueltas, por orden
 
-1. Arreglar `SSH_CLAVE_PRIVADA` y desplegar. **Bloquea todo lo demás.**
+1. ~~Arreglar `SSH_CLAVE_PRIVADA` y desplegar.~~ **Hecho el 23/09/2026**: el despliegue entró y el
+   servidor sirve `a201040`. Qué se tocó exactamente para que entrara, por confirmar con Cristian.
 2. Ejecutar `scripts/mover-condiciones-a-actividades.mjs cmtliiton0009fhkj2iy4cjkg`, primero en seco.
 3. Borrar `ESTIDIANTES 4R27 3E` del catálogo.
 4. Editar `Hotel California Garden` y `Hotel California Palace`: localidad Salou. Son 60 tarifas.
@@ -1487,3 +1496,571 @@ y al final el **5** y el **6**.
 **75 pruebas** (`npm test`), no 31. Necesitan un PostgreSQL: toman `TEST_DATABASE_URL` o, si no,
 `DATABASE_URL`, y crean su propio esquema temporal. Donde el documento diga «31/31» o «BD SQLite
 temporal», está caducado.
+
+> **A 23/09/2026**: `fix/tabla-ancha-tapa-el-boton` se fusionó el 15/09 (PR #3). `main` está en
+> `4bb86e1`, igual que `origin/main`, sin ramas sin fusionar. Las pruebas son **198**.
+
+## Estado a 23/09/2026
+
+> Escrito el 24/09/2026 con lo hecho del 21 al 23 de septiembre. Fuentes: el git de `main` (14
+> commits, de `93836c7` a `4bb86e1`), la sesión de trabajo de esos días,
+> `App Oravia - 2026-09-21 - Transcripcion Fathom.md`, `PLAN-ACCION-Oravia.html`,
+> `RECORRIDO-LOCAL-Oravia.html` y `correo-avance-oravia-23-09.md`. Manda sobre «Estado real a
+> 15/09/2026» y sobre «Bloques pendientes de revisar».
+
+### En una línea
+
+El despliegue automático funcionó por primera vez el 23/09: el servidor `195.20.235.4` sirve
+`a201040`, con todo lo de estos tres días menos el último commit. El presupuesto sale en tres
+partes, las solicitudes de prueba se borran junto con su oportunidad de Zoho, los borradores viven
+en el servidor y las actividades ya aparecen buscando por pueblo (en local; en el servidor falta
+correr el script). Queda el bloque de idiomas, el subdominio, y verificar contra el servidor lo que
+en local ya se vio.
+
+### Lo que pasó, por día
+
+**21/09.** Llegan tres correos. Javier: la edad no debe ser obligatoria, y los datos del cliente se
+crean cada vez cuando deberían cogerse del CRM por el correo del contacto. Ruth, cinco puntos: cada
+dirección crea el lead y duplica el contacto; poder ver los correos de cada oportunidad; idiomas
+CAT, ENG y FR; no deja editar un borrador ya existente; todos los borradores deben poder editarlos
+otros usuarios. El hosting, a Cristian: subdominio `presupuesto.oraviatravel.com` con registro A a
+`192.20.235.4`. Se comprueba que el servidor está en `195.20.235.4`: el registro tiene un dígito
+mal y no contesta.
+
+Antes de la reunión se sube `93836c7`: la edad pasa de crítica a aviso en los tres sitios donde
+bloqueaba (lectura del mensaje, validación antes de enviar, búsqueda de actividades, que devolvía
+cero en vez de buscar). Y la búsqueda previa en Zoho deja de tragarse los errores: estaba en un
+`.catch(() => null)`, así que un fallo de red se leía como «no existe» y se creaba otro contacto.
+Además se busca también en el correo secundario, que `search?email=` no mira.
+
+Para la formación de ese día se preparó un **manual de uso en HTML**, interactivo, con la marca de
+Neointec leída del manual de identidad (imagotipo oficial de la página 24, seis colores, DM Sans
+solo Regular y Bold): casillas por paso con barra de avance, sección de puntos de mejora con estado
+(26 puntos: 10 funcionan, 2 listos sin desplegar, 10 pendientes, 4 decisiones), y una práctica
+guiada con el correo de ejemplo de «Marta Ferrer, IES Jaume Balmes, Salou 18-22/05/2027». Se
+publicó como artefacto de claude.ai. **No hay copia en la carpeta del cliente**; si hace falta el
+fichero, por confirmar dónde quedó.
+
+La **reunión con el equipo de Oravia** (11 participantes, transcripción bajada por la API de Fathom
+en `App Oravia - 2026-09-21 - Transcripcion Fathom.md`) fue a resolver un fallo en directo: con una
+petición real la app decía «no hay hoteles con tarifas para esas fechas». La causa era que la
+petición no traía destino, solo la actividad, y el aviso no lo decía: se probaron 2026, 2027,
+octubre y junio antes de caer en que faltaba el pueblo. Además el catálogo cargado es de 2027 y se
+cotizaba 2026 sin que la app lo dijera. Y un correo en catalán no sacó ningún dato: hubo que
+traducirlo a mano para seguir. La demo con la solicitud de prueba completa sí funcionó de punta a
+punta (extracción, opciones, comparación con precio por alumno). El resumen de Fathom dice que la
+solución es «hacer el destino obligatorio»; no es eso: ya lo es para buscar, lo que faltaba era
+decir que faltaba, porque las peticiones reales llegan sin destino y a veces sin fechas.
+
+Al revisar después de la reunión salió la raíz de lo que Ruth describe como «duplica el contacto»:
+**la app no tenía el concepto de centro educativo**. En el CRM de Oravia la cuenta es el centro
+(«CENTRE D'ESTUDIS JAUME BALMES», «Tot Turisme»); la app creaba la cuenta con el nombre de la
+persona que escribe. En su Zoho de producción quedaron tres cuentas «Marta Ferrer» de la formación,
+y una oportunidad «Anthony Quinatoa» en la fase «Nueva», que no existe en su embudo. Y los campos
+`crmContactId` y `crmAccountId` del cliente existían pero no los escribía nadie, así que cada
+solicitud volvía a buscar desde cero.
+
+**22/09.** Dos commits. `0d67b26`, el centro educativo: `centreName` en cliente y solicitud (con
+migración), se lee del propio mensaje (IES, CEIP, Colegio, Institut, Escola, Centre d'Estudis,
+Fundació, Club, AMPA), campo «Centro» en el lienzo, la cuenta de Zoho se resuelve por el centro y si
+no se sabe el centro **no se inventa cuenta**; tras crear el trato se guardan los dos ids de Zoho;
+el nombre de la oportunidad pasa a la convención del cliente, «CENTRO AÑO» («IES JAUME BALMES
+2027»). `de1434f`, el aviso de búsqueda distingue cuatro casos: sin destino, sin fechas, año sin
+tarifas («No hay tarifas de 2026. El catálogo cubre 2027»), y el genérico; y se guarda la
+transcripción en el repo.
+
+Se monta el **plan de acción**: `PLAN-ACCION-Oravia.html`, generado desde `build/plan-accion/` con
+el renderizador de WaveGarden (`wg-doc.mjs`, `wg.css`, `logos.json` copiados tal cual; el contenido
+en `datos.mjs`; `gen.mjs` lo genera). Diez pestañas: 33 puntos con su estado (10 funcionan en el
+servidor, 4 hechos sin subir, 13 pendientes, 6 decisiones de Oravia), 6 fases con su puerta de
+salida, y 12 próximos pasos con quién hace cada uno. El método acordado con Anthony: rama por
+bloque, se aplica y comprueba en local con datos reales, pruebas y build en verde, sube a `main`, y
+**se verifica contra el servidor, no contra el panel de Actions** (el 17/09 se dio por desplegado
+algo que no lo estaba por mirar un código de respuesta). Anthony pidió que el formato de WaveGarden
+fuera la norma de los entregables; queda por confirmar por escrito.
+
+Se hacen los pasos que tocaban a Neointec:
+
+- `b6e3a5c`: **espejo del catálogo** del servidor a la base local con `scripts/espejar-catalogo.mjs`
+  (34 alojamientos, 20 actividades, 402 tarifas de actividad y sus documentos; antes en local había
+  cero actividades). Y el fallo de verdad de las actividades: `locationMain` guardaba el sitio
+  («PortAventura Park»), no el pueblo; ocho actividades tenían el parque y doce nada, y ninguna
+  aparecía buscando por localidad. Entra `Activity.locality` (migración), al publicar se toma del
+  documento, la búsqueda mira localidad y si no hay, el sitio. `scripts/poner-localidad-a-actividades.mjs`
+  arregla lo publicado, en seco por defecto. En local, Salou pasa de 0 a 19 actividades, Vila-seca 0
+  a 19, Cambrils 0 a 11, Jaca 0 a 0. El arreglo del 10/09 no bastaba: solo rellenaba cuando la IA no
+  decía nada, y en PortAventura la IA sí decía algo.
+- `122c78d`: **borradores compartidos**. Modelo `RequestDraft` (migración), `server/draftsDb.ts`,
+  se listan, se retoman y se comparten con el criterio de departamento; visibilidad más abierta que
+  la de las propuestas a propósito (lo pidió Ruth); sin cerrojo duro, se avisa de quién lo tiene
+  abierto y se puede tomar; la reserva caduca a los 30 minutos; el título se compone con centro,
+  destino y fecha. El navegador guarda solo el último estado como red.
+- `b887040`: los **suplementos repetidos** se agrupan al leer el documento (el Excel repite las
+  condiciones en cada fila: un hotel con 36 filas proponía 36 veces el mismo suplemento). Se
+  conserva el primero y se dice en cuántas filas venía; el documento lo cuenta en sus avisos.
+
+Se deja levantado el entorno local y el **recorrido guiado**: `RECORRIDO-LOCAL-Oravia.html` (desde
+`build/plan-accion/datos-local.mjs` y `gen-local.mjs`), 35 paradas con qué hacer y qué tiene que
+pasar.
+
+**23/09, madrugada.** Anthony recorre la app en local y reporta cuatro cosas: el paso 2 debe ser
+dos pestañas (alojamientos, actividades) para no hacer scroll y ver que no queda nada sin asignar;
+el documento no traía las actividades ni el detalle de cada alojamiento (políticas, gratuidades);
+no hay botón para rehacer el documento antes de enviar; y el presupuesto debe ir en **tres
+partes**: alojamientos, actividades, resumen. Commits, en orden:
+
+- `558836d`: el PDF carga por fin las actividades (la consulta solo pedía `accommodationOptions`),
+  resumen del viaje por opción con precio por alumno, y el paso 2 en dos pestañas con su cuenta
+  («2 de 3», «3 elegidas»). Una actividad se cobra por persona y se multiplica por el grupo entero.
+- `fc87a3f`: botón **Rehacer** junto a «Ver el documento» mientras la propuesta no esté enviada.
+  Comprobado tres veces seguidas: una sola entrega, misma referencia, misma URL pública, PDF
+  reescrito. Rehacer y enviar dejan de compartir el estado «Enviando…».
+- `8a70311`: las actividades **nunca** llegaban al PDF porque se filtraba por `isSelected`, que
+  significa «el colegio eligió esta opción», no «actividad elegida». Se copian las gratuidades a la
+  opción (`freePolicyText`, migración). El nombre del centro se cortaba en la «y»: «IES Ramón y
+  Cajal» quedaba en «IES Ramón» y así se creaba la cuenta en el CRM. Importes con el mismo formato
+  en todo el documento (el español no agrupa los de cuatro cifras si no se le obliga). Un byte nulo
+  que una edición automática coló en una regex de `server/proposalPdf.ts`.
+- `68df131`: **el presupuesto en tres partes**. 1 Los alojamientos: cada opción con su desglose, las
+  gratuidades en recuadro propio, y las condiciones en lista con su nombre en castellano (antes
+  salía tal cual `[GRATUIDAD] texto | [CANCELACION] texto`). 2 Las actividades: el itinerario una
+  sola vez, con proveedor, duración, precio por persona y el total del conjunto por persona y para
+  el grupo. 3 Resumen del viaje. `/api/inventory/catalog` devuelve ya condiciones, observaciones y
+  gratuidades y el espejo las copia; mientras, `scripts/completar-condiciones-del-espejo.mjs` las
+  rellena en local desde el Excel real (29 de 34 hoteles).
+- `26ba497`: **Borrar** en la mesa de propuestas. Se borra la solicitud entera (versiones, opciones,
+  envíos, PDF del disco) **y la oportunidad de Zoho**. Primero el CRM y después la base: si Zoho
+  falla no se ha tocado nada. Zoho la deja 60 días en su papelera; contacto y cuenta no se tocan.
+  La regla vive en el servidor (`server/borrarSolicitud.ts`) y la pantalla la consulta antes de
+  pulsar: con depósito cobrado, nadie; si ya salió al colegio o el colegio eligió opción, solo un
+  ADMIN global; lo demás, quien pueda verlo. Una entrega `SIMULATED` también graba `sentAt`, así
+  que la regla mira el estado y `viewCount`, no la fecha. Queda en auditoría quién borró qué.
+  Pantalla en `src/components/home/BorrarSolicitudPanel.tsx`.
+- `cc2ab40`: tres fallos de borradores que Anthony vio en pantalla (cinco filas iguales de la misma
+  solicitud): cada recarga estrenaba una fila, una propuesta ya enviada seguía «a medias» y
+  «alguien la tiene abierta» era el propio usuario. Ahora hay «Descartar» por fila y el envío cierra
+  el borrador, también en `SIMULATED`.
+- `a201040`: una actividad **sin tarifa** («Arbitraje», en el catálogo desde el principio y nunca
+  visible) sale en el grupo «Sin precio en el catálogo» con casilla de precio por persona; sin
+  precio no se añade al programa. Va aparte y sin filtrar por destino a propósito.
+
+Se sube todo a `origin/main` y se redacta el **correo a Ruth y Javier**: `correo-avance-oravia-23-09.md`
+(versión larga, 7 puntos; su punto 7 pide solo el nombre de la oportunidad). Anthony pidió después
+una versión corta, «cómo vamos y qué queda», que quedó solo en el chat. **Por confirmar si se
+envió alguna**. Su párrafo «todavía no está en el servidor» caducó a mediodía.
+
+**23/09, mediodía.** El cliente avisa de que «ya han pasado a main lo subido a git». Se verifica:
+`origin/main` = `a201040`, solo nuestros commits, nadie fusionó nada encima. Y el servidor: el
+bundle servido contiene «Sin precio en el catálogo» (frase nacida en `a201040`),
+`DELETE /api/commercial/trip-requests/noexiste` devuelve el 404 con el mensaje de
+`borrarSolicitud.ts`, y `/api/commercial/drafts` da 200, así que la tabla de borradores existe.
+**Es la primera vez que funciona el despliegue automático.** Qué tocó Cristian para que entrara (la
+clave SSH, se supone): **por confirmar**. Se sube `4bb86e1`: `/api/health` devuelve `revision` y
+`arrancadoEn`, para comparar con el sha de `main` en vez de buscar frases en el bundle. Se verá en
+el servidor tras el siguiente despliegue.
+
+Pruebas: de 135 a **198** (`npm test`). Migraciones nuevas: `20260922155801_centro_educativo_e_identidad_crm`,
+`20260922230032_actividad_con_localidad`, `20260922230632_borradores_compartidos`,
+`20260923003226_gratuidades_en_la_propuesta`.
+
+### Decisiones del cliente (dadas por Anthony el 23/09)
+
+1. **Idiomas: por IA, con un modelo barato para traducir.** El mensaje se traduce y lo lee el mismo
+   analizador de patrones que ya funciona en castellano.
+2. Abrir el enlace del presupuesto pasa la oportunidad a «Seguimiento al Presupuesto»: **correcto**.
+   Ya funcionaba así, y solo la primera vez.
+3. Condiciones de hotel en catalán: **se traducen**. Y **el presupuesto se genera en el idioma en que
+   llegó la solicitud**.
+4. El colegio **sí ve las gratuidades** del hotel. Ya salen.
+5. **Sí se añade el precio por alumno** al PDF. Ya sale, en el resumen.
+6. El nombre exacto de la oportunidad: **se le pregunta a Oravia**. Es lo único que quedó en el correo.
+7. `ESTIDIANTES 4R27 3E` se borra, y lo hace Neointec; no se le pide a Oravia.
+8. «Arbitraje» debe salir como opción a seleccionar, con casilla para poner el precio a mano.
+   Hecho en `a201040`.
+
+### Los siete bloques, a 23/09
+
+1 Tarifas y documental: hecho; los suplementos repetidos ya se agrupan. 2 Solicitud: trabajado
+(centro, edad, aviso, borradores, pestañas). 3 Búsqueda: trabajado (localidad de actividades,
+actividades sin tarifa); queda la puntuación por ubicación y la tarifa por edad. 4 Propuesta y PDF:
+trabajado, en tres partes; verificado en local, **no contra el servidor con datos reales**. 5 Envío:
+rehacer y borrar hechos; el envío real sigue sin probarse (en local no hay `MAIL_*`). 6 Cierre al
+CRM: cuenta por centro, ids guardados, borrado del trato; **el borrado en el Zoho real no está
+verificado**. 7 Usuarios y roles: sin tocar, salvo la regla de visibilidad de borradores.
+
+### Pendiente, por orden
+
+1. **Verificar contra el servidor con una solicitud real**, con `PRUEBA` en el nombre del viaje: que
+   el PDF salga en tres partes con condiciones y gratuidades reales, y que **Borrar** se lleve la
+   oportunidad del Zoho de Oravia. La parte de Zoho del borrado no se ha probado nunca contra el CRM
+   real. El único trato con solicitud local era `734060000031816007` («IES JAUME BALMES 2027»).
+2. Comprobar que las cuatro migraciones entraron en producción (solo se ha visto la de borradores) y,
+   tras el siguiente despliegue, que `/api/health` devuelve `revision` = sha de `main`.
+3. Tareas de datos en el servidor, primero en seco y luego con `--aplicar`:
+   `scripts/poner-localidad-a-actividades.mjs` (hasta que corra, las 402 tarifas de actividad
+   siguen sin encontrarse por pueblo en producción), `scripts/mover-condiciones-a-actividades.mjs`
+   sobre `cmtliiton0009fhkj2iy4cjkg`, y `scripts/alinear-fases-crm.mjs` (tratos antiguos en «Nueva»).
+4. Limpiar catálogo y CRM: borrar `ESTIDIANTES 4R27 3E` (lo hace Neointec); localidad Salou a
+   `Hotel California Garden` y `Hotel California Palace` (60 tarifas); borrar de Zoho las
+   oportunidades de prueba de la formación (tres «Marta Ferrer · Salou, mayo de 2027» con sus
+   cuentas, y una «Anthony Quinatoa» en «Nueva»). Las que sigan en la app se borran ya con el botón.
+5. **Idiomas CAT, ENG, FR**: traducción por IA con modelo barato y después el analizador actual; PDF
+   en el idioma de la solicitud; condiciones en catalán traducidas. No empezado. El SDK de Anthropic
+   ya está en el proyecto con su clave. La puerta: que el correo en catalán de la reunión se lea
+   entero sin traducirlo a mano.
+6. Reescribir y enviar el correo a Ruth y Javier: ya está desplegado, así que sobra el párrafo del
+   servidor y ya pueden usarlo. Por confirmar si salió alguna versión.
+7. Ver los correos de cada oportunidad (punto 2 de Ruth): necesita el módulo de correo de Zoho, sin
+   valorar. Dar una estimación antes de comprometer fecha.
+8. Mover el repositorio de la cuenta personal a la organización de Neointec: sigue sin decidir.
+9. `PROXIMOS-PASOS.md` sigue escrito a 10/08 y ya no refleja el estado; conviene rehacerlo.
+
+### Bloqueos que dependen del cliente
+
+- **La regla exacta del nombre de la oportunidad** (Oravia). Hoy «CENTRO AÑO»; los suyos llevan el
+  curso («JAUME BALMES 3er ESO 2027»).
+- **El registro A de `presupuesto.oraviatravel.com`** (hosting): apunta a `192.20.235.4`, debe ser
+  `195.20.235.4`. Después Cristian cambia `PUBLIC_BASE_URL` y la URL de retorno de Zoho en el
+  servidor, y ya se puede emitir el certificado (hoy no hay TLS). Hasta entonces el enlace que
+  reciben los colegios lleva la IP.
+- **Credenciales de correo (`MAIL_*`) en el servidor**: sin ellas la propuesta se genera pero el
+  correo no sale. Por confirmar si ya están.
+- Probar con correos reales suyos en los tres idiomas cuando el bloque esté hecho.
+
+### Ficheros de estos tres días
+
+- Nuevos en el repo: `server/borrarSolicitud.ts`, `server/draftsDb.ts`,
+  `src/components/home/BorrarSolicitudPanel.tsx`, `scripts/espejar-catalogo.mjs`,
+  `scripts/poner-localidad-a-actividades.mjs`, `scripts/completar-condiciones-del-espejo.mjs`,
+  `tests/borrado.test.ts`, `App Oravia - 2026-09-21 - Transcripcion Fathom.md`.
+- Los más tocados: `server/proposalPdf.ts`, `server/proposalDelivery.ts`, `server/searchDb.ts`,
+  `server/zoho.ts`, `server/documentImportDb.ts`, `src/components/request/RequestCanvas.tsx`,
+  `src/services/requestService.ts`, `prisma/schema.prisma`.
+- En la carpeta del cliente, fuera del repo: `PLAN-ACCION-Oravia.html`, `RECORRIDO-LOCAL-Oravia.html`,
+  `correo-avance-oravia-23-09.md` y `build/plan-accion/`.
+
+Avisos que siguen valiendo: en local el `.env` lleva las credenciales reales de Oravia, así que
+«Revisar y enviar» crea un trato de verdad en su CRM. El espejo local agrupa algunas tarifas de más
+(el resumen del servidor no trae `tariffUnit` ni `includedService`): sirve para el recorrido, no
+para comparar cifras.
+
+---
+
+## Estado a 25/09/2026
+
+Un día entero en la pantalla de **nueva solicitud**, de arriba abajo. Nada de esto estaba el 24.
+**366 pruebas automáticas en verde** (eran 198) y `vite build` limpio.
+
+### La petición dejó de ser un buzón y pasó a ser un chat
+
+Se pegaba el correo, la app leía lo que podía y lo que faltaba salía como una lista de campos
+vacíos. Un campo vacío no dice qué escribir ni por qué hace falta.
+
+- `src/domain/loQueFalta.ts` decide **qué preguntar y en qué orden**: primero lo que impide buscar
+  —destino, fechas, alumnos—, después lo que afina. Una pregunta cada vez, y **cada una dice por qué
+  se pregunta**. «No lo han dicho» cierra la pregunta y **no rellena el dato**: si el colegio no dijo
+  el régimen, la petición se queda sin régimen y el encaje no lo comprueba.
+- `src/domain/interpretarRespuesta.ts` es lo que hace que la conversación no se rompa. A «¿a qué
+  destino quieren ir?» se contestó *«Seríamos 48 alumnos… hotel de 3 estrellas en pensión completa»*
+  y la app **guardaba esa frase entera como destino**. Ahora la respuesta se lee con los mismos
+  lectores que leen el correo, **se aprovecha todo lo que traiga** y, si no contesta, se reconoce lo
+  entendido y **se insiste**. «Ni idea» o «ya te diré» ya no se guardan como un pueblo.
+- **Un solo sitio donde escribir** y un botón de enviar con icono. Altura fija, con el hilo
+  desplazándose solo y el compositor siempre a la vista.
+
+### Lo entendido se valida antes de ver opciones
+
+- `src/domain/validacionDeLaPeticion.ts`: los datos agrupados **como se leen** —el viaje, el grupo,
+  lo que piden, el centro— en una ventana que se lee y se confirma, con «Modificar» editando ahí
+  mismo. Distingue **«falta y hace falta»** (ámbar) de **«no lo han dicho»** (gris).
+- El visto bueno **caduca**: se guarda la huella de lo validado y, si cambia algo, se vuelve a pedir.
+- **La columna de opciones no enseña nada hasta confirmar.** La búsqueda corre por detrás.
+
+### La lista de alojamientos
+
+- `src/domain/podio.ts`: los tres que mejor encajan, ordenados por **cuántas de las cosas que pidió
+  el centro cumple cada uno**, no por precio. Al podio no sube nada que incumpla algo.
+- Filas compactas con la tira de `✓ / ✗ / —`. El guion **no es una cruz**: es que el documento del
+  hotel no habla del tema.
+- «Ver todo el detalle» ya no es un popover de 330 px: se despliega en la fila con **lo que se
+  reserva y su desglose**, el encaje entero, y **las tarifas válidas para esas fechas** (el Santa
+  Mónica tiene 42; para un viaje de mayo valen 6).
+
+### Fallos de fondo que salieron por el camino
+
+- **`src/services/requestService.ts` guardaba la PRIMERA lectura del mensaje**, no lo corregido. Todo
+  lo arreglado a mano o contestado en el chat se perdía al guardar la solicitud. Se veía en el PDF:
+  «para 0 alumnos» y el resumen del viaje sin sumar actividades, porque se multiplican por el grupo.
+  El PDF lleva además red de seguridad: si la solicitud no trae el grupo, usa el de las opciones.
+- **El contacto del CRM no se consultaba nunca**: `if (form.email)` leía el estado viejo dentro del
+  manejador que lo acababa de cambiar, y en la primera lectura era cadena vacía. Ahora lo dispara un
+  efecto sobre el correo y se avisa en la ventana de revisión, con sus oportunidades abiertas.
+- **Las fechas con el mes delante** —«mayo de 2027, del 12 al 16»— daban dos fechas vacías. La
+  lectura entera vive ahora en `src/domain/fechas.ts`, la usan el lector del mensaje y el chat.
+- **El precio de la pantalla era un 8% menor que el del presupuesto** cuando el documento solo trae
+  el neto: no aplicaba el margen.
+- **Las solicitudes a medias eran indistinguibles**: `server/avanceDelBorrador.ts` dice por dónde se
+  quedó cada una y avisa si ya tiene solicitud creada (puede haber trato en el CRM detrás).
+- **Enviar no decía nada**: ahora hay ventana de resultado con tres desenlaces —enviada, preparada
+  pero no salida, o fallo con reintento que no duplica— y vuelta al inicio.
+
+### Ficheros nuevos
+
+`src/domain/{podio,loQueFalta,fechas,validacionDeLaPeticion,interpretarRespuesta}.ts`,
+`server/avanceDelBorrador.ts` y sus seis ficheros de prueba.
+
+### Sigue pendiente
+
+- **Nada de esto está en el servidor.** El despliegue no corre desde el 23/09.
+- **Republicar los cuatro documentos**: los 34 alojamientos se publicaron antes de arreglar el
+  extractor de textos, y la app **ya no guarda el fichero original**, así que hay que volver a
+  subirlos. Hoy solo 2 de 34 hablan de dietas y 1 de accesibilidad.
+- **Elegir tarifa** dentro de un hotel: no se puede, y antes hay que recuperar del documento qué
+  distingue una de otra (el campo de habitación está vacío en las 42 del Santa Mónica).
+- **El pueblo del colegio se lee como destino** si el correo no dice a dónde van: «del IES Jaume
+  Balmes de Barcelona» deja «Barcelona». Devuelve cero, no una lista equivocada, pero hay que
+  arreglarlo.
+- `groups@oraviatravel.com` sigue sin recibir nada; SSL; los diez usuarios reales; el bloque de
+  idiomas.
+
+---
+
+## La ficha del presupuesto, y lo que salió al mirarla · 25/09/2026
+
+> Segunda mitad de la misma sesión, después del commit `657b07a`. Todo lo de esta
+> sección está **sin commitear**. **417 pruebas en verde**, `vite build` limpio.
+
+La ficha enseñaba dónde está el expediente y qué se ofreció, y ahí se acababa:
+«estoy aquí y no sé cuál es el próximo paso que debo hacer». Al abrirla de verdad
+aparecieron tres fallos de fondo que no tenían nada que ver con la ficha.
+
+### La ficha
+
+- **Los colores del embudo salen de su CRM.** Leídos del picklist `Stage` de
+  Zoho —«Presupuesto Enviado» azul petróleo, «Pendiente de deposito» naranja,
+  «Oportunidad Ganada» verde—. Se cachean una hora: es configuración, no un dato
+  del trato. Si Zoho no contesta se pinta con lo nuestro; **no se inventa un
+  color parecido**, porque alguien lo daría por bueno. Se busca sin tildes ni
+  mayúsculas: una tilde de diferencia dejaría la fase gris sin que nadie supiera
+  por qué. `server/coloresDelEmbudo.ts`.
+- **«Lo siguiente»**: qué hay que hacer ahora, con su porqué y su plazo, y el
+  botón que toque. Una sola cosa cada vez. Cambia según el estado real: a los 3
+  días sin abrirse «puede no haber llegado»; si han escrito, eso va antes que
+  cualquier seguimiento; con opción elegida, el depósito, en rojo si venció.
+  Se calcula en el navegador porque «quedan 3 días» cambia a medianoche.
+  `src/domain/siguientePaso.ts`.
+- **«En el CRM»**: los campos de la oportunidad leídos de Zoho **con los vacíos
+  incluidos**, y el resumen «15 de 16». Es la comprobación de la queja de Ruth
+  —«no rellena ningún campo de la oportunidad»— sin abrir Zoho.
+  `server/camposDelTrato.ts`.
+- **Apuntar la opción que han aceptado.** Hasta hoy la ÚNICA vía era el botón de
+  la página pública, y el correo que manda la app pide lo contrario:
+  «respondiendo a este correo nos decís cuál preferís». Contestaban por correo y
+  no se enteraba nadie: ni arrancaba el plazo del depósito ni se movía la fase.
+  Ahora se apunta desde la ficha, con confirmación y el hotel delante, y **no
+  pisa** una elección hecha desde la web.
+- **Y se propone sola**: `src/domain/opcionAceptada.ts` lee la última respuesta y
+  dice qué opción parece que aceptan, **con el trozo de texto en el que se ha
+  fijado**. Propone, no aplica: marcarla arranca un plazo de pago y mueve la fase
+  en el CRM de un cliente. Reconoce «la opción 2», «nos quedamos con la 1», «la
+  segunda» y el nombre del hotel; y NO reconoce «la 2 no nos vale», «ni idea» ni
+  una respuesta cortés que no elige nada.
+- **Recotizar desde la ficha.** El panel de «Ha cambiado algo» estaba solo en la
+  lista: si entrabas a la ficha, tenías que salir para poder cambiar algo.
+- La ficha se reparte el ancho de la pantalla: estaba capada a 1.360 px.
+
+### Tres fallos de fondo que aparecieron al mirarla
+
+- **El importe de los tratos salía cien veces mayor.** El lector se quedaba con
+  los dígitos y tiraba la coma: «5.951,94 €» → **595194**, y el depósito del 30 %
+  calculado sobre eso. Había **tres copias** del lector y **dos estaban mal**.
+  Ahora hay una sola, `src/domain/importe.ts`, con 12 pruebas. **Dos tratos de
+  prueba de su CRM real siguen con el importe mal**: `734060000032099001` y
+  `734060000032084001`. Anthony los borra.
+- **La recogida del correo entrante estaba escrita y nadie la arrancaba.**
+  `arrancarLaRecogida()` existía, se podía importar, y el bucle no corría nunca:
+  una respuesta de un colegio no aparecía en su expediente y **no había ni un
+  error que lo dijera**. Arranca ya con el servidor, detrás de `MAIL_RECOGER=1`,
+  apagado por defecto porque el buzón que consulta es el real de Oravia.
+- **El campo Departamento salía vacío.** Se cogía del departamento del usuario, y
+  el admin es rol global y no tiene ninguno. Y ese mismo `null` elegía el **buzón
+  desde el que sale el correo**, que sin departamento cae en Grupos: el correo
+  salía como Grupos y el trato decía que no tenía departamento. **El mismo dato
+  valía «Grupos» para una cosa y «nada» para la otra.** Ahora se pregunta en la
+  ventana de revisión, relleno con el del usuario, en ámbar mientras no se elija,
+  y cambiarlo invalida el visto bueno.
+
+### El buzón: comprobado en las dos direcciones
+
+`groups@oraviatravel.com` **envía pero no recibe**. La propuesta ORV-2026-0007
+salió a las 13:10 y llegó; la respuesta de las 13:34 a esa misma dirección **no
+está en ninguna de las cinco carpetas** —INBOX, Enviados, Borradores, No deseado
+y Papelera, todas a cero— y **no ha rebotado**. El IMAP conecta bien: no es de
+credenciales. Es del proveedor.
+
+Las tres preguntas para ellos están en `PROXIMO-CORREO-Oravia.md`: ¿buzón real o
+alias de envío?, ¿hay redirección?, ¿el MX apunta al mismo servidor que el IMAP?
+
+### La configuración
+
+- **`.env.servidor`** (nuevo, ignorado por git): las 40 variables del servidor,
+  cada una con para qué sirve. 38 verificadas; hay que rellenar a mano
+  `DATABASE_URL` y `ZOHO_REDIRECT_URI` —que además tiene que estar dada de alta
+  en la consola de Zoho con ese valor exacto—.
+- **`.env` local ampliado a 46 variables.** Le faltaban ocho que el código lee.
+  Todas tenían valor por defecto salvo **`PUBLIC_BASE_URL`**, que vacío deja el
+  correo del colegio **sin enlace a la propuesta**.
+- Dos avisos escritos en los dos ficheros: **`MAIL_TEST_RECIPIENT` vacío siempre
+  en el servidor** —con valor, todo el correo se desvía ahí y los colegios no
+  reciben nada— y **`MAIL_RECOGER=1` en el servidor, 0 en local**.
+- `NODE_EXTRA_CA_CERTS` y `__VELERO_CA_RELAUNCHED` no se escriben a mano: las
+  pone `loadEnv.ts` al relanzarse con el bundle de CA.
+
+### Ficheros nuevos de esta mitad
+
+`src/domain/importe.ts`, `src/domain/siguientePaso.ts`,
+`src/domain/opcionAceptada.ts`, `server/coloresDelEmbudo.ts`,
+`server/camposDelTrato.ts` y sus cuatro ficheros de prueba.
+
+### Pendiente al cerrar
+
+- **Subir los 4 commits** (`git push origin main`) y **commitear esta segunda
+  mitad**: 16 ficheros tocados y 10 nuevos.
+- **Borrar los dos tratos de prueba** del CRM.
+- **`.gitignore`**: `Tarifas 26-27 Oravia/` —los Excel y el PDF reales de
+  tarifas—, las propuestas en `.docx/.pdf`, `Coste Azure/` y `Fuentes/` están
+  sueltos y sin ignorar. Un `git add .` los subiría al repo.
+- El proyecto vive dentro de **OneDrive de Neointec**, así que el `.env` con las
+  claves de los buzones de Oravia y su `refresh_token` se sincroniza a la nube.
+  No es nuevo, pero conviene decidir si se mueve fuera.
+
+---
+
+## Lo que contestó Javier, y lo que sabemos ahora · 28/09/2026
+
+> Sesión con Javier y Ruth: **martes 29 a las 10:00**. Lo accionable del día está
+> en `TRABAJOS-28-09.md`.
+
+### El correo entrante: resuelto el misterio, y no era lo que creíamos
+
+`groups@oraviatravel.com` **no es un buzón: es un grupo de Zoho Mail** con siete
+miembros. `sports@oraviatravel.com` es otro, con cinco. Javier explica por qué:
+*«tuvimos que hacer groups@ y sports@ como grupo porque no había forma de poner
+2 correos por cuenta de zoho»*.
+
+Eso explica **todo** lo que medimos el 25/09 y que parecía imposible:
+
+- El MX de `oraviatravel.com` es su servidor de siempre (`217.116.0.227`), que
+  **redirige** a `zoho.oraviatravel.com`, cuyo MX es **`mx.zoho.eu`** —Zoho Mail,
+  centro de datos europeo, el mismo que su CRM—.
+- El buzón contra el que hacíamos IMAP estaba a cero en las cinco carpetas
+  porque **un grupo reparte los mensajes entre sus miembros y no guarda nada**
+  en ningún buzón al que se pueda entrar con usuario y contraseña.
+- Y el correo de los colegios sí entra: se ve en el grupo.
+
+**Consecuencia**: la petición que le hicimos —«creadnos un buzón y metedlo en los
+grupos»— es posible pero **consume una licencia de Zoho Mail** y él no sabe
+hacerla. La alternativa buena es leer el grupo **con el mismo acceso OAuth que ya
+usamos para su CRM**, sin buzones nuevos ni contraseñas. **Pendiente de
+comprobar** que la API de Zoho Mail deja leer el buzón de un grupo y no solo el
+de un usuario.
+
+### El subformulario de la Oportunidad: existe, y lo usan
+
+La Oportunidad tiene **un solo subformulario**, «Servicios Contratados»
+(`Servicios_Contratados`), con 20 columnas. Y **no está vacío**: es donde vive el
+desglose real del presupuesto.
+
+Columnas que importan: `N_Presupuesto`, `Tipo_de_Servicio` (Alojamiento ·
+Actividad · Transporte · Seguro), **`Servicio` → enlace a Products**,
+**`Proveedor` → enlace a Vendors**, `Viajeros`, `Cantidad`, `Unidad_de_uso`
+(P.Pax · P.Neto), `Precio`, `Coste`, `Fecha_Entrada`, `Fecha_Salida`, `Regimen`,
+`Hora`, `Comentarios`, `Validado`. `Total_Servicio` y `T_Coste` son **fórmulas**:
+las calcula Zoho, no se escriben.
+
+**Cómo lo rellenan** (leído de sus tratos reales, GRUP LAURA 2027 es el modelo):
+una línea por cada cosa facturable, separando por grupo —35 alumnos, 2 profesores
+en doble, 1 profesor individual, el suplemento de camas hechas— y **las
+gratuidades como línea aparte a precio 0**. `Comentarios` lleva el texto que
+vende: régimen, noches, IVA y si hay gratuidades.
+
+Es **exactamente** el desglose que ya calcula nuestro PDF. Lo que falta es
+volcarlo al elegir la opción.
+
+**El bloqueo**: `Servicio` y `Proveedor` son enlaces, así que hay que buscar el
+registro y pasar su id. Y **el token no tiene permiso** sobre Products ni
+Vendors: la lectura devuelve «la autenticación ha expirado», que es lo que Zoho
+contesta cuando el token no alcanza. Ya están añadidos a los permisos del código
+—`ZohoCRM.modules.products.READ` y `ZohoCRM.modules.vendors.READ`, en lectura—
+pero **hay que reautorizar y cambiar el refresh token del `.env`**.
+
+**Y tiene que reautorizar Javier**: la app no manda el campo Propietario, así que
+Zoho pone al usuario que autorizó, y hoy las oportunidades salen con
+«Propietario: Javier Vinader». Si reautoriza otra persona, cambian de dueño.
+
+### Los canales de cliente: confirmado el modelo
+
+Javier: *«son 2-3 clientes. Normalmente es un porcentaje como el que comentas
+para PortAventura, pero **también puede ser un neto**. El año pasado te pasamos
+un excel con Neto Venta y Neto Venta especial.»*
+
+Las dos reglas, en este orden:
+
+1. **Precio propio** para ese canal, si lo hay. Manda.
+2. **Si no**, un **porcentaje sobre el PVP**.
+
+Con eso, añadir un canal es **una fila en una tabla**, no otro Excel de tarifas.
+Hoy son dos valores escritos a mano en el código (`GENERIC`, `SWISS_TTOO`) y los
+42 precios del suizo son un documento entero aparte: con el tercer canal eso deja
+de escalar. **Falta** el Excel de «Neto Venta / Neto Venta especial» y la lista de
+los 2-3 clientes con su porcentaje o su neto.
+
+### La forma de cobro
+
+Confirmada: **30 % de depósito y el resto a 30 días de la llegada**. Lo que manda
+la app —`Forma de Cobro = "Deposito 30%"`— es correcto.
+
+Pero su picklist **solo admite un valor** y tiene los dos por separado
+(`Deposito 30%` y `Prepago 30 días antes llegada`), así que **el segundo
+vencimiento no cabe en ese campo**. Preguntar dónde quieren que viva.
+
+### El subdominio: ya no bloquea
+
+`presupuesto.oraviatravel.com` resuelve a **195.20.235.4**, la IP correcta, y
+también en el DNS público. **El certificado se puede emitir.** Después,
+`PUBLIC_BASE_URL=https://presupuesto.oraviatravel.com` en el servidor.
+
+### Lo demás de su respuesta
+
+- **El catálogo de actividades**: lo vuelven a subir hoy. Vigilar que la lectura
+  termine, porque la vez anterior falló y se quedó en «pendiente de revisar» sin
+  cargar nada.
+- **Los dos tratos de prueba** con el importe mal (`734060000032099001` y
+  `734060000032084001`): vía libre para borrarlos.
+
+### Ficheros de trabajo
+
+- `TRABAJOS-28-09.md` — lo accionable de hoy.
+- `correo-respuesta-javier-28-09.md` — el correo que se le envió.
+- `PROXIMO-CORREO-Oravia.md` — cerrado: sus preguntas ya están contestadas.
+
+### Corrección de la tarde: los buzones no están en Zoho
+
+Lo de arriba —«el buzón estaba a cero porque un grupo no guarda nada»— es cierto
+pero no es la causa. Al ir a comprobar si la API de Zoho Mail deja leer un grupo
+salió lo de verdad:
+
+- **La API no lo deja.** Los únicos endpoints de mensajes de la API de grupos son
+  la cola de moderación. No hay «buzón del grupo». La alternativa que le
+  ofrecimos esta mañana por correo **no se puede construir** y hay que retirarla.
+- **El IMAP de la app apunta a Dinahosting, no a Zoho**
+  (`imap.servidor-correo.net` → 217.116.0.237). Las dos cuentas existen ahí y
+  están a cero **con `uidNext=1`**: no han recibido nunca nada. El MX del dominio
+  es `mx.oraviatravel.com` (Dinahosting), que reenvía todo a
+  `zoho.oraviatravel.com`. Mirábamos un servidor por el que el correo no se queda.
+- **Y la app envía por el SMTP de Dinahosting**, no por Zoho: pasa SPF y DMARC,
+  pero no queda en el historial del trato, que era el requisito del 17/06.
+
+Las opciones, la tabla de decisión y lo que hay que preguntarle están en
+`TRABAJOS-28-09.md`, sección «El correo entrante, comprobado». El diagnóstico se
+repite cuando haga falta con `node scripts/diagnostico-buzones.mjs`.

@@ -554,8 +554,21 @@ function drawActividades(doc: PDFKit.PDFDocument, input: PdfInput, top: number):
  * tomar. Aquí se suma alojamiento + actividades, opción por opción.
  */
 function drawResumen(doc: PDFKit.PDFDocument, input: PdfInput, top: number): number {
-  const alumnos = input.participants ?? 0;
-  const profesores = input.teachers ?? 0;
+  // El grupo, con red de seguridad.
+  //
+  // Cada opcion guarda su propio numero de alumnos y profesores, y la
+  // solicitud tambien. Cuando la solicitud se guardo con la PRIMERA lectura
+  // del mensaje -un fallo que ya esta corregido aguas arriba- el suyo venia a
+  // cero mientras las opciones traian 48, y este resumen salia con las
+  // actividades a cero (se multiplican por el grupo) y «para 0 alumnos».
+  //
+  // Un documento que sale hacia un colegio no puede depender de que un solo
+  // sitio tenga el dato: si la solicitud no lo trae, manda el de las opciones.
+  const deLasOpciones = (campo: "participants" | "teachers") =>
+    input.options.reduce((mayor, opcion) => Math.max(mayor, opcion[campo] ?? 0), 0);
+
+  const alumnos = input.participants || deLasOpciones("participants");
+  const profesores = input.teachers || deLasOpciones("teachers");
   const personas = alumnos + profesores;
 
   let y = top;

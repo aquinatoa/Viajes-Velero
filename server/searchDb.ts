@@ -9,6 +9,8 @@ import type {
   SearchFilters,
   WarningItem
 } from "../src/domain/types";
+import { comprobar } from "./encajeConLaPeticion";
+import { deriveSalePrice } from "./pricing";
 
 const prisma = new PrismaClient();
 
@@ -509,8 +511,90 @@ export async function searchAccommodationsDb(
     }
   }
 
+  // Las DEMAS tarifas de cada alojamiento, que hasta ahora se calculaban y se
+  // tiraban. El 4R tiene cuarenta -media pension y completa, habitacion
+  // multiple y doble, por temporada- y quien cotiza veia una sola, elegida por
+  // nosotros, sin saber que habia alternativas.
+  const porAlojamiento = new Map<string, AccommodationSearchMatch[]>();
+  for (const item of perRateMatches) {
+    const lista = porAlojamiento.get(item.accommodation.id) ?? [];
+    lista.push(item);
+    porAlojamiento.set(item.accommodation.id, lista);
+  }
+
+  /**
+   * Si una tarifa sirve para las fechas del viaje.
+   *
+   * Las «otras tarifas» de un hotel son casi todas de OTRAS temporadas: el
+   * Santa Mónica tiene 42 y solo 6 valen para un viaje del 12 al 16 de mayo.
+   * Enseñar las 42 no es enseñar alternativas, es ruido -y peor: invita a
+   * elegir un precio de octubre para un viaje de mayo-. Una tarifa sin
+   * temporada legible no se descarta: no se puede afirmar que no valga.
+   */
+  const valeParaEstasFechas = (
+    tarifa: { dateFrom?: Date | string | null; dateTo?: Date | string | null },
+    f: SearchFilters,
+  ): boolean => {
+    if (!f.dateFrom || !f.dateTo) return true;
+    const desde = new Date(f.dateFrom).getTime();
+    const hasta = new Date(f.dateTo).getTime();
+    const abre = tarifa.dateFrom ? new Date(tarifa.dateFrom).getTime() : NaN;
+    const cierra = tarifa.dateTo ? new Date(tarifa.dateTo).getTime() : NaN;
+    if (Number.isNaN(desde) || Number.isNaN(hasta) || Number.isNaN(abre) || Number.isNaN(cierra)) return true;
+    return abre <= hasta && cierra >= desde;
+  };
+
+  const noches =
+    filters.dateFrom && filters.dateTo
+      ? Math.max(
+          1,
+          Math.round(
+            (new Date(filters.dateTo).getTime() - new Date(filters.dateFrom).getTime()) / 86400000,
+          ),
+        )
+      : null;
+
   const matches: AccommodationSearchMatch[] = [...bestByAccommodation.values()]
-    .map((item) => ({ ...item, singleRate: tarifaIndividualHermana(item, individuales) }))
+    .map((item) => {
+      // El mismo precio que va a salir en el presupuesto: cuando el documento
+      // solo trae el neto, la venta lleva el margen. Sin esto, el «cabe en el
+      // tope» de la pantalla se calculaba sobre un precio un 8% menor que el
+      // que despues lee el colegio.
+      const porNoche = deriveSalePrice(item.rate.netSaleAmount, item.rate.pvpAmount) ?? 0;
+      return {
+        ...item,
+        singleRate: tarifaIndividualHermana(item, individuales),
+        // Lo que pidio el centro, comprobado contra ESTE alojamiento.
+        encaje: comprobar(
+          {
+            categoryRequested: filters.categoryRequested,
+            boardType: filters.boardType,
+            destinationText: filters.destinationText,
+            requisitos: filters.requisitos,
+            topePorAlumno: filters.topePorAlumno,
+          },
+          {
+            locality: item.accommodation.locality,
+            categoryType: item.accommodation.categoryType,
+            textos: [
+              item.accommodation.conditionsText,
+              item.accommodation.observations,
+              item.accommodation.freePolicy,
+            ],
+          },
+          { boardType: item.rate.boardType, minNights: item.rate.minNights },
+          {
+            precioPorAlumno: noches ? porNoche * noches : null,
+            noches,
+            participantes: filters.participants ?? null,
+          },
+        ),
+        alternativas: (porAlojamiento.get(item.accommodation.id) ?? [])
+          .filter((otra) => otra.rate.id !== item.rate.id)
+          .filter((otra) => valeParaEstasFechas(otra.rate, filters))
+          .map((otra) => otra.rate),
+      };
+    })
     .sort((a, b) => b.score - a.score);
 
   return {

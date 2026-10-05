@@ -14,6 +14,7 @@
  * generado, para poder probar el circuito entero antes de que llegue la clave.
  */
 
+import { importeDe } from "../src/domain/importe";
 import crypto from "node:crypto";
 import { PrismaClient, type DeliveryStatus } from "@prisma/client";
 import nodemailer from "nodemailer";
@@ -362,15 +363,9 @@ export async function sendDelivery(deliveryId: string): Promise<DeliveryResult> 
  * céntimos, justo al revés que en inglés. Confundirlos convertiría 8.294,40 en
  * ocho euros con veintinueve.
  */
-function importeDe(texto?: string | null): number | null {
-  if (!texto) return null;
-  const limpio = String(texto)
-    .replace(/[^\d.,-]/g, "")
-    .replace(/\.(?=\d{3}\b)/g, "")
-    .replace(",", ".");
-  const numero = Number(limpio);
-  return Number.isFinite(numero) ? numero : null;
-}
+// Esta versión era la única de las tres que estaba bien. Se queda la lógica,
+// pero en un solo sitio: `src/domain/importe`, con pruebas.
+
 
 /**
  * El trato de Zoho al que pertenece una entrega.
@@ -447,6 +442,52 @@ export async function readPublicProposal(token: string) {
   }
 
   return delivery;
+}
+
+/**
+ * La opción aceptada, apuntada por nosotros.
+ *
+ * Existe porque hasta ahora la ÚNICA vía para marcarla era el botón de la
+ * página pública, y el correo que manda la app dice «respondiendo a este correo
+ * nos decís cuál preferís». El colegio contesta por correo, nadie se entera, y
+ * ni arranca el plazo del depósito ni se mueve la fase en el CRM.
+ *
+ * Es la misma operación que `chooseOption`, por el identificador de la entrega
+ * en vez de por el enlace público. Y como aquella, **no pisa** una elección que
+ * ya exista: si el colegio ya eligió desde la web, manda lo suyo.
+ *
+ * `quien` se guarda en la nota del CRM: importa saber si eligió el colegio en
+ * la página o lo apuntó alguien leyendo un correo.
+ */
+export async function marcarOpcionElegida(
+  deliveryId: string,
+  optionNumber: number,
+  quien: string | null = null,
+  visibilidad: Record<string, unknown> = {},
+) {
+  const delivery = await prisma.proposalDelivery.findFirst({
+    where: { AND: [{ id: deliveryId }, visibilidad] } as never,
+  });
+  if (!delivery) return null;
+  if (delivery.chosenOptionNumber) return delivery;
+
+  const chosenAt = new Date();
+  const depositDueAt = new Date(chosenAt);
+  depositDueAt.setDate(depositDueAt.getDate() + DEPOSIT_DEADLINE_DAYS);
+
+  const elegida = await prisma.proposalDelivery.update({
+    where: { id: delivery.id },
+    data: { chosenOptionNumber: optionNumber, chosenAt, depositDueAt },
+  });
+
+  await reflejarEnElCrm(
+    delivery.id,
+    "opcion_elegida",
+    `El colegio eligió la opción ${optionNumber}${quien ? ` (apuntado por ${quien} desde la app)` : ""}. ` +
+      `Depósito hasta el ${depositDueAt.toISOString().slice(0, 10)}.`,
+  );
+
+  return elegida;
 }
 
 /**
