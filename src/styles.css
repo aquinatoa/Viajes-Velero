@@ -10574,6 +10574,76 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 
 .acts-sum--warn { background: var(--highlight-bg); color: var(--highlight-ink); font-weight: 600; }
 
+/* --- revisión de actividades por proveedor --- */
+.rpp { display: grid; gap: 16px; }
+.rpp__progreso {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 6px 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-panel);
+}
+.rpp__progreso-texto { display: flex; flex-wrap: wrap; gap: 6px; font-size: var(--fs-small); color: var(--muted); }
+.rpp__progreso-texto strong { color: var(--ink); }
+.rpp__progreso .link-action { grid-row: 1 / span 2; justify-self: end; }
+.rpp__buscar {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-width: 420px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: var(--fs-small);
+}
+.rpp__plegar {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rpp__flecha { color: var(--muted); font-size: var(--fs-small); line-height: 1.6; }
+.rpp__plegar .rpp__proveedor { display: block; }
+.rpp__plegar .rpp__cuenta { display: block; }
+.rpp__grupo--plegado { padding: 10px 14px; background: var(--bg); }
+.rpp__aviso-cuenta { color: var(--warn); font-weight: 600; }
+.rpp__fila--aviso td { background: var(--warn-bg); }
+.rpp__aviso { display: block; margin-top: 2px; font-size: var(--fs-micro); color: var(--warn); font-weight: 600; }
+.rpp__barra { height: 6px; border-radius: var(--radius-pill); background: var(--border-soft); overflow: hidden; }
+.rpp__barra-relleno { height: 100%; background: var(--ok); transition: width 300ms var(--ease-out); }
+.rpp__grupo {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  scroll-margin-top: 72px;
+}
+.rpp__cabecera { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px; }
+.rpp__proveedor { margin: 0; font-size: var(--fs-lead); color: var(--ink); }
+.rpp__cuenta { margin: 2px 0 0; font-size: var(--fs-small); color: var(--muted); }
+.rpp__acciones { display: flex; flex-wrap: wrap; gap: 8px; }
+.rpp__condiciones { display: grid; gap: 6px; padding: 10px 12px; border-radius: var(--radius); background: var(--bg); }
+.rpp__sub { margin: 0; font-size: var(--fs-small); color: var(--muted); }
+.rpp__texto { white-space: normal; max-width: 60ch; }
+.rpp__tabla td { vertical-align: top; }
+.rpp__actividad strong { font-weight: 600; }
+.rpp__tipo { color: var(--muted); font-size: var(--fs-small); }
+.status-tag--mixto { background: var(--warn-bg); color: var(--warn); }
+
 /* Una frase bajo un campo del lienzo. "Tope por alumno" no se entendia y no
    habia donde explicarlo sin alargar la etiqueta. */
 .cv__ayuda {

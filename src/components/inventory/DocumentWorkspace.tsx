@@ -58,6 +58,8 @@ import {
 import { buildMatrix, RateDetailDialog, RateMatrix } from "./RateMatrix";
 import { checkRateBlocks, checkRates, requiereConfirmarReparto } from "../../domain/rateChecks";
 import { etiquetaDeFallo, ultimoFalloDeLectura } from "../../domain/falloDeLectura";
+import type { GrupoProveedor } from "../../domain/revisionPorProveedor";
+import { RevisionPorProveedor } from "./RevisionPorProveedor";
 
 /** Estados de revisión en claro, para la cabecera de cada alojamiento. */
 const reviewStatusLabels: Record<string, string> = {
@@ -1413,6 +1415,47 @@ export function DocumentWorkspace({
   const [matrixEditId, setMatrixEditId] = useState<string | null>(null);
   // Qué vista usa cada alojamiento: rejilla (por defecto) o lista.
   const [vistaLista, setVistaLista] = useState<Record<string, boolean>>({});
+  // Las actividades: por proveedor (por defecto) o una tarjeta por actividad.
+  // Anthony, 07/10/2026: con 130 tarjetas «no se sabe qué se está aprobando».
+  const [vistaActividades, setVistaActividades] = useState<"proveedores" | "tarjetas">("proveedores");
+
+  /** Abre la ficha de una actividad: cambia a tarjetas y baja hasta ella. */
+  function verFichaDeActividad(activityId: string) {
+    setVistaActividades("tarjetas");
+    window.setTimeout(() => {
+      document.getElementById(`actividad-${activityId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+
+  /** Todo lo de un proveedor de una vez: sus actividades, sus tarifas y sus condiciones. */
+  async function handleRevisarProveedor(grupo: GrupoProveedor, reviewStatus: "APPROVED" | "REJECTED") {
+    setErrorMessage(null);
+    setFeedbackMessage(null);
+    setBulkBusy(true);
+    try {
+      const actividades = await bulkUpdateInventoryStagingApi("activities", grupo.idsActividades, reviewStatus);
+      const tarifas = grupo.idsTarifas.length
+        ? await bulkUpdateInventoryStagingApi("activity-rates", grupo.idsTarifas, reviewStatus)
+        : { updated: 0, skipped: [] };
+      const condiciones = grupo.idsCondiciones.length
+        ? await bulkUpdateInventoryStagingApi("activity-policies", grupo.idsCondiciones, reviewStatus)
+        : { updated: 0, skipped: [] };
+      const omitidas = actividades.skipped.length + tarifas.skipped.length + condiciones.skipped.length;
+      setFeedbackMessage(
+        `${reviewStatus === "APPROVED" ? "Aprobadas" : "Rechazadas"} las de ${grupo.proveedor}: ` +
+          `${actividades.updated} actividad(es), ${tarifas.updated} tarifa(s) y ${condiciones.updated} condición(es)` +
+          (omitidas > 0 ? `; ${omitidas} omitida(s) por validación.` : "."),
+      );
+      setDryRunResult(null);
+      setAwaitingPublishConfirm(false);
+      await refreshDetail();
+      await onChanged();
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "No se pudo cambiar la revisión del proveedor."));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   /**
    * Texto del PDF tal cual salió, sin pasar por la IA. Es el único testigo
@@ -2237,21 +2280,56 @@ export function DocumentWorkspace({
                 })}
 
                 {detail.stagingActivities.length > 0 ? (
-                  <p className="acts-note">
-                    <b>Actividades</b> — van aparte de los alojamientos: alquiler de campos,
-                    partidos, clases. Se aprueban por su cuenta y no es obligatorio: lo que no
-                    apruebes no pasa al catálogo, y puedes publicar solo los alojamientos.
-                  </p>
+                  <>
+                    <p className="acts-note">
+                      <b>Actividades</b> — van aparte de los alojamientos: alquiler de campos,
+                      partidos, clases. Se aprueban por su cuenta y no es obligatorio: lo que no
+                      apruebes no pasa al catálogo, y puedes publicar solo los alojamientos.
+                    </p>
+                    <div className="hot-switch" role="group" aria-label="Cómo revisar las actividades">
+                      <button
+                        type="button"
+                        className={vistaActividades === "proveedores" ? "on" : ""}
+                        onClick={() => setVistaActividades("proveedores")}
+                      >
+                        Por proveedor
+                      </button>
+                      <button
+                        type="button"
+                        className={vistaActividades === "tarjetas" ? "on" : ""}
+                        onClick={() => setVistaActividades("tarjetas")}
+                      >
+                        Por actividad
+                      </button>
+                    </div>
+                  </>
                 ) : null}
 
-                {detail.stagingActivities.map((activity) => {
+                {detail.stagingActivities.length > 0 && vistaActividades === "proveedores" ? (
+                  <RevisionPorProveedor
+                    actividades={detail.stagingActivities}
+                    filtro={passesReviewFilter}
+                    busy={bulkBusy}
+                    onBulk={(entity, ids, reviewStatus, label) =>
+                      void handleBulkReview(entity, ids, reviewStatus, label)
+                    }
+                    onApproveWithParent={(entity, parentEntity, parentId, ids, label) =>
+                      void handleApproveWithParent(entity, parentEntity, parentId, ids, label)
+                    }
+                    onAprobarProveedor={(grupo) => void handleRevisarProveedor(grupo, "APPROVED")}
+                    onRechazarProveedor={(grupo) => void handleRevisarProveedor(grupo, "REJECTED")}
+                    onVerFicha={verFichaDeActividad}
+                  />
+                ) : null}
+
+                {vistaActividades === "tarjetas" && detail.stagingActivities.map((activity) => {
                   const quedaActividad =
                     passesReviewFilter(activity.reviewStatus) ||
                     activity.rates.some((x) => passesReviewFilter(x.reviewStatus)) ||
                     activity.policies.some((x) => passesReviewFilter(x.reviewStatus));
                   if (!quedaActividad) return null;
                   return (
-                  <div key={activity.id} className="staging-group">
+                  <div key={activity.id} id={`actividad-${activity.id}`} className="staging-group">
                     {activity.rates.length > 0 ? (
                       <p className="acts-sum">
                         {activity.rates.length} precio(s) ·{" "}

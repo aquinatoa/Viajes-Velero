@@ -5,6 +5,7 @@
  *   node --import tsx scripts/lectura/probar-plantilla.ts "Documentos de Tarifas/PLANTILLA_....xlsx"
  */
 import { leerPlantillaDeActividades } from "../../server/plantillaDeActividades";
+import { avisosDeTarifa } from "../../src/domain/revisionPorProveedor";
 
 const fichero = process.argv[2];
 if (!fichero) {
@@ -50,6 +51,29 @@ console.log("sus condiciones:");
 for (const p of r.candidatePolicies.filter((p) => p.activityName === primera.activityName)) {
   console.log(`  [${p.policyType}] ${p.policyText.slice(0, 90)}`);
 }
+// Lo que la pantalla de revisión marcaría con aviso.
+const conAviso = r.candidateActivityRates
+  .map((t) => ({
+    t,
+    avisos: avisosDeTarifa({
+      id: "",
+      currency: "EUR",
+      requiresReview: true,
+      reviewStatus: "PENDING",
+      salePvpAmount: t.salePvpAmount,
+      costNetAmount: t.costNetAmount,
+      rateUnit: (t.rateUnit ?? null) as never,
+      minPax: t.minPax,
+      maxPax: t.maxPax,
+    }),
+  }))
+  .filter((x) => x.avisos.length > 0);
+console.log(`
+tarifas que saldrían con aviso al revisar: ${conAviso.length}`);
+for (const { t, avisos } of conAviso.slice(0, 15)) {
+  console.log(`  fila ${t.sourceRow} · ${t.activityName}: ${avisos.join(" · ")} (venta ${t.salePvpAmount}, coste ${t.costNetAmount})`);
+}
+
 if (r.warnings.length) {
   console.log("\navisos:");
   for (const w of r.warnings.slice(0, 10)) console.log(`  ${w}`);
