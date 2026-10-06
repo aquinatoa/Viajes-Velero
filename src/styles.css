@@ -5238,6 +5238,16 @@ tr.is-selected {
 
 /* KPIs */
 .cw-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; flex: 0 0 auto; }
+.cw-kpi__sub { margin-top: 2px; font-size: 11.5px; color: var(--ink-500, #6b7280); }
+.cw__dept { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-600, #4b5563); }
+.cw__dept select {
+  padding: 6px 10px;
+  border: 1px solid var(--line, #d9dee7);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  color: inherit;
+}
 .cw-kpi {
   background: var(--surface);
   border: 1px solid var(--border, #e2e8ec);

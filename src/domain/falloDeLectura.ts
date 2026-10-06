@@ -28,7 +28,7 @@ export interface IncidenciaParaLeer {
 }
 
 export interface FalloDeLectura {
-  /** Etiqueta corta del motivo: SIN_SALDO, CLAVE, MODELO, LIMITE, PETICION, PROVEEDOR, RED, EXTRACCION, DESCONOCIDO. */
+  /** Etiqueta corta del motivo: SIN_SALDO, CLAVE, MODELO, LIMITE, PETICION, RESPUESTA, PROVEEDOR, RED, EXTRACCION, DESCONOCIDO. */
   motivo: string;
   /** Lo que se pone en grande. */
   titulo: string;
@@ -53,6 +53,7 @@ const TITULOS: Record<string, string> = {
   MODELO: "El modelo configurado no existe",
   LIMITE: "El proveedor de IA ha limitado el uso",
   PETICION: "El proveedor de IA ha rechazado la lectura",
+  RESPUESTA: "La IA contestó en un formato que no se pudo leer",
   PROVEEDOR: "El proveedor de IA ha fallado",
   RED: "No se pudo conectar con el proveedor de IA",
   EXTRACCION: "No se pudo sacar el texto del fichero",

@@ -317,6 +317,12 @@ export interface ZohoDealSummary {
   createdTime: string;
   modifiedTime: string;
   dealUrl: string;
+  /**
+   * Del campo «Departamento» del CRM. null = sin poner (lo ven los dos);
+   * OTRO = Agencia, Congresos o Familiar, que no son de nadie en la app y solo
+   * salen mirando «Todos».
+   */
+  department: BackendDepartment | "OTRO" | null;
 }
 
 export function listZohoOpportunitiesApi() {

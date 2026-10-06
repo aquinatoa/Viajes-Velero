@@ -303,6 +303,7 @@ export function App() {
           <ConfirmRequestsPanel
             view={currentPath.startsWith("/viajes/calendario") ? "calendar" : "list"}
             onNavigate={navigatePath}
+            usuario={currentUser}
           />
         ) : null}
 

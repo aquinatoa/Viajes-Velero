@@ -3,8 +3,11 @@ import {
   fetchZohoDealStagesApi,
   listZohoOpportunitiesApi,
   updateZohoOpportunityApi,
+  type AuthUser,
+  type BackendDepartment,
   type ZohoDealSummary,
 } from "../../services/apiClient";
+import { DEPARTAMENTOS } from "../../domain/validacionDeLaPeticion";
 
 /**
  * Módulo "Viajes" como WORKSPACE (no popup):
@@ -13,9 +16,18 @@ import {
  *  - Vista "calendar": calendario con dos lecturas conmutables → "Viaje"
  *    (fechas de estancia) y "Gestión" (fechas de cierre).
  * Ambas comparten los mismos datos (tratos de Zoho) y la selección de trato.
+ *
+ * Quién ve qué lo decide el servidor: a Ruth o a Ricard les llegan solo los
+ * tratos de su departamento. Un administrador recibe los dos, y aquí elige
+ * cuál mirar: Javier (06/10/2026) quería los números «por departamento, y
+ * para Albert y para mí poder cambiar de departamento para ver números reales
+ * o totales». Los indicadores se calculan sobre lo que se está mirando.
  */
 
 type View = "list" | "calendar";
+
+/** Lo que se está mirando: un departamento, o los dos. */
+type FiltroDepartamento = BackendDepartment | "TODOS";
 
 function euro(n: number | null): string {
   if (n === null || Number.isNaN(n)) return "—";
@@ -103,11 +115,26 @@ function ymd(d: Date): string {
 export function ConfirmRequestsPanel({
   view = "list",
   onNavigate,
+  usuario,
 }: {
   view?: View;
   onNavigate?: (path: string) => void;
+  /** Quién mira. Sin departamento (ADMIN/USER) puede elegir cuál ver. */
+  usuario?: Pick<AuthUser, "role" | "department"> | null;
 }) {
-  const [deals, setDeals] = useState<ZohoDealSummary[]>([]);
+  const [todosLosDeals, setTodosLosDeals] = useState<ZohoDealSummary[]>([]);
+  // Solo los globales eligen; a los demás el servidor ya les manda lo suyo.
+  const eligeDepartamento = !usuario || !usuario.department;
+  const [departamento, setDepartamento] = useState<FiltroDepartamento>("TODOS");
+  // Lo que se está mirando. Todo lo de abajo —lista, indicadores, calendario—
+  // sale de aquí, para que «Grupos» signifique Grupos en toda la pantalla.
+  const deals = useMemo(
+    () =>
+      departamento === "TODOS"
+        ? todosLosDeals
+        : todosLosDeals.filter((d) => d.department === departamento || d.department === null),
+    [todosLosDeals, departamento],
+  );
   const [stages, setStages] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -130,7 +157,7 @@ export function ConfirmRequestsPanel({
         listZohoOpportunitiesApi(),
         fetchZohoDealStagesApi().catch(() => ({ stages: [] })),
       ]);
-      setDeals(list.deals);
+      setTodosLosDeals(list.deals);
       setStages(st.stages);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudieron cargar los tratos.");
@@ -170,20 +197,32 @@ export function ConfirmRequestsPanel({
     setSelectedId(filtered[0]?.id ?? deals[0]?.id ?? null);
   }, [loading, filtered, deals, selectedId]);
 
+  // Los indicadores, sobre lo que se está mirando. «Importe en curso» es la
+  // suma de los tratos que siguen abiertos (ni perdidos, ni cerrados, ni
+  // finalizados); «ganado» es la de los ganados. Javier lo leía como «total
+  // facturado», y no lo es: es importe de trato, no facturación.
   const kpis = useMemo(() => {
     let porConfirmar = 0;
     let enviado = 0;
     let ganadas = 0;
-    let cartera = 0;
+    let importeGanado = 0;
+    let abiertos = 0;
+    let importeEnCurso = 0;
     for (const d of deals) {
       const s = norm(d.stage);
       const chosen = parseTrip(d.opcionesTexto || d.description).chosen;
       if (chosen == null && !/ganad|perdid|cerrad|finaliz/.test(s)) porConfirmar += 1;
       if (/enviad/.test(s)) enviado += 1;
-      if (/ganad|finaliz/.test(s)) ganadas += 1;
-      if (!/perdid|cerrad|finaliz/.test(s)) cartera += d.amount ?? 0;
+      if (/ganad|finaliz/.test(s)) {
+        ganadas += 1;
+        importeGanado += d.amount ?? 0;
+      }
+      if (!/perdid|cerrad|finaliz/.test(s)) {
+        abiertos += 1;
+        importeEnCurso += d.amount ?? 0;
+      }
     }
-    return { porConfirmar, enviado, ganadas, cartera };
+    return { porConfirmar, enviado, ganadas, importeGanado, abiertos, importeEnCurso };
   }, [deals]);
 
   const selectedDeal = deals.find((d) => d.id === selectedId) ?? null;
@@ -199,11 +238,30 @@ export function ConfirmRequestsPanel({
         <div>
           <h2>Viajes</h2>
           <p>
-            {loading ? "Cargando viajes…" : `${deals.length} viajes en el CRM`} · propuestas
-            generadas y oportunidades del CRM.
+            {loading
+              ? "Cargando viajes…"
+              : `${deals.length} viajes en el CRM${
+                  departamento === "TODOS"
+                    ? ""
+                    : ` · ${DEPARTAMENTOS[departamento]}`
+                }`}{" "}
+            · propuestas generadas y oportunidades del CRM.
           </p>
         </div>
         <div className="cw__head-actions">
+          {eligeDepartamento ? (
+            <label className="cw__dept">
+              <span>Departamento</span>
+              <select
+                value={departamento}
+                onChange={(e) => setDepartamento(e.target.value as FiltroDepartamento)}
+              >
+                <option value="TODOS">Todos</option>
+                <option value="GROUPS">{DEPARTAMENTOS.GROUPS}</option>
+                <option value="SPORTS">{DEPARTAMENTOS.SPORTS}</option>
+              </select>
+            </label>
+          ) : null}
           <div className="cw__viewtabs" role="tablist" aria-label="Vista">
             <button
               className={view === "list" ? "is" : ""}
@@ -240,8 +298,18 @@ export function ConfirmRequestsPanel({
             <div className="cw-kpis">
               <Kpi n={kpis.porConfirmar} label="Sin confirmar" dot="w" />
               <Kpi n={kpis.enviado} label="Propuesta enviada" dot="i" />
-              <Kpi n={kpis.ganadas} label="Ganadas" dot="ok" />
-              <Kpi n={euro(kpis.cartera)} label="En negociación" dot="m" />
+              <Kpi
+                n={kpis.ganadas}
+                label="Ganadas"
+                dot="ok"
+                sub={`${euro(kpis.importeGanado)} ganados`}
+              />
+              <Kpi
+                n={euro(kpis.importeEnCurso)}
+                label="Importe en curso"
+                dot="m"
+                sub={`${kpis.abiertos} trato(s) abierto(s)`}
+              />
             </div>
 
             <div className="cw-list">
@@ -341,7 +409,18 @@ export function ConfirmRequestsPanel({
   );
 }
 
-function Kpi({ n, label, dot }: { n: number | string; label: string; dot: "w" | "i" | "ok" | "m" }) {
+function Kpi({
+  n,
+  label,
+  dot,
+  sub,
+}: {
+  n: number | string;
+  label: string;
+  dot: "w" | "i" | "ok" | "m";
+  /** Una segunda línea: el importe detrás de una cuenta, o la cuenta detrás de un importe. */
+  sub?: string;
+}) {
   return (
     <div className="cw-kpi">
       <div className="cw-kpi__n">{n}</div>
@@ -349,6 +428,7 @@ function Kpi({ n, label, dot }: { n: number | string; label: string; dot: "w" | 
         <span className={`cw-dot cw-dot--${dot}`} />
         {label}
       </div>
+      {sub ? <div className="cw-kpi__sub">{sub}</div> : null}
     </div>
   );
 }
