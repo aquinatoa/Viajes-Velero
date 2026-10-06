@@ -363,10 +363,23 @@ async function analyzeWithAnthropic(
     return resultado;
   };
   // Si algo revienta a medias, lo consumido hasta ahí viaja con el error:
-  // una lectura que muere en la fase 2 ya pagó la fase 1.
+  // una lectura que muere en la fase 2 ya pagó la fase 1. Si el error ya trae
+  // lo que costó la llamada que falló, se suma a lo anterior, no lo sustituye.
   const conConsumoParcial = (error: unknown): never => {
-    if (error instanceof AiAnalysisError && !error.usage) {
-      error.usage = { ...uso, model, variant };
+    if (error instanceof AiAnalysisError) {
+      const propio = error.usage;
+      error.usage = propio
+        ? {
+            inputTokens: uso.inputTokens + propio.inputTokens,
+            outputTokens: uso.outputTokens + propio.outputTokens,
+            cacheCreationTokens: uso.cacheCreationTokens + propio.cacheCreationTokens,
+            cacheReadTokens: uso.cacheReadTokens + propio.cacheReadTokens,
+            outputChars: uso.outputChars + propio.outputChars,
+            calls: uso.calls + propio.calls,
+            model,
+            variant,
+          }
+        : { ...uso, model, variant };
     }
     throw error;
   };
@@ -686,12 +699,44 @@ async function callAnthropic(
       };
     }
 
+    // Esta llamada se pagó aunque no sirviera: viaja con el error para que el
+    // consumo quede apuntado y no parezca que la lectura fue gratis.
+    const pagado: AiUsage = {
+      inputTokens,
+      outputTokens,
+      cacheCreationTokens,
+      cacheReadTokens,
+      outputChars,
+      calls: 1,
+      model,
+    };
+
     if (truncated) {
-      throw new AiAnalysisError(
+      const error = new AiAnalysisError(
         "La respuesta de la IA se truncó por longitud incluso pidiéndola compacta. El documento es demasiado denso para leerlo de una vez.",
+        { motivo: "RESPUESTA", texto: "La respuesta de la IA se truncó por longitud." },
       );
+      error.usage = pagado;
+      throw error;
     }
-    throw parseError;
+
+    // Antes esto salía como `SyntaxError` a secas: en la pantalla, «revisa el
+    // registro del servidor», y en Consumo de IA, nada. El 06/10/2026 Oravia
+    // relanzó la lectura del Excel de actividades con la cuenta recién
+    // recargada y se encontró exactamente con eso.
+    const razon = parseError instanceof Error ? parseError.message : String(parseError);
+    const error = new AiAnalysisError(
+      `El modelo contestó, pero no en el formato esperado (${rawOutput.length} caracteres, parada: ${
+        stopReason ?? "desconocida"
+      }; ${razon}). Vuelve a lanzar la lectura: suele ser cosa de una vez.`,
+      {
+        motivo: "RESPUESTA",
+        texto: "El modelo contestó, pero no en el formato esperado.",
+        accion: "Vuelve a lanzar la lectura.",
+      },
+    );
+    error.usage = pagado;
+    throw error;
   }
 }
 

@@ -1,5 +1,6 @@
 import { CAMPOS_QUE_SE_PIDEN } from "./camposDelTrato";
 import "./loadEnv";
+import { departamentoDesdeCrm, type DepartamentoDelTrato } from "./tratosPorDepartamento";
 // El embudo vive en `crmPipeline`, que a su vez importa de aquí dos funciones.
 // El ciclo es inocuo: ninguno de los dos módulos LEE lo del otro mientras se
 // evalúa, solo dentro de funciones que se llaman después. Si algún día uno de
@@ -779,6 +780,13 @@ export type ZohoDealSummary = {
   createdTime: string;
   modifiedTime: string;
   dealUrl: string;
+  /**
+   * El departamento del trato, leído del campo `Departamento` de Zoho. Es lo
+   * que decide quién lo ve en la pantalla de Viajes. `null` = el trato no lo
+   * tiene puesto, y entonces lo ven los dos departamentos; OTRO = uno de los
+   * otros departamentos de su CRM, que solo se ve mirando «Todos».
+   */
+  department: DepartamentoDelTrato;
 };
 
 /** Lista los tratos del módulo Deals (los más recientes primero). */
@@ -790,6 +798,8 @@ export async function listZohoDeals(limit = 200): Promise<ZohoDealSummary[]> {
   const fields = [
     "Deal_Name", "Stage", "Amount", "Closing_Date", "Account_Name", "Contact_Name",
     "Description", "Opciones_de_Presupuesto", "Next_Step", "Created_Time", "Modified_Time",
+    // El departamento es lo que filtra la pantalla de Viajes por usuario.
+    "Departamento",
   ].join(",");
   const perPage = Math.min(Math.max(limit, 1), 200);
   const result = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
@@ -814,6 +824,7 @@ export async function listZohoDeals(limit = 200): Promise<ZohoDealSummary[]> {
       createdTime: String(deal.Created_Time ?? ""),
       modifiedTime: String(deal.Modified_Time ?? ""),
       dealUrl: dealWebUrl(String(deal.id)),
+      department: departamentoDesdeCrm(deal.Departamento),
     })) ?? []
   );
 }

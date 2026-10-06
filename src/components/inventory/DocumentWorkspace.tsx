@@ -876,6 +876,15 @@ export function DocumentWorkspace({
       await refreshDetail();
       await onChanged();
 
+      // La espera termina igual si la lectura acabó bien que si el proveedor
+      // la rechazó: en los dos casos el documento deja de estar «analizando».
+      // Si no hay candidatos y lo último es un fallo, eso es lo que hay que
+      // decir, no «Documento leído: 0 alojamientos y 0 actividades».
+      const fallo = ultimoFalloDeLectura(detalle.importIssues);
+      if (fallo && detalle.stagingAccommodations.length + detalle.stagingActivities.length === 0) {
+        throw new Error(fallo.mensaje);
+      }
+
       setFeedbackMessage(
         `Documento leído: ${detalle.stagingAccommodations.length} alojamiento(s) y ${detalle.stagingActivities.length} actividad(es) esperando tu revisión. Revisa las incidencias antes de aprobar nada.`,
       );

@@ -66,6 +66,17 @@ prueba("tres fallos y ninguna lectura buena después: se enseña el último, con
   assert.match(f.mensaje, /Plans & Billing/);
 });
 
+prueba("la respuesta ilegible del modelo (06/10, tras recargar) tiene título propio", () => {
+  const f = ultimoFalloDeLectura([
+    i("AI_ANALYSIS_FAILED_RESPUESTA", "2026-10-06T11:20:00Z", {
+      message: "No se pudo leer el documento: El modelo contestó, pero no en el formato esperado (812 caracteres, parada: end_turn; Unexpected token). Vuelve a lanzar la lectura: suele ser cosa de una vez.",
+    }),
+  ]);
+  assert.equal(f?.motivo, "RESPUESTA");
+  assert.equal(f?.titulo, "La IA contestó en un formato que no se pudo leer");
+  assert.match(f?.mensaje ?? "", /812 caracteres/);
+});
+
 prueba("un fallo sin motivo conocido sale como fallo de lectura a secas", () => {
   const f = ultimoFalloDeLectura([i("AI_ANALYSIS_FAILED", "2026-09-28T10:29:31Z")]);
   assert.equal(f?.motivo, "DESCONOCIDO");

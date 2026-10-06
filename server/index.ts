@@ -107,6 +107,7 @@ import {
   updateUser,
   writeAudit,
 } from "./auth";
+import { tratosVisiblesPara } from "./tratosPorDepartamento";
 import { extractDocumentText, isNativelyReadable } from "./documentTextExtraction";
 import { analyzeDocumentText, AiAnalysisError } from "./aiDocumentAnalysis";
 import {
@@ -493,10 +494,13 @@ app.post("/api/crm/opportunities/approve", async (request, response) => {
   }
 });
 
-// Confirmar solicitud: listar todos los tratos del CRM.
-app.get("/api/crm/opportunities", async (_request, response) => {
+// Viajes: los tratos del CRM que este usuario puede ver. Los globales ven
+// todos; el resto, los de su departamento y los que no tienen ninguno.
+app.get("/api/crm/opportunities", async (request, response) => {
   try {
-    const deals = await listZohoDeals();
+    const user = (request as AuthedRequest).user;
+    const todos = await listZohoDeals();
+    const deals = user ? tratosVisiblesPara(user, todos) : todos;
     response.json({ deals });
   } catch (error) {
     crmErrorResponse(error, response, "No se pudieron listar los tratos de Zoho.");
@@ -1074,10 +1078,14 @@ async function leerDocumentoConIa(documentId: string, regenerando: boolean): Pro
     console.error("Error leyendo el documento de inventario con IA", error);
     // El motivo va tal cual lo dio el proveedor. «Sin saldo» tiene que leerse
     // como «sin saldo», no como «revisa el modelo o el tamaño del documento».
+    // Y si no es del proveedor, al menos qué fue: «revisa el registro del
+    // servidor» obliga a pedírselo a quien lo administra para saber nada.
     const mensaje =
       error instanceof AiAnalysisError
         ? `No se pudo leer el documento: ${error.message}`
-        : "No se pudo leer el documento con IA. Revisa el registro del servidor e inténtalo de nuevo.";
+        : `No se pudo leer el documento por un fallo interno de la aplicación (${
+            error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+          }). Inténtalo de nuevo; si se repite, es cosa nuestra.`;
     await addInventoryDocumentIssue({
       sourceDocumentId: documentId,
       severity: "ERROR",

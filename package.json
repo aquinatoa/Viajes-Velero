@@ -9,7 +9,7 @@
     "db:local:reset": "node scripts/dev-db.mjs --reset",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "npm run test:documental && npm run test:solicitud && npm run test:pdf && npm run test:crm && npm run test:visibilidad && npm run test:borrado && npm run test:crm-trato && npm run test:correo && npm run test:textos && npm run test:encaje && npm run test:podio && npm run test:preguntas && npm run test:fechas && npm run test:validacion && npm run test:respuestas && npm run test:avance && npm run test:colores && npm run test:siguiente && npm run test:importe && npm run test:aceptada && npm run test:lectura && npm run test:fallo-lectura && npm run test:rejilla",
+    "test": "npm run test:documental && npm run test:solicitud && npm run test:pdf && npm run test:crm && npm run test:visibilidad && npm run test:borrado && npm run test:crm-trato && npm run test:correo && npm run test:textos && npm run test:encaje && npm run test:podio && npm run test:preguntas && npm run test:fechas && npm run test:validacion && npm run test:respuestas && npm run test:avance && npm run test:colores && npm run test:siguiente && npm run test:importe && npm run test:aceptada && npm run test:lectura && npm run test:fallo-lectura && npm run test:rejilla && npm run test:viajes",
     "test:documental": "node --import tsx tests/documentFlow.test.ts",
     "test:solicitud": "node --import tsx tests/tripRequest.test.ts",
     "test:pdf": "node --import tsx tests/proposalPdf.test.ts",
@@ -39,6 +39,7 @@
     "test:lectura": "node --import tsx tests/lecturaDocumentos.test.ts",
     "test:fallo-lectura": "node --import tsx tests/falloDeLectura.test.ts",
     "test:rejilla": "node --import tsx tests/rejillaDeTarifas.test.ts",
+    "test:viajes": "node --import tsx tests/tratosPorDepartamento.test.ts",
     "lectura:referencia": "node scripts/lectura/exportar-referencia.mjs",
     "lectura:evaluar": "node --import tsx scripts/lectura/evaluar.ts"
   },
