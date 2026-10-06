@@ -11846,3 +11846,16 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 .consumo__lista li { line-height: 1.5; }
 .consumo__fallida { color: var(--danger); }
 .consumo__error { color: var(--danger); }
+
+/* ── Tarifas publicadas en tabla ─────────────────────────────────────────── */
+/* Periodos en filas, régimen y ocupación en columnas. Lo común, en una línea
+   encima. Una celda con varios precios se marca: falta lo que los distingue. */
+.tarifas { display: grid; gap: var(--sp-2); margin-top: var(--sp-2); }
+.tarifas__comun { margin: 0; font-size: var(--fs-micro); color: var(--muted, inherit); }
+.tarifas__tabla th, .tarifas__tabla td { white-space: nowrap; }
+.tarifas__tabla .tarifas__grupo { text-align: center; border-bottom: 1px solid rgba(0, 0, 0, 0.12); }
+.tarifas__tabla .tarifas__columna { text-align: right; font-weight: 600; }
+.tarifas__tabla .tarifas__fila { text-align: left; font-weight: 600; }
+.tarifas__tabla .tarifas__precio { text-align: right; font-variant-numeric: tabular-nums; }
+.tarifas__tabla .tarifas__precio--ambiguo { color: var(--danger); font-weight: 600; }
+.tarifas__tabla .tarifas__vacia { text-align: right; color: var(--muted, inherit); }

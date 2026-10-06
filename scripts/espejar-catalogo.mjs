@@ -169,17 +169,24 @@ for (const item of catalogo.accommodations) {
   const canal = canalDe(item.sourceDocumentName);
   const rates = (item.rates ?? []).map((r) => {
     const { dateFrom, dateTo } = fechasDe(r.period);
+    // Desde el 06/10/2026 el servidor manda las dimensiones completas de la
+    // tarifa. Se usan cuando vienen; si no, se deduce como antes. Sin la
+    // ocupacion, el espejo cotizaba a los profesores al precio de los alumnos.
     return {
       rateSource: "espejo_del_servidor",
       year: r.year ?? 2027,
-      seasonName: r.period ?? null,
-      dateFrom,
-      dateTo,
-      boardType: regimenDe(r.label),
+      seasonName: r.seasonName ?? r.period ?? null,
+      dateFrom: r.dateFrom ? new Date(r.dateFrom) : dateFrom,
+      dateTo: r.dateTo ? new Date(r.dateTo) : dateTo,
+      boardType: r.boardType ?? regimenDe(r.label),
+      occupancyLabel: r.occupancyLabel ?? null,
+      includedService: r.includedService ?? null,
+      minNights: r.minNights ?? null,
+      tariffUnit: r.tariffUnit ?? null,
       currency: r.currency ?? "EUR",
       pvpAmount: r.amount ?? 0,
       netSaleAmount: r.amount ?? 0,
-      clientSegment: canal,
+      clientSegment: r.clientSegment ?? canal,
       sourceFile: item.sourceDocumentName ?? null,
     };
   });

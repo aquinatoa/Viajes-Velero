@@ -731,6 +731,18 @@ export interface CatalogRate {
   period?: string | null;
   currency?: string | null;
   amount?: number | null;
+  /** Las dimensiones que distinguen una tarifa de otra; con ellas se pinta la tabla. */
+  seasonName?: string | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  boardType?: string | null;
+  occupancyLabel?: string | null;
+  includedService?: string | null;
+  clientSegment?: string | null;
+  minNights?: number | null;
+  tariffUnit?: string | null;
+  ageLabel?: string | null;
+  durationText?: string | null;
 }
 
 export interface CatalogAccommodation {

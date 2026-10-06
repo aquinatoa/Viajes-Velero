@@ -2253,6 +2253,19 @@ export async function getPublishedInventoryCatalog(): Promise<PublishedInventory
       period: catalogPeriod(rate),
       currency: rate.currency,
       amount: decimalToNumber(rate.pvpAmount) ?? decimalToNumber(rate.netSaleAmount),
+      // Las dimensiones que distinguen una tarifa de otra del mismo hotel y
+      // régimen. Sin ellas el catálogo enseñaba treinta líneas iguales salvo
+      // el precio, y el espejo local —que se construye desde aquí— cotizaba a
+      // los profesores al precio de los alumnos por no saber cuál era cuál.
+      seasonName: rate.seasonName,
+      dateFrom: rate.dateFrom ? rate.dateFrom.toISOString().slice(0, 10) : null,
+      dateTo: rate.dateTo ? rate.dateTo.toISOString().slice(0, 10) : null,
+      boardType: rate.boardType,
+      occupancyLabel: rate.occupancyLabel,
+      includedService: rate.includedService,
+      clientSegment: rate.clientSegment,
+      minNights: rate.minNights,
+      tariffUnit: rate.tariffUnit,
     })),
   }));
 
@@ -2272,6 +2285,9 @@ export async function getPublishedInventoryCatalog(): Promise<PublishedInventory
       period: catalogPeriod({ dateFrom: null, dateTo: null }),
       currency: rate.currency,
       amount: decimalToNumber(rate.salePvpAmount),
+      ageLabel: rate.ageLabel,
+      clientSegment: rate.clientSegment,
+      durationText: rate.durationText,
     })),
     policies: activity.policies.map((policy) => ({
       id: policy.id,
