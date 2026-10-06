@@ -39,3 +39,7 @@ Kickoff-PuestaEnMarcha-Oravia.html
 MIGRACION-Azure-Postgres.md
 logo-footer-1.png
 build/
+
+# Referencia para evaluar lecturas: tarifas reales de Oravia sacadas de produccion.
+# Se regenera con `npm run lectura:referencia`; no va al repositorio.
+tests/fixtures/lectura/

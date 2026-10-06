@@ -398,6 +398,42 @@ model SourceDocument {
   importIssues          ImportIssue[]
   stagingAccommodations StagingAccommodation[]
   stagingActivities     StagingActivity[]
+  lecturasIa            AiLectura[]
+}
+
+/// Una fila por cada intento de leer un documento con IA, termine como termine.
+///
+/// Existe porque `aiInputTokens`/`aiOutputTokens` del documento guardan solo la
+/// última lectura que acabó bien, y la sobrescriben: no había forma de saber
+/// cuánto se gastó en un mes, cuánto costó un intento fallido, ni cuánto se
+/// leyó de caché (que `input_tokens` del proveedor excluye). Con esto el panel
+/// de consumo y la evaluación de lecturas tienen de dónde leer.
+model AiLectura {
+  id                   String   @id @default(cuid())
+  sourceDocumentId     String
+  sourceDocument       SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+  /// Proveedor y modelo tal como se llamaron.
+  proveedor            String
+  modelo               String
+  /// Qué variante de lectura corrió (p. ej. "cita-por-fila"), para comparar.
+  variante             String?
+  /// OK o FALLIDA. Una fallida también consumió lo que llevaba.
+  resultado            String
+  /// El motivo que dio el proveedor, literal, cuando falló.
+  error                String?
+  llamadas             Int      @default(0)
+  inputTokens          Int      @default(0)
+  outputTokens         Int      @default(0)
+  cacheCreationTokens  Int      @default(0)
+  cacheReadTokens      Int      @default(0)
+  /// Caracteres de texto devueltos. La diferencia con outputTokens estima
+  /// cuánto de la salida fue pensamiento del modelo, que se factura igual.
+  outputChars          Int      @default(0)
+  iniciadaEn           DateTime
+  terminadaEn          DateTime @default(now())
+
+  @@index([sourceDocumentId])
+  @@index([terminadaEn])
 }
 
 model DocumentExtraction {

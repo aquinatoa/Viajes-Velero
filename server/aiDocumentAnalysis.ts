@@ -1,4 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { completarCitasDesdeFilas, tieneFilas } from "./citaDeFila";
+import { mensajeDeErrorDelProveedor, type MensajeDeError } from "./erroresIa";
 import fs from "node:fs/promises";
 import type {
   AiDocumentAnalysisResult,
@@ -10,6 +12,7 @@ import type {
   AiCandidateSupplement,
   AiCandidatePolicy,
   AiCandidateBlackoutDate,
+  AiUsage,
 } from "../src/domain/documentImportTypes";
 
 export interface AnalyzeDocumentTextInput {
@@ -39,9 +42,19 @@ export interface AnalyzeDocumentTextInput {
 
 /** Error de análisis IA visible para el usuario; el endpoint lo traduce a 502. */
 export class AiAnalysisError extends Error {
-  constructor(message: string) {
+  /** Motivo, acción y etiqueta, cuando el fallo viene del proveedor. */
+  detalle: MensajeDeError | null;
+  /**
+   * Lo que se había consumido cuando falló. Una lectura que muere en la fase
+   * 2 ya pagó la fase 1 y parte de la 2: eso también hay que apuntarlo.
+   */
+  usage: AiUsage | null;
+
+  constructor(message: string, detalle: MensajeDeError | null = null) {
     super(message);
     this.name = "AiAnalysisError";
+    this.detalle = detalle;
+    this.usage = null;
   }
 }
 
@@ -222,7 +235,28 @@ interface RespuestaModelo {
   rawOutput: string;
   inputTokens: number;
   outputTokens: number;
+  /** Lo que se escribió en caché en esta llamada (se cobra algo más que la entrada). */
+  cacheCreationTokens: number;
+  /** Lo que se leyó de caché (una fracción del precio de entrada). `input_tokens` NO lo incluye. */
+  cacheReadTokens: number;
+  /** Caracteres de texto devueltos; con outputTokens estima el pensamiento. */
+  outputChars: number;
   truncated: boolean;
+}
+
+/** Un acumulador de consumo a cero. */
+function usoVacio(): Omit<AiUsage, "model" | "variant"> {
+  return { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, outputChars: 0, calls: 0 };
+}
+
+/**
+ * Variante de lectura para hojas de cálculo: el modelo cita por número de fila
+ * y el código reconstruye el literal. Apagada por defecto hasta que la
+ * evaluación de lecturas la valide contra el catálogo publicado
+ * (`scripts/lectura/evaluar.mjs`). Se enciende con AI_CITA_POR_FILA=1.
+ */
+function citaPorFilaActiva(): boolean {
+  return (process.env.AI_CITA_POR_FILA ?? "").trim() === "1";
 }
 
 /** Cuántas lecturas de producto van a la vez. */
@@ -302,19 +336,48 @@ async function analyzeWithAnthropic(
     extraWarnings.push(adjunto.warning);
   }
   const hasPdf = Boolean(adjunto.base64);
-
-  const uso = { inputTokens: 0, outputTokens: 0 };
+  // La cita por fila solo tiene sentido sin PDF y con filas numeradas: en un
+  // PDF no hay fila a la que señalar y el literal lo tiene que citar el modelo.
+  const citaPorFila = citaPorFilaActiva() && !hasPdf && tieneFilas(text);
+  const variant = citaPorFila ? "cita-por-fila" : null;
+  const uso = usoVacio();
   const acumular = (r: RespuestaModelo) => {
+    uso.calls += 1;
     uso.inputTokens += r.inputTokens;
     uso.outputTokens += r.outputTokens;
+    uso.cacheCreationTokens += r.cacheCreationTokens;
+    uso.cacheReadTokens += r.cacheReadTokens;
+    uso.outputChars += r.outputChars;
   };
+  const conUso = (resultado: AiDocumentAnalysisResult) => {
+    resultado.usage = { ...uso, model, variant };
+    if (!hasPdf) {
+      const rellenadas = completarCitasDesdeFilas(resultado, text);
+      const candidatos = resultado.candidateRates.length + resultado.candidateActivityRates.length;
+      if (citaPorFila && rellenadas === 0 && candidatos > 0) {
+        resultado.warnings.push(
+          "Se pidió la cita por número de fila y el modelo no devolvió ninguna: las tarifas van sin fragmento de origen.",
+        );
+      }
+    }
+    return resultado;
+  };
+  // Si algo revienta a medias, lo consumido hasta ahí viaja con el error:
+  // una lectura que muere en la fase 2 ya pagó la fase 1.
+  const conConsumoParcial = (error: unknown): never => {
+    if (error instanceof AiAnalysisError && !error.usage) {
+      error.usage = { ...uso, model, variant };
+    }
+    throw error;
+  };
+  try {
 
   // ── Fase 1: el índice del documento ──────────────────────────────────────
   const indice = await callAnthropic(client, model, {
     adjunto,
     system: buildSystemPrompt(hasPdf),
     prompt: buildInventoryPrompt(input, text, hasPdf),
-  });
+  }).catch(conConsumoParcial);
   acumular(indice);
 
   const productos = readProductIndex(indice.parsed);
@@ -325,8 +388,8 @@ async function analyzeWithAnthropic(
     const completo = await callAnthropic(client, model, {
       adjunto,
       system: buildSystemPrompt(hasPdf),
-      prompt: buildUserPrompt(input, text, hasPdf),
-    });
+      prompt: buildUserPrompt(input, text, hasPdf, citaPorFila),
+    }).catch(conConsumoParcial);
     acumular(completo);
     if (completo.truncated) {
       extraWarnings.push(
@@ -334,8 +397,7 @@ async function analyzeWithAnthropic(
       );
     }
     const unico = normalizeAnalysis(completo.parsed, "ai", completo.rawOutput, extraWarnings);
-    unico.usage = { ...uso, model };
-    return unico;
+    return conUso(unico);
   }
 
   // ── Fase 2: una lectura por producto ─────────────────────────────────────
@@ -351,8 +413,9 @@ async function analyzeWithAnthropic(
         hasPdf,
         producto,
         productos,
+        citaPorFila,
       ),
-    });
+    }).catch(conConsumoParcial);
     return { producto, respuesta };
   });
 
@@ -389,8 +452,10 @@ async function analyzeWithAnthropic(
 
   base.warnings.push(...avisosDeProductosDuplicados(base));
   base.warnings.push(...avisosDePreciosEnConflicto(base));
-  base.usage = { ...uso, model };
-  return base;
+  return conUso(base);
+  } catch (error) {
+    return conConsumoParcial(error);
+  }
 }
 
 /**
@@ -560,9 +625,21 @@ async function callAnthropic(
     .map((block) => (block.type === "text" ? block.text ?? "" : ""))
     .join("");
 
-  const usage = (message as { usage?: { input_tokens?: number; output_tokens?: number } })?.usage;
+  const usage = (
+    message as {
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_creation_input_tokens?: number | null;
+        cache_read_input_tokens?: number | null;
+      };
+    }
+  )?.usage;
   const inputTokens = Number(usage?.input_tokens ?? 0);
   const outputTokens = Number(usage?.output_tokens ?? 0);
+  const cacheCreationTokens = Number(usage?.cache_creation_input_tokens ?? 0);
+  const cacheReadTokens = Number(usage?.cache_read_input_tokens ?? 0);
+  const outputChars = rawOutput.length;
 
   if (!rawOutput.trim()) {
     console.error("Análisis IA Anthropic: respuesta sin texto.", { stopReason });
@@ -570,7 +647,16 @@ async function callAnthropic(
   }
 
   try {
-    return { parsed: parseModelJson(rawOutput), rawOutput, inputTokens, outputTokens, truncated };
+    return {
+      parsed: parseModelJson(rawOutput),
+      rawOutput,
+      inputTokens,
+      outputTokens,
+      cacheCreationTokens,
+      cacheReadTokens,
+      outputChars,
+      truncated,
+    };
   } catch (parseError) {
     // Log de diagnóstico (no contiene secretos): estado y vista previa de la salida.
     console.error("Análisis IA Anthropic: JSON inválido del proveedor.", {
@@ -589,11 +675,14 @@ async function callAnthropic(
         },
         true,
       );
-      // El consumo del intento fallido también se pagó: se suma.
+      // El consumo del intento fallido también se pagó: se suma, entero.
       return {
         ...compacto,
         inputTokens: compacto.inputTokens + inputTokens,
         outputTokens: compacto.outputTokens + outputTokens,
+        cacheCreationTokens: compacto.cacheCreationTokens + cacheCreationTokens,
+        cacheReadTokens: compacto.cacheReadTokens + cacheReadTokens,
+        outputChars: compacto.outputChars + outputChars,
       };
     }
 
@@ -751,37 +840,17 @@ async function mapWithConcurrency<T, R>(
 }
 
 function mapAnthropicError(error: unknown): AiAnalysisError {
-  if (error instanceof Anthropic.AuthenticationError) {
-    return new AiAnalysisError("La clave de API de Anthropic no es válida o no tiene permisos.");
-  }
-  if (error instanceof Anthropic.PermissionDeniedError) {
-    return new AiAnalysisError(
-      "La clave de API de Anthropic no tiene permiso para el modelo solicitado.",
-    );
-  }
-  if (error instanceof Anthropic.NotFoundError) {
-    return new AiAnalysisError(
-      "El modelo indicado en AI_MODEL no existe o no está disponible en Anthropic.",
-    );
-  }
-  if (error instanceof Anthropic.RateLimitError) {
-    return new AiAnalysisError(
-      "Se alcanzó el límite de uso o de frecuencia del proveedor IA. Inténtalo más tarde.",
-    );
-  }
-  if (error instanceof Anthropic.BadRequestError) {
-    return new AiAnalysisError(
-      "La solicitud al proveedor IA no es válida (revisa el modelo o el tamaño del documento).",
-    );
-  }
-  if (error instanceof Anthropic.APIError) {
-    return new AiAnalysisError(
-      `El proveedor IA devolvió un error (${error.status ?? "desconocido"}).`,
-    );
-  }
-  return new AiAnalysisError(
-    "No se pudo conectar con el proveedor IA (Anthropic). Revisa la conexión.",
-  );
+  // El motivo del proveedor se conserva SIEMPRE. El 25/09/2026 la cuenta se
+  // quedó sin saldo, el proveedor lo decía con todas las letras, y esta función
+  // lo convertía en «revisa el modelo o el tamaño del documento».
+  const api = error instanceof Anthropic.APIError ? error : null;
+  const detalle = mensajeDeErrorDelProveedor({
+    estado: api?.status ?? null,
+    mensaje: error instanceof Error ? error.message : String(error),
+    tipo: error instanceof Error ? error.constructor?.name : null,
+  });
+  const texto = detalle.accion ? `${detalle.texto} ${detalle.accion}` : detalle.texto;
+  return new AiAnalysisError(texto, detalle);
 }
 
 /**
@@ -897,6 +966,7 @@ function buildUserPrompt(
   input: AnalyzeDocumentTextInput,
   text: string,
   hasPdf: boolean,
+  citaPorFila = false,
 ): string {
   const { context } = input;
 
@@ -907,11 +977,11 @@ function buildUserPrompt(
     '  "documentSummary": string,',
     '  "detectedAccommodations": [ { "accommodationName": string, "providerName": string|null, "locality": string|null, "province": string|null, "country": string|null, "categoryType": string|null, "accommodationType": string|null } ],',
     '  "detectedActivities": [ { "activityName": string, "supplierName": string|null, "locationMain": string|null, "activityType": string|null, "durationText": string|null, "descriptionText": string|null } ],',
-    '  "candidateRates": [ { "accommodationName": string|null, "seasonName": string|null, "year": number|null, "dateFrom": string|null, "dateTo": string|null, "boardType": string|null, "unitName": string|null, "rateUnit": string|null, "occupancyLabel": string|null, "includedService": string|null, "minNights": number|null, "currency": string|null, "pvpAmount": number|null, "netAmount": number|null, "costAmount": number|null, "rawText": string|null } ],',
-    '  "candidateActivityRates": [ { "activityName": string, "rateUnit": string|null, "year": number|null, "currency": string|null, "salePvpAmount": number|null, "costNetAmount": number|null, "durationText": string|null, "ageLabel": string|null, "minPax": number|null, "maxPax": number|null, "rawText": string|null } ],',
-    '  "candidateSupplements": [ { "accommodationName": string|null, "adjustmentType": string|null, "concept": string, "amountType": string|null, "amount": number|null, "appliesPer": string|null, "conditionText": string|null, "rawText": string|null } ],',
-    '  "candidatePolicies": [ { "policyType": string|null, "policyText": string, "rawText": string|null } ],',
-    '  "candidateBlackoutDates": [ { "dateFrom": string|null, "dateTo": string|null, "availabilityStatus": string|null, "reason": string|null, "rawText": string|null } ],',
+    '  "candidateRates": [ { "accommodationName": string|null, "seasonName": string|null, "year": number|null, "dateFrom": string|null, "dateTo": string|null, "boardType": string|null, "unitName": string|null, "rateUnit": string|null, "occupancyLabel": string|null, "includedService": string|null, "minNights": number|null, "currency": string|null, "pvpAmount": number|null, "netAmount": number|null, "costAmount": number|null, "rawText": string|null, "sourceRow": number|null } ],',
+    '  "candidateActivityRates": [ { "activityName": string, "rateUnit": string|null, "year": number|null, "currency": string|null, "salePvpAmount": number|null, "costNetAmount": number|null, "durationText": string|null, "ageLabel": string|null, "minPax": number|null, "maxPax": number|null, "rawText": string|null, "sourceRow": number|null } ],',
+    '  "candidateSupplements": [ { "accommodationName": string|null, "adjustmentType": string|null, "concept": string, "amountType": string|null, "amount": number|null, "appliesPer": string|null, "conditionText": string|null, "rawText": string|null, "sourceRow": number|null } ],',
+    '  "candidatePolicies": [ { "policyType": string|null, "policyText": string, "rawText": string|null, "sourceRow": number|null } ],',
+    '  "candidateBlackoutDates": [ { "dateFrom": string|null, "dateTo": string|null, "availabilityStatus": string|null, "reason": string|null, "rawText": string|null, "sourceRow": number|null } ],',
     '  "warnings": [ string ],',
     '  "confidence": number',
     "}",
@@ -922,6 +992,13 @@ function buildUserPrompt(
     "- Cada tarifa y cada suplemento llevan 'accommodationName' con el nombre EXACTO del alojamiento de 'detectedAccommodations' al que pertenecen. Si el documento tiene un solo alojamiento, repite su nombre en todas.",
     "- 'year' es el año o temporada de vigencia de la tarifa (p. ej. 2027). NO uses números sueltos de la tabla (códigos, referencias, importes, ocupaciones) como año. Si el documento no dice el año con claridad, devuelve null: el año de control lo pondrá la aplicación.",
     "- Conserva en 'rawText' el fragmento literal del texto de origen de cada candidato cuando sea posible.",
+    ...(citaPorFila
+      ? [
+          "- CITA POR FILA: el documento es una hoja con filas numeradas («12 | …»). En cada candidato pon en",
+          "  'sourceRow' el NÚMERO de la fila de la que sale, y deja 'rawText' a null: el literal se",
+          "  reconstruye desde esa fila. Un candidato que mezcle varias filas lleva la fila del precio.",
+        ]
+      : []),
     "- Detecta regímenes y normalízalos en 'boardType': MP (media pensión), PC (pensión completa), AD (alojamiento y desayuno), SA (solo alojamiento) si aparecen.",
     "- Detecta periodos de fechas; usa formato ISO YYYY-MM-DD en dateFrom/dateTo cuando puedas inferirlo.",
     "- LOS PRECIOS DE LAS ACTIVIDADES van en 'candidateActivityRates', NUNCA en 'candidateRates'. Una actividad (alquiler de campo, partido amistoso, clase) se cobra por equipo, por hora o por persona, no por régimen y ocupación. 'activityName' debe coincidir EXACTAMENTE con el nombre en 'detectedActivities'.",
@@ -960,8 +1037,8 @@ function buildInventoryPrompt(
     '  "documentSummary": string,',
     '  "detectedAccommodations": [ { "accommodationName": string, "providerName": string|null, "locality": string|null, "province": string|null, "country": string|null, "categoryType": string|null, "accommodationType": string|null } ],',
     '  "detectedActivities": [ { "activityName": string, "supplierName": string|null, "locationMain": string|null, "activityType": string|null, "durationText": string|null, "descriptionText": string|null } ],',
-    '  "candidatePolicies": [ { "policyType": string|null, "policyText": string, "rawText": string|null } ],',
-    '  "candidateBlackoutDates": [ { "dateFrom": string|null, "dateTo": string|null, "availabilityStatus": string|null, "reason": string|null, "rawText": string|null } ],',
+    '  "candidatePolicies": [ { "policyType": string|null, "policyText": string, "rawText": string|null, "sourceRow": number|null } ],',
+    '  "candidateBlackoutDates": [ { "dateFrom": string|null, "dateTo": string|null, "availabilityStatus": string|null, "reason": string|null, "rawText": string|null, "sourceRow": number|null } ],',
     '  "productIndex": [ { "kind": "ACCOMMODATION"|"ACTIVITY", "name": string, "expectedRateCount": number|null, "sourceRowFrom": number|null, "sourceRowTo": number|null } ],',
     '  "warnings": [ string ],',
     '  "confidence": number',
@@ -1002,6 +1079,7 @@ function buildProductPrompt(
   hasPdf: boolean,
   producto: ProductoDelDocumento,
   todos: ProductoDelDocumento[],
+  citaPorFila = false,
 ): string {
   const esActividad = producto.kind === "ACTIVITY";
   const cuantas =
@@ -1022,10 +1100,10 @@ function buildProductPrompt(
     "Ignora por completo los demás productos. Devuelve un objeto JSON con esta estructura exacta:",
     "",
     "{",
-    '  "candidateRates": [ { "accommodationName": string|null, "seasonName": string|null, "year": number|null, "dateFrom": string|null, "dateTo": string|null, "boardType": string|null, "unitName": string|null, "rateUnit": string|null, "occupancyLabel": string|null, "includedService": string|null, "minNights": number|null, "currency": string|null, "pvpAmount": number|null, "netAmount": number|null, "costAmount": number|null, "rawText": string|null } ],',
-    '  "candidateActivityRates": [ { "activityName": string, "rateUnit": string|null, "year": number|null, "currency": string|null, "salePvpAmount": number|null, "costNetAmount": number|null, "durationText": string|null, "ageLabel": string|null, "minPax": number|null, "maxPax": number|null, "rawText": string|null } ],',
-    '  "candidateSupplements": [ { "accommodationName": string|null, "adjustmentType": string|null, "concept": string, "amountType": string|null, "amount": number|null, "appliesPer": string|null, "conditionText": string|null, "rawText": string|null } ],',
-    '  "candidateBlackoutDates": [ { "dateFrom": string|null, "dateTo": string|null, "availabilityStatus": string|null, "reason": string|null, "rawText": string|null } ],',
+    '  "candidateRates": [ { "accommodationName": string|null, "seasonName": string|null, "year": number|null, "dateFrom": string|null, "dateTo": string|null, "boardType": string|null, "unitName": string|null, "rateUnit": string|null, "occupancyLabel": string|null, "includedService": string|null, "minNights": number|null, "currency": string|null, "pvpAmount": number|null, "netAmount": number|null, "costAmount": number|null, "rawText": string|null, "sourceRow": number|null } ],',
+    '  "candidateActivityRates": [ { "activityName": string, "rateUnit": string|null, "year": number|null, "currency": string|null, "salePvpAmount": number|null, "costNetAmount": number|null, "durationText": string|null, "ageLabel": string|null, "minPax": number|null, "maxPax": number|null, "rawText": string|null, "sourceRow": number|null } ],',
+    '  "candidateSupplements": [ { "accommodationName": string|null, "adjustmentType": string|null, "concept": string, "amountType": string|null, "amount": number|null, "appliesPer": string|null, "conditionText": string|null, "rawText": string|null, "sourceRow": number|null } ],',
+    '  "candidateBlackoutDates": [ { "dateFrom": string|null, "dateTo": string|null, "availabilityStatus": string|null, "reason": string|null, "rawText": string|null, "sourceRow": number|null } ],',
     '  "warnings": [ string ]',
     "}",
     "",
@@ -1047,6 +1125,13 @@ function buildProductPrompt(
     "  actividades. No conviertas ni sumes nada: copia el número tal cual está impreso.",
     "- 'year' es la temporada de vigencia. Si no está clara, null: no uses números sueltos de la tabla.",
     "- 'rawText' BREVE, 60 caracteres como mucho ('Adulto · Periodo B · 44 €').",
+    ...(citaPorFila
+      ? [
+          "- CITA POR FILA: el documento es una hoja con filas numeradas («12 | …»). En cada candidato pon en",
+          "  'sourceRow' el NÚMERO de la fila de la que sale, y deja 'rawText' a null: el literal se",
+          "  reconstruye desde esa fila. Un candidato que mezcle varias filas lleva la fila del precio.",
+        ]
+      : []),
     "- Suplementos y notas de ESTE producto en 'candidateSupplements'; las condiciones generales del",
     "  documento no, que ya están recogidas.",
     cuantas,
@@ -1426,6 +1511,7 @@ function normalizeRate(value: unknown): AiCandidateRate {
     netAmount: toNum(record.netAmount),
     costAmount: toNum(record.costAmount),
     rawText: toStr(record.rawText),
+    sourceRow: toNum(record.sourceRow),
   };
 }
 
@@ -1447,6 +1533,7 @@ function normalizeActivityRate(value: unknown): AiCandidateActivityRate | null {
     minPax: toNum(record.minPax),
     maxPax: toNum(record.maxPax),
     rawText: toStr(record.rawText),
+    sourceRow: toNum(record.sourceRow),
   };
 }
 
