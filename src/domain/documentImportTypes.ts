@@ -332,7 +332,12 @@ export interface InventoryDocumentDetail extends SourceDocumentSummary {
 // automáticamente al inventario operativo.
 // ----------------------------------------------------------------------------
 
-export type AiAnalysisMode = "mock" | "ai";
+/**
+ * De dónde salieron los candidatos: "ai" del modelo, "mock" de la simulación
+ * sin clave, "plantilla" de la hoja estándar de actividades de Oravia, leída
+ * celda a celda sin IA.
+ */
+export type AiAnalysisMode = "mock" | "ai" | "plantilla";
 
 export interface AiDetectedAccommodation {
   accommodationName?: string | null;
@@ -436,6 +441,12 @@ export interface AiCandidatePolicy {
   policyType?: string | null;
   policyText: string;
   rawText?: string | null;
+  /**
+   * Actividad a la que pertenece la condición, cuando es de UNA actividad y no
+   * del documento. Sin esto, las condiciones generales se copian a todas las
+   * actividades; con esto, la cancelación de Saltapark solo va a Saltapark.
+   */
+  activityName?: string | null;
 }
 
 export interface AiCandidateBlackoutDate {

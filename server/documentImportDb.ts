@@ -707,7 +707,12 @@ export async function createInventoryDocumentStaging(
     reviewStatus: "PENDING",
   }));
 
-  const policyData = analysis.candidatePolicies.map((policy) => ({
+  // Una condición con `activityName` es de esa actividad y de ninguna otra:
+  // ni va a un alojamiento ni se copia al resto de actividades.
+  const condicionesGenerales = analysis.candidatePolicies.filter((policy) => !policy.activityName);
+  const condicionesDeUna = analysis.candidatePolicies.filter((policy) => policy.activityName);
+
+  const policyData = condicionesGenerales.map((policy) => ({
     policyType: policy.policyType ?? "UNKNOWN",
     policyText: policy.policyText,
     structuredJson: policy.rawText ? { rawText: policy.rawText } : undefined,
@@ -722,13 +727,22 @@ export async function createInventoryDocumentStaging(
    * tienen las mismas columnas: la de alojamiento guarda `structuredJson` y la
    * de actividad no.
    */
-  const politicasDeActividad = analysis.candidatePolicies.map((policy) => ({
+  const comoPoliticaDeActividad = (policy: (typeof analysis.candidatePolicies)[number]) => ({
     policyType: policy.policyType ?? "UNKNOWN",
     policyText: policy.policyText,
     structuredJson: policy.rawText ? { rawText: policy.rawText } : undefined,
     confidenceScore: confidence,
     reviewStatus: "PENDING",
-  }));
+  });
+  const politicasDeActividad = condicionesGenerales.map(comoPoliticaDeActividad);
+  const politicasPorActividad = new Map<string, ReturnType<typeof comoPoliticaDeActividad>[]>();
+  for (const policy of condicionesDeUna) {
+    const clave = (policy.activityName ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+    politicasPorActividad.set(clave, [
+      ...(politicasPorActividad.get(clave) ?? []),
+      comoPoliticaDeActividad(policy),
+    ]);
+  }
 
   const blackoutData = analysis.candidateBlackoutDates.map((blackout) => ({
     dateFrom: toStagingDate(blackout.dateFrom),
@@ -877,6 +891,12 @@ export async function createInventoryDocumentStaging(
     for (const activity of analysis.detectedActivities) {
       const suyas = tarifasPorActividad.get(normalizeKey(activity.activityName)) ?? [];
       const rates = suyas.map(({ _activityName, ...rate }) => rate);
+      // Las generales del documento (si es de solo actividades) más las de
+      // esta actividad en concreto.
+      const policies = [
+        ...(soloActividades ? politicasDeActividad : []),
+        ...(politicasPorActividad.get(normalizeKey(activity.activityName)) ?? []),
+      ];
 
       await tx.stagingActivity.create({
         data: {
@@ -894,10 +914,7 @@ export async function createInventoryDocumentStaging(
           // primera: aplican a cada producto del documento, y quien cotiza una
           // entrada de un dia necesita ver las gratuidades igual que quien
           // cotiza la de tres. Repetirlas es barato; que no aparezcan, no.
-          policies:
-            soloActividades && politicasDeActividad.length > 0
-              ? { create: politicasDeActividad }
-              : undefined,
+          policies: policies.length > 0 ? { create: policies } : undefined,
         },
       });
 

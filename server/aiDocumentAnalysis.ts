@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { completarCitasDesdeFilas, tieneFilas } from "./citaDeFila";
+import { leerPlantillaDeActividades } from "./plantillaDeActividades";
 import { mensajeDeErrorDelProveedor, type MensajeDeError } from "./erroresIa";
 import fs from "node:fs/promises";
 import type {
@@ -162,6 +163,15 @@ function getAiProviderConfig(): AiProviderConfig {
 export async function analyzeDocumentText(
   input: AnalyzeDocumentTextInput,
 ): Promise<AiDocumentAnalysisResult> {
+  // La plantilla de actividades de Oravia se lee sin modelo: es una tabla con
+  // columnas fijas, y cada celda va a su sitio. Solo si no lo es, se sigue.
+  const plantilla = leerPlantillaDeActividades(
+    input.attachmentPath,
+    input.context.controlName,
+    input.context.controlYear ?? null,
+  );
+  if (plantilla) return plantilla;
+
   const config = getAiProviderConfig();
 
   if (config.provider === "anthropic") {
