@@ -1051,7 +1051,7 @@ async function leerDocumentoConIa(documentId: string, regenerando: boolean): Pro
         regenerando
           ? "Se regeneraron los candidatos (se descartó la revisión previa):"
           : "Se crearon candidatos revisables:"
-      } ${result.accommodations} alojamiento(s), ${result.rates} tarifa(s), ${result.adjustments} suplemento(s), ${result.policies} política(s), ${result.blackoutDates} fecha(s) especial(es) y ${result.activities} actividad(es). Pendientes de revisión humana; no se publicó nada.`,
+      } ${result.accommodations} alojamiento(s), ${result.rates} tarifa(s), ${result.adjustments} suplemento(s), ${result.policies} política(s), ${result.blackoutDates} fecha(s) especial(es) y ${result.activities} actividad(es) con ${result.activityRates ?? 0} tarifa(s). Pendientes de revisión humana; no se publicó nada.`,
     });
 
     for (const warning of result.warnings) {
@@ -1060,6 +1060,17 @@ async function leerDocumentoConIa(documentId: string, regenerando: boolean): Pro
         severity: "WARNING",
         issueType: "STAGING_AMBIGUOUS_DATA",
         message: warning,
+      });
+    }
+
+    // La plantilla de actividades se lee celda a celda, sin modelo: que conste,
+    // porque en Consumo de IA este documento no aparecerá y no es un olvido.
+    if (analysis.mode === "plantilla") {
+      await addInventoryDocumentIssue({
+        sourceDocumentId: documentId,
+        severity: "INFO",
+        issueType: "PLANTILLA_SIN_IA",
+        message: `${analysis.documentSummary} No se ha usado el modelo: consumo cero.`,
       });
     }
 
