@@ -620,7 +620,7 @@ export const accommodationRateColumns: CandidateColumn[] = [
 
 /** Cómo se cobra una actividad. Es lo que decide el importe de una propuesta:
  *  190 € por equipo o 190 € por persona no se parecen en nada. */
-const RATE_UNIT_LABELS: Record<string, string> = {
+export const RATE_UNIT_LABELS: Record<string, string> = {
   PER_GROUP: "por equipo",
   PER_PAX: "por persona",
   PER_HOUR: "por hora",
