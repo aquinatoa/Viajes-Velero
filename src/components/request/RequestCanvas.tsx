@@ -41,6 +41,7 @@ import {
 } from "./draft";
 import type { ClientSegment } from "../../domain/documentImportTypes";
 import { podio, razonDelPodio } from "../../domain/podio";
+import { etiquetaDeRegimen } from "../../domain/rejillaDeTarifas";
 import { leerRango, leerUnaFecha } from "../../domain/fechas";
 import { interpretarRespuesta } from "../../domain/interpretarRespuesta";
 import {
@@ -157,7 +158,43 @@ function nochesEntre(desde: string, hasta: string): number {
 }
 
 function euros(valor: number): string {
-  return new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(valor);
+  // Los céntimos se enseñan cuando los hay. Redondearlos a cero dejaba «19 €»
+  // arriba y 383 € abajo (19,15 × 20), y nadie entendía la cuenta.
+  const conCentimos = Math.abs(valor - Math.round(valor)) >= 0.005;
+  return new Intl.NumberFormat("es-ES", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: conCentimos ? 2 : 0,
+    maximumFractionDigits: conCentimos ? 2 : 0,
+  }).format(valor);
+}
+
+/** El canal de una tarifa, en palabras. GENERIC es un código interno, no un nombre. */
+function canalEnPalabras(segmento: string | null | undefined): string {
+  const s = (segmento ?? "").trim();
+  if (!s || s === "GENERIC") return "general · vale para cualquier cliente";
+  if (s === "SWISS_TTOO") return "turoperador suizo";
+  return s;
+}
+
+/**
+ * La temporada de una tarifa, sin repetirse. El espejo local guarda como
+ * nombre de temporada el propio rango ISO, y salía dos veces: el rango y
+ * debajo las mismas fechas formateadas.
+ */
+function temporadaDe(r: { seasonName?: string | null; year?: number | null; dateFrom?: string | null; dateTo?: string | null }): string {
+  const nombre = (r.seasonName ?? "").trim();
+  const nombreUtil = nombre && !/^\d{4}-\d{2}-\d{2}/.test(nombre) ? nombre : "";
+  const fechas = r.dateFrom && r.dateTo ? `${fechaCorta(r.dateFrom)} → ${fechaCorta(r.dateTo)}` : "";
+  if (nombreUtil && fechas) return `${nombreUtil} · ${fechas}`;
+  return nombreUtil || fechas || String(r.year ?? "") || "sin nombre";
+}
+
+/** Orden natural del régimen en una lista: de menos a más servicio. */
+const ORDEN_REGIMEN_LISTA = ["SA", "AD", "MP", "PC"];
+function ordenRegimen(codigo: string | null | undefined): number {
+  const i = ORDEN_REGIMEN_LISTA.indexOf((codigo ?? "").toUpperCase());
+  return i === -1 ? 99 : i;
 }
 
 function sinAcentos(valor: string): string {
@@ -3025,7 +3062,7 @@ function Podio({
                 <span className="cv__ppos">{i + 1}º</span>
                 <span className="cv__pt">{item.accommodation.accommodationName}</span>
                 <span className="cv__ps">
-                  {[item.accommodation.categoryType, item.rate.boardType, item.accommodation.locality]
+                  {[item.accommodation.categoryType, etiquetaDeRegimen(item.rate.boardType), item.accommodation.locality]
                     .filter(Boolean)
                     .join(" · ")}
                 </span>
@@ -3092,7 +3129,12 @@ function DetalleAlojamiento({
 
   const alternativas = item.alternativas ?? [];
   const nombreTarifa = (r: AccommodationRate) =>
-    [r.boardType, r.occupancyLabel, r.includedService].filter(Boolean).join(" · ") || "sin describir";
+    [etiquetaDeRegimen(r.boardType), r.occupancyLabel, r.includedService].filter(Boolean).join(" · ") ||
+    "sin describir";
+  // Las alternativas, ordenadas como se leen: por régimen y, dentro, por precio.
+  const alternativasOrdenadas = [...alternativas].sort(
+    (a, b) => ordenRegimen(a.boardType) - ordenRegimen(b.boardType) || precioDeTarifa(a) - precioDeTarifa(b),
+  );
 
   // Dos tarifas con la misma descripcion y distinto precio son dos cosas
   // distintas que el documento no distinguio: el Santa Monica tiene media
@@ -3129,7 +3171,7 @@ function DetalleAlojamiento({
           </div>
           <div>
             <dt>Régimen</dt>
-            <dd>{item.rate.boardType || "sin especificar en la tarifa"}</dd>
+            <dd>{etiquetaDeRegimen(item.rate.boardType) || "sin especificar en la tarifa"}</dd>
           </div>
           <div>
             <dt>Habitación</dt>
@@ -3143,12 +3185,7 @@ function DetalleAlojamiento({
           ) : null}
           <div>
             <dt>Temporada</dt>
-            <dd>
-              {item.rate.seasonName || String(item.rate.year || "") || "sin nombre"}
-              {item.rate.dateFrom && item.rate.dateTo
-                ? ` · ${fechaCorta(item.rate.dateFrom)} → ${fechaCorta(item.rate.dateTo)}`
-                : ""}
-            </dd>
+            <dd>{temporadaDe(item.rate)}</dd>
           </div>
           {item.rate.minNights ? (
             <div>
@@ -3156,12 +3193,10 @@ function DetalleAlojamiento({
               <dd>{item.rate.minNights} noches</dd>
             </div>
           ) : null}
-          {item.rate.clientSegment ? (
-            <div>
-              <dt>Tarifa de</dt>
-              <dd>{item.rate.clientSegment}</dd>
-            </div>
-          ) : null}
+          <div>
+            <dt>Tarifa</dt>
+            <dd>{canalEnPalabras(item.rate.clientSegment)}</dd>
+          </div>
         </dl>
 
         <table className="cv__dettabla cv__dettabla--precio">
@@ -3239,16 +3274,24 @@ function DetalleAlojamiento({
               <tbody>
                 <tr className="cv__detsel">
                   <td>
-                    {nombreTarifa(item.rate)} <span className="cv__detchip">la seleccionada</span>
+                    {nombreTarifa(item.rate)} <span className="cv__detchip">alumnos</span>
                   </td>
-                  <td>{item.rate.seasonName || item.rate.year || "—"}</td>
+                  <td>{temporadaDe(item.rate)}</td>
                   <td>{item.rate.minNights || "—"}</td>
                   <td className="cv__num">{euros(nAlumno)}</td>
                 </tr>
-                {alternativas.map((r) => (
-                  <tr key={r.id}>
-                    <td>{nombreTarifa(r)}</td>
-                    <td>{r.seasonName || r.year || "—"}</td>
+                {alternativasOrdenadas.map((r) => (
+                  <tr key={r.id} className={item.singleRate && r.id === item.singleRate.id ? "cv__detsel" : undefined}>
+                    <td>
+                      {nombreTarifa(r)}
+                      {item.singleRate && r.id === item.singleRate.id ? (
+                        <>
+                          {" "}
+                          <span className="cv__detchip">profesores</span>
+                        </>
+                      ) : null}
+                    </td>
+                    <td>{temporadaDe(r)}</td>
                     <td>{r.minNights || "—"}</td>
                     <td className="cv__num">{euros(precioDeTarifa(r))}</td>
                   </tr>
@@ -3258,8 +3301,8 @@ function DetalleAlojamiento({
           </div>
           <p className="cv__detnota">
             Solo las tarifas válidas para las fechas del viaje; las de otras temporadas no se enseñan. La
-            búsqueda elige la marcada por lo que pidió el centro; de momento las demás no se pueden elegir
-            desde aquí.
+            búsqueda elige la de los alumnos por lo que pidió el centro, y la de uso individual para los
+            profesores cuando la hay; de momento las demás no se pueden elegir desde aquí.
           </p>
           {hayIndistinguibles ? (
             <p className="cv__detaviso">
