@@ -9,7 +9,7 @@ import { formatAmount } from "./inventoryFormatting";
  * Una celda con varios precios se enseña con todos y en otro color: es la
  * señal de que falta la dimensión que los distingue, y esconderla sería peor.
  */
-export function TablaDeTarifas({ rejilla }: { rejilla: Rejilla }) {
+export function TablaDeTarifas({ rejilla, seleccionadaId }: { rejilla: Rejilla; seleccionadaId?: string | null }) {
   const hayGrupos = rejilla.grupos.some((g) => g.nombre);
   const comun = [rejilla.year ? `Temporada ${rejilla.year}` : null, ...rejilla.comun].filter(Boolean);
 
@@ -57,13 +57,24 @@ export function TablaDeTarifas({ rejilla }: { rejilla: Rejilla }) {
                       );
                     }
                     const ambigua = celda.importes.length > 1;
+                    const elegida = Boolean(seleccionadaId && celda.ids.includes(seleccionadaId));
+                    const clases = ["tarifas__precio"];
+                    if (ambigua) clases.push("tarifas__precio--ambiguo");
+                    if (elegida) clases.push("tarifas__precio--elegida");
                     return (
                       <td
                         key={`${g.nombre}||${c}`}
-                        className={ambigua ? "tarifas__precio tarifas__precio--ambiguo" : "tarifas__precio"}
-                        title={ambigua ? `${celda.importes.length} precios en la misma celda: falta lo que los distingue` : undefined}
+                        className={clases.join(" ")}
+                        title={
+                          ambigua
+                            ? `${celda.importes.length} precios en la misma celda: falta lo que los distingue`
+                            : elegida
+                              ? "La tarifa elegida"
+                              : undefined
+                        }
                       >
                         {celda.importes.map((i) => formatAmount(i, celda.currency)).join(" / ")}
+                        {elegida ? <span className="tarifas__marca"> ✓</span> : null}
                       </td>
                     );
                   }),

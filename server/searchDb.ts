@@ -721,9 +721,21 @@ export async function searchActivitiesDb(
     }
   }
 
-  const matches: ActivitySearchMatch[] = [...bestByActivity.values()].sort(
-    (a, b) => b.score - a.score
-  );
+  // Las demás tarifas de cada actividad, para que quien cotiza sepa cuál se
+  // ha elegido y entre cuáles. Igual que en los alojamientos.
+  const tarifasPorActividad = new Map<string, ActivitySearchMatch["rate"][]>();
+  for (const item of perRateMatches) {
+    const lista = tarifasPorActividad.get(item.activity.id) ?? [];
+    lista.push(item.rate);
+    tarifasPorActividad.set(item.activity.id, lista);
+  }
+
+  const matches: ActivitySearchMatch[] = [...bestByActivity.values()]
+    .sort((a, b) => b.score - a.score)
+    .map((item) => ({
+      ...item,
+      alternativas: (tarifasPorActividad.get(item.activity.id) ?? []).filter((r) => r.id !== item.rate.id),
+    }));
 
   // Las que el catálogo tiene SIN NINGUNA tarifa.
   //

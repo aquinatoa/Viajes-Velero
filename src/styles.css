@@ -11859,3 +11859,13 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 .tarifas__tabla .tarifas__precio { text-align: right; font-variant-numeric: tabular-nums; }
 .tarifas__tabla .tarifas__precio--ambiguo { color: var(--danger); font-weight: 600; }
 .tarifas__tabla .tarifas__vacia { text-align: right; color: var(--muted, inherit); }
+
+/* La ventana del detalle de un hotel: más ancha que las demás, porque trae
+   tres tablas, y con el cuerpo desplazable. */
+.cv__vent--detalle { width: min(980px, 100%); }
+.cv__vent--detalle .cv__ventb { padding-top: var(--sp-3); }
+.cv__vent--detalle .cv__det { border: 0; padding: 0; margin: 0; }
+.cv__acttar { opacity: 0.85; }
+.cv__info--act { margin-left: 42px; }
+.tarifas__tabla .tarifas__precio--elegida { background: var(--highlight-bg, rgba(31, 122, 77, 0.12)); font-weight: 700; }
+.tarifas__marca { color: var(--ok, #1f7a4d); }
