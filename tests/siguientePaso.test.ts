@@ -44,12 +44,16 @@ prueba("simulada: el colegio no ha recibido nada", () => {
   const p = paso({ estado: "SIMULATED", sentAt: hace(1) });
   assert.match(p.titulo, /no ha salido/i);
   assert.equal(p.urgencia, "urgente");
+  // Y trae el boton de enviar: hasta el 06/10/2026 el cartel salia sin salida,
+  // y en cuanto el buzon tuviera clave nadie podia mandarla desde la app.
+  assert.equal(p.accion, "enviar");
 });
 
 prueba("fallida: se reintenta, y se dice que no duplica", () => {
   const p = paso({ estado: "FAILED" });
   assert.match(p.titulo, /reintentar/i);
   assert.match(p.porque, /no duplica/i);
+  assert.equal(p.accion, "enviar");
 });
 
 prueba("sin enviar todavía", () => {

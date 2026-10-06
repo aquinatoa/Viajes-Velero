@@ -158,6 +158,8 @@ export interface ImportIssue {
   rawValue?: string | null;
   pageNumber?: number | null;
   resolved: boolean;
+  /** Lo trae la API (ordena por él); el front lo usa para saber qué fue lo último. */
+  createdAt?: string | null;
 }
 
 export interface DocumentExtraction {
@@ -374,6 +376,12 @@ export interface AiCandidateRate {
   netAmount?: number | null;
   costAmount?: number | null;
   rawText?: string | null;
+  /**
+   * Numero de fila de la hoja de calculo de la que sale el candidato, cuando el
+   * documento tiene filas. Es la cita de origen barata: el literal se
+   * reconstruye desde la extraccion guardada, sin que el modelo lo copie.
+   */
+  sourceRow?: number | null;
 }
 
 /**
@@ -398,6 +406,12 @@ export interface AiCandidateActivityRate {
   minPax?: number | null;
   maxPax?: number | null;
   rawText?: string | null;
+  /**
+   * Numero de fila de la hoja de calculo de la que sale el candidato, cuando el
+   * documento tiene filas. Es la cita de origen barata: el literal se
+   * reconstruye desde la extraccion guardada, sin que el modelo lo copie.
+   */
+  sourceRow?: number | null;
 }
 
 export interface AiCandidateSupplement {
@@ -410,6 +424,12 @@ export interface AiCandidateSupplement {
   appliesPer?: string | null;
   conditionText?: string | null;
   rawText?: string | null;
+  /**
+   * Numero de fila de la hoja de calculo de la que sale el candidato, cuando el
+   * documento tiene filas. Es la cita de origen barata: el literal se
+   * reconstruye desde la extraccion guardada, sin que el modelo lo copie.
+   */
+  sourceRow?: number | null;
 }
 
 export interface AiCandidatePolicy {
@@ -424,6 +444,33 @@ export interface AiCandidateBlackoutDate {
   availabilityStatus?: string | null;
   reason?: string | null;
   rawText?: string | null;
+  /**
+   * Numero de fila de la hoja de calculo de la que sale el candidato, cuando el
+   * documento tiene filas. Es la cita de origen barata: el literal se
+   * reconstruye desde la extraccion guardada, sin que el modelo lo copie.
+   */
+  sourceRow?: number | null;
+}
+
+/**
+ * Lo que costo una lectura, sumando todas sus llamadas.
+ *
+ * `inputTokens` del proveedor EXCLUYE lo que se leyo de cache: por eso van las
+ * cuatro cifras, o el contador de los PDF —que viajan cacheados— miente por
+ * defecto. `outputChars` es el texto devuelto; su diferencia con `outputTokens`
+ * estima cuanto de la salida fue pensamiento, que se factura igual.
+ */
+export interface AiUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  outputChars: number;
+  /** Cuantas llamadas al proveedor hubo en esta lectura. */
+  calls: number;
+  model: string;
+  /** Variante de lectura que corrio, para poder comparar. */
+  variant?: string | null;
 }
 
 export interface AiDocumentAnalysisResult {
@@ -445,8 +492,8 @@ export interface AiDocumentAnalysisResult {
   candidateBlackoutDates: AiCandidateBlackoutDate[];
   warnings: string[];
   confidence: number;
-  /** Consumo de la llamada, cuando el proveedor lo informa. */
-  usage?: { inputTokens: number; outputTokens: number; model: string } | null;
+  /** Consumo de la lectura, cuando el proveedor lo informa. */
+  usage?: AiUsage | null;
   rawModelOutput?: string | null;
 }
 
@@ -684,6 +731,18 @@ export interface CatalogRate {
   period?: string | null;
   currency?: string | null;
   amount?: number | null;
+  /** Las dimensiones que distinguen una tarifa de otra; con ellas se pinta la tabla. */
+  seasonName?: string | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  boardType?: string | null;
+  occupancyLabel?: string | null;
+  includedService?: string | null;
+  clientSegment?: string | null;
+  minNights?: number | null;
+  tariffUnit?: string | null;
+  ageLabel?: string | null;
+  durationText?: string | null;
 }
 
 export interface CatalogAccommodation {

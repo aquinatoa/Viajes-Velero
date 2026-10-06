@@ -57,6 +57,7 @@ import {
 } from "./RateReviewTable";
 import { buildMatrix, RateDetailDialog, RateMatrix } from "./RateMatrix";
 import { checkRateBlocks, checkRates, requiereConfirmarReparto } from "../../domain/rateChecks";
+import { etiquetaDeFallo, ultimoFalloDeLectura } from "../../domain/falloDeLectura";
 
 /** Estados de revisión en claro, para la cabecera de cada alojamiento. */
 const reviewStatusLabels: Record<string, string> = {
@@ -388,7 +389,7 @@ function ImportIssuesPanel({ issues }: { issues: ImportIssue[] }) {
                   {issueSeverityLabels[group.severity] ?? group.severity}
                 </span>
                 <span className="issue-group__type">
-                  {issueTypeLabels[group.issueType] ?? group.issueType}
+                  {issueTypeLabels[group.issueType] ?? etiquetaDeFallo(group.issueType) ?? group.issueType}
                 </span>
                 {group.count > 1 ? (
                   <span className="issue-group__count">×{group.count}</span>
@@ -910,6 +911,20 @@ export function DocumentWorkspace({
         title: "Sube el archivo de tarifas",
         hint: "Sin el PDF o el Excel no hay nada que leer.",
         action: null,
+      };
+    }
+
+    // Si lo último que pasó fue un fallo, eso es lo que hay que decir. Antes
+    // esta tarjeta seguía diciendo «Lee el documento, tarda un par de minutos»
+    // con tres fallos del proveedor guardados en la pestaña de incidencias.
+    const fallo = ultimoFalloDeLectura(detail.importIssues);
+    if (candidatos === 0 && fallo) {
+      return {
+        tone: "failed" as const,
+        eyebrow: "La última lectura falló",
+        title: fallo.titulo,
+        hint: fallo.mensaje,
+        action: { label: "Leer de nuevo", run: () => void handleReadDocument() },
       };
     }
 

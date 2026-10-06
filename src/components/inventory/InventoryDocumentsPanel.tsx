@@ -20,6 +20,7 @@ import {
   uploadInventoryDocumentFileApi,
 } from "../../services/apiClient";
 import { InventoryCatalogView } from "./InventoryCatalogView";
+import { ConsumoIaView } from "./ConsumoIaView";
 import { DocumentWorkspace } from "./DocumentWorkspace";
 import { NewDocumentDropzone } from "./NewDocumentDropzone";
 import {
@@ -61,7 +62,7 @@ export function InventoryDocumentsPanel() {
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
   // Vista del panel: gestión documental vs. catálogo global publicado.
-  const [panelView, setPanelView] = useState<"documents" | "catalog">("documents");
+  const [panelView, setPanelView] = useState<"documents" | "catalog" | "consumo">("documents");
 
   // Formulario de registro: plegable y reutilizado para crear o editar.
   const [formOpen, setFormOpen] = useState(false);
@@ -319,9 +320,17 @@ export function InventoryDocumentsPanel() {
         >
           Catálogo publicado
         </button>
+        <button
+          type="button"
+          className={`ws-tab ${panelView === "consumo" ? "ws-tab--active" : ""}`}
+          onClick={() => setPanelView("consumo")}
+        >
+          Consumo de IA
+        </button>
       </nav>
 
       {panelView === "catalog" ? <InventoryCatalogView /> : null}
+      {panelView === "consumo" ? <ConsumoIaView /> : null}
 
       {panelView === "documents" ? (
       <>

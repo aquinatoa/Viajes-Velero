@@ -41,6 +41,8 @@ import {
 } from "./draft";
 import type { ClientSegment } from "../../domain/documentImportTypes";
 import { podio, razonDelPodio } from "../../domain/podio";
+import { etiquetaDeRegimen, rejillaDeActividad } from "../../domain/rejillaDeTarifas";
+import { TablaDeTarifas } from "../inventory/TablaDeTarifas";
 import { leerRango, leerUnaFecha } from "../../domain/fechas";
 import { interpretarRespuesta } from "../../domain/interpretarRespuesta";
 import {
@@ -157,7 +159,43 @@ function nochesEntre(desde: string, hasta: string): number {
 }
 
 function euros(valor: number): string {
-  return new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(valor);
+  // Los céntimos se enseñan cuando los hay. Redondearlos a cero dejaba «19 €»
+  // arriba y 383 € abajo (19,15 × 20), y nadie entendía la cuenta.
+  const conCentimos = Math.abs(valor - Math.round(valor)) >= 0.005;
+  return new Intl.NumberFormat("es-ES", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: conCentimos ? 2 : 0,
+    maximumFractionDigits: conCentimos ? 2 : 0,
+  }).format(valor);
+}
+
+/** El canal de una tarifa, en palabras. GENERIC es un código interno, no un nombre. */
+function canalEnPalabras(segmento: string | null | undefined): string {
+  const s = (segmento ?? "").trim();
+  if (!s || s === "GENERIC") return "general · vale para cualquier cliente";
+  if (s === "SWISS_TTOO") return "turoperador suizo";
+  return s;
+}
+
+/**
+ * La temporada de una tarifa, sin repetirse. El espejo local guarda como
+ * nombre de temporada el propio rango ISO, y salía dos veces: el rango y
+ * debajo las mismas fechas formateadas.
+ */
+function temporadaDe(r: { seasonName?: string | null; year?: number | null; dateFrom?: string | null; dateTo?: string | null }): string {
+  const nombre = (r.seasonName ?? "").trim();
+  const nombreUtil = nombre && !/^\d{4}-\d{2}-\d{2}/.test(nombre) ? nombre : "";
+  const fechas = r.dateFrom && r.dateTo ? `${fechaCorta(r.dateFrom)} → ${fechaCorta(r.dateTo)}` : "";
+  if (nombreUtil && fechas) return `${nombreUtil} · ${fechas}`;
+  return nombreUtil || fechas || String(r.year ?? "") || "sin nombre";
+}
+
+/** Orden natural del régimen en una lista: de menos a más servicio. */
+const ORDEN_REGIMEN_LISTA = ["SA", "AD", "MP", "PC"];
+function ordenRegimen(codigo: string | null | undefined): number {
+  const i = ORDEN_REGIMEN_LISTA.indexOf((codigo ?? "").toUpperCase());
+  return i === -1 ? 99 : i;
 }
 
 function sinAcentos(valor: string): string {
@@ -358,6 +396,8 @@ export function RequestCanvas({
   const [contactoCrm, setContactoCrm] = useState<ContactoDelCrm | null>(null);
   /** Hotel cuyo detalle se está mirando. Popover, no modal: no interrumpe. */
   const [detalle, setDetalle] = useState<string | null>(null);
+  /** Actividad cuya ventana de tarifas está abierta. */
+  const [detalleActividad, setDetalleActividad] = useState<string | null>(null);
   const [revisando, setRevisando] = useState(false);
   /**
    * Se esta rehaciendo el documento, no enviando.
@@ -1807,6 +1847,18 @@ export function RequestCanvas({
 
           {selec === "actividades" && actividades ? (
             <div className="cv__card">
+              {detalleActividad
+                ? (() => {
+                    const item = actividades.matches.find((m) => m.activity.id === detalleActividad);
+                    return item ? (
+                      <VentanaDeActividad
+                        item={item}
+                        alumnos={entendido?.participants ?? 0}
+                        onCerrar={() => setDetalleActividad(null)}
+                      />
+                    ) : null;
+                  })()
+                : null}
               <div className="cv__cardh">
                 <span className="cv__lbl">El programa</span>
                 <button
@@ -1833,10 +1885,25 @@ export function RequestCanvas({
                         <span className="cv__actm">
                           <span className="cv__actt">{item.activity.activityName}</span>
                           <span className="cv__acts2">{[item.activity.locationMain, item.activity.durationText].filter(Boolean).join(" · ")}</span>
+                          {/* Qué tarifa es. PortAventura Park tiene 81 y aquí
+                              solo se veía un precio, sin decir de cuál. */}
+                          <span className="cv__acts2 cv__acttar">
+                            {item.rate.ageLabel ? `Tarifa: ${item.rate.ageLabel}` : "Tarifa única"}
+                            {" · por persona"}
+                            {(item.alternativas?.length ?? 0) > 0 ? ` · ${item.alternativas!.length + 1} tarifas` : ""}
+                          </span>
                         </span>
                         <span className={item.rate.salePvpAmount ? "cv__actp" : "cv__actp cv__actp--none"}>
                           {item.rate.salePvpAmount ? euros(item.rate.salePvpAmount) : "a consultar"}
                         </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="cv__info cv__info--act"
+                        aria-haspopup="dialog"
+                        onClick={() => setDetalleActividad(item.activity.id)}
+                      >
+                        Ver tarifas
                       </button>
                     </li>
                   );
@@ -3025,7 +3092,7 @@ function Podio({
                 <span className="cv__ppos">{i + 1}º</span>
                 <span className="cv__pt">{item.accommodation.accommodationName}</span>
                 <span className="cv__ps">
-                  {[item.accommodation.categoryType, item.rate.boardType, item.accommodation.locality]
+                  {[item.accommodation.categoryType, etiquetaDeRegimen(item.rate.boardType), item.accommodation.locality]
                     .filter(Boolean)
                     .join(" · ")}
                 </span>
@@ -3092,7 +3159,12 @@ function DetalleAlojamiento({
 
   const alternativas = item.alternativas ?? [];
   const nombreTarifa = (r: AccommodationRate) =>
-    [r.boardType, r.occupancyLabel, r.includedService].filter(Boolean).join(" · ") || "sin describir";
+    [etiquetaDeRegimen(r.boardType), r.occupancyLabel, r.includedService].filter(Boolean).join(" · ") ||
+    "sin describir";
+  // Las alternativas, ordenadas como se leen: por régimen y, dentro, por precio.
+  const alternativasOrdenadas = [...alternativas].sort(
+    (a, b) => ordenRegimen(a.boardType) - ordenRegimen(b.boardType) || precioDeTarifa(a) - precioDeTarifa(b),
+  );
 
   // Dos tarifas con la misma descripcion y distinto precio son dos cosas
   // distintas que el documento no distinguio: el Santa Monica tiene media
@@ -3129,7 +3201,7 @@ function DetalleAlojamiento({
           </div>
           <div>
             <dt>Régimen</dt>
-            <dd>{item.rate.boardType || "sin especificar en la tarifa"}</dd>
+            <dd>{etiquetaDeRegimen(item.rate.boardType) || "sin especificar en la tarifa"}</dd>
           </div>
           <div>
             <dt>Habitación</dt>
@@ -3143,12 +3215,7 @@ function DetalleAlojamiento({
           ) : null}
           <div>
             <dt>Temporada</dt>
-            <dd>
-              {item.rate.seasonName || String(item.rate.year || "") || "sin nombre"}
-              {item.rate.dateFrom && item.rate.dateTo
-                ? ` · ${fechaCorta(item.rate.dateFrom)} → ${fechaCorta(item.rate.dateTo)}`
-                : ""}
-            </dd>
+            <dd>{temporadaDe(item.rate)}</dd>
           </div>
           {item.rate.minNights ? (
             <div>
@@ -3156,12 +3223,10 @@ function DetalleAlojamiento({
               <dd>{item.rate.minNights} noches</dd>
             </div>
           ) : null}
-          {item.rate.clientSegment ? (
-            <div>
-              <dt>Tarifa de</dt>
-              <dd>{item.rate.clientSegment}</dd>
-            </div>
-          ) : null}
+          <div>
+            <dt>Tarifa</dt>
+            <dd>{canalEnPalabras(item.rate.clientSegment)}</dd>
+          </div>
         </dl>
 
         <table className="cv__dettabla cv__dettabla--precio">
@@ -3239,16 +3304,24 @@ function DetalleAlojamiento({
               <tbody>
                 <tr className="cv__detsel">
                   <td>
-                    {nombreTarifa(item.rate)} <span className="cv__detchip">la seleccionada</span>
+                    {nombreTarifa(item.rate)} <span className="cv__detchip">alumnos</span>
                   </td>
-                  <td>{item.rate.seasonName || item.rate.year || "—"}</td>
+                  <td>{temporadaDe(item.rate)}</td>
                   <td>{item.rate.minNights || "—"}</td>
                   <td className="cv__num">{euros(nAlumno)}</td>
                 </tr>
-                {alternativas.map((r) => (
-                  <tr key={r.id}>
-                    <td>{nombreTarifa(r)}</td>
-                    <td>{r.seasonName || r.year || "—"}</td>
+                {alternativasOrdenadas.map((r) => (
+                  <tr key={r.id} className={item.singleRate && r.id === item.singleRate.id ? "cv__detsel" : undefined}>
+                    <td>
+                      {nombreTarifa(r)}
+                      {item.singleRate && r.id === item.singleRate.id ? (
+                        <>
+                          {" "}
+                          <span className="cv__detchip">profesores</span>
+                        </>
+                      ) : null}
+                    </td>
+                    <td>{temporadaDe(r)}</td>
                     <td>{r.minNights || "—"}</td>
                     <td className="cv__num">{euros(precioDeTarifa(r))}</td>
                   </tr>
@@ -3258,8 +3331,8 @@ function DetalleAlojamiento({
           </div>
           <p className="cv__detnota">
             Solo las tarifas válidas para las fechas del viaje; las de otras temporadas no se enseñan. La
-            búsqueda elige la marcada por lo que pidió el centro; de momento las demás no se pueden elegir
-            desde aquí.
+            búsqueda elige la de los alumnos por lo que pidió el centro, y la de uso individual para los
+            profesores cuando la hay; de momento las demás no se pueden elegir desde aquí.
           </p>
           {hayIndistinguibles ? (
             <p className="cv__detaviso">
@@ -3316,6 +3389,204 @@ function DetalleAlojamiento({
   );
 }
 
+/**
+ * El detalle de un hotel, en una ventana sobre el velo.
+ *
+ * Antes se desplegaba en línea debajo de la fila: con las tres tablas que
+ * trae, empujaba la lista entera hacia abajo y había que volver a buscar
+ * dónde estabas. Una ventana se lee, se cierra, y la lista no se ha movido.
+ * Es el mismo velo que «Lo que hemos entendido».
+ */
+function VentanaDeDetalle({
+  item,
+  noches,
+  alumnos,
+  profesores,
+  desde,
+  hasta,
+  onCerrar,
+}: {
+  item: AccommodationSearchMatch;
+  noches: number;
+  alumnos: number;
+  profesores: number;
+  desde: string;
+  hasta: string;
+  onCerrar: () => void;
+}) {
+  // Escape cierra, como cualquier ventana. Sin esto hay que buscar la aspa.
+  useEffect(() => {
+    const alPulsar = (evento: KeyboardEvent) => {
+      if (evento.key === "Escape") onCerrar();
+    };
+    window.addEventListener("keydown", alPulsar);
+    return () => window.removeEventListener("keydown", alPulsar);
+  }, [onCerrar]);
+
+  const sub = [
+    item.accommodation.categoryType,
+    etiquetaDeRegimen(item.rate.boardType),
+    item.accommodation.locality,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <div
+      className="cv__velo"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Detalle de ${item.accommodation.accommodationName}`}
+      onClick={(evento) => {
+        // Pulsar fuera de la ventana la cierra; dentro, no.
+        if (evento.target === evento.currentTarget) onCerrar();
+      }}
+    >
+      <div className="cv__vent cv__vent--detalle">
+        <header className="cv__venth">
+          <div>
+            <p className="cv__venttl">{item.accommodation.accommodationName}</p>
+            {sub ? <p className="cv__ventsub">{sub}</p> : null}
+          </div>
+          <button type="button" className="cv__ventx" onClick={onCerrar} aria-label="Cerrar">
+            ✕
+          </button>
+        </header>
+        <div className="cv__ventb">
+          <DetalleAlojamiento
+            item={item}
+            noches={noches}
+            alumnos={alumnos}
+            profesores={profesores}
+            desde={desde}
+            hasta={hasta}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * La ventana de una actividad: qué tarifa se ha elegido, por qué, y todas las
+ * que tiene para este canal, con la elegida marcada. Antes la fila enseñaba un
+ * precio sin decir de qué tarifa era, y PortAventura Park tiene 81.
+ */
+function VentanaDeActividad({
+  item,
+  alumnos,
+  onCerrar,
+}: {
+  item: ActivitySearchMatch;
+  alumnos: number;
+  onCerrar: () => void;
+}) {
+  useEffect(() => {
+    const alPulsar = (evento: KeyboardEvent) => {
+      if (evento.key === "Escape") onCerrar();
+    };
+    window.addEventListener("keydown", alPulsar);
+    return () => window.removeEventListener("keydown", alPulsar);
+  }, [onCerrar]);
+
+  const todas = [item.rate, ...(item.alternativas ?? [])];
+  const rejilla = rejillaDeActividad(
+    todas.map((r) => ({
+      id: r.id,
+      year: r.year,
+      ageLabel: r.ageLabel || null,
+      label: r.ageLabel || null,
+      currency: "EUR",
+      amount: r.salePvpAmount > 0 ? r.salePvpAmount : null,
+      durationText: r.durationText || null,
+      clientSegment: null,
+    })),
+  );
+  const precio = item.rate.salePvpAmount;
+  const sub = [item.activity.supplierName, item.activity.locationMain, item.activity.durationText]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <div
+      className="cv__velo"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Tarifas de ${item.activity.activityName}`}
+      onClick={(evento) => {
+        if (evento.target === evento.currentTarget) onCerrar();
+      }}
+    >
+      <div className="cv__vent cv__vent--detalle">
+        <header className="cv__venth">
+          <div>
+            <p className="cv__venttl">{item.activity.activityName}</p>
+            {sub ? <p className="cv__ventsub">{sub}</p> : null}
+          </div>
+          <button type="button" className="cv__ventx" onClick={onCerrar} aria-label="Cerrar">
+            ✕
+          </button>
+        </header>
+        <div className="cv__ventb">
+          <div className="cv__det">
+            <div className="cv__detbloq">
+              <p className="cv__deth">Esto es lo que vas a añadir al programa</p>
+              <dl className="cv__detgrid">
+                <div>
+                  <dt>Tarifa</dt>
+                  <dd>{item.rate.ageLabel || "tarifa única"}</dd>
+                </div>
+                <div>
+                  <dt>Precio</dt>
+                  <dd>{precio > 0 ? `${euros(precio)} por persona` : "a consultar"}</dd>
+                </div>
+                {precio > 0 && alumnos > 0 ? (
+                  <div>
+                    <dt>Para el grupo</dt>
+                    <dd>
+                      {euros(precio)} × {alumnos} {alumnos === 1 ? "alumno" : "alumnos"} = {euros(precio * alumnos)}
+                    </dd>
+                  </div>
+                ) : null}
+              </dl>
+              <p className="cv__detnota">
+                El precio por persona se suma al precio por alumno de cada opción en la que esté esta actividad.
+              </p>
+            </div>
+
+            {item.matchReasons.length > 0 ? (
+              <div className="cv__detbloq">
+                <p className="cv__deth">Por qué esta tarifa</p>
+                <ul className="cv__detenc">
+                  {item.matchReasons.map((razon, i) => (
+                    <li key={i} className="cv__detenc--cumple">
+                      <b>✓</b>
+                      <span>{razon}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {rejilla && todas.length > 1 ? (
+              <div className="cv__detbloq">
+                <p className="cv__deth">
+                  Todas las tarifas de esta actividad <span className="cv__detn">{todas.length}</span>
+                </p>
+                <TablaDeTarifas rejilla={rejilla} seleccionadaId={item.rate.id} />
+                <p className="cv__detnota">
+                  La marcada con ✓ es la que se ha elegido para este grupo. De momento las demás no se pueden elegir
+                  desde aquí.
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ListaOpciones({
   hoteles,
   elegidos,
@@ -3351,9 +3622,21 @@ function ListaOpciones({
 }) {
   const tres = podio(hoteles);
   const enElPodio = new Set(tres.map((item) => item.accommodation.id));
+  const enDetalle = detalle ? hoteles.find((item) => item.accommodation.id === detalle) ?? null : null;
 
   return (
     <>
+      {enDetalle ? (
+        <VentanaDeDetalle
+          item={enDetalle}
+          noches={noches}
+          alumnos={alumnos}
+          profesores={profesores}
+          desde={desde}
+          hasta={hasta}
+          onCerrar={() => onDetalle(enDetalle.accommodation.id)}
+        />
+      ) : null}
       <Podio
         tres={tres}
         elegidos={elegidos}
@@ -3432,21 +3715,12 @@ function ListaOpciones({
               <button
                 type="button"
                 className="cv__info"
+                aria-haspopup="dialog"
                 aria-expanded={abierto}
                 onClick={() => onDetalle(item.accommodation.id)}
               >
-                {abierto ? "Ocultar el detalle" : "Ver todo el detalle"}
+                Ver todo el detalle
               </button>
-              {abierto ? (
-                <DetalleAlojamiento
-                  item={item}
-                  noches={noches}
-                  alumnos={alumnos}
-                  profesores={profesores}
-                  desde={desde}
-                  hasta={hasta}
-                />
-              ) : null}
               {puesto && (fuera.length || dentro.length) ? (
                 <p className="cv__delta">
                   <span>Programa base</span>

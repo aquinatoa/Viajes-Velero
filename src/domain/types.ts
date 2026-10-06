@@ -292,6 +292,12 @@ export interface ActivitySearchMatch {
   precioAFijar?: boolean;
   /** El precio que ha puesto a mano quien cotiza, cuando lo ha puesto. */
   precioFijado?: number | null;
+  /**
+   * Las demás tarifas de la actividad para este canal. PortAventura Park tiene
+   * 81 -tramo de edad × tipo de entrada × periodo- y quien cotizaba veía una
+   * sola, sin saber cuál era ni que había otras.
+   */
+  alternativas?: ActivityRate[];
 }
 
 export interface SearchAccommodationsResult {

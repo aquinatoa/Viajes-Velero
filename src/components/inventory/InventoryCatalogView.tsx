@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
+import { rejillaDeActividad, rejillaDeAlojamiento } from "../../domain/rejillaDeTarifas";
+import { TablaDeTarifas } from "./TablaDeTarifas";
 import type {
   CatalogAccommodation,
   CatalogActivity,
   PublishedInventoryCatalog,
 } from "../../domain/documentImportTypes";
 import { getInventoryCatalogApi } from "../../services/apiClient";
-import { formatAmount, getErrorMessage } from "./inventoryFormatting";
+import { getErrorMessage } from "./inventoryFormatting";
 
 /**
  * Catálogo global del inventario operativo publicado: reúne TODOS los
@@ -112,17 +114,14 @@ export function InventoryCatalogView() {
                           {accommodation.rates.length} tarifa(s)
                         </span>
                       </summary>
-                      <ul className="detail-list">
-                        {accommodation.rates.map((rate) => (
-                          <li key={rate.id}>
-                            {rate.year} · {rate.label ?? "—"}
-                            {rate.period ? ` · ${rate.period}` : ""} ·{" "}
-                            {rate.amount != null
-                              ? formatAmount(rate.amount, rate.currency)
-                              : "sin precio"}
-                          </li>
-                        ))}
-                      </ul>
+                      {(() => {
+                        const rejilla = rejillaDeAlojamiento(accommodation.rates);
+                        return rejilla ? (
+                          <TablaDeTarifas rejilla={rejilla} />
+                        ) : (
+                          <p className="rate-table__empty">Sin tarifas publicadas.</p>
+                        );
+                      })()}
                     </details>
                   </li>
                 ))}
@@ -152,16 +151,14 @@ export function InventoryCatalogView() {
                           {activity.rates.length} tarifa(s)
                         </span>
                       </summary>
-                      <ul className="detail-list">
-                        {activity.rates.map((rate) => (
-                          <li key={rate.id}>
-                            {rate.year} · {rate.label ?? "—"} ·{" "}
-                            {rate.amount != null
-                              ? formatAmount(rate.amount, rate.currency)
-                              : "sin precio"}
-                          </li>
-                        ))}
-                      </ul>
+                      {(() => {
+                        const rejilla = rejillaDeActividad(activity.rates);
+                        return rejilla ? (
+                          <TablaDeTarifas rejilla={rejilla} />
+                        ) : (
+                          <p className="rate-table__empty">Sin tarifas publicadas.</p>
+                        );
+                      })()}
                     </details>
                   </li>
                 ))}

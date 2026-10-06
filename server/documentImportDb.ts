@@ -85,6 +85,77 @@ export async function updateInventoryDocumentAiUsage(
   });
 }
 
+export interface LecturaIaParaRegistrar {
+  sourceDocumentId: string;
+  proveedor: string;
+  modelo: string;
+  variante?: string | null;
+  resultado: "OK" | "FALLIDA";
+  error?: string | null;
+  llamadas: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  outputChars: number;
+  iniciadaEn: Date;
+}
+
+/**
+ * Una fila por intento de lectura, termine como termine.
+ *
+ * Es lo que permite saber cuánto se gastó en un mes, cuánto costó un intento
+ * fallido y cuánto se leyó de caché. `updateInventoryDocumentAiUsage` sigue
+ * guardando el resumen de la última lectura buena en el documento, para no
+ * cambiar lo que ya se enseña.
+ */
+export async function registrarLecturaIa(lectura: LecturaIaParaRegistrar) {
+  return prisma.aiLectura.create({
+    data: {
+      sourceDocumentId: lectura.sourceDocumentId,
+      proveedor: lectura.proveedor,
+      modelo: lectura.modelo,
+      variante: lectura.variante ?? null,
+      resultado: lectura.resultado,
+      error: lectura.error ?? null,
+      llamadas: lectura.llamadas,
+      inputTokens: lectura.inputTokens,
+      outputTokens: lectura.outputTokens,
+      cacheCreationTokens: lectura.cacheCreationTokens,
+      cacheReadTokens: lectura.cacheReadTokens,
+      outputChars: lectura.outputChars,
+      iniciadaEn: lectura.iniciadaEn,
+    },
+  });
+}
+
+/** Todas las lecturas registradas, con el nombre del documento, de la más reciente a la más antigua. */
+export async function listarLecturasIa(limite = 1000) {
+  const filas = await prisma.aiLectura.findMany({
+    orderBy: { terminadaEn: "desc" },
+    take: limite,
+    include: { sourceDocument: { select: { controlName: true, originalFileName: true } } },
+  });
+  return filas.map((f) => ({
+    id: f.id,
+    sourceDocumentId: f.sourceDocumentId,
+    documento: f.sourceDocument.controlName || f.sourceDocument.originalFileName || f.sourceDocumentId,
+    proveedor: f.proveedor,
+    modelo: f.modelo,
+    variante: f.variante,
+    resultado: f.resultado,
+    error: f.error,
+    llamadas: f.llamadas,
+    inputTokens: f.inputTokens,
+    outputTokens: f.outputTokens,
+    cacheCreationTokens: f.cacheCreationTokens,
+    cacheReadTokens: f.cacheReadTokens,
+    outputChars: f.outputChars,
+    iniciadaEn: f.iniciadaEn,
+    terminadaEn: f.terminadaEn,
+  }));
+}
+
 export async function attachInventoryDocumentFile(input: AttachInventoryDocumentFileInput) {
   return prisma.sourceDocument.update({
     where: {
@@ -2182,6 +2253,19 @@ export async function getPublishedInventoryCatalog(): Promise<PublishedInventory
       period: catalogPeriod(rate),
       currency: rate.currency,
       amount: decimalToNumber(rate.pvpAmount) ?? decimalToNumber(rate.netSaleAmount),
+      // Las dimensiones que distinguen una tarifa de otra del mismo hotel y
+      // régimen. Sin ellas el catálogo enseñaba treinta líneas iguales salvo
+      // el precio, y el espejo local —que se construye desde aquí— cotizaba a
+      // los profesores al precio de los alumnos por no saber cuál era cuál.
+      seasonName: rate.seasonName,
+      dateFrom: rate.dateFrom ? rate.dateFrom.toISOString().slice(0, 10) : null,
+      dateTo: rate.dateTo ? rate.dateTo.toISOString().slice(0, 10) : null,
+      boardType: rate.boardType,
+      occupancyLabel: rate.occupancyLabel,
+      includedService: rate.includedService,
+      clientSegment: rate.clientSegment,
+      minNights: rate.minNights,
+      tariffUnit: rate.tariffUnit,
     })),
   }));
 
@@ -2201,6 +2285,9 @@ export async function getPublishedInventoryCatalog(): Promise<PublishedInventory
       period: catalogPeriod({ dateFrom: null, dateTo: null }),
       currency: rate.currency,
       amount: decimalToNumber(rate.salePvpAmount),
+      ageLabel: rate.ageLabel,
+      clientSegment: rate.clientSegment,
+      durationText: rate.durationText,
     })),
     policies: activity.policies.map((policy) => ({
       id: policy.id,

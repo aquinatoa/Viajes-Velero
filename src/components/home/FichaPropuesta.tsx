@@ -1,5 +1,5 @@
 import { ChangePanel } from "./ChangePanel";
-import { marcarOpcionApi } from "../../services/apiClient";
+import { marcarOpcionApi, sendProposalDeliveryApi } from "../../services/apiClient";
 import { siguientePasoDelExpediente } from "../../domain/siguientePaso";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useState } from "react";
@@ -56,6 +56,38 @@ export function FichaPropuesta({ delivery, onClose }: FichaPropuestaProps) {
   const [marcando, setMarcando] = useState(false);
   /** Está abierto el panel de recotizar. */
   const [recotizando, setRecotizando] = useState(false);
+  /** Se está enviando la propuesta al colegio: evita el doble clic. */
+  const [enviando, setEnviando] = useState(false);
+  /** Lo que pasó con el último envío lanzado desde aquí. */
+  const [resultadoEnvio, setResultadoEnvio] = useState("");
+
+  /**
+   * Enviar (o reenviar) la propuesta desde la ficha. Vale para una simulada
+   * —preparada sin clave de buzón— y para una fallida. Si el buzón sigue sin
+   * clave, el servidor la vuelve a dejar simulada y aquí se dice tal cual, en
+   * vez de un «enviada» que no es verdad.
+   */
+  async function enviarAlColegio() {
+    setEnviando(true);
+    setResultadoEnvio("");
+    try {
+      const r = await sendProposalDeliveryApi(delivery.id);
+      if (r.status === "SENT") {
+        setResultadoEnvio(`Enviada a ${r.recipientEmail}.`);
+      } else if (r.simulated) {
+        setResultadoEnvio(
+          "Sigue sin salir: el buzón del departamento no tiene clave en el servidor. La propuesta queda preparada.",
+        );
+      } else {
+        setResultadoEnvio(`No salió: ${r.failureReason ?? "el servidor de correo rechazó el envío."}`);
+      }
+      await cargar();
+    } catch (err) {
+      setResultadoEnvio(err instanceof Error ? err.message : "No se pudo enviar la propuesta.");
+    } finally {
+      setEnviando(false);
+    }
+  }
 
   /**
    * Vuelve a traer la ficha.
@@ -362,6 +394,17 @@ export function FichaPropuesta({ delivery, onClose }: FichaPropuestaProps) {
                 Abrir la conversación
               </button>
             ) : null}
+            {paso.accion === "enviar" ? (
+              <button
+                type="button"
+                className="cv__primary cv__primary--sm"
+                disabled={enviando}
+                onClick={() => void enviarAlColegio()}
+              >
+                {enviando ? "Enviando…" : "Enviar al colegio"}
+              </button>
+            ) : null}
+            {resultadoEnvio ? <p className="ficha__tocap">{resultadoEnvio}</p> : null}
             {paso.accion === "documento" && ficha.pdf ? (
               <a className="cv__ghost cv__ghost--sm" href={ficha.pdf} target="_blank" rel="noreferrer">
                 Ver el documento

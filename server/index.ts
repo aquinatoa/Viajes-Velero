@@ -76,7 +76,9 @@ import {
   updateStagingEntity,
 } from "./documentImportDb";
 import { toRateKind } from "./pricing";
-import { updateInventoryDocumentAiUsage } from "./documentImportDb";
+import { listarLecturasIa, registrarLecturaIa, updateInventoryDocumentAiUsage } from "./documentImportDb";
+import { resumirConsumo } from "./consumoIa";
+import type { AiUsage } from "../src/domain/documentImportTypes";
 import {
   approveTripProposalDb,
   ensureTripRequestDealDb,
@@ -129,13 +131,39 @@ const port = Number(process.env.API_PORT ?? 8787);
  * resultado no es válido (un nombre que sí era latin-1 de verdad), se deja como
  * estaba en vez de estropearlo más.
  */
-/** Guarda el consumo de IA de la última lectura del documento. */
+/**
+ * Guarda el consumo de una lectura: el resumen en el documento (lo que ya se
+ * enseñaba) y una fila en el registro de lecturas, termine como termine.
+ *
+ * Las fallidas también se apuntan: una lectura que muere en la fase 2 ya pagó
+ * la fase 1, y hasta ahora ese gasto no quedaba en ningún sitio.
+ */
 async function recordAiUsage(
   documentId: string,
-  usage: { inputTokens: number; outputTokens: number; model: string },
+  usage: AiUsage,
+  resultado: "OK" | "FALLIDA",
+  iniciadaEn: Date,
+  error: string | null = null,
 ) {
   try {
-    await updateInventoryDocumentAiUsage(documentId, usage);
+    if (resultado === "OK") {
+      await updateInventoryDocumentAiUsage(documentId, usage);
+    }
+    await registrarLecturaIa({
+      sourceDocumentId: documentId,
+      proveedor: (process.env.AI_PROVIDER ?? "").trim().toLowerCase() || "desconocido",
+      modelo: usage.model,
+      variante: usage.variant ?? null,
+      resultado,
+      error,
+      llamadas: usage.calls,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cacheCreationTokens: usage.cacheCreationTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      outputChars: usage.outputChars,
+      iniciadaEn,
+    });
   } catch (error) {
     // Que no se pueda anotar el consumo no debe tumbar una lectura correcta.
     console.error("No se pudo registrar el consumo de IA", error);
@@ -925,7 +953,7 @@ app.post("/api/inventory/documents/:id/ai-analyze", async (request, response) =>
     // Registrar lo que costó esta lectura. Es la única forma de saber cuánto
     // cuesta cargar una temporada entera.
     if (result?.usage) {
-      await recordAiUsage(documentId, result.usage);
+      await recordAiUsage(documentId, result.usage, "OK", new Date());
     }
 
 
@@ -970,6 +998,7 @@ const lecturasEnCurso = new Set<string>();
  * ANALYZING, porque un documento colgado en "leyendo…" no se puede ni reintentar.
  */
 async function leerDocumentoConIa(documentId: string, regenerando: boolean): Promise<void> {
+  const iniciadaEn = new Date();
   try {
     const document = await getInventoryDocumentDetail(documentId);
     if (!document) return;
@@ -1002,7 +1031,7 @@ async function leerDocumentoConIa(documentId: string, regenerando: boolean): Pro
     // Registrar lo que costó esta lectura. Es la única forma de saber cuánto
     // cuesta cargar una temporada entera.
     if (analysis?.usage) {
-      await recordAiUsage(documentId, analysis.usage);
+      await recordAiUsage(documentId, analysis.usage, "OK", iniciadaEn);
     }
 
     const result = await createInventoryDocumentStaging(documentId, analysis, {
@@ -1043,15 +1072,25 @@ async function leerDocumentoConIa(documentId: string, regenerando: boolean): Pro
     }
   } catch (error) {
     console.error("Error leyendo el documento de inventario con IA", error);
+    // El motivo va tal cual lo dio el proveedor. «Sin saldo» tiene que leerse
+    // como «sin saldo», no como «revisa el modelo o el tamaño del documento».
+    const mensaje =
+      error instanceof AiAnalysisError
+        ? `No se pudo leer el documento: ${error.message}`
+        : "No se pudo leer el documento con IA. Revisa el registro del servidor e inténtalo de nuevo.";
     await addInventoryDocumentIssue({
       sourceDocumentId: documentId,
       severity: "ERROR",
-      issueType: "AI_ANALYSIS_FAILED",
-      message:
-        error instanceof AiAnalysisError
-          ? `No se pudo leer el documento: ${error.message}`
-          : "No se pudo leer el documento con IA. Revisa el registro del servidor e inténtalo de nuevo.",
+      issueType:
+        error instanceof AiAnalysisError && error.detalle
+          ? `AI_ANALYSIS_FAILED_${error.detalle.motivo}`
+          : "AI_ANALYSIS_FAILED",
+      message: mensaje,
     }).catch(() => undefined);
+    // Lo consumido hasta el fallo también se apunta, como FALLIDA.
+    if (error instanceof AiAnalysisError && error.usage) {
+      await recordAiUsage(documentId, error.usage, "FALLIDA", iniciadaEn, error.message);
+    }
   } finally {
     // Sacar al documento de ANALYZING pase lo que pase.
     try {
@@ -1521,6 +1560,21 @@ app.delete("/api/inventory/documents/:id", async (request, response) => {
 
 // Catálogo global del inventario operativo publicado (todos los documentos, e
 // incluso filas de Excel), con el documento de origen resuelto. Solo lectura.
+/**
+ * El consumo de IA: tokens y coste estimado por lectura, por documento y por
+ * mes. Lo facturado de verdad está en la consola del proveedor; el saldo
+ * restante no se puede consultar por API y aquí no se inventa.
+ */
+app.get("/api/inventory/consumo", requireRole("ADMIN"), async (_request, response) => {
+  try {
+    const lecturas = await listarLecturasIa();
+    response.json(resumirConsumo(lecturas));
+  } catch (error) {
+    console.error("No se pudo calcular el consumo de IA", error);
+    response.status(500).json({ error: "No se pudo calcular el consumo de IA." });
+  }
+});
+
 app.get("/api/inventory/catalog", async (_request, response) => {
   try {
     const result = await getPublishedInventoryCatalog();

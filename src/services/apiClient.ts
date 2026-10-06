@@ -620,6 +620,50 @@ export function getInventoryCatalogApi() {
   );
 }
 
+/** Un bloque de totales del consumo de IA. */
+export interface TotalDeConsumoIa {
+  lecturas: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  dolaresEstimados: number;
+}
+
+/**
+ * Lo que devuelve `/api/inventory/consumo`: tokens y coste ESTIMADO de leer
+ * documentos, por mes y por documento. Lo facturado de verdad está en la
+ * consola del proveedor, y el saldo restante no se puede consultar por API.
+ */
+export interface ConsumoIa {
+  precios: { fecha: string; nota: string };
+  total: TotalDeConsumoIa;
+  completadas: TotalDeConsumoIa;
+  fallidas: TotalDeConsumoIa;
+  porMes: Array<{ mes: string } & TotalDeConsumoIa>;
+  porDocumento: Array<{ sourceDocumentId: string; documento: string } & TotalDeConsumoIa>;
+  ultimas: Array<{
+    id: string;
+    documento: string;
+    terminadaEn: string;
+    resultado: string;
+    modelo: string;
+    variante: string | null;
+    llamadas: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+    pensamientoEstimado: number;
+    dolaresEstimados: number;
+    error: string | null;
+  }>;
+}
+
+export function getConsumoIaApi() {
+  return getJson<ConsumoIa>("/api/inventory/consumo", "No se pudo obtener el consumo de IA.");
+}
+
 // Retirada granular: DELETE de un registro publicado concreto (o una tarifa).
 export function unpublishPublishedItemApi(kind: PublishedItemKind, id: string) {
   return deleteJson<UnpublishItemResult>(

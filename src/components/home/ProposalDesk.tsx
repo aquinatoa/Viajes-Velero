@@ -162,6 +162,9 @@ function AnilloDeposito({ dias }: { dias: number }) {
 function accionDe(delivery: ProposalDelivery): { texto: string; envia: boolean } {
   if (delivery.status === "FAILED") return { texto: "Reintentar envío", envia: true };
   if (delivery.status === "DRAFT") return { texto: "Enviar propuesta", envia: true };
+  // Una simulada está preparada y sin salir: no se le hace seguimiento, se envía.
+  // Hasta el 06/10/2026 caía en «Hacer seguimiento» de algo que nadie recibió.
+  if (delivery.status === "SIMULATED") return { texto: "Enviar propuesta", envia: true };
   if (delivery.depositPaidAt) return { texto: "Ver el viaje", envia: false };
   if (delivery.chosenOptionNumber) return { texto: "Reclamar depósito", envia: false };
   return { texto: "Hacer seguimiento", envia: false };

@@ -9917,6 +9917,7 @@ tr.is-selected {
 
 .next-step--ready { background: var(--highlight-bg); }
 .next-step--done { background: rgba(31, 122, 77, 0.1); }
+.next-step--failed { background: rgba(178, 58, 72, 0.1); border: 1px solid rgba(178, 58, 72, 0.35); }
 
 .next-step__txt { display: grid; gap: 2px; min-width: 260px; flex: 1; }
 
@@ -9929,6 +9930,8 @@ tr.is-selected {
 }
 .next-step--ready .next-step__eyebrow { color: var(--highlight-ink); }
 .next-step--done .next-step__eyebrow { color: var(--ok); }
+.next-step--failed .next-step__eyebrow { color: var(--danger); }
+.next-step--failed h4 { color: var(--danger); }
 
 .next-step h4 {
   margin: 0;
@@ -11811,3 +11814,58 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
   line-height: 1.45;
   color: var(--muted);
 }
+
+/* ── Consumo de IA ───────────────────────────────────────────────────────── */
+/* Lo que cuesta leer documentos. Cuatro bloques de cifra grande y, debajo,
+   las tablas. El tono «mal» es para lo pagado sin resultado. */
+.consumo__bloques {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--sp-4);
+  margin: var(--sp-4) 0;
+}
+.consumo__bloque {
+  display: grid;
+  gap: 2px;
+  padding: var(--sp-4);
+  border-radius: var(--radius-lg);
+  background: var(--brand-050);
+}
+.consumo__bloque--ok { background: rgba(31, 122, 77, 0.1); }
+.consumo__bloque--mal { background: rgba(178, 58, 72, 0.1); }
+.consumo__titulo {
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.consumo__bloque--mal .consumo__titulo { color: var(--danger); }
+.consumo__cifra { font-size: 1.6rem; line-height: 1.1; }
+.consumo__detalle { font-size: var(--fs-micro); color: var(--muted, inherit); }
+.consumo__lista li { line-height: 1.5; }
+.consumo__fallida { color: var(--danger); }
+.consumo__error { color: var(--danger); }
+
+/* ── Tarifas publicadas en tabla ─────────────────────────────────────────── */
+/* Periodos en filas, régimen y ocupación en columnas. Lo común, en una línea
+   encima. Una celda con varios precios se marca: falta lo que los distingue. */
+.tarifas { display: grid; gap: var(--sp-2); margin-top: var(--sp-2); }
+.tarifas__comun { margin: 0; font-size: var(--fs-micro); color: var(--muted, inherit); }
+.tarifas__tabla th, .tarifas__tabla td { white-space: nowrap; }
+.tarifas__tabla .tarifas__grupo { text-align: center; border-bottom: 1px solid rgba(0, 0, 0, 0.12); }
+.tarifas__tabla .tarifas__columna { text-align: right; font-weight: 600; }
+.tarifas__tabla .tarifas__fila { text-align: left; font-weight: 600; }
+.tarifas__tabla .tarifas__precio { text-align: right; font-variant-numeric: tabular-nums; }
+.tarifas__tabla .tarifas__precio--ambiguo { color: var(--danger); font-weight: 600; }
+.tarifas__tabla .tarifas__vacia { text-align: right; color: var(--muted, inherit); }
+
+/* La ventana del detalle de un hotel: más ancha que las demás, porque trae
+   tres tablas, y con el cuerpo desplazable. */
+.cv__vent--detalle { width: min(980px, 100%); }
+.cv__vent--detalle .cv__ventb { padding-top: var(--sp-3); }
+.cv__vent--detalle .cv__det { border: 0; padding: 0; margin: 0; }
+.cv__acttar { opacity: 0.85; }
+.cv__info--act { margin-left: 42px; }
+.tarifas__tabla .tarifas__precio--elegida { background: var(--highlight-bg, rgba(31, 122, 77, 0.12)); font-weight: 700; }
+.tarifas__marca { color: var(--ok, #1f7a4d); }
