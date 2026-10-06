@@ -158,6 +158,8 @@ export interface ImportIssue {
   rawValue?: string | null;
   pageNumber?: number | null;
   resolved: boolean;
+  /** Lo trae la API (ordena por él); el front lo usa para saber qué fue lo último. */
+  createdAt?: string | null;
 }
 
 export interface DocumentExtraction {

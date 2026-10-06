@@ -47,7 +47,7 @@ export interface SiguientePaso {
    * A qué botón de la ficha lleva, cuando hay uno. La ficha decide cómo se
    * pinta; aquí solo se dice cuál.
    */
-  accion?: "correo" | "documento" | "crm";
+  accion?: "correo" | "documento" | "crm" | "enviar";
 }
 
 /** Días enteros entre una fecha y hoy. Negativo si la fecha ya pasó. */
@@ -80,11 +80,16 @@ function hace(dias: number): string {
 export function siguientePasoDelExpediente(e: EstadoDelExpediente, hoy: Date): SiguientePaso {
   // — Todavía no ha salido
   if (e.estado === "SIMULATED") {
+    // Hasta el 06/10/2026 este caso no traía acción: el cartel rojo salía sin
+    // botón, y en la mesa caía en «Hacer seguimiento» de una propuesta que el
+    // colegio nunca recibió. `sendDelivery` admite reenviar una simulada: en
+    // cuanto el buzón tenga clave, se envía desde aquí.
     return {
       titulo: "La propuesta no ha salido",
       porque:
-        "Está generada y guardada, pero falta la clave del buzón del departamento. El colegio no ha recibido nada.",
+        "Está generada y guardada, pero falta la clave del buzón del departamento. El colegio no ha recibido nada. En cuanto el buzón tenga clave, envíala desde aquí: no hace falta regenerarla.",
       urgencia: "urgente",
+      accion: "enviar",
     };
   }
 
@@ -93,7 +98,7 @@ export function siguientePasoDelExpediente(e: EstadoDelExpediente, hoy: Date): S
       titulo: "El envío falló: hay que reintentarlo",
       porque: "El documento y el trato del CRM están creados. Reintentar no duplica nada.",
       urgencia: "urgente",
-      accion: "correo",
+      accion: "enviar",
     };
   }
 

@@ -9917,6 +9917,7 @@ tr.is-selected {
 
 .next-step--ready { background: var(--highlight-bg); }
 .next-step--done { background: rgba(31, 122, 77, 0.1); }
+.next-step--failed { background: rgba(178, 58, 72, 0.1); border: 1px solid rgba(178, 58, 72, 0.35); }
 
 .next-step__txt { display: grid; gap: 2px; min-width: 260px; flex: 1; }
 
@@ -9929,6 +9930,8 @@ tr.is-selected {
 }
 .next-step--ready .next-step__eyebrow { color: var(--highlight-ink); }
 .next-step--done .next-step__eyebrow { color: var(--ok); }
+.next-step--failed .next-step__eyebrow { color: var(--danger); }
+.next-step--failed h4 { color: var(--danger); }
 
 .next-step h4 {
   margin: 0;
@@ -11811,3 +11814,35 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
   line-height: 1.45;
   color: var(--muted);
 }
+
+/* ── Consumo de IA ───────────────────────────────────────────────────────── */
+/* Lo que cuesta leer documentos. Cuatro bloques de cifra grande y, debajo,
+   las tablas. El tono «mal» es para lo pagado sin resultado. */
+.consumo__bloques {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--sp-4);
+  margin: var(--sp-4) 0;
+}
+.consumo__bloque {
+  display: grid;
+  gap: 2px;
+  padding: var(--sp-4);
+  border-radius: var(--radius-lg);
+  background: var(--brand-050);
+}
+.consumo__bloque--ok { background: rgba(31, 122, 77, 0.1); }
+.consumo__bloque--mal { background: rgba(178, 58, 72, 0.1); }
+.consumo__titulo {
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.consumo__bloque--mal .consumo__titulo { color: var(--danger); }
+.consumo__cifra { font-size: 1.6rem; line-height: 1.1; }
+.consumo__detalle { font-size: var(--fs-micro); color: var(--muted, inherit); }
+.consumo__lista li { line-height: 1.5; }
+.consumo__fallida { color: var(--danger); }
+.consumo__error { color: var(--danger); }
