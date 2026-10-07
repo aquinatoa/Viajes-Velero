@@ -35,7 +35,13 @@ function toCurrentUser(user: AuthUser): CurrentUser {
 }
 
 export function App() {
-  const isZohoCallback = typeof window !== "undefined" && window.location.pathname === "/callback";
+  // Se decide UNA vez, al cargar. Antes se recalculaba en cada render: al
+  // terminar el canje se cambiaba la URL a «/», esto pasaba a false y la app
+  // redirigía a Propuestas antes de que nadie pudiera leer el refresh token.
+  // Anthony lo vivió el 07/10/2026: «me devolvió a /propuestas».
+  const [isZohoCallback] = useState(
+    () => typeof window !== "undefined" && window.location.pathname === "/callback",
+  );
   // Enlace que recibe el colegio: /p/<token>. Se lee una vez, de la URL.
   const publicProposalToken =
     typeof window !== "undefined" && window.location.pathname.startsWith("/p/")
@@ -123,6 +129,8 @@ export function App() {
   const [zohoCallbackMessage, setZohoCallbackMessage] = useState(
     isZohoCallback ? "Validando la autenticación de Zoho..." : "",
   );
+  const [zohoRefreshToken, setZohoRefreshToken] = useState("");
+  const [zohoTokenCopiado, setZohoTokenCopiado] = useState(false);
 
   useEffect(() => {
     if (!isZohoCallback) {
@@ -148,9 +156,9 @@ export function App() {
     exchangeZohoAuthCodeApi(code)
       .then((result) => {
         setZohoCallbackMessage(
-          `Zoho quedó autenticado. Guarda el nuevo refresh token en tu .env si quieres persistirlo tras reiniciar el servidor: ${result.refreshToken}`,
+          "Zoho quedó autenticado con los permisos nuevos. El servidor ya los usa; para que sobrevivan a un reinicio, copia este refresh token al ZOHO_REFRESH_TOKEN del .env:",
         );
-        window.history.replaceState({}, "", "/");
+        setZohoRefreshToken(String(result.refreshToken ?? ""));
       })
       .catch((exchangeError) => {
         setZohoCallbackMessage(
@@ -187,6 +195,20 @@ export function App() {
             <div className="review-block crm-block">
               <h3>{isProcessingZohoCallback ? "Procesando..." : "Resultado"}</h3>
               <p>{zohoCallbackMessage}</p>
+              {zohoRefreshToken ? (
+                <div className="action-row">
+                  <code style={{ wordBreak: "break-all", userSelect: "all" }}>{zohoRefreshToken}</code>
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(zohoRefreshToken).then(() => setZohoTokenCopiado(true));
+                    }}
+                  >
+                    {zohoTokenCopiado ? "Copiado" : "Copiar"}
+                  </button>
+                </div>
+              ) : null}
             </div>
             <div className="action-row">
               <button
