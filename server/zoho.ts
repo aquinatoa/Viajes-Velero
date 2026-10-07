@@ -100,8 +100,12 @@ export function getZohoAuthUrl() {
     "ZohoCRM.modules.contacts.ALL",
     "ZohoCRM.modules.accounts.ALL",
     "ZohoCRM.modules.deals.ALL",
-    "ZohoCRM.modules.products.READ",
-    "ZohoCRM.modules.vendors.READ",
+    // ALL, no READ: para rellenar «Servicios Contratados» del trato hay que
+    // enlazar Productos y Proveedores, y crear los que falten.
+    "ZohoCRM.modules.products.ALL",
+    "ZohoCRM.modules.vendors.ALL",
+    // Consultas COQL: buscar un producto o proveedor por nombre sin paginar.
+    "ZohoCRM.coql.READ",
     "ZohoCRM.settings.modules.READ",
     "ZohoCRM.settings.fields.READ"
   ].join(",");
