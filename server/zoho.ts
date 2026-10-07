@@ -106,11 +106,11 @@ export function getZohoAuthUrl() {
     "ZohoCRM.modules.vendors.ALL",
     // Consultas COQL: buscar un producto o proveedor por nombre sin paginar.
     "ZohoCRM.coql.READ",
-    // Leer sus reglas de flujo y el CÓDIGO de sus funciones (GET /crm/v8/functions;
-    // El código de las funciones NO se puede leer con este cliente: «functions.READ»
-    // y «functions.ALL» dan «Ámbito de OAuth no válido» (probado el 13/10/2026).
-    // settings.functions sola da OAUTH_SCOPE_MISMATCH). Hace falta para no pisar
-    // sus automatizaciones del subformulario «Servicios Contratados».
+    // Leer sus reglas de flujo. El CÓDIGO de sus funciones no se puede leer
+    // con este cliente: «functions.READ» y «functions.ALL» dan «Ámbito de
+    // OAuth no válido» y settings.functions sola da OAUTH_SCOPE_MISMATCH
+    // (probado el 13/10/2026). Las dos que tocan «Servicios Contratados» nos
+    // las pasó Anthony a mano: ver server/serviciosContratados.ts.
     "ZohoCRM.settings.functions.READ",
     "ZohoCRM.settings.workflow_rules.READ",
     "ZohoCRM.settings.modules.READ",
@@ -268,6 +268,75 @@ async function zohoRequest<T>(path: string, init?: RequestInit, retry = true): P
   }
 
   return json;
+}
+
+// ── Productos, proveedores y el subformulario de servicios ───────────────────
+
+/** El id de un registro por su nombre exacto, o null. Consulta COQL. */
+export async function buscarIdPorNombre(
+  modulo: "Vendors" | "Products",
+  campo: "Vendor_Name" | "Product_Name",
+  nombre: string,
+): Promise<string | null> {
+  const escapado = nombre.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const result = await zohoRequest<{ data?: Array<{ id: string }> }>("coql", {
+    method: "POST",
+    body: JSON.stringify({
+      select_query: `select id from ${modulo} where ${campo} = '${escapado}' limit 1`,
+    }),
+  });
+  return result.data?.[0]?.id ?? null;
+}
+
+/** Los registros cuyo nombre contiene un fragmento (sin distinguir mayúsculas en Zoho). */
+export async function buscarPorNombreParecido(
+  modulo: "Vendors" | "Products",
+  campo: "Vendor_Name" | "Product_Name",
+  fragmento: string,
+): Promise<Array<{ id: string; nombre: string }>> {
+  const escapado = fragmento.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/%/g, "");
+  const result = await zohoRequest<{ data?: Array<{ id: string } & Record<string, unknown>> }>("coql", {
+    method: "POST",
+    body: JSON.stringify({
+      select_query: `select ${campo} from ${modulo} where ${campo} like '%${escapado}%' limit 20`,
+    }),
+  });
+  return (result.data ?? []).map((r) => ({ id: r.id, nombre: String(r[campo] ?? "") }));
+}
+
+/** Crea un registro y devuelve su id. */
+export async function crearRegistro(modulo: "Vendors" | "Products", record: Record<string, unknown>): Promise<string> {
+  const result = await zohoRequest<ZohoRecordResponse<{ details?: { id?: string }; status?: string; message?: string }>>(
+    modulo,
+    { method: "POST", body: JSON.stringify({ data: [record] }) },
+  );
+  const id = result.data?.[0]?.details?.id;
+  if (!id) {
+    throw new Error(`Zoho no devolvió el id del ${modulo === "Vendors" ? "proveedor" : "producto"} creado: ${JSON.stringify(result).slice(0, 300)}`);
+  }
+  return id;
+}
+
+/**
+ * Sustituye las filas de «Servicios Contratados» del trato y pone el Importe.
+ *
+ * Zoho trata el subformulario como un todo: las filas que se mandan sin id se
+ * crean, y las que había y no vienen se borran. Se manda la foto completa.
+ */
+export async function escribirServiciosContratados(
+  dealId: string,
+  filas: Array<Record<string, unknown>>,
+  amount: number | null,
+): Promise<void> {
+  const record: Record<string, unknown> = {
+    Servicios_Contratados: filas,
+    N_Presupuesto_Subformulario: 1,
+  };
+  if (amount !== null && Number.isFinite(amount)) record.Amount = amount;
+  await zohoRequest(`${zohoConfig.dealsModule}/${dealId}`, {
+    method: "PUT",
+    body: JSON.stringify({ data: [record] }),
+  });
 }
 
 /**

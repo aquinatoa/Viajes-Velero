@@ -22,6 +22,7 @@ import nodemailer from "nodemailer";
 import { buildProposalPdf, type PdfOption } from "./proposalPdf";
 import { canSend, loadMailSettings, mailboxFor, replyToFor } from "./mailConfig";
 import { marcarHito, type Hito } from "./crmPipeline";
+import { contratarEnElCrm } from "./serviciosContratados";
 import { borrarBorradorDeSolicitudDb } from "./draftsDb";
 import { guardarMensajeSaliente } from "./correoDb";
 
@@ -500,6 +501,8 @@ export async function marcarOpcionElegida(
     `El colegio eligió la opción ${optionNumber}${quien ? ` (apuntado por ${quien} desde la app)` : ""}. ` +
       `Depósito hasta el ${depositDueAt.toISOString().slice(0, 10)}.`,
   );
+  // Y lo contratado, en su tabla. No lanza.
+  await contratarEnElCrm(delivery.id, optionNumber);
 
   return elegida;
 }
@@ -529,6 +532,8 @@ export async function chooseOption(token: string, optionNumber: number) {
       .toISOString()
       .slice(0, 10)}.`,
   );
+  // Y lo contratado, en su tabla. No lanza.
+  await contratarEnElCrm(delivery.id, optionNumber);
 
   return elegida;
 }
