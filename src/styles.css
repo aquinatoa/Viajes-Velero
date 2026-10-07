@@ -6152,13 +6152,20 @@ tr.is-selected {
 /* â•â• El lienzo: nueva solicitud â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    Pantalla completa, sin popup. Izquierda la peticiÃ³n, derecha las opciones,
    arriba los hitos, que informan sin bloquear. */
-.cv {
+/* Los colores del lienzo viven en :root, no solo en `.cv`: los botones
+   `cv__primary` se usan tambien fuera (la ficha de la propuesta, el panel de
+   cambios, el de correo), y ahi `--cv-navy` no existia: fondo transparente y
+   texto blanco, un boton invisible. Anthony lo vio el 07/10/2026 en «Enviar al
+   colegio». */
+:root {
   --cv-navy: #132e5d;
   --cv-navy-700: #1b3d75;
   --cv-amber: #fcbb37;
   --cv-ok: #1d7a55;
   --cv-warn: #8a5a08;
+}
 
+.cv {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
