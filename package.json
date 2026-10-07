@@ -9,7 +9,7 @@
     "db:local:reset": "node scripts/dev-db.mjs --reset",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "npm run test:documental && npm run test:solicitud && npm run test:pdf && npm run test:crm && npm run test:visibilidad && npm run test:borrado && npm run test:crm-trato && npm run test:correo && npm run test:textos && npm run test:encaje && npm run test:podio && npm run test:preguntas && npm run test:fechas && npm run test:validacion && npm run test:respuestas && npm run test:avance && npm run test:colores && npm run test:siguiente && npm run test:importe && npm run test:aceptada && npm run test:lectura && npm run test:fallo-lectura && npm run test:rejilla && npm run test:viajes && npm run test:plantilla && npm run test:revision-proveedor",
+    "test": "npm run test:documental && npm run test:solicitud && npm run test:pdf && npm run test:crm && npm run test:visibilidad && npm run test:borrado && npm run test:crm-trato && npm run test:correo && npm run test:textos && npm run test:encaje && npm run test:podio && npm run test:preguntas && npm run test:fechas && npm run test:validacion && npm run test:respuestas && npm run test:avance && npm run test:colores && npm run test:siguiente && npm run test:importe && npm run test:aceptada && npm run test:lectura && npm run test:fallo-lectura && npm run test:rejilla && npm run test:viajes && npm run test:plantilla && npm run test:revision-proveedor && npm run test:contratado",
     "test:documental": "node --import tsx tests/documentFlow.test.ts",
     "test:solicitud": "node --import tsx tests/tripRequest.test.ts",
     "test:pdf": "node --import tsx tests/proposalPdf.test.ts",
@@ -42,6 +42,7 @@
     "test:viajes": "node --import tsx tests/tratosPorDepartamento.test.ts",
     "test:plantilla": "node --import tsx tests/plantillaDeActividades.test.ts",
     "test:revision-proveedor": "node --import tsx tests/revisionPorProveedor.test.ts",
+    "test:contratado": "node --import tsx tests/serviciosContratados.test.ts",
     "lectura:referencia": "node scripts/lectura/exportar-referencia.mjs",
     "lectura:evaluar": "node --import tsx scripts/lectura/evaluar.ts"
   },
