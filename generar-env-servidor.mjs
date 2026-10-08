@@ -92,6 +92,11 @@ const BLOQUES = [
         nota: "Es la que esta dada de alta en la consola de Zoho. Si algun dia se registra la de https://presupuesto.oraviatravel.com/callback, se cambia aqui a la vez.",
       },
       { k: "ZOHO_DEALS_MODULE", d: "LOCAL" },
+      {
+        k: "ACTIVIDADES_DESTACADAS",
+        d: "LOCAL",
+        nota: "Las actividades que salen siempre arriba al cotizar, separadas por «;». Javier mandara sus 3 top (08/10/2026).",
+      },
       { k: "ZOHO_CONTACTS_MODULE", d: "LOCAL" },
       { k: "ZOHO_ACCOUNTS_MODULE", d: "LOCAL" },
       { k: "ZOHO_DEAL_STAGE", d: "LOCAL", nota: "Fase con la que nace el trato." },
