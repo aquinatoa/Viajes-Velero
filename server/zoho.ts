@@ -780,6 +780,9 @@ export type ZohoDealSummary = {
   id: string;
   dealName: string;
   stage: string;
+  /** Llegada y salida del grupo (`Fecha_llegada_actividad` / `Fecha_salida_actividad`). AAAA-MM-DD o vacío. */
+  arrivalDate: string;
+  departureDate: string;
   amount: number | null;
   closingDate: string;
   accountName: string;
@@ -801,28 +804,70 @@ export type ZohoDealSummary = {
 };
 
 /** Lista los tratos del módulo Deals (los más recientes primero). */
+// `Opciones_de_Presupuesto` va aquí porque el detalle del presupuesto se
+// escribe ahí desde el 25/09/2026, no en la Descripción. La pantalla de
+// Viajes lee de ese texto las tres opciones y las fechas del viaje: sin
+// pedirlo, se quedaría en blanco para todo trato creado a partir de ahora.
+const CAMPOS_DE_VIAJES = [
+  "Deal_Name", "Stage", "Amount", "Closing_Date", "Account_Name", "Contact_Name",
+  "Description", "Opciones_de_Presupuesto", "Next_Step", "Created_Time", "Modified_Time",
+  // El departamento es lo que filtra la pantalla de Viajes por usuario.
+  "Departamento",
+  // Las fechas del grupo. El calendario las sacaba del texto que escribe la
+  // app, así que un trato hecho a mano en el CRM no salía (Javier, 08/10/2026).
+  "Fecha_llegada_actividad", "Fecha_salida_actividad",
+].join(",");
+
+/** Lista los tratos del módulo Deals (los más recientes primero). */
 export async function listZohoDeals(limit = 200): Promise<ZohoDealSummary[]> {
-  // `Opciones_de_Presupuesto` va aquí porque el detalle del presupuesto se
-  // escribe ahí desde el 25/09/2026, no en la Descripción. La pantalla de
-  // Viajes lee de ese texto las tres opciones y las fechas del viaje: sin
-  // pedirlo, se quedaría en blanco para todo trato creado a partir de ahora.
-  const fields = [
-    "Deal_Name", "Stage", "Amount", "Closing_Date", "Account_Name", "Contact_Name",
-    "Description", "Opciones_de_Presupuesto", "Next_Step", "Created_Time", "Modified_Time",
-    // El departamento es lo que filtra la pantalla de Viajes por usuario.
-    "Departamento",
-  ].join(",");
   const perPage = Math.min(Math.max(limit, 1), 200);
   const result = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
-    `${zohoConfig.dealsModule}?fields=${fields}&per_page=${perPage}&sort_by=Modified_Time&sort_order=desc`,
+    `${zohoConfig.dealsModule}?fields=${CAMPOS_DE_VIAJES}&per_page=${perPage}&sort_by=Modified_Time&sort_order=desc`,
     { method: "GET" }
   );
+  return (result.data ?? []).map(resumenDeTrato);
+}
 
-  return (
-    result.data?.map((deal) => ({
+/**
+ * Los tratos cuyo grupo llega entre dos fechas (AAAA-MM-DD, ambas incluidas).
+ * Si un trato no tiene fecha de llegada, cuenta su fecha de cierre.
+ *
+ * Es lo que pidió Javier para Viajes (07 y 08/10/2026): ver los importes de un
+ * periodo, por defecto el año que viene. Son TODOS los del periodo, no los 200
+ * últimos modificados: en 2027 son unos 300. La búsqueda de Zoho devuelve como
+ * mucho 2.000 resultados; con más se avisa en el registro.
+ */
+export async function listZohoDealsEntre(desde: string, hasta: string): Promise<ZohoDealSummary[]> {
+  const criterio =
+    `((Fecha_llegada_actividad:between:${desde},${hasta})` + `or(Closing_Date:between:${desde},${hasta}))`;
+  const tratos: Record<string, unknown>[] = [];
+  for (let pagina = 1; pagina <= 10; pagina += 1) {
+    const result = await zohoRequest<
+      ZohoRecordResponse<Record<string, unknown>> & { info?: { more_records?: boolean } }
+    >(
+      `${zohoConfig.dealsModule}/search?criteria=${encodeURIComponent(criterio)}&fields=${CAMPOS_DE_VIAJES}&per_page=200&page=${pagina}`,
+      { method: "GET" }
+    );
+    const lote = result.data ?? [];
+    tratos.push(...lote);
+    if (!result.info?.more_records || lote.length === 0) break;
+    if (pagina === 10) console.warn(`[crm] Viajes ${desde}→${hasta}: más de 2.000 tratos, se enseñan los primeros.`);
+  }
+  return tratos.map(resumenDeTrato);
+}
+
+function fechaDeZoho(valor: unknown): string {
+  const texto = String(valor ?? "");
+  return /^\d{4}-\d{2}-\d{2}/.test(texto) ? texto.slice(0, 10) : "";
+}
+
+function resumenDeTrato(deal: Record<string, unknown>): ZohoDealSummary {
+  return {
       id: String(deal.id),
       dealName: String(deal.Deal_Name ?? ""),
       stage: String(deal.Stage ?? ""),
+      arrivalDate: fechaDeZoho(deal.Fecha_llegada_actividad),
+      departureDate: fechaDeZoho(deal.Fecha_salida_actividad),
       amount: toNumber(deal.Amount),
       closingDate: String(deal.Closing_Date ?? ""),
       accountName: lookupName(deal.Account_Name),
@@ -836,8 +881,7 @@ export async function listZohoDeals(limit = 200): Promise<ZohoDealSummary[]> {
       modifiedTime: String(deal.Modified_Time ?? ""),
       dealUrl: dealWebUrl(String(deal.id)),
       department: departamentoDesdeCrm(deal.Departamento),
-    })) ?? []
-  );
+  };
 }
 
 /**

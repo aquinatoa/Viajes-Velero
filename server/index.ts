@@ -13,6 +13,7 @@ import {
   getZohoAuthUrl,
   getZohoDealStages,
   listZohoDeals,
+  listZohoDealsEntre,
   buscarContactoEnCrm,
   searchZohoOpportunitiesByEmail,
   updateZohoDeal,
@@ -107,6 +108,7 @@ import {
   updateUser,
   writeAudit,
 } from "./auth";
+import { rangoValido } from "../src/domain/rangoDeViajes";
 import { tratosVisiblesPara } from "./tratosPorDepartamento";
 import { extractDocumentText, isNativelyReadable } from "./documentTextExtraction";
 import { analyzeDocumentText, AiAnalysisError } from "./aiDocumentAnalysis";
@@ -499,7 +501,10 @@ app.post("/api/crm/opportunities/approve", async (request, response) => {
 app.get("/api/crm/opportunities", async (request, response) => {
   try {
     const user = (request as AuthedRequest).user;
-    const todos = await listZohoDeals();
+    // Con rango (Viajes desde el 08/10/2026), todos los del periodo; sin él,
+    // los 200 últimos modificados, como antes.
+    const rango = { desde: String(request.query.desde ?? ""), hasta: String(request.query.hasta ?? "") };
+    const todos = rangoValido(rango) ? await listZohoDealsEntre(rango.desde, rango.hasta) : await listZohoDeals();
     const deals = user ? tratosVisiblesPara(user, todos) : todos;
     response.json({ deals });
   } catch (error) {

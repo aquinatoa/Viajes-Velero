@@ -8,6 +8,26 @@ import {
   type ZohoDealSummary,
 } from "../../services/apiClient";
 import { DEPARTAMENTOS } from "../../domain/validacionDeLaPeticion";
+import {
+  etiquetaDeRango,
+  mesInicialDelCalendario,
+  rangoPorDefecto,
+  rangoValido,
+  type RangoDeViajes,
+} from "../../domain/rangoDeViajes";
+
+const CLAVE_RANGO = "oravia.viajes.rango";
+
+/** El rango guardado en este navegador, o el año que viene. */
+function rangoInicial(): RangoDeViajes {
+  try {
+    const guardado = JSON.parse(window.localStorage.getItem(CLAVE_RANGO) ?? "null");
+    if (rangoValido(guardado)) return guardado;
+  } catch {
+    // sin almacenamiento, o guardado roto: el de por defecto
+  }
+  return rangoPorDefecto();
+}
 
 /**
  * Módulo "Viajes" como WORKSPACE (no popup):
@@ -149,12 +169,28 @@ export function ConfirmRequestsPanel({
   const [sortBy, setSortBy] = useState<"recent" | "closing" | "amount">("recent");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // El periodo que se mira: los viajes que LLEGAN entre estas dos fechas. Lo
+  // pidió Javier para ver los importes de un periodo (07 y 08/10/2026); por
+  // defecto el año que viene, y se recuerda en el navegador.
+  const [rango, setRango] = useState<RangoDeViajes>(() => rangoInicial());
+  const [borradorRango, setBorradorRango] = useState<RangoDeViajes>(rango);
+  const aplicarRango = (siguiente: RangoDeViajes) => {
+    setBorradorRango(siguiente);
+    if (!rangoValido(siguiente)) return;
+    setRango(siguiente);
+    try {
+      window.localStorage.setItem(CLAVE_RANGO, JSON.stringify(siguiente));
+    } catch {
+      // sin almacenamiento: vale para esta visita
+    }
+  };
+
   const load = async () => {
     setLoading(true);
     setError("");
     try {
       const [list, st] = await Promise.all([
-        listZohoOpportunitiesApi(),
+        listZohoOpportunitiesApi(rango),
         fetchZohoDealStagesApi().catch(() => ({ stages: [] })),
       ]);
       setTodosLosDeals(list.deals);
@@ -168,7 +204,8 @@ export function ConfirmRequestsPanel({
 
   useEffect(() => {
     void load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rango.desde, rango.hasta]);
 
   const stagesPresent = useMemo(
     () => [...new Set(deals.map((d) => d.stage).filter(Boolean))],
@@ -240,15 +277,38 @@ export function ConfirmRequestsPanel({
           <p>
             {loading
               ? "Cargando viajes…"
-              : `${deals.length} viajes en el CRM${
+              : `${deals.length} viajes con llegada ${etiquetaDeRango(rango)}${
                   departamento === "TODOS"
                     ? ""
                     : ` · ${DEPARTAMENTOS[departamento]}`
                 }`}{" "}
-            · propuestas generadas y oportunidades del CRM.
+            · los importes de arriba son de este periodo.
           </p>
         </div>
         <div className="cw__head-actions">
+          <div className="cw__rango" role="group" aria-label="Periodo de llegada">
+            <span>Llegadas</span>
+            <input
+              type="date"
+              value={borradorRango.desde}
+              max={borradorRango.hasta || undefined}
+              onChange={(e) => aplicarRango({ ...borradorRango, desde: e.target.value })}
+              aria-label="Desde"
+            />
+            <span>a</span>
+            <input
+              type="date"
+              value={borradorRango.hasta}
+              min={borradorRango.desde || undefined}
+              onChange={(e) => aplicarRango({ ...borradorRango, hasta: e.target.value })}
+              aria-label="Hasta"
+            />
+            {rango.desde !== rangoPorDefecto().desde || rango.hasta !== rangoPorDefecto().hasta ? (
+              <button type="button" className="cw__rango-reset" onClick={() => aplicarRango(rangoPorDefecto())}>
+                {rangoPorDefecto().desde.slice(0, 4)}
+              </button>
+            ) : null}
+          </div>
           {eligeDepartamento ? (
             <label className="cw__dept">
               <span>Departamento</span>
@@ -290,7 +350,13 @@ export function ConfirmRequestsPanel({
       {info && !error ? <div className="cf__alert cf__alert--ok">{info}</div> : null}
 
       {view === "calendar" ? (
-        <ConfirmCalendar deals={deals} loading={loading} onSelect={handleSelectFromCalendar} />
+        <ConfirmCalendar
+          key={`${rango.desde}|${rango.hasta}`}
+          deals={deals}
+          loading={loading}
+          onSelect={handleSelectFromCalendar}
+          inicio={mesInicialDelCalendario(rango)}
+        />
       ) : (
         <div className="cw__grid">
           {/* ===== Columna 1: lista ===== */}
@@ -493,7 +559,10 @@ function DealDetail({ deal }: { deal: ZohoDealSummary }) {
               </div>
               <div>
                 <dt>Fechas</dt>
-                <dd>{trip.fechas || "—"}</dd>
+                <dd>
+                  {trip.fechas ||
+                    (deal.arrivalDate ? `${deal.arrivalDate} → ${deal.departureDate || "?"}` : "—")}
+                </dd>
               </div>
               <div>
                 <dt>Grupo</dt>
@@ -696,14 +765,17 @@ function ConfirmCalendar({
   deals,
   loading,
   onSelect,
+  inicio,
 }: {
   deals: ZohoDealSummary[];
   loading: boolean;
   onSelect: (id: string) => void;
+  /** El mes con el que abre: el de hoy si cae en el periodo, si no el primero. */
+  inicio?: Date;
 }) {
   const [mode, setMode] = useState<"viaje" | "gestion">("viaje");
   const today = useMemo(() => new Date(), []);
-  const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
+  const [cursor, setCursor] = useState(() => inicio ?? new Date(today.getFullYear(), today.getMonth(), 1));
 
   // Indexa los tratos por día según la lectura elegida.
   const byDay = useMemo(() => {
@@ -716,12 +788,16 @@ function ConfirmCalendar({
     for (const d of deals) {
       const trip = parseTrip(d.opcionesTexto || d.description);
       const tone = stageTone(d.stage);
+      // Las fechas del CRM primero: así salen también los grupos hechos a mano,
+      // que no llevan el texto «Fechas: … → …» que escribe la app.
+      const llegada = d.arrivalDate || trip.startDate;
+      const salida = d.departureDate || trip.endDate || llegada;
       if (mode === "gestion") {
         if (d.closingDate) push(d.closingDate.slice(0, 10), { id: d.id, name: d.dealName, tone, span: "one" });
       } else {
-        if (trip.startDate && trip.endDate) {
-          const start = new Date(`${trip.startDate}T00:00:00`);
-          const end = new Date(`${trip.endDate}T00:00:00`);
+        if (llegada && salida) {
+          const start = new Date(`${llegada}T00:00:00`);
+          const end = new Date(`${salida}T00:00:00`);
           if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
           for (let cur = new Date(start); cur <= end; cur.setDate(cur.getDate() + 1)) {
             const key = ymd(cur);
