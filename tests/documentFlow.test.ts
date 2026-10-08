@@ -1707,12 +1707,18 @@ async function main() {
     assert.equal(encontrada?.activity.locationMain, "PortAventura Park");
   });
 
-  await test("una actividad de otra comarca no se cuela", async () => {
+  await test("una actividad de otra comarca sale igual, pero marcada como fuera del destino", async () => {
+    // Javier, 08/10/2026: «que salgan todas las actividades siempre, que no
+    // las filtre». Antes se escondia; ahora se ve, detras y con la marca.
     const { searchActivitiesDb } = await import("../server/searchDb");
     const r = await searchActivitiesDb({
       destinationText: "Jaca", ageRangeText: "15-17", participants: 40, teachers: 4,
     } as never);
-    assert.ok(!r.matches.some((m) => m.activity.id === parque.id));
+    const encontrada = r.matches.find((m) => m.activity.id === parque.id);
+    assert.ok(encontrada, "buscando Jaca la actividad de PortAventura sigue saliendo");
+    assert.equal(encontrada?.fueraDelDestino, true);
+    assert.match(encontrada?.matchReasons[0] ?? "", /Fuera del destino/);
+    assert.ok(r.warnings.some((w) => w.code === "activities_outside_destination"));
   });
 
   // --- actividades que el catálogo no tarifa -----------------------------------
