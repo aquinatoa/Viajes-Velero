@@ -1585,6 +1585,8 @@ function normalizeActivityRate(value: unknown): AiCandidateActivityRate | null {
     costNetAmount: toNum(record.costNetAmount),
     durationText: toStr(record.durationText),
     ageLabel: toStr(record.ageLabel),
+    ageMin: toNum(record.ageMin),
+    ageMax: toNum(record.ageMax),
     minPax: toNum(record.minPax),
     maxPax: toNum(record.maxPax),
     rawText: toStr(record.rawText),

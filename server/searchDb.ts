@@ -35,6 +35,31 @@ async function loadSourceDocumentNames(
   return new Map(documents.map((document) => [document.id, document.controlName]));
 }
 
+/**
+ * La localidad de control de cada documento. Es el respaldo de la actividad
+ * que no trae la suya: las entradas de PortAventura viven en «PortAventura
+ * Park, Ferrari Land y Caribe Aquatic Park» y nadie escribe eso en el destino;
+ * su documento dice «Vila-seca / Salou», que es donde se busca. Sin esto, un
+ * viaje a Salou no encontraba ni una entrada (Javier, 08/10/2026, en directo).
+ */
+async function loadSourceDocumentLocations(
+  ids: (string | null | undefined)[]
+): Promise<Map<string, string>> {
+  const uniqueIds = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+  if (uniqueIds.length === 0) {
+    return new Map();
+  }
+  const documents = await prisma.sourceDocument.findMany({
+    where: { id: { in: uniqueIds } },
+    select: { id: true, controlLocation: true }
+  });
+  return new Map(
+    documents
+      .filter((document) => (document.controlLocation ?? "").trim())
+      .map((document) => [document.id, String(document.controlLocation)])
+  );
+}
+
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
@@ -127,6 +152,18 @@ function coincideLocalidad(loc: string | null | undefined, destino: string): boo
   const buscado = normalizeText(destino);
   if (!buscado) return false;
   return localidadesDe(loc).includes(buscado);
+}
+
+/**
+ * La zona de un sitio compuesto: «Vila-seca / Salou» no está en ninguna lista,
+ * pero Vila-seca sí. Se prueba cada localidad del texto.
+ */
+function zonaDeCualquiera(loc?: string | null): string {
+  for (const parte of localidadesDe(loc)) {
+    const zona = zoneOf(parte);
+    if (zona) return zona;
+  }
+  return "";
 }
 
 function zoneOf(loc?: string | null): string {
@@ -317,7 +354,7 @@ function scoreActivityMatch(
     score += 50;
     // Se nombra el SITIO, no el pueblo: es lo que le interesa a quien cotiza.
     reasons.push(`Ubicación coincidente: ${activity.locationMain ?? donde}.`);
-  } else if (locA && zoneOf(donde) && zoneOf(donde) === zoneOf(filters.destinationText)) {
+  } else if (locA && zonaDeCualquiera(donde) && zonaDeCualquiera(donde) === zoneOf(filters.destinationText)) {
     score += 18;
     reasons.push(`En la misma zona: ${activity.locationMain ?? donde}.`);
   }
@@ -657,11 +694,23 @@ export async function searchActivitiesDb(
   const documentNames = await loadSourceDocumentNames(
     activities.map((activity) => activity.sourceDocumentId)
   );
+  const documentLocations = await loadSourceDocumentLocations(
+    activities.map((activity) => activity.sourceDocumentId)
+  );
 
-  const perRateMatches: ActivitySearchMatch[] = activities
+  const perRateMatchesTodos: ActivitySearchMatch[] = activities
     .flatMap((activity) =>
       activity.rates.filter(matchesSegment).map((rate) => {
-        const scored = scoreActivityMatch(activity, rate, filters);
+        const scored = scoreActivityMatch(
+          {
+            ...activity,
+            locality:
+              activity.locality ??
+              (activity.sourceDocumentId ? documentLocations.get(activity.sourceDocumentId) ?? null : null),
+          },
+          rate,
+          filters,
+        );
         return {
           activity: {
             id: activity.id,
@@ -700,10 +749,28 @@ export async function searchActivitiesDb(
           matchReasons: scored.reasons
         };
       })
-    )
-    // Umbral bajo: basta con coincidir por ubicación (+30) o zona (+18). La edad
-    // suma cuando hay dato, pero no es obligatoria (la BBDD aún no la trae).
-    .filter((item) => item.score >= 15);
+    );
+  // Se enseñan TODAS, siempre. Lo decidió Javier en la reunión del 08/10/2026:
+  // «que salgan todas las actividades siempre, que no las filtre, da igual» —
+  // a veces no hay disponibilidad en Salou y el grupo se va a Cambrils a hacer
+  // la actividad, y PortAventura está en Vila-seca. Las que no están en el
+  // destino ni en su zona van marcadas y después de las que sí; el buscador
+  // de la pantalla hace el resto. Hasta hoy un umbral (+15) las escondía, y
+  // «las actividades no me salen» fue el bloqueo de la semana.
+  const enDestino = (item: ActivitySearchMatch) => item.score >= 15;
+  const perRateMatches: ActivitySearchMatch[] = perRateMatchesTodos.map((item) =>
+    enDestino(item)
+      ? item
+      : {
+          ...item,
+          fueraDelDestino: true,
+          matchReasons: [
+            `Fuera del destino pedido: está en ${item.activity.locationMain || "otra zona"}.`,
+            ...item.matchReasons,
+          ],
+        },
+  );
+  const fueraDelDestino = perRateMatchesTodos.length > 0 && !perRateMatchesTodos.some(enDestino);
 
   // Una sola tarjeta por ACTIVIDAD: su mejor tarifa (mayor score; a igualdad, la
   // más barata con precio > 0). Evita repetir la misma actividad por cada tramo.
@@ -730,12 +797,30 @@ export async function searchActivitiesDb(
     tarifasPorActividad.set(item.activity.id, lista);
   }
 
+  // Las destacadas, siempre arriba. Javier (08/10/2026): «hay actividades que
+  // son tops, te las podría decir yo para que salgan siempre las primeras».
+  // Van en ACTIVIDADES_DESTACADAS, separadas por «;», y se comparan por trozo
+  // de nombre sin tildes ni mayúsculas.
+  const destacadas = (process.env.ACTIVIDADES_DESTACADAS ?? "")
+    .split(";")
+    .map((t) => normalizeText(t))
+    .filter(Boolean);
+  const esDestacada = (nombre: string) => {
+    const n = normalizeText(nombre);
+    return destacadas.some((d) => n.includes(d));
+  };
   const matches: ActivitySearchMatch[] = [...bestByActivity.values()]
-    .sort((a, b) => b.score - a.score)
     .map((item) => ({
       ...item,
+      destacada: esDestacada(item.activity.activityName),
       alternativas: (tarifasPorActividad.get(item.activity.id) ?? []).filter((r) => r.id !== item.rate.id),
-    }));
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.destacada) - Number(a.destacada) ||
+        b.score - a.score ||
+        a.activity.activityName.localeCompare(b.activity.activityName, "es"),
+    );
 
   // Las que el catálogo tiene SIN NINGUNA tarifa.
   //
@@ -800,16 +885,25 @@ export async function searchActivitiesDb(
     filters,
     matches,
     sinTarifa,
-    warnings:
-      matches.length === 0
+    warnings: [
+      ...warnings,
+      ...(fueraDelDestino
         ? [
-            ...warnings,
+            {
+              code: "activities_outside_destination",
+              message: "No hay actividades en el destino pedido: se muestran las de otras zonas, marcadas.",
+            },
+          ]
+        : []),
+      ...(matches.length === 0
+        ? [
             {
               code: "no_activities_found",
-              message: "No se encontraron actividades compatibles en la base real."
-            }
+              message: "No se encontraron actividades compatibles en la base real.",
+            },
           ]
-        : warnings,
+        : []),
+    ],
     missingFields,
     status: matches.length > 0 || sinTarifa.length > 0 ? "ok" : "no_matches"
   };

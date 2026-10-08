@@ -10,6 +10,7 @@
  * igual en un portátil y en el App Service de Azure.
  */
 
+import { desgloseDeLaOpcion, precioPorEstancia } from "../src/domain/desgloseDeOpcion";
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
@@ -349,6 +350,30 @@ function drawOption(doc: PDFKit.PDFDocument, option: PdfOption, top: number): nu
   if (details.length) {
     doc.font("Helvetica").fontSize(9.5).fillColor(MUTED);
     doc.text(details.join("  ·  "), 50, y, { width: 495 });
+    y = doc.y + 8;
+  }
+
+  // Lo que paga cada persona por TODA la estancia, en grande. Javier, 29/09/2026:
+  // «muchos clientes nos piden el precio por estancia por persona», y lo que
+  // había salía «en pequeñito» dentro del desglose.
+  const desglose = desgloseDeLaOpcion(option.priceBreakdownText, option.totalPvpText);
+  if (desglose) {
+    const porEstancia = precioPorEstancia(desglose);
+    y = conSitio(doc, y, 36);
+    doc.font("Helvetica-Bold").fontSize(14).fillColor(NAVY);
+    doc.text(`${formatMoney(porEstancia.alumno)} por alumno`, 50, y, { width: 300 });
+    if (porEstancia.profesor !== null && porEstancia.profesor !== porEstancia.alumno) {
+      doc.font("Helvetica-Bold").fontSize(11).fillColor(NAVY);
+      doc.text(`${formatMoney(porEstancia.profesor)} por profesor`, 350, y + 3, { width: 195, align: "right" });
+    }
+    y = doc.y + 3;
+    doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
+    doc.text(
+      `Toda la estancia: ${desglose.noches} noches a ${formatMoney(desglose.alumnos.precio)} por alumno y noche`,
+      50,
+      y,
+      { width: 495 },
+    );
     y = doc.y + 8;
   }
 

@@ -6557,6 +6557,29 @@ tr.is-selected {
   cursor: not-allowed;
 }
 
+.cv__actsbuscar { margin: 8px 0 6px; }
+.cv__actsbuscar input {
+  width: 100%;
+  font: inherit;
+  font-size: 13.5px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+}
+.cv__actchip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+.cv__actchip--top { background: var(--highlight-bg); color: var(--highlight-ink); }
+.cv__actchip--fuera { background: var(--border-soft); color: var(--muted); }
+
 .cv__slot {
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-lg);

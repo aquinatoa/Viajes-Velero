@@ -250,7 +250,14 @@ async function zohoRequest<T>(path: string, init?: RequestInit, retry = true): P
       throw new ZohoReauthRequiredError("La autenticación con Zoho ha expirado.");
     }
 
-    throw new Error(json.message ?? json.code ?? `Zoho devolvió ${response.status}`);
+    // Zoho mete el motivo de verdad en data[0] («INVALID_DATA», con el campo
+    // que rechaza); el mensaje de arriba es genérico. Se enseña todo: el 400
+    // de Ricard (29/09/2026) llegó a pantalla como «Zoho devolvió 400» y nada más.
+    const primero = (json as { data?: Array<{ code?: string; message?: string; details?: unknown }> }).data?.[0];
+    const detalle = primero
+      ? ` · ${primero.code ?? ""} ${primero.message ?? ""}${primero.details ? " " + JSON.stringify(primero.details) : ""}`.trimEnd()
+      : "";
+    throw new Error(`${json.message ?? json.code ?? `Zoho devolvió ${response.status}`}${detalle}`);
   }
 
   return json;

@@ -408,6 +408,9 @@ export interface AiCandidateActivityRate {
   durationText?: string | null;
   /** A quién aplica: categoría, día de la semana, edad… */
   ageLabel?: string | null;
+  /** El tramo de edad en números, cuando se puede leer: la búsqueda puntúa con esto. */
+  ageMin?: number | null;
+  ageMax?: number | null;
   minPax?: number | null;
   maxPax?: number | null;
   rawText?: string | null;

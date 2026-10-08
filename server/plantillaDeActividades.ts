@@ -149,6 +149,23 @@ export function tamanoDeGrupo(valor: string | null): { minPax: number | null; ma
   return { minPax: n, maxPax: null };
 }
 
+/**
+ * «Desde 8 años», «7 a 18 años», «8-14 años», «Hasta 12 años», «Desde 14 años
+ * (kids: 8)». La búsqueda puntúa por tramo de edad: sin números, una
+ * actividad de 8+ y un grupo de 15 años no se reconocen.
+ */
+export function edadDesdeTexto(valor: string | null): { ageMin: number | null; ageMax: number | null } {
+  const e = normalizarTexto(valor).replace(/\(.*?\)/g, " ");
+  if (!e) return { ageMin: null, ageMax: null };
+  const rango = /(\d{1,2})\s*(?:a|-|–|hasta)\s*(\d{1,2})\s*an/.exec(e);
+  if (rango) return { ageMin: Number(rango[1]), ageMax: Number(rango[2]) };
+  const desde = /(?:desde|a partir de|mas de|minimo)\s*(\d{1,2})/.exec(e);
+  if (desde) return { ageMin: Number(desde[1]), ageMax: null };
+  const hasta = /(?:hasta|menores de|maximo)\s*(\d{1,2})/.exec(e);
+  if (hasta) return { ageMin: null, ageMax: Number(hasta[1]) };
+  return { ageMin: null, ageMax: null };
+}
+
 /** El año de vigencia: «2027», «Curso escolar 2026-2027», «Del 01/05/2027 al…». */
 export function anoDeTemporada(valor: string | null): number | null {
   const anos = (valor ?? "").match(/20\d\d/g);
@@ -281,6 +298,7 @@ function volcarHoja(
     const edad = f.celda("edad");
     const temporada = f.celda("temporada");
     const { minPax, maxPax } = tamanoDeGrupo(grupo);
+    const { ageMin, ageMax } = edadDesdeTexto(edad);
     const variante = [grupo, edad].filter(Boolean).join(" · ");
     tarifas.push({
       activityName: nombre,
@@ -292,6 +310,8 @@ function volcarHoja(
       costNetAmount: f.coste,
       durationText: f.celda("duracion"),
       ageLabel: variante || null,
+      ageMin,
+      ageMax,
       minPax,
       maxPax,
       // La cita de origen, con la fila: «mira la fila 214» es una instrucción.

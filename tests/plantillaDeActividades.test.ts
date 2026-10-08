@@ -19,6 +19,7 @@ import XLSXModule from "xlsx";
 import {
   anoDeTemporada,
   detectarCabecera,
+  edadDesdeTexto,
   leerPlantillaDeActividades,
   tamanoDeGrupo,
   unidadDeTarifa,
@@ -268,6 +269,20 @@ prueba("la fila sin actividad se salta y se avisa", () => {
 prueba("el resumen dice qué se leyó y que no hubo IA", () => {
   assert.match(r!.documentSummary, /leída sin IA/);
   assert.match(r!.documentSummary, /5 fila\(s\) con precio de 4 actividad\(es\) y 4 proveedor\(es\)/);
+});
+
+
+prueba("la edad en números, para que la búsqueda pueda puntuar", () => {
+  assert.deepEqual(edadDesdeTexto("Desde 8 años"), { ageMin: 8, ageMax: null });
+  assert.deepEqual(edadDesdeTexto("7 a 18 años"), { ageMin: 7, ageMax: 18 });
+  assert.deepEqual(edadDesdeTexto("8-14 años"), { ageMin: 8, ageMax: 14 });
+  assert.deepEqual(edadDesdeTexto("Desde 14 años (kids: 8)"), { ageMin: 14, ageMax: null });
+  assert.deepEqual(edadDesdeTexto("Hasta 12 años"), { ageMin: null, ageMax: 12 });
+  assert.deepEqual(edadDesdeTexto("Todas las edades"), { ageMin: null, ageMax: null });
+  assert.deepEqual(edadDesdeTexto(null), { ageMin: null, ageMax: null });
+  const calella = r!.candidateActivityRates.find((t) => t.activityName === "Banana · Water Sports Center Calella");
+  assert.equal(calella?.ageMin, 8);
+  assert.equal(calella?.ageMax, null);
 });
 
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);
