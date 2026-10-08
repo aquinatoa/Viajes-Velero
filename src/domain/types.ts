@@ -282,6 +282,10 @@ export interface ActivitySearchMatch {
   rate: ActivityRate;
   score: number;
   matchReasons: string[];
+  /** Una de las que Oravia quiere siempre arriba (PortAventura…). */
+  destacada?: boolean;
+  /** No está en el destino pedido ni en su zona: se enseña igual, marcada. */
+  fueraDelDestino?: boolean;
   /**
    * El catálogo no le pone precio y hay que ponérselo al cotizar.
    *

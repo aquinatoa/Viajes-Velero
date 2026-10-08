@@ -293,6 +293,14 @@ function porQueNoHayActividades(datos: NormalizedRequestDraft | null, resultado:
   );
 }
 
+/** ¿Esta actividad encaja con lo escrito en el buscador? Sin tildes ni mayúsculas. */
+function coincideActividad(item: ActivitySearchMatch, texto: string): boolean {
+  const q = texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  if (!q) return true;
+  const campos = [item.activity.activityName, item.activity.supplierName, item.activity.locationMain, item.rate.ageLabel];
+  return campos.some((c) => (c ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes(q));
+}
+
 /** Convierte cualquier error (incluidos los de validación) en una frase legible. */
 function mensajeDeError(error: unknown, porDefecto: string): string {
   if (error && typeof error === "object" && "issues" in error) {
@@ -374,6 +382,10 @@ export function RequestCanvas({
   const [actividades, setActividades] = useState<SearchActivitiesResult | null>(null);
   const [elegidos, setElegidos] = useState<string[]>([]);
   const [programaBase, setProgramaBase] = useState<string[]>([]);
+  // El buscador de actividades. Con todas las del catálogo en la lista
+  // (Javier, 08/10/2026: «sería una lista de 100 o 250 actividades»), lo que
+  // hace útil la pantalla es escribir «kayak» y ver tres.
+  const [busquedaActividades, setBusquedaActividades] = useState("");
   /** Excepciones por opción: qué actividad se quita o se añade respecto a la base. */
   const [excepciones, setExcepciones] = useState<Record<number, { fuera: string[]; dentro: string[] }>>({});
   /**
@@ -1903,8 +1915,19 @@ export function RequestCanvas({
                   No hay actividades en el destino pedido: se muestran las de otras zonas, marcadas en cada una.
                 </div>
               ) : null}
+              {actividades.matches.length > 0 ? (
+                <div className="cv__actsbuscar">
+                  <input
+                    type="search"
+                    value={busquedaActividades}
+                    onChange={(e) => setBusquedaActividades(e.target.value)}
+                    placeholder={`Buscar entre ${actividades.matches.length} actividades: nombre, proveedor o sitio…`}
+                    aria-label="Buscar actividad"
+                  />
+                </div>
+              ) : null}
               <ul className="cv__acts">
-                {actividades.matches.slice(0, 12).map((item) => {
+                {actividades.matches.filter((item) => coincideActividad(item, busquedaActividades)).map((item) => {
                   const puesta = programaBase.includes(item.activity.id);
                   return (
                     <li key={item.activity.id}>
@@ -1916,7 +1939,13 @@ export function RequestCanvas({
                       >
                         <span className="cv__actchk">{puesta ? "✓" : ""}</span>
                         <span className="cv__actm">
-                          <span className="cv__actt">{item.activity.activityName}</span>
+                          <span className="cv__actt">
+                            {item.activity.activityName}
+                            {item.destacada ? <span className="cv__actchip cv__actchip--top">Destacada</span> : null}
+                            {item.fueraDelDestino ? (
+                              <span className="cv__actchip cv__actchip--fuera">Fuera del destino</span>
+                            ) : null}
+                          </span>
                           <span className="cv__acts2">{[item.activity.locationMain, item.activity.durationText].filter(Boolean).join(" · ")}</span>
                           {/* Qué tarifa es. PortAventura Park tiene 81 y aquí
                               solo se veía un precio, sin decir de cuál. */}
