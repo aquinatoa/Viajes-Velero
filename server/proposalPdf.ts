@@ -40,6 +40,10 @@ export interface PdfActivity {
   amount?: number | null;
   /** Que supone la actividad. Es lo que el colegio ensena a las familias. */
   description?: string | null;
+  /** Las líneas con las que se cotizó: «25 × 17,00 € Joven … + 2 × 23,00 € Adulto … = 471,00 €». */
+  linesText?: string | null;
+  /** El total del grupo, cuando viene de las líneas. */
+  groupAmount?: number | null;
 }
 
 export interface PdfOption {
@@ -502,12 +506,21 @@ function drawActividades(doc: PDFKit.PDFDocument, input: PdfInput, top: number):
 
     doc.font("Helvetica-Bold").fontSize(10.5).fillColor(INK);
     doc.text(textoParaElCliente(actividad.name), 50, y, { width: 340 });
+    if (actividad.linesText) {
+      // Quién va con qué entrada. Sin esto el colegio ve «18,84 € por persona»
+      // y no sabe que son 25 jóvenes y 2 adultos a precios distintos.
+      doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
+      doc.text(actividad.linesText, 50, doc.y + 1, { width: 340 });
+    }
     const finDelNombre = doc.y;
 
     if (actividad.priceText) {
       doc.font("Helvetica-Bold").fontSize(10.5).fillColor(INK);
       doc.text(actividad.priceText, 400, y, { width: 145, align: "right" });
-      if (personas > 0 && (actividad.amount ?? 0) > 0) {
+      if (actividad.groupAmount != null && actividad.groupAmount > 0) {
+        doc.font("Helvetica").fontSize(8).fillColor(MUTED);
+        doc.text(`${formatMoney(actividad.groupAmount)} el grupo`, 400, doc.y + 1, { width: 145, align: "right" });
+      } else if (personas > 0 && (actividad.amount ?? 0) > 0) {
         doc.font("Helvetica").fontSize(8).fillColor(MUTED);
         doc.text(`${formatMoney((actividad.amount ?? 0) * personas)} el grupo`, 400, doc.y + 1, {
           width: 145,

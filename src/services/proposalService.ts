@@ -1,3 +1,4 @@
+import { porAlumno, totalDeLineas } from "../domain/lineasDeActividad";
 import type {
   ApproveProposalInput,
   BuildProposalInput,
@@ -98,6 +99,12 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
       }
 
       const rate = selected.rate;
+      // Las líneas (tarifa × cantidad) que puso quien cotiza. Con ellas, lo
+      // que se suma por alumno es el total del grupo repartido entre los
+      // alumnos; sin ellas, el precio por persona de la tarifa, como antes.
+      const activas = (input.builderState.activityLines?.[activityId] ?? []).filter((l) => l.cantidad > 0);
+      const total = activas.length ? totalDeLineas(activas) : null;
+      const importePorAlumno = activas.length ? porAlumno(activas, participants) : null;
 
       return {
         optionNumber: option.optionNumber,
@@ -109,8 +116,15 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
         // Con céntimos, como el resto del documento: el precio de una actividad
         // entra en el total del viaje, así que redondearlo aquí hacía que la
         // suma del resumen no cuadrara con lo que se ve arriba.
-        pvpSnapshot: rate.salePvpAmount > 0 ? formatCurrencyExact(rate.salePvpAmount) : "A consultar",
+        pvpSnapshot:
+          importePorAlumno !== null
+            ? formatCurrencyExact(importePorAlumno)
+            : rate.salePvpAmount > 0
+              ? formatCurrencyExact(rate.salePvpAmount)
+              : "A consultar",
         descriptionSnapshot: selected.activity.descriptionText,
+        lines: activas.length ? activas : null,
+        amountTotal: total,
         isSelected: false
       };
     });
