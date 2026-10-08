@@ -268,6 +268,31 @@ function porQueNoHayHoteles(datos: NormalizedRequestDraft, resultado: SearchAcco
   );
 }
 
+/**
+ * Por qué no hay actividades. Javier, 07/10/2026: «las actividades no me
+ * salen cuando le doy a cotizar», y la pantalla decía «0 disponibles» y nada
+ * más. Hay tres motivos distintos y cada uno se arregla en un sitio.
+ */
+function porQueNoHayActividades(datos: NormalizedRequestDraft | null, resultado: SearchActivitiesResult): string {
+  if (resultado.status === "insufficient_filters") {
+    const faltan = resultado.missingFields
+      .filter((f) => f.severity === "critical")
+      .map((f) => f.label.toLowerCase());
+    return faltan.length
+      ? `Para buscar actividades falta: ${faltan.join(", ")}.`
+      : "Faltan datos de la petición para buscar actividades.";
+  }
+  if ((resultado.sinTarifa?.length ?? 0) > 0) {
+    return "Las actividades del catálogo no tienen precio: aparecen abajo, marcadas para fijarlo al cotizar.";
+  }
+  const donde = datos?.destinationText?.trim() ? ` para ${datos.destinationText}` : "";
+  return (
+    `No hay actividades publicadas en el catálogo${donde}. ` +
+    "Si hay actividades leídas pero sin aprobar o sin publicar, publícalas en Tarifas → el documento → " +
+    "«Revisar y publicar aprobados»."
+  );
+}
+
 /** Convierte cualquier error (incluidos los de validación) en una frase legible. */
 function mensajeDeError(error: unknown, porDefecto: string): string {
   if (error && typeof error === "object" && "issues" in error) {
@@ -1870,6 +1895,14 @@ export function RequestCanvas({
                   Personalizar por opción
                 </button>
               </div>
+              {actividades.matches.length === 0 ? (
+                <div className="cv__slot">{porQueNoHayActividades(entendido, actividades)}</div>
+              ) : null}
+              {actividades.warnings.some((w) => w.code === "activities_outside_destination") ? (
+                <div className="cv__slot">
+                  No hay actividades en el destino pedido: se muestran las de otras zonas, marcadas en cada una.
+                </div>
+              ) : null}
               <ul className="cv__acts">
                 {actividades.matches.slice(0, 12).map((item) => {
                   const puesta = programaBase.includes(item.activity.id);

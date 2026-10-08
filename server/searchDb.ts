@@ -658,7 +658,7 @@ export async function searchActivitiesDb(
     activities.map((activity) => activity.sourceDocumentId)
   );
 
-  const perRateMatches: ActivitySearchMatch[] = activities
+  const perRateMatchesTodos: ActivitySearchMatch[] = activities
     .flatMap((activity) =>
       activity.rates.filter(matchesSegment).map((rate) => {
         const scored = scoreActivityMatch(activity, rate, filters);
@@ -700,10 +700,24 @@ export async function searchActivitiesDb(
           matchReasons: scored.reasons
         };
       })
-    )
-    // Umbral bajo: basta con coincidir por ubicación (+30) o zona (+18). La edad
-    // suma cuando hay dato, pero no es obligatoria (la BBDD aún no la trae).
-    .filter((item) => item.score >= 15);
+    );
+  // Umbral bajo: basta con coincidir por ubicación (+50) o zona (+18). La edad
+  // suma cuando hay dato, pero no es obligatoria (la BBDD aún no la trae).
+  const enElDestino = perRateMatchesTodos.filter((item) => item.score >= 15);
+  // Si NADA pasa el umbral se enseña lo que hay, marcado. Javier, 07/10/2026:
+  // «las actividades no me salen cuando le doy a cotizar». Un catálogo de Salou
+  // para un viaje a Cambrils no es «nada»: es «todo esto, a diez minutos».
+  // Quien cotiza decide; lo que no puede es no ver que existe.
+  const fueraDelDestino = enElDestino.length === 0 && perRateMatchesTodos.length > 0;
+  const perRateMatches: ActivitySearchMatch[] = fueraDelDestino
+    ? perRateMatchesTodos.map((item) => ({
+        ...item,
+        matchReasons: [
+          `Fuera del destino pedido: está en ${item.activity.locationMain || "otra zona"}.`,
+          ...item.matchReasons,
+        ],
+      }))
+    : enElDestino;
 
   // Una sola tarjeta por ACTIVIDAD: su mejor tarifa (mayor score; a igualdad, la
   // más barata con precio > 0). Evita repetir la misma actividad por cada tramo.
@@ -800,16 +814,25 @@ export async function searchActivitiesDb(
     filters,
     matches,
     sinTarifa,
-    warnings:
-      matches.length === 0
+    warnings: [
+      ...warnings,
+      ...(fueraDelDestino
         ? [
-            ...warnings,
+            {
+              code: "activities_outside_destination",
+              message: "No hay actividades en el destino pedido: se muestran las de otras zonas, marcadas.",
+            },
+          ]
+        : []),
+      ...(matches.length === 0
+        ? [
             {
               code: "no_activities_found",
-              message: "No se encontraron actividades compatibles en la base real."
-            }
+              message: "No se encontraron actividades compatibles en la base real.",
+            },
           ]
-        : warnings,
+        : []),
+    ],
     missingFields,
     status: matches.length > 0 || sinTarifa.length > 0 ? "ok" : "no_matches"
   };

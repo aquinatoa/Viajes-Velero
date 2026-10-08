@@ -126,6 +126,25 @@ export function leerRango(texto: string, hoy: Date): RangoLeido {
   );
   if (numerico.length >= 2) return { desde: numerico[0], hasta: numerico[1] };
 
+  // 3b) Numérico con el año solo al final: «31.01. – 06.02.2027»,
+  // «31/01 - 06/02/2027». Así lo escribe el turoperador suizo, y es lo que
+  // trajo el error 400 de Ricard el 29/09/2026: la primera fecha no tenía año,
+  // la solicitud se quedó sin fechas y el trato salió sin fecha de cierre.
+  const anioAlFinal = texto.match(
+    /\b(\d{1,2})[./-](\d{1,2})\.?\s*(?:–|—|-|a|al|hasta)\s*(\d{1,2})[./-](\d{1,2})[./-](20\d{2})\b/,
+  );
+  if (anioAlFinal) {
+    const d1 = Number(anioAlFinal[1]);
+    const m1 = Number(anioAlFinal[2]);
+    const d2 = Number(anioAlFinal[3]);
+    const m2 = Number(anioAlFinal[4]);
+    const anio = Number(anioAlFinal[5]);
+    if (m1 >= 1 && m1 <= 12 && m2 >= 1 && m2 <= 12 && diaValido(d1) && diaValido(d2)) {
+      // «30.12. – 03.01.2027» empieza el año anterior.
+      return { desde: aIso(m1 > m2 ? anio - 1 : anio, m1, d1), hasta: aIso(anio, m2, d2) };
+    }
+  }
+
   // 4) Mes primero: «mayo de 2027, del 12 al 16».
   //
   // El hueco entre el mes y los días se limita a una frase -sin punto y sin

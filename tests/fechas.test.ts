@@ -146,5 +146,24 @@ prueba("un mes imposible no cuela", () => {
   assert.equal(una("12/13/2027"), null);
 });
 
+
+console.log("\nEl formato del turoperador suizo: el año solo al final");
+
+prueba("«Date: 31.01. – 06.02.2027» (la petición que dio el 400 de Ricard)", () => {
+  assert.deepEqual(rango("Date: 31.01. – 06.02.2027"), { desde: "2027-01-31", hasta: "2027-02-06" });
+});
+
+prueba("con barras y guion corto: «31/01 - 06/02/2027»", () => {
+  assert.deepEqual(rango("31/01 - 06/02/2027"), { desde: "2027-01-31", hasta: "2027-02-06" });
+});
+
+prueba("si cruza el año, la primera fecha es del año anterior", () => {
+  assert.deepEqual(rango("30.12. – 03.01.2027"), { desde: "2026-12-30", hasta: "2027-01-03" });
+});
+
+prueba("con las dos fechas completas sigue mandando el formato de siempre", () => {
+  assert.deepEqual(rango("31.01.2027 – 06.02.2027"), { desde: "2027-01-31", hasta: "2027-02-06" });
+});
+
 console.log(`\n${pasadas} pasadas, ${fallidas} fallidas\n`);
 process.exit(fallidas > 0 ? 1 : 0);

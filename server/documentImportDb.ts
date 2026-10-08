@@ -695,6 +695,8 @@ export async function createInventoryDocumentStaging(
     year: rate.year ?? null,
     seasonName: rate.seasonName ?? null,
     ageLabel: rate.ageLabel ?? null,
+    ageMin: rate.ageMin ?? null,
+    ageMax: rate.ageMax ?? null,
     rateUnit: rate.rateUnit ?? null,
     currency: rate.currency ?? "EUR",
     salePvpAmount: rate.salePvpAmount ?? null,
