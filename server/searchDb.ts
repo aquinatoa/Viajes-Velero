@@ -35,6 +35,31 @@ async function loadSourceDocumentNames(
   return new Map(documents.map((document) => [document.id, document.controlName]));
 }
 
+/**
+ * La localidad de control de cada documento. Es el respaldo de la actividad
+ * que no trae la suya: las entradas de PortAventura viven en «PortAventura
+ * Park, Ferrari Land y Caribe Aquatic Park» y nadie escribe eso en el destino;
+ * su documento dice «Vila-seca / Salou», que es donde se busca. Sin esto, un
+ * viaje a Salou no encontraba ni una entrada (Javier, 08/10/2026, en directo).
+ */
+async function loadSourceDocumentLocations(
+  ids: (string | null | undefined)[]
+): Promise<Map<string, string>> {
+  const uniqueIds = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+  if (uniqueIds.length === 0) {
+    return new Map();
+  }
+  const documents = await prisma.sourceDocument.findMany({
+    where: { id: { in: uniqueIds } },
+    select: { id: true, controlLocation: true }
+  });
+  return new Map(
+    documents
+      .filter((document) => (document.controlLocation ?? "").trim())
+      .map((document) => [document.id, String(document.controlLocation)])
+  );
+}
+
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
@@ -657,11 +682,23 @@ export async function searchActivitiesDb(
   const documentNames = await loadSourceDocumentNames(
     activities.map((activity) => activity.sourceDocumentId)
   );
+  const documentLocations = await loadSourceDocumentLocations(
+    activities.map((activity) => activity.sourceDocumentId)
+  );
 
   const perRateMatchesTodos: ActivitySearchMatch[] = activities
     .flatMap((activity) =>
       activity.rates.filter(matchesSegment).map((rate) => {
-        const scored = scoreActivityMatch(activity, rate, filters);
+        const scored = scoreActivityMatch(
+          {
+            ...activity,
+            locality:
+              activity.locality ??
+              (activity.sourceDocumentId ? documentLocations.get(activity.sourceDocumentId) ?? null : null),
+          },
+          rate,
+          filters,
+        );
         return {
           activity: {
             id: activity.id,
