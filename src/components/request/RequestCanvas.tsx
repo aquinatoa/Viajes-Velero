@@ -395,6 +395,11 @@ export function RequestCanvas({
   // (Javier, 08/10/2026: «sería una lista de 100 o 250 actividades»), lo que
   // hace útil la pantalla es escribir «kayak» y ver tres.
   const [busquedaActividades, setBusquedaActividades] = useState("");
+  // El buscador vive detrás de un botón con lupa en la cabecera de la sección
+  // (Anthony, 08/10/2026: «en lugar de una franja, un icono amarillo que
+  // despliegue el buscador»). Cerrado no ocupa nada; abierto es una píldora.
+  const [buscadorAbierto, setBuscadorAbierto] = useState(false);
+  const campoBusqueda = useRef<HTMLInputElement>(null);
   // Las líneas de cada actividad: tarifa × cantidad. «No todos son adultos,
   // no todos son discapacitados» (Anthony, 08/10/2026). Al marcar una
   // actividad se hace un esbozo por la edad del grupo; en la ventana se corrige.
@@ -1866,6 +1871,51 @@ export function RequestCanvas({
                   <span className="cv__lbl">
                     {(actividades?.matches.length ?? 0)} disponibles · van en todas las opciones
                   </span>
+                  {(actividades?.matches.length ?? 0) > 0 ? (
+                    <div className={buscadorAbierto ? "cv__buscar is-open" : "cv__buscar"}>
+                      <span className="cv__buscar-pill">
+                        <input
+                          ref={campoBusqueda}
+                          type="search"
+                          value={busquedaActividades}
+                          onChange={(e) => setBusquedaActividades(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                              setBusquedaActividades("");
+                              setBuscadorAbierto(false);
+                            }
+                          }}
+                          placeholder="Buscar actividad…"
+                          aria-label="Buscar actividad"
+                          autoComplete="off"
+                          tabIndex={buscadorAbierto ? 0 : -1}
+                        />
+                        {busquedaActividades.trim() ? (
+                          <span className="cv__buscar-n">
+                            {actividades!.matches.filter((m) => coincideActividad(m, busquedaActividades)).length} de{" "}
+                            {actividades!.matches.length}
+                          </span>
+                        ) : null}
+                      </span>
+                      <button
+                        type="button"
+                        className="cv__lupa"
+                        aria-label={buscadorAbierto ? "Cerrar el buscador" : "Buscar actividad"}
+                        aria-expanded={buscadorAbierto}
+                        onClick={() => {
+                          const abrir = !buscadorAbierto;
+                          setBuscadorAbierto(abrir);
+                          if (abrir) window.setTimeout(() => campoBusqueda.current?.focus(), 30);
+                          else setBusquedaActividades("");
+                        }}
+                      >
+                        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                          <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" strokeWidth="2.4" />
+                          <line x1="15.5" y1="15.5" x2="21" y2="21" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+                        </svg>
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               )}
             </>
@@ -1958,25 +2008,9 @@ export function RequestCanvas({
                   No hay actividades en el destino pedido: se muestran las de otras zonas, marcadas en cada una.
                 </div>
               ) : null}
-              {actividades.matches.length > 0 ? (
-                <label className="cv__actsbuscar">
-                  <span className="cv__actsbuscar-l">Buscar actividad</span>
-                  <span className="cv__actsbuscar-c">
-                    <span className="cv__actsbuscar-ico" aria-hidden="true">⌕</span>
-                    <input
-                      type="search"
-                      value={busquedaActividades}
-                      onChange={(e) => setBusquedaActividades(e.target.value)}
-                      placeholder="kayak, PortAventura, Club Nàutic, Cambrils…"
-                      autoComplete="off"
-                    />
-                    <span className="cv__actsbuscar-n">
-                      {busquedaActividades.trim()
-                        ? `${actividades.matches.filter((m) => coincideActividad(m, busquedaActividades)).length} de ${actividades.matches.length}`
-                        : `${actividades.matches.length} actividades`}
-                    </span>
-                  </span>
-                </label>
+              {busquedaActividades.trim() &&
+              actividades.matches.filter((m) => coincideActividad(m, busquedaActividades)).length === 0 ? (
+                <div className="cv__slot">Ninguna actividad coincide con «{busquedaActividades.trim()}».</div>
               ) : null}
               <ul className="cv__acts">
                 {actividades.matches.filter((item) => coincideActividad(item, busquedaActividades)).map((item) => {
