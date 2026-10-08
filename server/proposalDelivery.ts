@@ -14,6 +14,7 @@
  * generado, para poder probar el circuito entero antes de que llegue la clave.
  */
 
+import { resumenDeLineas, type LineaDeActividad } from "../src/domain/lineasDeActividad";
 import { importeDe } from "../src/domain/importe";
 import crypto from "node:crypto";
 import { PrismaClient, type DeliveryStatus } from "@prisma/client";
@@ -190,9 +191,11 @@ export async function prepareDelivery(input: PrepareDeliveryInput): Promise<Deli
         name: actividad.activityNameSnapshot,
         provider: actividad.providerSnapshot,
         duration: actividad.durationSnapshot,
-        priceText: actividad.pvpSnapshot,
+        priceText: actividad.pvpSnapshot ? `${actividad.pvpSnapshot}${actividad.linesJson ? " por alumno" : ""}` : actividad.pvpSnapshot,
         amount: importeDe(actividad.pvpSnapshot),
         description: actividad.descriptionSnapshot,
+        linesText: resumenDeLineas(lineasGuardadas(actividad.linesJson)),
+        groupAmount: actividad.amountTotal == null ? null : Number(actividad.amountTotal),
       })),
   }));
 
@@ -402,6 +405,17 @@ async function reflejarEnElCrm(deliveryId: string, hito: Hito, nota?: string): P
 export async function prepareAndSend(input: PrepareDeliveryInput): Promise<DeliveryResult> {
   const prepared = await prepareDelivery(input);
   return sendDelivery(prepared.id);
+}
+
+/** Las líneas guardadas como JSON en la actividad de la propuesta. */
+function lineasGuardadas(texto: string | null | undefined): LineaDeActividad[] {
+  if (!texto) return [];
+  try {
+    const valor = JSON.parse(texto);
+    return Array.isArray(valor) ? (valor as LineaDeActividad[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 /** Lo que ve el colegio al abrir su enlace. Registra la visita de paso. */

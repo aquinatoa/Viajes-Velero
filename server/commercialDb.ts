@@ -1,3 +1,4 @@
+import type { LineaDeActividad } from "../src/domain/lineasDeActividad";
 import { PrismaClient } from "@prisma/client";
 import type {
   Client,
@@ -330,8 +331,21 @@ export interface SaveTripProposalInput {
     durationSnapshot?: string | null;
     pvpSnapshot?: string | null;
     descriptionSnapshot?: string | null;
+    lines?: unknown[] | null;
+    amountTotal?: number | null;
     isSelected?: boolean;
   }[];
+}
+
+/** Las líneas guardadas como JSON, o null si no las hay o no se pueden leer. */
+function lineasDesdeJson(texto: string | null | undefined): LineaDeActividad[] | null {
+  if (!texto) return null;
+  try {
+    const valor = JSON.parse(texto);
+    return Array.isArray(valor) ? (valor as LineaDeActividad[]) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -409,6 +423,8 @@ export async function saveTripProposalDb(input: SaveTripProposalInput): Promise<
         durationSnapshot: option.durationSnapshot ?? null,
         pvpSnapshot: option.pvpSnapshot ?? null,
         descriptionSnapshot: option.descriptionSnapshot ?? null,
+        linesJson: option.lines && option.lines.length ? JSON.stringify(option.lines) : null,
+        amountTotal: option.amountTotal ?? null,
         isSelected: option.isSelected ?? false,
       })),
     },
@@ -460,6 +476,8 @@ export async function saveTripProposalDb(input: SaveTripProposalInput): Promise<
       durationSnapshot: option.durationSnapshot ?? "",
       pvpSnapshot: option.pvpSnapshot ?? "",
       descriptionSnapshot: option.descriptionSnapshot ?? "",
+      lines: lineasDesdeJson(option.linesJson),
+      amountTotal: option.amountTotal == null ? null : Number(option.amountTotal),
       isSelected: option.isSelected,
     })),
   };
@@ -537,6 +555,8 @@ export async function approveTripProposalDb(
       durationSnapshot: option.durationSnapshot ?? "",
       pvpSnapshot: option.pvpSnapshot ?? "",
       descriptionSnapshot: option.descriptionSnapshot ?? "",
+      lines: lineasDesdeJson(option.linesJson),
+      amountTotal: option.amountTotal == null ? null : Number(option.amountTotal),
       isSelected: option.isSelected,
     })),
   };

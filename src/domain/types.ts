@@ -1,3 +1,4 @@
+import type { LineaDeActividad } from "./lineasDeActividad";
 export type ClientType = "new" | "existing";
 
 /**
@@ -284,6 +285,8 @@ export interface ActivitySearchMatch {
   matchReasons: string[];
   /** Una de las que Oravia quiere siempre arriba (PortAventura…). */
   destacada?: boolean;
+  /** Las líneas elegidas por quien cotiza; si las hay, `rate.salePvpAmount` ya es el importe por alumno. */
+  lineas?: LineaDeActividad[];
   /** No está en el destino pedido ni en su zona: se enseña igual, marcada. */
   fueraDelDestino?: boolean;
   /**
@@ -332,6 +335,8 @@ export interface SearchActivitiesResult {
 export interface ProposalBuilderState {
   selectedAccommodationIds: string[];
   activitiesByOption: Record<number, string[]>;
+  /** Las líneas (tarifa × cantidad) de cada actividad, por id de actividad. */
+  activityLines?: Record<string, LineaDeActividad[]>;
   /** Actividades elegidas para todo el viaje (aplican a todas las opciones). */
   selectedActivityIds: string[];
 }
@@ -375,6 +380,10 @@ export interface ProposalActivityOption {
   durationSnapshot: string;
   pvpSnapshot: string;
   descriptionSnapshot: string;
+  /** Las líneas con las que se cotizó, si las hubo. */
+  lines?: LineaDeActividad[] | null;
+  /** El total del grupo para esta actividad. */
+  amountTotal?: number | null;
   isSelected: boolean;
 }
 

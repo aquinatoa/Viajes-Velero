@@ -313,6 +313,12 @@ model ProposalActivityOption {
   durationSnapshot     String?
   pvpSnapshot          String?
   descriptionSnapshot  String?
+  /// Las líneas (tarifa × cantidad) como JSON. Ver src/domain/lineasDeActividad.ts.
+  /// Desde el 08/10/2026 una actividad no es una tarifa por persona: «no todos
+  /// son adultos». `pvpSnapshot` sigue siendo lo que se suma por alumno.
+  linesJson            String?
+  /// El total del grupo: la suma de las líneas.
+  amountTotal          Decimal?
   isSelected           Boolean      @default(true)
   proposal             TripProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   /// Igual que en el alojamiento: la actividad puede desaparecer del catalogo

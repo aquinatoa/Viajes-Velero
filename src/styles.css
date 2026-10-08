@@ -6557,17 +6557,25 @@ tr.is-selected {
   cursor: not-allowed;
 }
 
-.cv__actsbuscar { margin: 8px 0 6px; }
-.cv__actsbuscar input {
-  width: 100%;
-  font: inherit;
-  font-size: 13.5px;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--ink);
-}
+.cv__lineas { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+.cv__lineas th { text-align: left; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--border); }
+.cv__lineas td { padding: 6px 8px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
+.cv__lineas tr.is-on td { background: var(--highlight-bg); }
+.cv__lineas-n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cv__lineas input { width: 72px; font: inherit; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; text-align: right; }
+.cv__lineas tfoot td { font-weight: 600; border-top: 1px solid var(--border); }
+.cv__lineas-pie { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.cv__lineas-aviso { font-size: 12px; color: var(--warn); font-weight: 600; }
+.cv__actp small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
+
+.cv__actsbuscar { display: block; margin: 10px 0 12px; }
+.cv__actsbuscar-l { display: block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; color: var(--brand); margin-bottom: 4px; }
+.cv__actsbuscar-c { display: flex; align-items: center; gap: 10px; padding: 0 12px 0 14px; border: 2px solid var(--brand); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-panel); }
+.cv__actsbuscar-c:focus-within { box-shadow: 0 0 0 3px rgba(19, 46, 93, .18); }
+.cv__actsbuscar-ico { font-size: 20px; color: var(--brand); line-height: 1; }
+.cv__actsbuscar input { flex: 1; min-width: 0; font: inherit; font-size: 15px; padding: 11px 0; border: 0; background: none; color: var(--ink); outline: none; }
+.cv__actsbuscar input::placeholder { color: var(--muted); }
+.cv__actsbuscar-n { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .cv__actchip {
   display: inline-block;
   margin-left: 6px;

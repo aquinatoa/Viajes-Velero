@@ -1,3 +1,12 @@
+import {
+  lineasPorDefecto,
+  porAlumno,
+  resumenDeLineas,
+  totalDeLineas,
+  tramoDelGrupo,
+  type LineaDeActividad,
+  type TramoDeEdad,
+} from "../../domain/lineasDeActividad";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildProposal,
@@ -386,6 +395,10 @@ export function RequestCanvas({
   // (Javier, 08/10/2026: «sería una lista de 100 o 250 actividades»), lo que
   // hace útil la pantalla es escribir «kayak» y ver tres.
   const [busquedaActividades, setBusquedaActividades] = useState("");
+  // Las líneas de cada actividad: tarifa × cantidad. «No todos son adultos,
+  // no todos son discapacitados» (Anthony, 08/10/2026). Al marcar una
+  // actividad se hace un esbozo por la edad del grupo; en la ventana se corrige.
+  const [lineas, setLineas] = useState<Record<string, LineaDeActividad[]>>({});
   /** Excepciones por opción: qué actividad se quita o se añade respecto a la base. */
   const [excepciones, setExcepciones] = useState<Record<number, { fuera: string[]; dentro: string[] }>>({});
   /**
@@ -809,11 +822,17 @@ export function RequestCanvas({
     const encontrada = actividadesElegibles.find((m) => m.activity.id === id);
     if (!encontrada) return undefined;
     const puesto = preciosFijados[id];
-    if (!encontrada.precioAFijar || !puesto) return encontrada;
+    const base: ActivitySearchMatch =
+      !encontrada.precioAFijar || !puesto
+        ? encontrada
+        : { ...encontrada, rate: { ...encontrada.rate, salePvpAmount: puesto }, precioFijado: puesto };
+    // Con líneas, lo que se suma por alumno es el total del grupo repartido.
+    const activas = (lineas[id] ?? []).filter((l) => l.cantidad > 0);
+    if (activas.length === 0) return base;
     return {
-      ...encontrada,
-      rate: { ...encontrada.rate, salePvpAmount: puesto },
-      precioFijado: puesto,
+      ...base,
+      lineas: activas,
+      rate: { ...base.rate, salePvpAmount: porAlumno(activas, entendido?.participants ?? 0) },
     };
   }
 
@@ -1225,9 +1244,22 @@ export function RequestCanvas({
   }
 
   function alternarBase(id: string) {
+    const yaEstaba = programaBase.includes(id);
     setProgramaBase((actuales) =>
       actuales.includes(id) ? actuales.filter((x) => x !== id) : [...actuales, id],
     );
+    if (!yaEstaba && !lineas[id]) {
+      const item = actividadesElegibles.find((m) => m.activity.id === id);
+      if (item && !item.precioAFijar) {
+        const esbozo = lineasPorDefecto(
+          [item.rate, ...(item.alternativas ?? [])],
+          entendido?.participants ?? 0,
+          entendido?.teachers ?? 0,
+          tramoDelGrupo(entendido?.ageRangeText, entendido?.averageAgeText),
+        );
+        if (esbozo.length) setLineas((actuales) => ({ ...actuales, [id]: esbozo }));
+      }
+    }
   }
 
   /** Marca o desmarca una actividad en UNA opción concreta (la matriz). */
@@ -1336,6 +1368,7 @@ export function RequestCanvas({
         builderState: {
           selectedAccommodationIds: elegidos,
           activitiesByOption: actividadesPorOpcion,
+          activityLines: lineas,
           selectedActivityIds: programaBase,
         },
       });
@@ -1891,6 +1924,16 @@ export function RequestCanvas({
                       <VentanaDeActividad
                         item={item}
                         alumnos={entendido?.participants ?? 0}
+                        profesores={entendido?.teachers ?? 0}
+                        edadGrupo={tramoDelGrupo(entendido?.ageRangeText, entendido?.averageAgeText)}
+                        lineas={lineas[item.activity.id] ?? []}
+                        onCambiar={(nuevas) => {
+                          setLineas((actuales) => ({ ...actuales, [item.activity.id]: nuevas }));
+                          // Con líneas puestas, la actividad entra en el programa.
+                          if (nuevas.some((l) => l.cantidad > 0) && !programaBase.includes(item.activity.id)) {
+                            setProgramaBase((actuales) => [...actuales, item.activity.id]);
+                          }
+                        }}
                         onCerrar={() => setDetalleActividad(null)}
                       />
                     ) : null;
@@ -1916,15 +1959,24 @@ export function RequestCanvas({
                 </div>
               ) : null}
               {actividades.matches.length > 0 ? (
-                <div className="cv__actsbuscar">
-                  <input
-                    type="search"
-                    value={busquedaActividades}
-                    onChange={(e) => setBusquedaActividades(e.target.value)}
-                    placeholder={`Buscar entre ${actividades.matches.length} actividades: nombre, proveedor o sitio…`}
-                    aria-label="Buscar actividad"
-                  />
-                </div>
+                <label className="cv__actsbuscar">
+                  <span className="cv__actsbuscar-l">Buscar actividad</span>
+                  <span className="cv__actsbuscar-c">
+                    <span className="cv__actsbuscar-ico" aria-hidden="true">⌕</span>
+                    <input
+                      type="search"
+                      value={busquedaActividades}
+                      onChange={(e) => setBusquedaActividades(e.target.value)}
+                      placeholder="kayak, PortAventura, Club Nàutic, Cambrils…"
+                      autoComplete="off"
+                    />
+                    <span className="cv__actsbuscar-n">
+                      {busquedaActividades.trim()
+                        ? `${actividades.matches.filter((m) => coincideActividad(m, busquedaActividades)).length} de ${actividades.matches.length}`
+                        : `${actividades.matches.length} actividades`}
+                    </span>
+                  </span>
+                </label>
               ) : null}
               <ul className="cv__acts">
                 {actividades.matches.filter((item) => coincideActividad(item, busquedaActividades)).map((item) => {
@@ -1950,14 +2002,24 @@ export function RequestCanvas({
                           {/* Qué tarifa es. PortAventura Park tiene 81 y aquí
                               solo se veía un precio, sin decir de cuál. */}
                           <span className="cv__acts2 cv__acttar">
-                            {item.rate.ageLabel ? `Tarifa: ${item.rate.ageLabel}` : "Tarifa única"}
-                            {" · por persona"}
-                            {(item.alternativas?.length ?? 0) > 0 ? ` · ${item.alternativas!.length + 1} tarifas` : ""}
+                            {(lineas[item.activity.id] ?? []).some((l) => l.cantidad > 0)
+                              ? resumenDeLineas(lineas[item.activity.id] ?? [])
+                              : `${item.rate.ageLabel ? `Tarifa: ${item.rate.ageLabel}` : "Tarifa única"} · por persona${
+                                  (item.alternativas?.length ?? 0) > 0 ? ` · ${item.alternativas!.length + 1} tarifas` : ""
+                                }`}
                           </span>
                         </span>
-                        <span className={item.rate.salePvpAmount ? "cv__actp" : "cv__actp cv__actp--none"}>
-                          {item.rate.salePvpAmount ? euros(item.rate.salePvpAmount) : "a consultar"}
-                        </span>
+                        {(() => {
+                          const conLineas = matchActividad(item.activity.id);
+                          const activas = conLineas?.lineas ?? [];
+                          const importe = conLineas?.rate.salePvpAmount ?? item.rate.salePvpAmount;
+                          return (
+                            <span className={importe ? "cv__actp" : "cv__actp cv__actp--none"}>
+                              {importe ? euros(importe) : "a consultar"}
+                              {activas.length ? <small> por alumno</small> : null}
+                            </span>
+                          );
+                        })()}
                       </button>
                       <button
                         type="button"
@@ -3537,10 +3599,18 @@ function VentanaDeDetalle({
 function VentanaDeActividad({
   item,
   alumnos,
+  profesores,
+  edadGrupo,
+  lineas,
+  onCambiar,
   onCerrar,
 }: {
   item: ActivitySearchMatch;
   alumnos: number;
+  profesores: number;
+  edadGrupo: TramoDeEdad | null;
+  lineas: LineaDeActividad[];
+  onCambiar: (lineas: LineaDeActividad[]) => void;
   onCerrar: () => void;
 }) {
   useEffect(() => {
@@ -3564,10 +3634,27 @@ function VentanaDeActividad({
       clientSegment: null,
     })),
   );
-  const precio = item.rate.salePvpAmount;
+
   const sub = [item.activity.supplierName, item.activity.locationMain, item.activity.durationText]
     .filter(Boolean)
     .join(" · ");
+
+  // Las líneas: una fila por tarifa con su cantidad. Lo que no tiene cantidad
+  // no entra. El esbozo se hace por la edad del grupo y se puede rehacer.
+  const cantidadDe = (rateId: string) => lineas.find((l) => l.rateId === rateId)?.cantidad ?? 0;
+  const ponerCantidad = (r: (typeof todas)[number], cantidad: number) => {
+    const resto = lineas.filter((l) => l.rateId !== r.id);
+    const nuevas =
+      cantidad > 0
+        ? [...resto, { rateId: r.id, etiqueta: r.ageLabel || "Tarifa única", precio: r.salePvpAmount, cantidad }]
+        : resto;
+    onCambiar(nuevas);
+  };
+  const activas = lineas.filter((l) => l.cantidad > 0);
+  const total = totalDeLineas(activas);
+  const personasPuestas = activas.reduce((n, l) => n + l.cantidad, 0);
+  const grupo = alumnos + profesores;
+  const rehacerEsbozo = () => onCambiar(lineasPorDefecto(todas, alumnos, profesores, edadGrupo));
 
   return (
     <div
@@ -3592,28 +3679,77 @@ function VentanaDeActividad({
         <div className="cv__ventb">
           <div className="cv__det">
             <div className="cv__detbloq">
-              <p className="cv__deth">Esto es lo que vas a añadir al programa</p>
-              <dl className="cv__detgrid">
-                <div>
-                  <dt>Tarifa</dt>
-                  <dd>{item.rate.ageLabel || "tarifa única"}</dd>
-                </div>
-                <div>
-                  <dt>Precio</dt>
-                  <dd>{precio > 0 ? `${euros(precio)} por persona` : "a consultar"}</dd>
-                </div>
-                {precio > 0 && alumnos > 0 ? (
-                  <div>
-                    <dt>Para el grupo</dt>
-                    <dd>
-                      {euros(precio)} × {alumnos} {alumnos === 1 ? "alumno" : "alumnos"} = {euros(precio * alumnos)}
-                    </dd>
-                  </div>
-                ) : null}
-              </dl>
-              <p className="cv__detnota">
-                El precio por persona se suma al precio por alumno de cada opción en la que esté esta actividad.
+              <p className="cv__deth">
+                Quién va con qué tarifa
+                {grupo > 0 ? <span className="cv__detn">{personasPuestas} de {grupo}</span> : null}
               </p>
+              {item.precioAFijar ? (
+                <p className="cv__detnota">Esta actividad no tiene precio en el catálogo: se pone en la lista, no aquí.</p>
+              ) : (
+                <>
+                  <table className="cv__lineas">
+                    <thead>
+                      <tr>
+                        <th>Tarifa</th>
+                        <th>Precio</th>
+                        <th>Cuántos</th>
+                        <th>Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {todas
+                        .filter((r) => r.salePvpAmount > 0)
+                        .map((r) => {
+                          const cantidad = cantidadDe(r.id);
+                          return (
+                            <tr key={r.id} className={cantidad > 0 ? "is-on" : undefined}>
+                              <td>{r.ageLabel || "Tarifa única"}</td>
+                              <td className="cv__lineas-n">{euros(r.salePvpAmount)}</td>
+                              <td>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={1}
+                                  value={cantidad === 0 ? "" : cantidad}
+                                  placeholder="0"
+                                  onChange={(e) => ponerCantidad(r, Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+                                  aria-label={`Cuántos con ${r.ageLabel || "tarifa única"}`}
+                                />
+                              </td>
+                              <td className="cv__lineas-n">{cantidad > 0 ? euros(r.salePvpAmount * cantidad) : "—"}</td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <td colSpan={2}>Total del grupo</td>
+                        <td className="cv__lineas-n">{personasPuestas || ""}</td>
+                        <td className="cv__lineas-n">{activas.length ? euros(total) : "—"}</td>
+                      </tr>
+                      {activas.length && alumnos > 0 ? (
+                        <tr>
+                          <td colSpan={3}>Repartido entre los {alumnos} alumnos</td>
+                          <td className="cv__lineas-n">{euros(porAlumno(activas, alumnos))} por alumno</td>
+                        </tr>
+                      ) : null}
+                    </tfoot>
+                  </table>
+                  <div className="cv__lineas-pie">
+                    <button type="button" className="cv__link" onClick={rehacerEsbozo}>
+                      Rehacer el esbozo por edad ({alumnos} alumnos, {profesores} profesores)
+                    </button>
+                    {personasPuestas > 0 && grupo > 0 && personasPuestas !== grupo ? (
+                      <span className="cv__lineas-aviso">
+                        Hay {personasPuestas} personas con entrada y el grupo son {grupo}.
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="cv__detnota">
+                    Lo que se suma al precio por alumno de cada opción es el total del grupo repartido entre los alumnos.
+                  </p>
+                </>
+              )}
             </div>
 
             {item.matchReasons.length > 0 ? (
@@ -3635,11 +3771,8 @@ function VentanaDeActividad({
                 <p className="cv__deth">
                   Todas las tarifas de esta actividad <span className="cv__detn">{todas.length}</span>
                 </p>
-                <TablaDeTarifas rejilla={rejilla} seleccionadaId={item.rate.id} />
-                <p className="cv__detnota">
-                  La marcada con ✓ es la que se ha elegido para este grupo. De momento las demás no se pueden elegir
-                  desde aquí.
-                </p>
+                <TablaDeTarifas rejilla={rejilla} seleccionadaId={activas[0]?.rateId ?? item.rate.id} />
+                <p className="cv__detnota">La misma información en rejilla, para comparar periodos y tramos.</p>
               </div>
             ) : null}
           </div>
