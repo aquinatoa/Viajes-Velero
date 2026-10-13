@@ -107,12 +107,12 @@ export function getZohoAuthUrl() {
     // Consultas COQL: buscar un producto o proveedor por nombre sin paginar.
     "ZohoCRM.coql.READ",
     // Leer sus reglas de flujo y el CÓDIGO de sus funciones (GET /crm/v8/functions;
-    // «functions.READ» no existe en Zoho: «Ámbito de OAuth no válido»; solo ALL. Se usa para leer.
+    // El código de las funciones NO se puede leer con este cliente: «functions.READ»
+    // y «functions.ALL» dan «Ámbito de OAuth no válido» (probado el 13/10/2026).
     // settings.functions sola da OAUTH_SCOPE_MISMATCH). Hace falta para no pisar
     // sus automatizaciones del subformulario «Servicios Contratados».
     "ZohoCRM.settings.functions.READ",
     "ZohoCRM.settings.workflow_rules.READ",
-    "ZohoCRM.functions.ALL",
     "ZohoCRM.settings.modules.READ",
     "ZohoCRM.settings.fields.READ"
   ].join(",");
