@@ -97,7 +97,17 @@ export function resolveRatePrices(
   if (rateKind === "SALE") {
     // Todo lo que trae el documento es venta. No se le suma margen: ya lo lleva.
     const sale = firstPositive(pvpAmount, netAmount, costAmount);
-    return { salePrice: sale === null ? null : round2(sale), costPrice: null };
+    // Pero un papel de venta puede traer TAMBIÉN su columna de coste: el
+    // maestro de hoteles de Oravia trae «Cost» (40,50) y «neto venta» (43,13).
+    // Ese coste se guardaba en «neto azul marino» y el coste real quedaba
+    // vacío, así que el CRM no podía calcular el margen (13/10/2026). Se toma
+    // solo si es un importe aparte y menor que la venta: si la única cifra del
+    // papel cayó en «coste», es la venta y no dice lo que cuesta.
+    const cost =
+      sale !== null && costAmount !== null && costAmount !== undefined && costAmount > 0 && costAmount < sale
+        ? costAmount
+        : null;
+    return { salePrice: sale === null ? null : round2(sale), costPrice: cost };
   }
 
   // UNKNOWN: comportamiento anterior — neto/coste como base, PVP explícito manda.

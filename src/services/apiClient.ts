@@ -301,6 +301,9 @@ export interface ZohoDealSummary {
   id: string;
   dealName: string;
   stage: string;
+  /** Llegada y salida del grupo según el CRM. AAAA-MM-DD o vacío. */
+  arrivalDate?: string;
+  departureDate?: string;
   amount: number | null;
   closingDate: string;
   accountName: string;
@@ -325,9 +328,12 @@ export interface ZohoDealSummary {
   department: BackendDepartment | "OTRO" | null;
 }
 
-export function listZohoOpportunitiesApi() {
+export function listZohoOpportunitiesApi(rango?: { desde: string; hasta: string }) {
+  const consulta = rango
+    ? `?desde=${encodeURIComponent(rango.desde)}&hasta=${encodeURIComponent(rango.hasta)}`
+    : "";
   return getJson<{ deals: ZohoDealSummary[] }>(
-    "/api/crm/opportunities",
+    `/api/crm/opportunities${consulta}`,
     "No se pudieron listar los tratos de Zoho.",
   );
 }

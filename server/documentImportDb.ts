@@ -1516,9 +1516,14 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
         occupancyLabel: rate.occupancyLabel ?? null,
         pvpAmount: salePrice,
         // El coste resuelto, no el campo crudo donde cayó la cifra. En un
-        // documento de venta queda a null: ese papel no dice lo que cuesta.
+        // documento de venta queda a null salvo que el papel traiga su columna
+        // de coste aparte (ver `resolveRatePrices`).
         netSaleAmount: costPrice,
-        netAzulmarinoAmount: rate.costAmount,
+        // «Neto azul marino» es el precio pactado con el cliente Azul Marino, no
+        // un coste. Aquí iba el coste del documento, y con él las 646 tarifas
+        // de «Hoteles Oravia 2027» quedaron con el coste en este campo y el de
+        // coste vacío. La lectura no distingue ese precio: queda vacío.
+        netAzulmarinoAmount: null,
         sourceDocumentId,
         sourceStagingId: rate.id,
       });
