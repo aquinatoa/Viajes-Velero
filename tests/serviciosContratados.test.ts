@@ -13,12 +13,14 @@
 import assert from "node:assert/strict";
 
 import {
+  costeDelPrecio,
   desgloseDeLaOpcion,
   elegirProveedor,
   filasDeLaOpcion,
   importeDesdeTexto,
   nombreCortoDelHotel,
   palabrasClave,
+  planDelSubformulario,
   regimenEnCrm,
 } from "../server/serviciosContratados";
 
@@ -173,6 +175,67 @@ prueba("en el producto, el hotel va sin «Hotel» delante, como los suyos", () =
 prueba("sin hotel o sin desglose legible, no hay filas", () => {
   assert.equal(filasDeLaOpcion({ ...opcion(SIESTA, "1 €"), accommodationNameSnapshot: "" }), null);
   assert.equal(filasDeLaOpcion(opcion("lo que sea", "1 €")), null);
+});
+
+console.log("El coste y lo que cuenta su función");
+
+// Su función solo suma filas con Validado, Coste y Precio: sin coste, el
+// Importe del trato se quedaba a 0 (comprobado en el trato de prueba el 13/10).
+const tarifa = (pvp: number | null, neto: number | null) => ({ pvp, neto });
+
+prueba("el coste es el neto de la tarifa que se vende a ese precio", () => {
+  // Hotel Planas PC en el catálogo local: 43,13 de venta y 43,13 de neto.
+  assert.equal(costeDelPrecio(43.13, [tarifa(43.13, 43.13), tarifa(49.61, 49.61)]), 43.13);
+  // Un papel de compra con margen: 40 de coste, 43,20 de venta.
+  assert.equal(costeDelPrecio(43.2, [tarifa(43.2, 40), tarifa(50, 46.3)]), 40);
+});
+
+prueba("el precio se compara en céntimos: 71,46 casa con 71,45999999999999", () => {
+  assert.equal(costeDelPrecio(71.46, [tarifa(71.45999999999999, 66.17)]), 66.17);
+});
+
+prueba("si hay dudas no se adivina: ninguna tarifa, netos distintos o sin neto", () => {
+  assert.equal(costeDelPrecio(43.13, []), null);
+  assert.equal(costeDelPrecio(43.13, [tarifa(50, 45)]), null);
+  assert.equal(costeDelPrecio(43.13, [tarifa(43.13, 39), tarifa(43.13, 40)]), null);
+  // Papel de venta: el coste no lo dice.
+  assert.equal(costeDelPrecio(43.13, [tarifa(43.13, null)]), null);
+  assert.equal(costeDelPrecio(43.13, [tarifa(43.13, 40), tarifa(43.13, null)]), null);
+});
+
+prueba("dos tarifas iguales (hotel publicado dos veces) siguen dando un coste", () => {
+  assert.equal(costeDelPrecio(43.13, [tarifa(43.13, 40), tarifa(43.13, 40)]), 40);
+});
+
+const fila = (id: string, comentarios: string | null, numero: number | null) => ({ id, comentarios, numero });
+
+prueba("trato vacío: presupuesto 1 y no se conserva nada", () => {
+  assert.deepEqual(planDelSubformulario([], "ORV-2026-0006"), { conservar: [], borrar: [], numero: 1 });
+});
+
+prueba("las filas tecleadas a mano se conservan y las nuestras van al siguiente presupuesto", () => {
+  const r = planDelSubformulario(
+    [fila("a", "ALUMNOS EN MÚLTIPLE - PC", 1), fila("b", "AUTOCAR", 1), fila("c", null, 2)],
+    "ORV-2026-0006",
+  );
+  assert.deepEqual(r, { conservar: ["a", "b", "c"], borrar: [], numero: 3 });
+});
+
+prueba("si la app ya había escrito, se borran sus filas (y solo esas) y repite su número", () => {
+  const r = planDelSubformulario(
+    [
+      fila("a", "ALUMNOS EN MÚLTIPLE - PC · ORV-2026-0006", 2),
+      fila("b", "PROFESORES EN MÚLTIPLE - PC · ORV-2026-0006", 2),
+      fila("c", "AUTOCAR", 1),
+    ],
+    "ORV-2026-0006",
+  );
+  assert.deepEqual(r, { conservar: ["c"], borrar: ["a", "b"], numero: 2 });
+});
+
+prueba("las filas de OTRA propuesta de la app son ajenas para esta", () => {
+  const r = planDelSubformulario([fila("a", "ALUMNOS · ORV-2026-0005", 1)], "ORV-2026-0006");
+  assert.deepEqual(r, { conservar: ["a"], borrar: [], numero: 2 });
 });
 
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);

@@ -317,20 +317,42 @@ export async function crearRegistro(modulo: "Vendors" | "Products", record: Reco
   return id;
 }
 
+/** Una fila que ya está en «Servicios Contratados»: lo justo para decidir si se queda. */
+export interface FilaExistente {
+  id: string;
+  comentarios: string | null;
+  numero: number | null;
+}
+
+export async function leerServiciosContratados(dealId: string): Promise<FilaExistente[]> {
+  const result = await zohoRequest<ZohoRecordResponse<{ Servicios_Contratados?: Array<Record<string, unknown>> | null }>>(
+    `${zohoConfig.dealsModule}/${dealId}?fields=Servicios_Contratados`,
+    { method: "GET" },
+  );
+  return (result.data?.[0]?.Servicios_Contratados ?? []).map((fila) => ({
+    id: String(fila.id),
+    comentarios: typeof fila.Comentarios === "string" ? fila.Comentarios : null,
+    numero: typeof fila.N_Presupuesto === "number" ? fila.N_Presupuesto : null,
+  }));
+}
+
 /**
- * Sustituye las filas de «Servicios Contratados» del trato y pone el Importe.
+ * Sustituye las filas de «Servicios Contratados» del trato, elige el
+ * presupuesto que cuenta y pone el Importe (que su función recalcula).
  *
- * Zoho trata el subformulario como un todo: las filas que se mandan sin id se
- * crean, y las que había y no vienen se borran. Se manda la foto completa.
+ * En la API v8 las filas que se mandan sin id se crean, las que llevan id se
+ * actualizan, las que llevan `_delete: null` se borran y las que no vienen se
+ * QUEDAN como estaban.
  */
 export async function escribirServiciosContratados(
   dealId: string,
   filas: Array<Record<string, unknown>>,
+  presupuesto: number,
   amount: number | null,
 ): Promise<void> {
   const record: Record<string, unknown> = {
     Servicios_Contratados: filas,
-    N_Presupuesto_Subformulario: 1,
+    N_Presupuesto_Subformulario: presupuesto,
   };
   if (amount !== null && Number.isFinite(amount)) record.Amount = amount;
   await zohoRequest(`${zohoConfig.dealsModule}/${dealId}`, {
