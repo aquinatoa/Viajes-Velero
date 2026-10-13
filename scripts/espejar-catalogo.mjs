@@ -124,6 +124,29 @@ const docsRespuesta = await fetch(`${base}/api/inventory/documents`, {
 const docsCrudo = docsRespuesta.ok ? await docsRespuesta.json() : [];
 const documentos = Array.isArray(docsCrudo) ? docsCrudo : docsCrudo.documents ?? [];
 
+// El coste. El resumen del catálogo trae un solo importe (la venta), y el
+// espejo lo guardaba también como coste: en local todo salía con margen 0 y al
+// CRM le llegaba coste = venta (13/10/2026). El coste está en lo publicado de
+// cada documento, con el mismo id de tarifa. Si allí sigue en «neto azul
+// marino» (documento de venta sin coste), se toma de ahí, como hace la
+// migración `20261013120000_coste_desde_azul_marino`.
+const costePorTarifa = new Map();
+for (const doc of documentos.filter((d) => d.status === "PUBLISHED" && d.targetType !== "ACTIVITY")) {
+  const pub = await fetch(`${base}/api/inventory/documents/${doc.id}/published`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!pub.ok) continue;
+  for (const a of (await pub.json()).accommodations ?? []) {
+    for (const r of a.rates ?? []) {
+      const azul = r.netAzulmarinoAmount;
+      const coste =
+        r.netSaleAmount ??
+        (doc.rateKind === "SALE" && azul > 0 && r.pvpAmount !== null && azul < r.pvpAmount ? azul : null);
+      costePorTarifa.set(r.id, coste);
+    }
+  }
+}
+
 console.log(
   `  ${catalogo.accommodations.length} alojamientos, ${catalogo.activities.length} actividades, ` +
     `${documentos.length} documentos.`,
@@ -185,7 +208,8 @@ for (const item of catalogo.accommodations) {
       tariffUnit: r.tariffUnit ?? null,
       currency: r.currency ?? "EUR",
       pvpAmount: r.amount ?? 0,
-      netSaleAmount: r.amount ?? 0,
+      // Sin coste conocido queda vacío: mejor eso que un margen 0 inventado.
+      netSaleAmount: costePorTarifa.get(r.id) ?? null,
       clientSegment: r.clientSegment ?? canal,
       sourceFile: item.sourceDocumentName ?? null,
     };

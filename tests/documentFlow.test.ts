@@ -178,6 +178,21 @@ async function main() {
     assert.equal(resuelto.costPrice, null, "un documento de venta no dice lo que cuesta");
   });
 
+  await test("documento de VENTA con su columna de coste: el coste se guarda", () => {
+    // El maestro de hoteles: Hotel Planas PC, «Cost» 40,50 y «neto venta» 43,13.
+    const resuelto = pricing.resolveRatePrices({ pvpAmount: 43.13, costAmount: 40.5 }, "SALE");
+    assert.equal(resuelto.salePrice, 43.13, "la venta no se toca");
+    assert.equal(resuelto.costPrice, 40.5, "y el coste no se pierde");
+  });
+
+  await test("documento de VENTA: una sola cifra en «coste» es la venta, no un coste", () => {
+    const resuelto = pricing.resolveRatePrices({ costAmount: 93 }, "SALE");
+    assert.equal(resuelto.salePrice, 93);
+    assert.equal(resuelto.costPrice, null);
+    const mayor = pricing.resolveRatePrices({ pvpAmount: 50, costAmount: 60 }, "SALE");
+    assert.equal(mayor.costPrice, null, "un coste por encima de la venta no es un coste");
+  });
+
   await test("documento de VENTA: el PVP manda sobre los demás importes", () => {
     const resuelto = pricing.resolveRatePrices({ pvpAmount: 73, netAmount: 65 }, "SALE");
     assert.equal(resuelto.salePrice, 73);
