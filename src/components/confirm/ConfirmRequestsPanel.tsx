@@ -776,11 +776,27 @@ function ConfirmCalendar({
   const [mode, setMode] = useState<"viaje" | "gestion">("viaje");
   const today = useMemo(() => new Date(), []);
   const [cursor, setCursor] = useState(() => inicio ?? new Date(today.getFullYear(), today.getMonth(), 1));
+  // El día abierto: todos sus grupos en una lista. En la celda caben tres; en
+  // marzo de 2027 hay días con 30, y el resto quedaba en un «+27» mudo.
+  const [diaAbierto, setDiaAbierto] = useState<string | null>(null);
+
+  type Entrada = {
+    id: string;
+    name: string;
+    tone: string;
+    stage: string;
+    span?: "start" | "mid" | "end" | "one";
+    llegada?: string | null;
+    salida?: string | null;
+    /** Qué no cuadra en las fechas del CRM, si algo. */
+    aviso?: string;
+  };
 
   // Indexa los tratos por día según la lectura elegida.
-  const byDay = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; tone: string; span?: "start" | "mid" | "end" | "one" }[]>();
-    const push = (key: string, entry: { id: string; name: string; tone: string; span?: "start" | "mid" | "end" | "one" }) => {
+  const { byDay, revisar } = useMemo(() => {
+    const map = new Map<string, Entrada[]>();
+    const revisar: Entrada[] = [];
+    const push = (key: string, entry: Entrada) => {
       const arr = map.get(key) ?? [];
       arr.push(entry);
       map.set(key, arr);
@@ -792,13 +808,31 @@ function ConfirmCalendar({
       // que no llevan el texto «Fechas: … → …» que escribe la app.
       const llegada = d.arrivalDate || trip.startDate;
       const salida = d.departureDate || trip.endDate || llegada;
+      const base = { id: d.id, name: d.dealName, tone, stage: d.stage, llegada, salida };
       if (mode === "gestion") {
-        if (d.closingDate) push(d.closingDate.slice(0, 10), { id: d.id, name: d.dealName, tone, span: "one" });
+        if (d.closingDate) push(d.closingDate.slice(0, 10), { ...base, span: "one" });
       } else {
         if (llegada && salida) {
           const start = new Date(`${llegada}T00:00:00`);
           const end = new Date(`${salida}T00:00:00`);
           if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
+          const dias = Math.round((end.getTime() - start.getTime()) / 86_400_000);
+          // En su CRM hay salidas anteriores a la llegada (12 en 2027, casi
+          // todas de Sports: la salida es la fecha en que se dio de alta) y
+          // estancias de meses («GARANTIES», reservas de cupo). Antes las
+          // primeras no salían en ninguna parte y las segundas ocupaban un
+          // hueco de cada día durante medio año. Ahora salen el día de llegada,
+          // marcadas, y además en la lista «Revisar fechas».
+          if (dias < 0 || dias > 21) {
+            const aviso =
+              dias < 0
+                ? `En el CRM la salida (${salida}) es anterior a la llegada.`
+                : `Estancia de ${dias} días en el CRM (${llegada} → ${salida}).`;
+            const entrada = { ...base, span: "one" as const, aviso };
+            push(llegada, entrada);
+            revisar.push(entrada);
+            continue;
+          }
           for (let cur = new Date(start); cur <= end; cur.setDate(cur.getDate() + 1)) {
             const key = ymd(cur);
             const span =
@@ -809,12 +843,15 @@ function ConfirmCalendar({
                   : ymd(cur) === ymd(end)
                     ? "end"
                     : "mid";
-            push(key, { id: d.id, name: d.dealName, tone, span });
+            push(key, { ...base, span });
           }
         }
       }
     }
-    return map;
+    // En cada día, primero los que LLEGAN ese día: es lo que se busca al mirar.
+    const orden = { one: 0, start: 0, mid: 1, end: 2 } as const;
+    for (const lista of map.values()) lista.sort((a, b) => orden[a.span ?? "one"] - orden[b.span ?? "one"]);
+    return { byDay: map, revisar };
   }, [deals, mode]);
 
   // Construye la rejilla del mes (semanas de lunes a domingo).
@@ -886,9 +923,27 @@ function ConfirmCalendar({
 
       <p className="cw-cal__hint">
         {mode === "viaje"
-          ? "Días de estancia de cada viaje (fechas de la propuesta)."
-          : "Fechas de cierre de cada oportunidad (gestión comercial)."}
+          ? "Días de estancia de cada viaje, con las fechas de llegada y salida del CRM. Pulsa un día para ver todos sus grupos."
+          : "Fechas de cierre de cada oportunidad (gestión comercial). Pulsa un día para ver todos."}
       </p>
+
+      {mode === "viaje" && revisar.length > 0 ? (
+        <details className="cw-cal__revisar">
+          <summary>
+            {revisar.length} viaje(s) con fechas que no cuadran en el CRM: salen solo el día de llegada. Revisar
+          </summary>
+          <ul>
+            {revisar.map((e) => (
+              <li key={e.id}>
+                <button type="button" className="cw-cal__revisar-btn" onClick={() => onSelect(e.id)}>
+                  {e.name}
+                </button>{" "}
+                <span>{e.aviso}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
 
       <div className="cw-cal__grid">
         {WEEKDAYS.map((w) => (
@@ -906,25 +961,95 @@ function ConfirmCalendar({
                 key={`${wi}-${di}`}
                 className={`cw-cal__cell ${inMonth ? "" : "out"} ${key === todayKey ? "today" : ""}`}
               >
-                <div className="cw-cal__d">{day.getDate()}</div>
+                <button
+                  type="button"
+                  className="cw-cal__d"
+                  onClick={() => entries.length && setDiaAbierto(key)}
+                  aria-label={`${entries.length} grupo(s) el ${key}`}
+                >
+                  {day.getDate()}
+                  {entries.length > 0 ? <span className="cw-cal__dn">{entries.length}</span> : null}
+                </button>
                 <div className="cw-cal__events">
                   {entries.slice(0, 3).map((e, i) => (
                     <button
                       key={`${e.id}-${i}`}
-                      className={`cw-ev cw-ev--${e.tone} ${e.span ? `cw-ev--${e.span}` : ""}`}
-                      title={e.name}
+                      className={`cw-ev cw-ev--${e.tone} ${e.span ? `cw-ev--${e.span}` : ""}${e.aviso ? " cw-ev--aviso" : ""}`}
+                      title={e.aviso ? `${e.name} · ${e.aviso}` : e.name}
                       onClick={() => onSelect(e.id)}
                     >
-                      {e.span === "mid" || e.span === "end" ? " " : e.name}
+                      {e.span === "mid" || e.span === "end" ? " " : `${e.aviso ? "⚠ " : ""}${e.name}`}
                     </button>
                   ))}
-                  {entries.length > 3 ? <span className="cw-ev__more">+{entries.length - 3}</span> : null}
+                  {entries.length > 3 ? (
+                    <button type="button" className="cw-ev__more" onClick={() => setDiaAbierto(key)}>
+                      +{entries.length - 3} más
+                    </button>
+                  ) : null}
                 </div>
               </div>
             );
           }),
         )}
       </div>
+
+      {diaAbierto ? (
+        <div
+          className="cw-dia__velo"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setDiaAbierto(null);
+          }}
+        >
+          <div className="cw-dia">
+            <header className="cw-dia__cab">
+              <div>
+                <strong>
+                  {new Date(`${diaAbierto}T00:00:00`).toLocaleDateString("es-ES", {
+                    weekday: "long",
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </strong>
+                <span>
+                  {(byDay.get(diaAbierto) ?? []).length} grupo(s) ·{" "}
+                  {(byDay.get(diaAbierto) ?? []).filter((e) => e.span === "start" || e.span === "one").length} llegan
+                  este día
+                </span>
+              </div>
+              <button type="button" className="cw-dia__x" onClick={() => setDiaAbierto(null)} aria-label="Cerrar">
+                ✕
+              </button>
+            </header>
+            <ul className="cw-dia__lista">
+              {(byDay.get(diaAbierto) ?? []).map((e, i) => (
+                <li key={`${e.id}-${i}`}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDiaAbierto(null);
+                      onSelect(e.id);
+                    }}
+                  >
+                    <span className={`cw-dot cw-dot--${e.tone === "ok" ? "ok" : e.tone === "warn" ? "w" : e.tone === "info" ? "i" : "m"}`} />
+                    <span className="cw-dia__n">
+                      {e.aviso ? "⚠ " : ""}
+                      {e.name}
+                    </span>
+                    <span className="cw-dia__f">
+                      {e.span === "start" || e.span === "one" ? "llega" : e.span === "end" ? "sale" : "en curso"} ·{" "}
+                      {e.llegada ?? "?"} → {e.salida ?? "?"}
+                    </span>
+                    <span className="cw-dia__s">{e.stage}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
