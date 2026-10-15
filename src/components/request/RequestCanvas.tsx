@@ -2034,12 +2034,12 @@ export function RequestCanvas({
                     ? hotelesAdHoc.map((h) => ({
                         id: h.id,
                         nombre: h.nombre,
-                        detalle: `${h.regimen} · ${h.precioAlumno} € alumno/noche${h.precioProfesor ? ` · ${h.precioProfesor} € profesor/noche` : ""}`,
+                        detalle: `${h.regimen} · ${h.precioAlumno.toLocaleString("es-ES")} € alumno/noche${h.precioProfesor ? ` · ${h.precioProfesor.toLocaleString("es-ES")} € profesor/noche` : ""}`,
                       }))
                     : actividadesAdHoc.map((a) => ({
                         id: a.id,
                         nombre: a.nombre,
-                        detalle: `${a.proveedor ? `${a.proveedor} · ` : ""}${a.precioPorAlumno} € por alumno`,
+                        detalle: `${a.proveedor ? `${a.proveedor} · ` : ""}${a.precioPorAlumno.toLocaleString("es-ES")} € por alumno`,
                       }))
                 }
                 onQuitar={quitarAdHoc}
