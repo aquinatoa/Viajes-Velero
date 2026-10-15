@@ -348,7 +348,20 @@ function scoreAccommodationMatch(
  * estaba publicado antes de existir `locality`.
  */
 function dondeSeBusca(activity: { locality?: string | null; locationMain: string | null }): string | null {
-  return activity.locality?.trim() || activity.locationMain;
+  const localidad = activity.locality?.trim();
+  // Una «localidad» que es el nombre de una ZONA no es un pueblo. La plantilla
+  // de actividades v2 se subió con ubicación «Costa Daurada» y esa palabra se
+  // copió a sus 129 actividades: ninguna coincidía con ningún destino y todas
+  // salían «fuera del destino», hasta buscando en Salou las de Salou, y las de
+  // Calella (que está en el Maresme) contaban como Costa Daurada (15/10/2026).
+  // Si el sitio dice dónde, manda el sitio.
+  if (localidad && esNombreDeZona(localidad) && activity.locationMain?.trim()) return activity.locationMain;
+  return localidad || activity.locationMain;
+}
+
+/** «Costa Daurada», «Costa Brava»…: un nombre de zona, no de pueblo. */
+function esNombreDeZona(texto: string | null | undefined): boolean {
+  return Object.prototype.hasOwnProperty.call(ZONES, normalizeText(texto ?? ""));
 }
 
 function scoreActivityMatch(
@@ -369,9 +382,15 @@ function scoreActivityMatch(
     score += 50;
     // Se nombra el SITIO, no el pueblo: es lo que le interesa a quien cotiza.
     reasons.push(`Ubicación coincidente: ${activity.locationMain ?? donde}.`);
-  } else if (locA && zonaDeCualquiera(donde) && zonaDeCualquiera(donde) === zoneOf(filters.destinationText)) {
-    score += 18;
-    reasons.push(`En la misma zona: ${activity.locationMain ?? donde}.`);
+  } else {
+    // La zona del sitio; si el sitio no está en ninguna lista (Altafulla), la
+    // zona que traía el documento como localidad.
+    const zona =
+      zonaDeCualquiera(donde) || (esNombreDeZona(activity.locality) ? normalizeText(activity.locality ?? "") : "");
+    if (locA && zona && zona === zoneOf(filters.destinationText)) {
+      score += 18;
+      reasons.push(`En la misma zona: ${activity.locationMain ?? donde}.`);
+    }
   }
 
   // Edad: si la tarifa tiene tramo y solapa, +40; tarifa de adulto, +20; si la
