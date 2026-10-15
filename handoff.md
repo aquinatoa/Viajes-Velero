@@ -2285,3 +2285,18 @@ de Mateo, porcentajes de clientes especiales, descuento de 2 € automático,
 coste de 24 tarifas de fútbol, sesión con los comerciales, condiciones de Ruth,
 actividades top, correos automáticos, segundo vencimiento, borrar tratos de
 prueba (después de validar Servicios Contratados en producción).
+
+### Arreglos salidos al preparar las guías de prueba (15/10/2026, noche)
+
+- **Actividades «fuera del destino»** (también en producción): la plantilla v2
+  se subió con ubicación «Costa Daurada» y esa palabra quedó como localidad
+  de sus 129 actividades; no coincidía con ningún destino. Ahora, si la
+  localidad es un nombre de zona, manda el sitio de la actividad. En local,
+  Salou pasa de ~19 a 128 actividades en el destino.
+- **Duplicar tarifa** lleva a Pendientes y a la ficha de esa actividad: la
+  copia nace pendiente y desde Aprobados no se veía.
+- **Ad hoc**: el régimen de la petición se precarga como código («pensión
+  completa» → PC); antes decía «Elige el régimen» aunque se viera elegido.
+- **Mensajes de prueba que el lector entiende enteros** (están en el informe):
+  Salou y Cambrils se leen completos; Calella no está en la lista de pueblos y
+  la app pregunta el destino.
