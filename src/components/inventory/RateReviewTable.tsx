@@ -371,6 +371,12 @@ interface RateReviewTableProps {
     label: string,
   ) => void;
   onSaved: () => Promise<void> | void;
+  /**
+   * Tras duplicar una tarifa: la copia sale PENDIENTE, así que en la pestaña
+   * Aprobados no se ve y parecía que el botón no hacía nada. Quien la usa lleva
+   * a Pendientes, a esa actividad.
+   */
+  onDuplicada?: (actividadId: string, copiaId: string) => void;
 }
 
 /**
@@ -393,6 +399,7 @@ export function RateReviewTable(props: RateReviewTableProps) {
       const copia = await duplicateStagingActivityRateApi(id);
       await props.onSaved();
       setExpandedId(copia.id);
+      props.onDuplicada?.(parentId, copia.id);
     } finally {
       setDuplicando(false);
     }

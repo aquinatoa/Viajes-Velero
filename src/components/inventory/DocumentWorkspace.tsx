@@ -2372,6 +2372,18 @@ export function DocumentWorkspace({
                       onApprove={handleApproveWithParent}
                       onBulkReview={handleBulkReview}
                       onSaved={handleStagingSaved}
+                      onDuplicada={(actividadId) => {
+                        setFeedbackMessage(
+                          "Copia creada en «Pendientes», sin fechas: pulsa Editar en la copia, ponle «Fecha inicio» y «Fecha fin», guarda y apruébala.",
+                        );
+                        setWorkspaceTab("pendientes");
+                        setVistaActividades("tarjetas");
+                        window.setTimeout(() => {
+                          document
+                            .getElementById(`actividad-${actividadId}`)
+                            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }, 250);
+                      }}
                     />
 
                     <RateReviewTable
