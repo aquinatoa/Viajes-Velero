@@ -912,6 +912,37 @@ export interface MensajeDeCorreo {
   /** MESSAGE_ID, ASUNTO o REMITENTE. Vacío si nadie supo de qué viaje era. */
   emparejadoPor: string | null;
   visto: boolean;
+  /** Los ficheros que trajo o con los que salió. */
+  adjuntos?: AdjuntoDeCorreo[];
+}
+
+export interface AdjuntoDeCorreo {
+  id: string;
+  nombre: string;
+  tipo: string;
+  tamano: number;
+}
+
+/**
+ * Descarga un adjunto de la conversación. Con la sesión en la cabecera, como
+ * el PDF: el token no acaba en la URL.
+ */
+export async function descargarAdjuntoDeCorreo(adjunto: AdjuntoDeCorreo): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/correo/adjuntos/${encodeURIComponent(adjunto.id)}`, {
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, "No se pudo descargar el adjunto.");
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement("a");
+  enlace.href = url;
+  enlace.download = adjunto.nombre;
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 /** La conversación con el colegio, en orden. */
@@ -929,12 +960,18 @@ export function hiloDelExpedienteApi(deliveryId: string) {
  * el hilo pero no ha salido. Es el mismo comportamiento que el envío de la
  * propuesta, para poder probar el circuito antes de que el correo esté listo.
  */
-export function escribirAlContactoApi(deliveryId: string, texto: string, asunto?: string) {
-  return postJson<{ enviado: boolean; simulado: boolean; messageId: string | null }>(
-    `/api/deliveries/${encodeURIComponent(deliveryId)}/correo`,
-    { texto, asunto },
-    "No se pudo enviar el mensaje.",
-  );
+export function escribirAlContactoApi(deliveryId: string, texto: string, asunto?: string, adjuntos: File[] = []) {
+  type Respuesta = { enviado: boolean; simulado: boolean; messageId: string | null };
+  const ruta = `/api/deliveries/${encodeURIComponent(deliveryId)}/correo`;
+  if (adjuntos.length === 0) {
+    return postJson<Respuesta>(ruta, { texto, asunto }, "No se pudo enviar el mensaje.");
+  }
+  // Con ficheros, como formulario: el servidor los recoge en «adjuntos».
+  const formulario = new FormData();
+  formulario.append("texto", texto);
+  if (asunto) formulario.append("asunto", asunto);
+  for (const fichero of adjuntos) formulario.append("adjuntos", fichero);
+  return postFormData<Respuesta>(ruta, formulario, "No se pudo enviar el mensaje.");
 }
 
 /** Lo que se lleva por delante borrar una solicitud. */

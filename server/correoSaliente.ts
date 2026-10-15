@@ -19,6 +19,7 @@
 import nodemailer from "nodemailer";
 import { PrismaClient } from "@prisma/client";
 import { canSend, loadMailSettings, mailboxFor } from "./mailConfig";
+import { guardarAdjuntos, type AdjuntoNuevo } from "./adjuntosDeCorreo";
 
 const prisma = new PrismaClient();
 
@@ -55,6 +56,8 @@ export async function escribirAlContacto(
   deliveryId: string,
   texto: string,
   asuntoPedido?: string,
+  /** Ficheros que van con el mensaje: un presupuesto revisado, un plano… */
+  adjuntos: AdjuntoNuevo[] = [],
 ): Promise<RespuestaAlContacto> {
   const cuerpo = String(texto ?? "").trim();
   if (!cuerpo) return { enviado: false, simulado: false, messageId: null, motivo: "El mensaje está vacío." };
@@ -78,7 +81,8 @@ export async function escribirAlContacto(
   // Sin clave del buzón se anota igual y se marca simulado, como en el envío
   // de la propuesta: el circuito se prueba entero sin mandar nada.
   if (!canSend(box)) {
-    await anotar(delivery, box.address || "(sin buzón)", destinatario, asunto, cuerpo, null);
+    const id = await anotar(delivery, box.address || "(sin buzón)", destinatario, asunto, cuerpo, null);
+    if (id && adjuntos.length) await guardarAdjuntos(id, adjuntos);
     return { enviado: false, simulado: true, messageId: null };
   }
 
@@ -96,6 +100,9 @@ export async function escribirAlContacto(
       replyTo: delivery.replyToEmail ?? box.address,
       subject: asunto,
       text: cuerpo,
+      ...(adjuntos.length
+        ? { attachments: adjuntos.map((a) => ({ filename: a.nombre, content: a.contenido, contentType: a.tipo })) }
+        : {}),
       // Lo que hace que el colegio lo vea DENTRO de su hilo y no suelto.
       ...(hilo.messageId ? { inReplyTo: hilo.messageId } : {}),
       ...(hilo.messageId
@@ -104,7 +111,8 @@ export async function escribirAlContacto(
     });
 
     const messageId = salida?.messageId ?? null;
-    await anotar(delivery, box.address, destinatario, asunto, cuerpo, messageId);
+    const id = await anotar(delivery, box.address, destinatario, asunto, cuerpo, messageId);
+    if (id && adjuntos.length) await guardarAdjuntos(id, adjuntos);
     return { enviado: true, simulado: false, messageId };
   } catch (error) {
     const motivo = error instanceof Error ? error.message : "Error desconocido al enviar.";
@@ -124,9 +132,9 @@ async function anotar(
   asunto: string,
   cuerpo: string,
   messageId: string | null,
-): Promise<void> {
+): Promise<string | null> {
   try {
-    await prisma.correoMensaje.create({
+    const creado = await prisma.correoMensaje.create({
       data: {
         buzon: delivery.department === "SPORTS" ? "SPORTS" : "GROUPS",
         direccion: "SALIENTE",
@@ -141,9 +149,11 @@ async function anotar(
         visto: true,
       },
     });
+    return creado.id;
   } catch (error) {
     // Igual que en el envío de la propuesta: anotar no puede tumbar un correo
     // que ya ha salido. Lo peor es que falte una línea en el hilo.
     console.error("No se pudo anotar el correo saliente", error);
+    return null;
   }
 }

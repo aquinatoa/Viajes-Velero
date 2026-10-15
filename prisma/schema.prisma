@@ -928,10 +928,29 @@ model CorreoMensaje {
   /// Si alguien de Oravia ya lo ha visto en la app.
   visto Boolean @default(false)
 
+  /// Los ficheros que trae o que se mandaron con él.
+  adjuntos CorreoAdjunto[]
+
   createdAt DateTime @default(now())
 
   @@index([deliveryId])
   @@index([buzon, direccion])
   @@index([fecha])
   @@index([emparejadoPor])
+}
+
+/// Un fichero de la conversación con el colegio: lo que manda él (la lista de
+/// alumnos, el justificante) o lo que le mandamos (un presupuesto revisado).
+/// Javier, 08/10/2026. El fichero vive en el almacén; aquí, dónde está.
+model CorreoAdjunto {
+  id        String       @id @default(cuid())
+  mensajeId String
+  mensaje   CorreoMensaje @relation(fields: [mensajeId], references: [id], onDelete: Cascade)
+  nombre    String
+  tipo      String
+  tamano    Int
+  ruta      String
+  createdAt DateTime     @default(now())
+
+  @@index([mensajeId])
 }

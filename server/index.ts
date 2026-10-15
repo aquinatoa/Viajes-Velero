@@ -22,6 +22,7 @@ import {
 import { searchAccommodationsDb, searchActivitiesDb } from "./searchDb";
 import { bandeja, hiloDeLaEntrega } from "./correoDb";
 import { escribirAlContacto } from "./correoSaliente";
+import { leerAdjunto } from "./adjuntosDeCorreo";
 import { fichaDeLaPropuesta } from "./fichaPropuesta";
 import {
   borrarSolicitudDb,
@@ -2218,13 +2219,20 @@ app.get("/api/deliveries/:id/correo", requireAuth, async (request, response) => 
   }
 });
 
-app.post("/api/deliveries/:id/correo", requireAuth, async (request, response) => {
+// Con adjuntos va como formulario (multipart); sin ellos, como JSON. Hasta 5.
+app.post("/api/deliveries/:id/correo", requireAuth, upload.array("adjuntos", 5), async (request, response) => {
   try {
     const body = (request.body ?? {}) as { texto?: string; asunto?: string };
+    const ficheros = (request.files as Express.Multer.File[] | undefined) ?? [];
     const resultado = await escribirAlContacto(
       String(request.params.id),
       String(body.texto ?? ""),
       body.asunto,
+      ficheros.map((f) => ({
+        nombre: decodeFileName(f.originalname),
+        tipo: f.mimetype || "application/octet-stream",
+        contenido: f.buffer,
+      })),
     );
 
     if (!resultado.enviado && !resultado.simulado) {
@@ -2243,6 +2251,24 @@ app.post("/api/deliveries/:id/correo", requireAuth, async (request, response) =>
   } catch (error) {
     console.error("Error escribiendo al contacto", error);
     response.status(500).json({ error: "No se pudo enviar el mensaje." });
+  }
+});
+
+// Descargar un adjunto de la conversación. Con sesión: son documentos del
+// colegio (listas de alumnos) y no pueden quedar a la vista de cualquiera.
+app.get("/api/correo/adjuntos/:id", requireAuth, async (request, response) => {
+  try {
+    const adjunto = await leerAdjunto(String(request.params.id));
+    if (!adjunto) {
+      response.status(404).json({ error: "Ese adjunto ya no está." });
+      return;
+    }
+    response.setHeader("Content-Type", adjunto.tipo);
+    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(adjunto.nombre)}`);
+    response.sendFile(adjunto.ruta);
+  } catch (error) {
+    console.error("Error descargando un adjunto", error);
+    response.status(500).json({ error: "No se pudo descargar el adjunto." });
   }
 });
 
