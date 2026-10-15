@@ -18,6 +18,7 @@ import type {
   UnpublishResult,
 } from "../domain/documentImportTypes";
 import type { Client, SearchFilters, TripProposal, TripRequest } from "../domain/types";
+import type { ContextoDeCotizacion, LecturaDeCotizacion } from "../domain/cotizacionDelProveedor";
 
 // Mismo origen: en dev lo resuelve el proxy de Vite (`/api` -> :8787) y en
 // produccion nginx hace de proxy al Node. VITE_API_BASE_URL solo hace falta
@@ -1209,4 +1210,44 @@ export function borrarBorradorApi(id: string) {
     `/api/commercial/drafts/${encodeURIComponent(id)}`,
     "No se pudo borrar el borrador.",
   );
+}
+
+/**
+ * Leer la cotización de un proveedor para algo fuera del catálogo: el fichero
+ * o el correo pegado. Se guarda como justificante y devuelve el coste leído.
+ */
+export function leerCotizacionDelProveedorApi(
+  contexto: ContextoDeCotizacion,
+  archivo: File | null,
+  texto: string,
+) {
+  type Respuesta = {
+    id: string;
+    documento: string | null;
+    lectura: LecturaDeCotizacion;
+  };
+  const formulario = new FormData();
+  formulario.append("contexto", JSON.stringify(contexto));
+  formulario.append("texto", texto);
+  if (archivo) formulario.append("archivo", archivo);
+  return postFormData<Respuesta>("/api/cotizaciones-proveedor/lectura", formulario, "No se pudo leer la cotización.");
+}
+
+/** Descargar el justificante de un precio ad hoc. */
+export async function descargarCotizacionDelProveedor(id: string, nombre: string | null): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/cotizaciones-proveedor/${encodeURIComponent(id)}`, {
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, "No se pudo descargar la cotización.");
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement("a");
+  enlace.href = url;
+  enlace.download = nombre || "cotizacion-proveedor.txt";
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

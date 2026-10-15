@@ -15,7 +15,12 @@
  *
  * «Que mande sobre el catálogo»: si el hotel SÍ está en el catálogo pero el
  * proveedor ha dado otro precio para este grupo, se añade como ad hoc con ese
- * precio y se elige este en vez del del catálogo.
+ * precio y sustituye al del catálogo (mismo nombre): el del catálogo deja de
+ * salir en la lista y, si estaba elegido, se elige el ad hoc en su lugar.
+ *
+ * 15/10/2026: el precio ya no se teclea. Se adjunta la cotización del proveedor
+ * (o se pega su correo), la aplicación lee el COSTE y el de venta sale con el
+ * margen del departamento. Ver `cotizacionDelProveedor.ts`.
  */
 import type { AccommodationSearchMatch, ActivitySearchMatch } from "./types";
 
@@ -47,6 +52,14 @@ export interface HotelAdHoc {
    * para Oravia: NUNCA llega al PDF ni al correo del colegio.
    */
   origen: string;
+  /** Lo que nos cobra el proveedor por alumno y noche. Null en borradores viejos. */
+  costeAlumno?: number | null;
+  costeProfesor?: number | null;
+  /** El margen con el que se ha calculado la venta, en %. */
+  margen?: number | null;
+  /** El justificante guardado (CotizacionProveedor) y el nombre del fichero. */
+  cotizacionId?: string | null;
+  documento?: string | null;
 }
 
 export interface ActividadAdHoc {
@@ -57,6 +70,11 @@ export interface ActividadAdHoc {
   precioPorAlumno: number;
   descripcion: string;
   origen: string;
+  /** Lo que nos cobra el proveedor por alumno. */
+  coste?: number | null;
+  margen?: number | null;
+  cotizacionId?: string | null;
+  documento?: string | null;
 }
 
 const REGIMENES = new Set(["PC", "MP", "AD", "SA"]);
@@ -103,7 +121,7 @@ const AVISO = "Tarifa ad hoc: la ha puesto quien cotiza con el precio del provee
 
 /** El hotel, con la forma de un resultado de búsqueda. */
 export function hotelComoResultado(h: HotelAdHoc, anio: number): AccommodationSearchMatch {
-  const tarifa = (precio: number, ocupacion: string) => ({
+  const tarifa = (precio: number, coste: number | null | undefined, ocupacion: string) => ({
     id: `${h.id}:${ocupacion}`,
     accommodationId: h.id,
     rateSource: "ad hoc",
@@ -115,7 +133,8 @@ export function hotelComoResultado(h: HotelAdHoc, anio: number): AccommodationSe
     boardType: h.regimen,
     tariffUnit: "PER_PAX_NIGHT",
     pvpAmount: precio,
-    netSaleAmount: 0,
+    // El coste del proveedor: la propuesta lo guarda y el CRM lo usa.
+    netSaleAmount: coste ?? 0,
     netAzulmarinoAmount: 0,
     clientSegment: "",
     includedService: "",
@@ -139,11 +158,12 @@ export function hotelComoResultado(h: HotelAdHoc, anio: number): AccommodationSe
       sourceFile: "",
       sourceDocumentName: "Ad hoc",
     },
-    rate: tarifa(h.precioAlumno, "Múltiple"),
-    singleRate: h.precioProfesor ? tarifa(h.precioProfesor, "Individual") : null,
+    rate: tarifa(h.precioAlumno, h.costeAlumno, "Múltiple"),
+    singleRate: h.precioProfesor ? tarifa(h.precioProfesor, h.costeProfesor ?? h.costeAlumno, "Individual") : null,
     score: 1000,
     matchReasons: [AVISO],
     adHoc: true,
+    cotizacionId: h.cotizacionId ?? null,
   };
 }
 
@@ -171,7 +191,7 @@ export function actividadComoResultado(a: ActividadAdHoc, anio: number): Activit
       ageMin: 0,
       ageMax: 0,
       salePvpAmount: a.precioPorAlumno,
-      costNetAmount: 0,
+      costNetAmount: a.coste ?? 0,
       commissionPercent: 0,
       durationText: "",
       sourceFile: "",
@@ -180,7 +200,19 @@ export function actividadComoResultado(a: ActividadAdHoc, anio: number): Activit
     score: 1000,
     matchReasons: [AVISO],
     adHoc: true,
+    cotizacionId: a.cotizacionId ?? null,
   };
+}
+
+/** Un nombre para comparar: sin tildes, mayúsculas, «Hotel» delante ni signos. */
+export function nombreParaComparar(nombre: string): string {
+  return nombre
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/^\s*(hotel|hostal|albergue|alberg|aparthotel)\s+/, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 /**
@@ -191,7 +223,29 @@ export function conLoAdHoc<T extends { matches: M[] }, M extends { score: number
   resultado: T,
   propios: M[],
   idDe: (m: M) => string,
+  nombreDe?: (m: M) => string,
 ): T {
   const ids = new Set(propios.map(idDe));
-  return { ...resultado, matches: [...propios, ...resultado.matches.filter((m) => !ids.has(idDe(m)))] };
+  // «Que mande sobre el catálogo»: el mismo hotel del catálogo deja de salir.
+  const nombres = new Set(nombreDe ? propios.map((m) => nombreParaComparar(nombreDe(m))) : []);
+  const delCatalogo = resultado.matches.filter(
+    (m) => !ids.has(idDe(m)) && !(nombreDe && nombres.has(nombreParaComparar(nombreDe(m)))),
+  );
+  return { ...resultado, matches: [...propios, ...delCatalogo] };
+}
+
+/**
+ * Los ids del catálogo a los que sustituye un ad hoc con el mismo nombre: si
+ * estaban elegidos, se cambian por el ad hoc.
+ */
+export function sustituidosPor<M>(
+  matches: M[],
+  propio: { id: string; nombre: string },
+  idDe: (m: M) => string,
+  nombreDe: (m: M) => string,
+): string[] {
+  const nombre = nombreParaComparar(propio.nombre);
+  return matches
+    .filter((m) => idDe(m) !== propio.id && nombreParaComparar(nombreDe(m)) === nombre)
+    .map(idDe);
 }

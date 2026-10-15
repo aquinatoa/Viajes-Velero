@@ -13,6 +13,7 @@
 import assert from "node:assert/strict";
 
 import {
+  costeDeLaFila,
   costeDelPrecio,
   desgloseDeLaOpcion,
   elegirProveedor,
@@ -236,6 +237,28 @@ prueba("si la app ya había escrito, se borran sus filas (y solo esas) y repite 
 prueba("las filas de OTRA propuesta de la app son ajenas para esta", () => {
   const r = planDelSubformulario([fila("a", "ALUMNOS · ORV-2026-0005", 1)], "ORV-2026-0006");
   assert.deepEqual(r, { conservar: ["a"], borrar: [], numero: 2 });
+});
+
+prueba("el coste guardado al cotizar manda sobre el del catálogo", () => {
+  const tarifas = [{ pvp: 57.51, neto: 53.25 }];
+  const opcion = { studentCostAmount: "48.61", teacherCostAmount: 64.81 };
+  assert.equal(costeDeLaFila({ quien: "alumnos", precio: 57.51 }, opcion, tarifas), 48.61);
+  assert.equal(costeDeLaFila({ quien: "profesores", precio: 70 }, opcion, tarifas), 64.81);
+});
+
+prueba("sin coste guardado (propuestas de antes), se deduce del catálogo como hasta ahora", () => {
+  const tarifas = [{ pvp: 57.51, neto: 53.25 }];
+  assert.equal(costeDeLaFila({ quien: "alumnos", precio: 57.51 }, {}, tarifas), 53.25);
+  assert.equal(costeDeLaFila({ quien: "alumnos", precio: 57.51 }, { studentCostAmount: null }, tarifas), 53.25);
+});
+
+prueba("un ad hoc sin coste y sin catálogo se queda sin coste (fila sin validar)", () => {
+  assert.equal(costeDeLaFila({ quien: "alumnos", precio: 52.5 }, { studentCostAmount: 0 }, []), null);
+});
+
+prueba("cada fila sabe si es de alumnos o de profesores", () => {
+  const r = filasDeLaOpcion(opcion(SANTA_MONICA, "8.334,40 €"))!;
+  assert.deepEqual(r.filas.map((f) => f.quien), ["alumnos", "profesores"]);
 });
 
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);

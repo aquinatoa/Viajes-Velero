@@ -321,6 +321,9 @@ export interface SaveTripProposalInput {
     conditionsText?: string | null;
     freePolicyText?: string | null;
     observationsText?: string | null;
+    studentCostAmount?: number | null;
+    teacherCostAmount?: number | null;
+    supplierQuoteId?: string | null;
     isSelected?: boolean;
   }[];
   activityOptions: {
@@ -334,6 +337,8 @@ export interface SaveTripProposalInput {
     descriptionSnapshot?: string | null;
     lines?: unknown[] | null;
     amountTotal?: number | null;
+    unitCostAmount?: number | null;
+    supplierQuoteId?: string | null;
     isSelected?: boolean;
   }[];
 }
@@ -413,6 +418,9 @@ export async function saveTripProposalDb(input: SaveTripProposalInput): Promise<
         conditionsText: option.conditionsText ?? null,
         freePolicyText: option.freePolicyText ?? null,
         observationsText: option.observationsText ?? null,
+        studentCostAmount: option.studentCostAmount ?? null,
+        teacherCostAmount: option.teacherCostAmount ?? null,
+        supplierQuoteId: option.supplierQuoteId ?? null,
         isSelected: option.isSelected ?? false,
       })),
     },
@@ -428,6 +436,8 @@ export async function saveTripProposalDb(input: SaveTripProposalInput): Promise<
         descriptionSnapshot: option.descriptionSnapshot ?? null,
         linesJson: option.lines && option.lines.length ? JSON.stringify(option.lines) : null,
         amountTotal: option.amountTotal ?? null,
+        unitCostAmount: option.unitCostAmount ?? null,
+        supplierQuoteId: option.supplierQuoteId ?? null,
         isSelected: option.isSelected ?? false,
       })),
     },

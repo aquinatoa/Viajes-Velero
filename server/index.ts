@@ -23,6 +23,8 @@ import { searchAccommodationsDb, searchActivitiesDb } from "./searchDb";
 import { bandeja, hiloDeLaEntrega } from "./correoDb";
 import { escribirAlContacto } from "./correoSaliente";
 import { leerAdjunto } from "./adjuntosDeCorreo";
+import { leerCotizacionDelProveedor, leerJustificante } from "./cotizacionDelProveedor";
+import type { ContextoDeCotizacion } from "../src/domain/cotizacionDelProveedor";
 import { fichaDeLaPropuesta } from "./fichaPropuesta";
 import {
   borrarSolicitudDb,
@@ -2269,6 +2271,79 @@ app.get("/api/correo/adjuntos/:id", requireAuth, async (request, response) => {
   } catch (error) {
     console.error("Error descargando un adjunto", error);
     response.status(500).json({ error: "No se pudo descargar el adjunto." });
+  }
+});
+
+// La cotización de un proveedor para un hotel o una actividad fuera del
+// catálogo (Javier, 29/09/2026): se adjunta el fichero o se pega el correo, se
+// guarda como justificante y se lee el coste. Quien cotiza lo revisa antes de
+// añadirlo; aquí no se elige nada.
+app.post("/api/cotizaciones-proveedor/lectura", requireAuth, upload.single("archivo"), async (request, response) => {
+  try {
+    const body = (request.body ?? {}) as { texto?: string; contexto?: string };
+    let contexto: ContextoDeCotizacion;
+    try {
+      contexto = JSON.parse(String(body.contexto ?? "{}")) as ContextoDeCotizacion;
+    } catch {
+      response.status(400).json({ error: "Falta el contexto de la petición." });
+      return;
+    }
+    if (contexto.tipo !== "hotel" && contexto.tipo !== "actividad") {
+      response.status(400).json({ error: "Tipo de cotización no válido." });
+      return;
+    }
+    const fichero = request.file
+      ? {
+          nombre: decodeFileName(request.file.originalname),
+          tipo: request.file.mimetype || "application/octet-stream",
+          contenido: request.file.buffer,
+        }
+      : null;
+    const texto = String(body.texto ?? "");
+    if (!fichero && !texto.trim()) {
+      response.status(400).json({ error: "Adjunta la cotización del proveedor o pega su correo." });
+      return;
+    }
+    const usuario = (request as AuthedRequest).user;
+    const resultado = await leerCotizacionDelProveedor({
+      fichero,
+      textoPegado: texto,
+      contexto,
+      usuario: usuario?.email ?? null,
+    });
+    await writeAudit({
+      user: usuario,
+      action: "COTIZACION_PROVEEDOR_LEIDA",
+      entity: `CotizacionProveedor:${resultado.id}`,
+      detail: `${contexto.tipo} · ${resultado.documento ?? "texto pegado"} · coste ${resultado.lectura.coste ?? "sin leer"}`,
+    });
+    response.json(resultado);
+  } catch (error) {
+    console.error("Error leyendo la cotización del proveedor", error);
+    response.status(500).json({ error: "No se pudo guardar la cotización del proveedor." });
+  }
+});
+
+// El justificante de un precio ad hoc. Con sesión: lleva el coste.
+app.get("/api/cotizaciones-proveedor/:id", requireAuth, async (request, response) => {
+  try {
+    const justificante = await leerJustificante(String(request.params.id));
+    if (!justificante) {
+      response.status(404).json({ error: "Esa cotización ya no está." });
+      return;
+    }
+    if ("texto" in justificante) {
+      response.setHeader("Content-Type", "text/plain; charset=utf-8");
+      response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''cotizacion-proveedor.txt");
+      response.send(justificante.texto);
+      return;
+    }
+    response.setHeader("Content-Type", justificante.tipo);
+    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(justificante.nombre)}`);
+    response.sendFile(justificante.ruta);
+  } catch (error) {
+    console.error("Error descargando la cotización del proveedor", error);
+    response.status(500).json({ error: "No se pudo descargar la cotización." });
   }
 });
 

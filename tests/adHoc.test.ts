@@ -15,6 +15,7 @@ import {
   nuevoIdAdHoc,
   problemasDeLaActividad,
   problemasDelHotel,
+  sustituidosPor,
   type HotelAdHoc,
 } from "../src/domain/adHoc";
 import { totalAlojamiento } from "../src/services/pricing";
@@ -126,6 +127,57 @@ prueba("un hotel ad hoc se cotiza con su precio: (52,50 × 48 + 70 × 4) × 4 no
     nights: 4,
   });
   assert.equal(total, 11200);
+});
+
+console.log("El coste del proveedor y que mande sobre el catálogo");
+
+prueba("el coste viaja en la tarifa como neto: la propuesta lo guarda y el CRM lo usa", () => {
+  const r = hotelComoResultado({ ...hotel, costeAlumno: 48.61, costeProfesor: 64.81, cotizacionId: "c1" }, 2027);
+  assert.equal(r.rate.netSaleAmount, 48.61);
+  assert.equal(r.singleRate?.netSaleAmount, 64.81);
+  assert.equal(r.cotizacionId, "c1");
+});
+
+prueba("sin coste de profesor, el profesor cuesta lo del alumno", () => {
+  const r = hotelComoResultado({ ...hotel, costeAlumno: 48.61, costeProfesor: null }, 2027);
+  assert.equal(r.singleRate?.netSaleAmount, 48.61);
+});
+
+prueba("un borrador de antes (sin coste) sigue funcionando, con neto 0", () => {
+  const r = hotelComoResultado(hotel, 2027);
+  assert.equal(r.rate.netSaleAmount, 0);
+  assert.equal(r.cotizacionId, null);
+});
+
+prueba("el mismo hotel del catálogo deja de salir cuando hay uno ad hoc", () => {
+  const delCatalogo = { ...hotelComoResultado({ ...hotel, id: "cat-1", nombre: "GOLDEN DONAIRE" }, 2027), adHoc: false };
+  const otro = { ...hotelComoResultado({ ...hotel, id: "cat-2", nombre: "Hotel Planas" }, 2027), adHoc: false };
+  const propio = hotelComoResultado(hotel, 2027);
+  const r = conLoAdHoc(
+    { matches: [delCatalogo, otro] },
+    [propio],
+    (m) => m.accommodation.id,
+    (m) => m.accommodation.accommodationName,
+  );
+  assert.deepEqual(r.matches.map((m) => m.accommodation.id), [hotel.id, "cat-2"]);
+});
+
+prueba("sin decir cómo se llama, solo se quita por id (como antes)", () => {
+  const delCatalogo = { ...hotelComoResultado({ ...hotel, id: "cat-1" }, 2027), adHoc: false };
+  const r = conLoAdHoc({ matches: [delCatalogo] }, [hotelComoResultado(hotel, 2027)], (m) => m.accommodation.id);
+  assert.equal(r.matches.length, 2);
+});
+
+prueba("los del catálogo a los que sustituye: mismo nombre, sin tildes ni «Hotel»", () => {
+  const matches = [
+    { id: "cat-1", nombre: "Hotel Gólden Donaire" },
+    { id: "cat-2", nombre: "Hotel Planas" },
+    { id: hotel.id, nombre: hotel.nombre },
+  ];
+  assert.deepEqual(
+    sustituidosPor(matches, hotel, (m) => m.id, (m) => m.nombre),
+    ["cat-1"],
+  );
 });
 
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);

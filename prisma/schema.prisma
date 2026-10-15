@@ -296,6 +296,13 @@ model ProposalAccommodationOption {
   // Estaban en el catalogo y no llegaban a la propuesta, asi que el documento
   // que ve el colegio no las decia. Es informacion que cambia el precio.
   freePolicyText            String?
+  /// Lo que nos cobra el proveedor por alumno y por profesor y noche: el coste
+  /// de la tarifa elegida. Servicios Contratados lo usa antes que buscarlo en
+  /// el catálogo, y en un alojamiento ad hoc es el único sitio donde está.
+  studentCostAmount         Decimal?
+  teacherCostAmount         Decimal?
+  /// El justificante del precio cuando es ad hoc (CotizacionProveedor). Solo Oravia.
+  supplierQuoteId           String?
   isSelected                Boolean        @default(false)
   proposal                  TripProposal   @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   /// Si el alojamiento desaparece del catalogo, la opcion NO se borra.
@@ -326,6 +333,9 @@ model ProposalActivityOption {
   linesJson            String?
   /// El total del grupo: la suma de las líneas.
   amountTotal          Decimal?
+  /// Lo que nos cobra el proveedor por alumno. Ver el alojamiento.
+  unitCostAmount       Decimal?
+  supplierQuoteId      String?
   isSelected           Boolean      @default(true)
   proposal             TripProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   /// Igual que en el alojamiento: la actividad puede desaparecer del catalogo
@@ -942,6 +952,23 @@ model CorreoMensaje {
 /// Un fichero de la conversación con el colegio: lo que manda él (la lista de
 /// alumnos, el justificante) o lo que le mandamos (un presupuesto revisado).
 /// Javier, 08/10/2026. El fichero vive en el almacén; aquí, dónde está.
+/// La cotización que mandó un proveedor para un hotel o una actividad fuera
+/// del catálogo (Javier, 29/09/2026): el fichero o el correo pegado, y lo que
+/// se leyó de él. Es el justificante del precio ad hoc; nunca sale al colegio.
+model CotizacionProveedor {
+  id          String   @id @default(cuid())
+  /// hotel | actividad
+  tipo        String
+  nombre      String?
+  tipoFichero String?
+  tamano      Int?
+  ruta        String?
+  textoPegado String?
+  lecturaJson String?
+  creadoPor   String?
+  createdAt   DateTime @default(now())
+}
+
 model CorreoAdjunto {
   id        String       @id @default(cuid())
   mensajeId String

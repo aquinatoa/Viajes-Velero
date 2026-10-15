@@ -173,6 +173,7 @@ export function planDelSubformulario(
 
 /** Una fila del subformulario, todavía con nombres en vez de ids. */
 export interface FilaContratada {
+  quien: "alumnos" | "profesores";
   comentario: string;
   pax: number;
   precio: number;
@@ -191,6 +192,29 @@ export interface OpcionParaContratar {
   dateTo: Date | string | null;
   priceBreakdownText: string | null;
   totalPvpText: string | null;
+  /** El coste guardado al cotizar (desde el 15/10/2026). Decimal de Prisma o número. */
+  studentCostAmount?: unknown;
+  teacherCostAmount?: unknown;
+}
+
+function numeroONulo(valor: unknown): number | null {
+  if (valor === null || valor === undefined) return null;
+  const n = Number(valor);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * El coste de una fila: el que se guardó al cotizar, si lo hay; si no (las
+ * propuestas de antes del 15/10/2026), el que se deduce del catálogo por el
+ * precio. Un alojamiento ad hoc solo tiene el guardado.
+ */
+export function costeDeLaFila(
+  fila: Pick<FilaContratada, "quien" | "precio">,
+  opcion: Pick<OpcionParaContratar, "studentCostAmount" | "teacherCostAmount">,
+  tarifas: Array<{ pvp: number | null; neto: number | null }>,
+): number | null {
+  const guardado = numeroONulo(fila.quien === "profesores" ? opcion.teacherCostAmount : opcion.studentCostAmount);
+  return guardado ?? costeDelPrecio(fila.precio, tarifas);
 }
 
 function fecha(valor: Date | string | null): string | null {
@@ -224,6 +248,7 @@ export function filasDeLaOpcion(opcion: OpcionParaContratar): { filas: FilaContr
   const filas: FilaContratada[] = [
     {
       ...comun,
+      quien: "alumnos",
       comentario: `ALUMNOS EN MÚLTIPLE${sufijo}`,
       pax: d.alumnos.pax,
       precio: d.alumnos.precio,
@@ -234,6 +259,7 @@ export function filasDeLaOpcion(opcion: OpcionParaContratar): { filas: FilaContr
     const tipo = d.profesores.individual ? "Individual" : "Múltiple";
     filas.push({
       ...comun,
+      quien: "profesores",
       comentario: `PROFESORES EN ${tipo.toUpperCase()}${sufijo}`,
       pax: d.profesores.pax,
       precio: d.profesores.precio,
@@ -319,7 +345,7 @@ export async function contratarEnElCrm(deliveryId: string, optionNumber: number)
     const filas = [];
     let sinCoste = 0;
     for (const f of plan.filas) {
-      const coste = costeDelPrecio(f.precio, tarifas);
+      const coste = costeDeLaFila(f, opcion, tarifas);
       if (coste === null) sinCoste += 1;
       const productoId = await idDeProducto(f, coste, proveedor.id, categoria, delivery.reference, creados);
       const avisos = [

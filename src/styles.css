@@ -12129,6 +12129,119 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 .ah__lista li button {
   margin-left: auto;
 }
+/* La cotización del proveedor: primero el documento, luego la revisión. */
+.ah__paso {
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.ah__n {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.ah__n b {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--cv-navy);
+  color: #fff;
+  font-size: 12px;
+}
+.ah__drop {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  text-align: center;
+  padding: 18px 14px;
+  border: 2px dashed var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.ah__drop small {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.ah__drop:hover,
+.ah__drop.on {
+  border-color: var(--cv-amber);
+  background: rgba(252, 187, 55, .08);
+}
+.ah__drop.lleno {
+  border-style: solid;
+  border-color: var(--cv-navy);
+}
+.ah__quitar {
+  justify-self: start;
+}
+.ah__error {
+  margin: 0;
+  color: var(--danger, #b42318);
+  font-size: 13px;
+}
+.ah__avisos {
+  margin: 0;
+  padding: 8px 12px 8px 28px;
+  border-radius: 8px;
+  background: rgba(252, 187, 55, .14);
+  color: var(--ink);
+  font-size: 13px;
+}
+.ah__avisos--uno {
+  padding-left: 12px;
+}
+.ah__cita {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.ah__cita q {
+  color: var(--ink);
+  font-style: italic;
+}
+.ah__just {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.ah__enlace {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.ah__margen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.ah__margen .alta__chip {
+  padding: 6px 12px;
+}
+.ah__margen input {
+  width: 80px;
+}
+.ah__venta {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink);
+}
+.ah__venta small {
+  color: var(--muted);
+}
 /* «+ Fuera del catálogo»: en amarillo, como la lupa, para que se vea que la
    opción existe (Anthony, 15/10/2026: «no se aprecia que exista»). */
 .cv__ghost.ah__abrir {

@@ -287,6 +287,8 @@ export interface AccommodationSearchMatch {
   alternativas?: AccommodationRate[];
   /** Metido a mano por quien cotiza, con el precio del proveedor: no está en el catálogo. */
   adHoc?: boolean;
+  /** Ad hoc: el justificante del precio (la cotización del proveedor guardada). */
+  cotizacionId?: string | null;
 }
 
 export interface ActivitySearchMatch {
@@ -307,6 +309,8 @@ export interface ActivitySearchMatch {
   fueraDeTemporada?: boolean;
   /** Metida a mano por quien cotiza, con el precio del proveedor: no está en el catálogo. */
   adHoc?: boolean;
+  /** Ad hoc: el justificante del precio (la cotización del proveedor guardada). */
+  cotizacionId?: string | null;
   /**
    * El catálogo no le pone precio y hay que ponérselo al cotizar.
    *
@@ -384,6 +388,11 @@ export interface ProposalAccommodationOption {
   observationsText: string;
   /** Las gratuidades del hotel. Cambian el precio, asi que van en la propuesta. */
   freePolicyText?: string;
+  /** Lo que nos cobra el proveedor por alumno y por profesor y noche, si se sabe. */
+  studentCostAmount?: number | null;
+  teacherCostAmount?: number | null;
+  /** Ad hoc: la cotización del proveedor que justifica el precio. */
+  supplierQuoteId?: string | null;
   isSelected: boolean;
 }
 
@@ -402,6 +411,9 @@ export interface ProposalActivityOption {
   lines?: LineaDeActividad[] | null;
   /** El total del grupo para esta actividad. */
   amountTotal?: number | null;
+  /** Lo que nos cobra el proveedor por alumno, si se sabe. */
+  unitCostAmount?: number | null;
+  supplierQuoteId?: string | null;
   isSelected: boolean;
 }
 

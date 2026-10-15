@@ -85,6 +85,7 @@ import {
   actividadComoResultado,
   conLoAdHoc,
   hotelComoResultado,
+  sustituidosPor,
   type ActividadAdHoc,
   type HotelAdHoc,
 } from "../../domain/adHoc";
@@ -834,6 +835,7 @@ export function RequestCanvas({
           alojamientos,
           adHocRef.current.hoteles.map((h) => hotelComoResultado(h, anioAdHoc)),
           (m) => m.accommodation.id,
+          (m) => m.accommodation.accommodationName,
         ),
       );
       setActividades(
@@ -841,6 +843,7 @@ export function RequestCanvas({
           planes,
           adHocRef.current.actividades.map((a) => actividadComoResultado(a, anioAdHoc)),
           (m) => m.activity.id,
+          (m) => m.activity.activityName,
         ),
       );
       if (alojamientos.matches.length === 0) {
@@ -898,22 +901,61 @@ export function RequestCanvas({
   }
 
   function anadirHotelAdHoc(hotel: HotelAdHoc) {
+    // «Que mande sobre el catálogo»: el mismo hotel del catálogo se va de la
+    // lista y, si estaba elegido, el ad hoc ocupa su sitio.
+    const sustituidos = new Set(
+      sustituidosPor(hoteles?.matches ?? [], hotel, (m) => m.accommodation.id, (m) => m.accommodation.accommodationName),
+    );
     setHotelesAdHoc((actuales) => [...actuales, hotel]);
     setHoteles((actual) =>
-      actual ? conLoAdHoc(actual, [hotelComoResultado(hotel, anioDeLaPeticion())], (m) => m.accommodation.id) : actual,
+      actual
+        ? conLoAdHoc(
+            actual,
+            [hotelComoResultado(hotel, anioDeLaPeticion())],
+            (m) => m.accommodation.id,
+            (m) => m.accommodation.accommodationName,
+          )
+        : actual,
     );
-    // Si quien lo mete es para ofrecerlo: queda elegido si hay hueco.
-    setElegidos((actuales) => (actuales.length < MAX_OPCIONES ? [...actuales, hotel.id] : actuales));
+    setElegidos((actuales) => {
+      const habia = actuales.some((id) => sustituidos.has(id));
+      const sinEl = actuales.filter((id) => !sustituidos.has(id));
+      if (habia) return [...sinEl, hotel.id];
+      // Si quien lo mete es para ofrecerlo: queda elegido si hay hueco.
+      return sinEl.length < MAX_OPCIONES ? [...sinEl, hotel.id] : sinEl;
+    });
     setAltaAdHoc(null);
   }
 
   function anadirActividadAdHoc(actividad: ActividadAdHoc) {
+    const sustituidas = new Set(
+      sustituidosPor(actividades?.matches ?? [], actividad, (m) => m.activity.id, (m) => m.activity.activityName),
+    );
     setActividadesAdHoc((actuales) => [...actuales, actividad]);
     setActividades((actual) =>
-      actual ? conLoAdHoc(actual, [actividadComoResultado(actividad, anioDeLaPeticion())], (m) => m.activity.id) : actual,
+      actual
+        ? conLoAdHoc(
+            actual,
+            [actividadComoResultado(actividad, anioDeLaPeticion())],
+            (m) => m.activity.id,
+            (m) => m.activity.activityName,
+          )
+        : actual,
     );
-    setProgramaBase((actuales) => [...actuales, actividad.id]);
+    setProgramaBase((actuales) => [...actuales.filter((id) => !sustituidas.has(id)), actividad.id]);
     setAltaAdHoc(null);
+  }
+
+  /** Lo que ya se sabe de la petición, para leer la cotización del proveedor. */
+  function contextoDeCotizacion() {
+    return {
+      destino: entendido?.destinationText ?? "",
+      regimen: entendido?.regimeRequested ?? "",
+      fechaEntrada: entendido?.dateFrom ?? "",
+      fechaSalida: entendido?.dateTo ?? "",
+      alumnos: entendido?.participants ?? null,
+      profesores: entendido?.teachers ?? null,
+    };
   }
 
   function quitarAdHoc(id: string) {
@@ -2019,14 +2061,20 @@ export function RequestCanvas({
               {selec === "alojamientos" && altaAdHoc === "hotel" ? (
                 <AltaAdHoc
                   tipo="hotel"
-                  localidadPorDefecto={entendido?.destinationText ?? ""}
-                  regimenPorDefecto={entendido?.regimeRequested ?? "PC"}
+                  contexto={contextoDeCotizacion()}
+                  departamento={departamento}
                   onAnadir={anadirHotelAdHoc}
                   onCerrar={() => setAltaAdHoc(null)}
                 />
               ) : null}
               {selec === "actividades" && altaAdHoc === "actividad" ? (
-                <AltaAdHoc tipo="actividad" onAnadir={anadirActividadAdHoc} onCerrar={() => setAltaAdHoc(null)} />
+                <AltaAdHoc
+                  tipo="actividad"
+                  contexto={contextoDeCotizacion()}
+                  departamento={departamento}
+                  onAnadir={anadirActividadAdHoc}
+                  onCerrar={() => setAltaAdHoc(null)}
+                />
               ) : null}
               <ListaAdHoc
                 elementos={
@@ -2034,12 +2082,16 @@ export function RequestCanvas({
                     ? hotelesAdHoc.map((h) => ({
                         id: h.id,
                         nombre: h.nombre,
-                        detalle: `${h.regimen} · ${h.precioAlumno.toLocaleString("es-ES")} € alumno/noche${h.precioProfesor ? ` · ${h.precioProfesor.toLocaleString("es-ES")} € profesor/noche` : ""}`,
+                        detalle: `${h.regimen} · ${h.precioAlumno.toLocaleString("es-ES")} € alumno/noche${h.precioProfesor ? ` · ${h.precioProfesor.toLocaleString("es-ES")} € profesor/noche` : ""}${h.costeAlumno ? ` · coste ${h.costeAlumno.toLocaleString("es-ES")} € (+${(h.margen ?? 0).toLocaleString("es-ES")} %)` : ""}`,
+                        cotizacionId: h.cotizacionId,
+                        documento: h.documento,
                       }))
                     : actividadesAdHoc.map((a) => ({
                         id: a.id,
                         nombre: a.nombre,
-                        detalle: `${a.proveedor ? `${a.proveedor} · ` : ""}${a.precioPorAlumno.toLocaleString("es-ES")} € por alumno`,
+                        detalle: `${a.proveedor ? `${a.proveedor} · ` : ""}${a.precioPorAlumno.toLocaleString("es-ES")} € por alumno${a.coste ? ` · coste ${a.coste.toLocaleString("es-ES")} € (+${(a.margen ?? 0).toLocaleString("es-ES")} %)` : ""}`,
+                        cotizacionId: a.cotizacionId,
+                        documento: a.documento,
                       }))
                 }
                 onQuitar={quitarAdHoc}

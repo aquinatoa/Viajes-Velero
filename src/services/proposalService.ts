@@ -51,6 +51,7 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
       item.pvpAmount || (item.netSaleAmount ? applyDefaultMarkup(item.netSaleAmount) : 0);
 
     const unitPrice = precioDe(rate);
+    const costeDe = (item: { netSaleAmount: number }) => (item.netSaleAmount > 0 ? item.netSaleAmount : null);
     // Los profesores duermen en habitación individual y cuestan más. Antes no
     // se cobraban en absoluto: el total era solo alumnos, y en un grupo de 40 +
     // 4 profesores eso son cuatro personas alojadas gratis toda la semana.
@@ -84,6 +85,12 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
       // en el catálogo y no llegaban a la propuesta, así que el documento que
       // ve el colegio no las decía. Es información que cambia el precio.
       freePolicyText: selected.accommodation.freePolicy,
+      // El coste de la tarifa elegida: lo que el CRM necesita para saber el
+      // margen. Antes se buscaba después en el catálogo por el precio; un
+      // alojamiento ad hoc no está en el catálogo y se quedaba sin coste.
+      studentCostAmount: costeDe(rate),
+      teacherCostAmount: selected.singleRate ? costeDe(selected.singleRate) : costeDe(rate),
+      supplierQuoteId: selected.cotizacionId ?? null,
       isSelected: false
     };
   });
@@ -125,6 +132,9 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
         descriptionSnapshot: selected.activity.descriptionText,
         lines: activas.length ? activas : null,
         amountTotal: total,
+        // Con líneas (varias tarifas × cantidad) no hay un coste por alumno.
+        unitCostAmount: !activas.length && rate.costNetAmount > 0 ? rate.costNetAmount : null,
+        supplierQuoteId: selected.cotizacionId ?? null,
         isSelected: false
       };
     });
