@@ -459,6 +459,21 @@ export async function searchAccommodationsDb(
     accommodations.map((accommodation) => accommodation.sourceDocumentId)
   );
 
+  // «Su tarifa propia manda» (Javier, 28/09/2026), por NOMBRE de hotel y no por
+  // registro: la tarifa del suizo y la general del mismo hotel vienen de
+  // documentos distintos y son alojamientos distintos con el mismo nombre. Sin
+  // esto, al cotizar para el suizo «Mediterrània MED1» salía dos veces, con su
+  // precio y con el general.
+  const especialPedido =
+    wantedSegment && !esParaCualquierCliente(wantedSegment) ? wantedSegment : null;
+  const hotelesConPropia = new Set(
+    especialPedido
+      ? accommodations
+          .filter((a) => a.rates.some((r) => r.clientSegment === especialPedido))
+          .map((a) => normalizeText(a.accommodationName))
+      : [],
+  );
+
   // Filtro por departamento. Javier, 08/10/2026: el mismo hotel tiene precios
   // distintos para Grupos y para Turismo Deportivo, y hasta ahora salían
   // mezclados. El departamento es del DOCUMENTO de origen: cambiarlo en Tarifas
@@ -498,8 +513,11 @@ export async function searchAccommodationsDb(
           return [];
         }
       }
+      const tienePropia = hotelesConPropia.has(normalizeText(accommodation.accommodationName));
       return accommodation.rates
         .filter(matchesSegment)
+        // Si el cliente especial tiene la suya para este hotel, la general no.
+        .filter((rate) => !tienePropia || rate.clientSegment === especialPedido)
         .filter((rate) => {
           const departamento = departamentoDe(rate, accommodation);
           return !wantedDepartment || !departamento || departamento === wantedDepartment;
@@ -512,7 +530,7 @@ export async function searchAccommodationsDb(
           Number(rate.pvpAmount ?? 0),
           wantedSegment,
           rate,
-          accommodation.rates.some((r) => r.clientSegment === wantedSegment),
+          tienePropia,
         );
         if (especial.motivo) scored.reasons.push(especial.motivo);
         return {
@@ -738,13 +756,27 @@ export async function searchActivitiesDb(
   const documentNames = await loadSourceDocumentNames(
     activities.map((activity) => activity.sourceDocumentId)
   );
+  // «Su tarifa propia manda», por nombre de actividad (ver alojamientos).
+  const especialPedidoAct =
+    wantedSegment && !esParaCualquierCliente(wantedSegment) ? wantedSegment : null;
+  const actividadesConPropia = new Set(
+    especialPedidoAct
+      ? activities
+          .filter((a) => a.rates.some((r) => r.clientSegment === especialPedidoAct))
+          .map((a) => normalizeText(a.activityName))
+      : [],
+  );
   const documentLocations = await loadSourceDocumentLocations(
     activities.map((activity) => activity.sourceDocumentId)
   );
 
   const perRateMatchesTodos: ActivitySearchMatch[] = activities
-    .flatMap((activity) =>
-      activity.rates.filter(matchesSegment).map((rate) => {
+    .flatMap((activity) => {
+      const tienePropia = actividadesConPropia.has(normalizeText(activity.activityName));
+      return activity.rates
+        .filter(matchesSegment)
+        .filter((rate) => !tienePropia || rate.clientSegment === especialPedidoAct)
+        .map((rate) => {
         const scored = scoreActivityMatch(
           {
             ...activity,
@@ -759,7 +791,7 @@ export async function searchActivitiesDb(
           Number(rate.salePvpAmount ?? 0),
           wantedSegment,
           rate,
-          activity.rates.some((r) => r.clientSegment === wantedSegment),
+          tienePropia,
         );
         if (especial.motivo) scored.reasons.push(especial.motivo);
         return {
@@ -801,8 +833,8 @@ export async function searchActivitiesDb(
           score: scored.score,
           matchReasons: scored.reasons
         };
-      })
-    );
+      });
+    });
   // Se enseñan TODAS, siempre. Lo decidió Javier en la reunión del 08/10/2026:
   // «que salgan todas las actividades siempre, que no las filtre, da igual» —
   // a veces no hay disponibilidad en Salou y el grupo se va a Cambrils a hacer
