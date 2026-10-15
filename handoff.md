@@ -2300,3 +2300,40 @@ prueba (después de validar Servicios Contratados en producción).
 - **Mensajes de prueba que el lector entiende enteros** (están en el informe):
   Salou y Cambrils se leen completos; Calella no está en la lista de pueblos y
   la app pregunta el destino.
+
+### Fuera del catálogo = adjuntar la cotización del proveedor (15/10/2026, noche)
+
+Anthony vio el formulario de teclear precios y pidió que fuera «un adjuntar
+documento, como el analizador de tarifas, pero más sencillo, porque ya
+sabríamos de qué hoteles estamos subiendo la información», teniendo en cuenta
+lo de Javier (29/09: «el proveedor nos cotiza en el momento un correo»; «los
+hoteles no tienen tarifas de grupos»). Commit `f1177af` en `tanda-3`.
+
+- **Paso 1** en `AltaAdHoc.tsx`: se adjunta PDF, foto, Excel, .txt o .eml, o se
+  pega el correo. `POST /api/cotizaciones-proveedor/lectura` (multipart
+  `archivo` + `texto` + `contexto` JSON) guarda el justificante (tabla
+  `CotizacionProveedor`, ficheros en `ORAVIA_STORAGE_DIR/cotizaciones-proveedor/<id>/`)
+  y lo lee con Claude (`server/cotizacionDelProveedor.ts`: mismo
+  `getAiProviderConfig`, PDF/imagen como bloque nativo, Excel/.txt por
+  `extractDocumentText`, .eml con `mailparser`). Si la lectura falla, el
+  justificante se guarda igual y se pone el coste a mano. Word y .msg: aviso.
+- **Paso 2**: propone el COSTE (por alumno y noche; pasa precios por estancia
+  y elige el régimen pedido, avisando), aplica el margen del departamento
+  (8 % Grupos / 12 % Deportivo, `src/domain/cotizacionDelProveedor.ts`) y
+  enseña el precio al colegio. Todo editable.
+- **El coste se guarda en la propuesta**: `ProposalAccommodationOption.studentCostAmount/
+  teacherCostAmount/supplierQuoteId` y `ProposalActivityOption.unitCostAmount/
+  supplierQuoteId` (migración `20261015140000_cotizacion_del_proveedor`). Se
+  guarda para TODAS las opciones (el neto de la tarifa elegida), no solo las ad
+  hoc. `costeDeLaFila` en Servicios Contratados usa el guardado y, si no hay
+  (propuestas viejas), `costeDelPrecio` como antes.
+- **Manda sobre el catálogo**: `conLoAdHoc(..., nombreDe)` quita el del
+  catálogo con el mismo nombre normalizado y `sustituidosPor` cambia la
+  elección.
+- Probado: lectura real de un correo (126 € estancia → 42 €/noche, descarta MP)
+  y por HTTP (.txt de actividad, Word rechazado con justificante, descarga).
+  Pruebas: `test:cotizacion` (nueva), `test:adhoc`, `test:contratado`; batería
+  entera en verde. Guía R1 del informe reescrita; fichero de prueba en
+  `pruebas-locales/cotizacion-bodega.txt` (sin versionar).
+- **Pregunta para Javier**: si el proveedor dice «IVA aparte», ¿se suma al
+  coste? Hoy se avisa y no se suma.
