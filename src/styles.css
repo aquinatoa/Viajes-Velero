@@ -12129,8 +12129,29 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 .ah__lista li button {
   margin-left: auto;
 }
-.ah__abrir {
+/* «+ Fuera del catálogo»: en amarillo, como la lupa, para que se vea que la
+   opción existe (Anthony, 15/10/2026: «no se aprecia que exista»). */
+.cv__ghost.ah__abrir {
   margin-left: auto;
+  border: 0;
+  background: var(--cv-amber);
+  color: #3d2c05;
+  font-weight: 700;
+  box-shadow: var(--shadow-panel);
+  transition: background 160ms var(--ease-out), transform 120ms var(--ease-out);
+}
+.cv__ghost.ah__abrir:hover:not(:disabled) {
+  background: #e9a81f;
+  transform: translateY(-1px);
+}
+.cv__ghost.ah__abrir:focus-visible {
+  outline: 3px solid rgba(252, 187, 55, .45);
+  outline-offset: 2px;
+}
+/* Abierto, como la lupa abierta: azul. */
+.cv__ghost.ah__abrir[aria-expanded="true"] {
+  background: var(--cv-navy);
+  color: #fff;
 }
 
 /* Adjuntos de la conversación con el colegio (Javier, 08/10/2026). */
