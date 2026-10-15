@@ -81,6 +81,14 @@ import type {
   TripProposal,
 } from "../../domain/types";
 import { CLIENTES_ESPECIALES } from "../../domain/documentImportTypes";
+import {
+  actividadComoResultado,
+  conLoAdHoc,
+  hotelComoResultado,
+  type ActividadAdHoc,
+  type HotelAdHoc,
+} from "../../domain/adHoc";
+import { AltaAdHoc, ListaAdHoc } from "./AltaAdHoc";
 
 /**
  * El lienzo: pantalla de nueva solicitud.
@@ -416,6 +424,18 @@ export function RequestCanvas({
    * lo demás: es una decisión suya, no un dato del catálogo.
    */
   const [preciosFijados, setPreciosFijados] = useState<Record<string, number>>({});
+  /**
+   * Hoteles y actividades fuera del catálogo, con el precio del proveedor
+   * (Ruth, 29/09/2026). Viven en la cotización: se mezclan con lo que devuelve
+   * cada búsqueda y viajan con el borrador.
+   */
+  const [hotelesAdHoc, setHotelesAdHoc] = useState<HotelAdHoc[]>([]);
+  const [actividadesAdHoc, setActividadesAdHoc] = useState<ActividadAdHoc[]>([]);
+  const [altaAdHoc, setAltaAdHoc] = useState<"hotel" | "actividad" | null>(null);
+  // La búsqueda se lanza desde manejadores que aún no ven el estado nuevo
+  // (recuperar un borrador): lee lo ad hoc de aquí.
+  const adHocRef = useRef<{ hoteles: HotelAdHoc[]; actividades: ActividadAdHoc[] }>({ hoteles: [], actividades: [] });
+  adHocRef.current = { hoteles: hotelesAdHoc, actividades: actividadesAdHoc };
 
   // Cierre
   /**
@@ -559,6 +579,9 @@ export function RequestCanvas({
       setProgramaBase(estado.programaBase ?? []);
       setExcepciones(estado.excepciones ?? {});
       setPreciosFijados(estado.preciosFijados ?? {});
+      setHotelesAdHoc(estado.hotelesAdHoc ?? []);
+      setActividadesAdHoc(estado.actividadesAdHoc ?? []);
+      adHocRef.current = { hoteles: estado.hotelesAdHoc ?? [], actividades: estado.actividadesAdHoc ?? [] };
       setRecuperable(null);
 
       // Las tarifas pueden haber cambiado desde que se guardó: se vuelve a
@@ -643,6 +666,8 @@ export function RequestCanvas({
         programaBase,
         excepciones,
         preciosFijados,
+        hotelesAdHoc,
+        actividadesAdHoc,
       };
 
       // En el navegador, siempre: es la red que salva lo escrito si se cae la
@@ -670,7 +695,7 @@ export function RequestCanvas({
     return () => {
       if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
     };
-  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, solicitudId, canal, enviada]);
+  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, hotelesAdHoc, actividadesAdHoc, solicitudId, canal, enviada]);
 
   /** Recupera el borrador y vuelve a buscar hoteles: las tarifas pueden haber cambiado. */
   function recuperar() {
@@ -690,6 +715,9 @@ export function RequestCanvas({
     setProgramaBase(recuperable.programaBase);
     setExcepciones(recuperable.excepciones);
     setPreciosFijados(recuperable.preciosFijados ?? {});
+    setHotelesAdHoc(recuperable.hotelesAdHoc ?? []);
+    setActividadesAdHoc(recuperable.actividadesAdHoc ?? []);
+    adHocRef.current = { hoteles: recuperable.hotelesAdHoc ?? [], actividades: recuperable.actividadesAdHoc ?? [] };
     if (recuperable.entendido) {
       setParseResult({
         normalized: recuperable.entendido,
@@ -799,8 +827,22 @@ export function RequestCanvas({
         searchAccommodationsApi(filtros),
         searchActivitiesApi(filtros),
       ]);
-      setHoteles(alojamientos);
-      setActividades(planes);
+      // Lo ad hoc no sale de la búsqueda: se vuelve a poner delante.
+      const anioAdHoc = Number((datos.dateFrom ?? "").slice(0, 4)) || new Date().getFullYear();
+      setHoteles(
+        conLoAdHoc(
+          alojamientos,
+          adHocRef.current.hoteles.map((h) => hotelComoResultado(h, anioAdHoc)),
+          (m) => m.accommodation.id,
+        ),
+      );
+      setActividades(
+        conLoAdHoc(
+          planes,
+          adHocRef.current.actividades.map((a) => actividadComoResultado(a, anioAdHoc)),
+          (m) => m.activity.id,
+        ),
+      );
       if (alojamientos.matches.length === 0) {
         setAviso(porQueNoHayHoteles(datos, alojamientos));
       }
@@ -848,6 +890,41 @@ export function RequestCanvas({
   /** Sin precio no se puede elegir: entraría en el documento valiendo cero. */
   function faltaPonerlePrecio(item: ActivitySearchMatch): boolean {
     return Boolean(item.precioAFijar) && !preciosFijados[item.activity.id];
+  }
+
+  /** El año de la petición: para la tarifa de lo ad hoc. */
+  function anioDeLaPeticion(): number {
+    return Number((entendido?.dateFrom ?? "").slice(0, 4)) || new Date().getFullYear();
+  }
+
+  function anadirHotelAdHoc(hotel: HotelAdHoc) {
+    setHotelesAdHoc((actuales) => [...actuales, hotel]);
+    setHoteles((actual) =>
+      actual ? conLoAdHoc(actual, [hotelComoResultado(hotel, anioDeLaPeticion())], (m) => m.accommodation.id) : actual,
+    );
+    // Si quien lo mete es para ofrecerlo: queda elegido si hay hueco.
+    setElegidos((actuales) => (actuales.length < MAX_OPCIONES ? [...actuales, hotel.id] : actuales));
+    setAltaAdHoc(null);
+  }
+
+  function anadirActividadAdHoc(actividad: ActividadAdHoc) {
+    setActividadesAdHoc((actuales) => [...actuales, actividad]);
+    setActividades((actual) =>
+      actual ? conLoAdHoc(actual, [actividadComoResultado(actividad, anioDeLaPeticion())], (m) => m.activity.id) : actual,
+    );
+    setProgramaBase((actuales) => [...actuales, actividad.id]);
+    setAltaAdHoc(null);
+  }
+
+  function quitarAdHoc(id: string) {
+    setHotelesAdHoc((actuales) => actuales.filter((h) => h.id !== id));
+    setActividadesAdHoc((actuales) => actuales.filter((a) => a.id !== id));
+    setHoteles((actual) => (actual ? { ...actual, matches: actual.matches.filter((m) => m.accommodation.id !== id) } : actual));
+    setActividades((actual) =>
+      actual ? { ...actual, matches: actual.matches.filter((m) => m.activity.id !== id) } : actual,
+    );
+    setElegidos((actuales) => actuales.filter((e) => e !== id));
+    setProgramaBase((actuales) => actuales.filter((e) => e !== id));
   }
 
   function matchHotel(id: string): AccommodationSearchMatch | undefined {
@@ -1856,6 +1933,14 @@ export function RequestCanvas({
                   <span className="cv__lbl">
                     {hoteles.matches.length} con tarifa · elige hasta {MAX_OPCIONES}
                   </span>
+                  <button
+                    type="button"
+                    className="cv__ghost cv__ghost--sm ah__abrir"
+                    aria-expanded={altaAdHoc === "hotel"}
+                    onClick={() => setAltaAdHoc((a) => (a === "hotel" ? null : "hotel"))}
+                  >
+                    + Fuera del catálogo
+                  </button>
                   <div className="cv__seg" role="tablist" aria-label="Vista">
                     <button type="button" className={vista === "lista" ? "is-on" : ""} onClick={() => setVista("lista")}>
                       Lista
@@ -1875,6 +1960,14 @@ export function RequestCanvas({
                   <span className="cv__lbl">
                     {(actividades?.matches.length ?? 0)} disponibles · van en todas las opciones
                   </span>
+                  <button
+                    type="button"
+                    className="cv__ghost cv__ghost--sm ah__abrir"
+                    aria-expanded={altaAdHoc === "actividad"}
+                    onClick={() => setAltaAdHoc((a) => (a === "actividad" ? null : "actividad"))}
+                  >
+                    + Fuera del catálogo
+                  </button>
                   {(actividades?.matches.length ?? 0) > 0 ? (
                     <div className={buscadorAbierto ? "cv__buscar is-open" : "cv__buscar"}>
                       <span className="cv__buscar-pill">
@@ -1922,6 +2015,35 @@ export function RequestCanvas({
                   ) : null}
                 </div>
               )}
+
+              {selec === "alojamientos" && altaAdHoc === "hotel" ? (
+                <AltaAdHoc
+                  tipo="hotel"
+                  localidadPorDefecto={entendido?.destinationText ?? ""}
+                  regimenPorDefecto={entendido?.regimeRequested ?? "PC"}
+                  onAnadir={anadirHotelAdHoc}
+                  onCerrar={() => setAltaAdHoc(null)}
+                />
+              ) : null}
+              {selec === "actividades" && altaAdHoc === "actividad" ? (
+                <AltaAdHoc tipo="actividad" onAnadir={anadirActividadAdHoc} onCerrar={() => setAltaAdHoc(null)} />
+              ) : null}
+              <ListaAdHoc
+                elementos={
+                  selec === "alojamientos"
+                    ? hotelesAdHoc.map((h) => ({
+                        id: h.id,
+                        nombre: h.nombre,
+                        detalle: `${h.regimen} · ${h.precioAlumno} € alumno/noche${h.precioProfesor ? ` · ${h.precioProfesor} € profesor/noche` : ""}`,
+                      }))
+                    : actividadesAdHoc.map((a) => ({
+                        id: a.id,
+                        nombre: a.nombre,
+                        detalle: `${a.proveedor ? `${a.proveedor} · ` : ""}${a.precioPorAlumno} € por alumno`,
+                      }))
+                }
+                onQuitar={quitarAdHoc}
+              />
             </>
           ) : null}
 
@@ -2032,6 +2154,7 @@ export function RequestCanvas({
                           <span className="cv__actt">
                             {item.activity.activityName}
                             {item.destacada ? <span className="cv__actchip cv__actchip--top">Destacada</span> : null}
+                            {item.adHoc ? <span className="cv__actchip cv__actchip--top">Ad hoc</span> : null}
                             {item.fueraDelDestino ? (
                               <span className="cv__actchip cv__actchip--fuera">Fuera del destino</span>
                             ) : null}
@@ -3928,6 +4051,7 @@ function ListaOpciones({
                 <span className="cv__hotelm">
                   <span className="cv__hotelt">
                     {item.accommodation.accommodationName}
+                    {item.adHoc ? <span className="cv__actchip cv__actchip--top">Ad hoc</span> : null}
                     {enElPodio.has(item.accommodation.id) ? (
                       <span className="cv__reco">recomendado</span>
                     ) : null}

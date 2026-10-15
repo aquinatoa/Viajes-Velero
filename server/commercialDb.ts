@@ -1,5 +1,6 @@
 import type { LineaDeActividad } from "../src/domain/lineasDeActividad";
 import { PrismaClient } from "@prisma/client";
+import { esAdHoc } from "../src/domain/adHoc";
 import type {
   Client,
   TripProposal,
@@ -396,7 +397,9 @@ export async function saveTripProposalDb(input: SaveTripProposalInput): Promise<
     summaryText: input.summaryText ?? null,
     accommodationOptions: {
       create: input.accommodationOptions.map((option) => ({
-        accommodationId: option.accommodationId,
+        // Un alojamiento ad hoc no está en el catálogo: no hay fila a la que
+        // apuntar. La propuesta conserva su foto (nombre, precio, condiciones).
+        accommodationId: esAdHoc(option.accommodationId) ? null : option.accommodationId,
         optionNumber: option.optionNumber,
         accommodationNameSnapshot: option.accommodationNameSnapshot ?? null,
         boardType: option.boardType ?? null,
@@ -415,7 +418,7 @@ export async function saveTripProposalDb(input: SaveTripProposalInput): Promise<
     },
     activityOptions: {
       create: input.activityOptions.map((option) => ({
-        activityId: option.activityId,
+        activityId: esAdHoc(option.activityId) ? null : option.activityId,
         optionNumber: option.optionNumber,
         displayOrder: option.displayOrder,
         activityNameSnapshot: option.activityNameSnapshot,

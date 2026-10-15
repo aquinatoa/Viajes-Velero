@@ -12059,3 +12059,76 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 .cv__info--act { margin-left: 42px; }
 .tarifas__tabla .tarifas__precio--elegida { background: var(--highlight-bg, rgba(31, 122, 77, 0.12)); font-weight: 700; }
 .tarifas__marca { color: var(--ok, #1f7a4d); }
+
+/* Hoteles y actividades fuera del catálogo («ad hoc»): Ruth, 29/09/2026. */
+.ah {
+  margin: 10px 0 14px;
+  padding: 14px 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  display: grid;
+  gap: 10px;
+}
+.ah__t {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.ah__t span {
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--muted);
+}
+.ah__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.ah select,
+.ah textarea {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.ah__problemas {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--danger, #b42318);
+  font-size: 13px;
+}
+.ah__acc {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ah__lista {
+  list-style: none;
+  margin: 6px 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.ah__lista li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13.5px;
+}
+.ah__lista li span:not(.cv__actchip) {
+  color: var(--muted);
+}
+.ah__lista li button {
+  margin-left: auto;
+}
+.ah__abrir {
+  margin-left: auto;
+}

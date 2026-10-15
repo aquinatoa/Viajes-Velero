@@ -1,3 +1,4 @@
+import type { ActividadAdHoc, HotelAdHoc } from "../../domain/adHoc";
 import type { ClientSegment } from "../../domain/documentImportTypes";
 import type { NormalizedRequestDraft, ParseTripRequestInput } from "../../domain/types";
 
@@ -64,6 +65,9 @@ export interface BorradorSolicitud {
    * volvía a salir sin poder elegirse.
    */
   preciosFijados?: Record<string, number>;
+  /** Hoteles y actividades fuera del catálogo, con el precio del proveedor. */
+  hotelesAdHoc?: HotelAdHoc[];
+  actividadesAdHoc?: ActividadAdHoc[];
 }
 
 function almacen(): Storage | null {

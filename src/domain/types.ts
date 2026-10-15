@@ -285,6 +285,8 @@ export interface AccommodationSearchMatch {
    * sola de las cuarenta que tiene el 4R y no sabía que había alternativas.
    */
   alternativas?: AccommodationRate[];
+  /** Metido a mano por quien cotiza, con el precio del proveedor: no está en el catálogo. */
+  adHoc?: boolean;
 }
 
 export interface ActivitySearchMatch {
@@ -303,6 +305,8 @@ export interface ActivitySearchMatch {
    * julio). Se enseña igual, marcada y después de las que sí.
    */
   fueraDeTemporada?: boolean;
+  /** Metida a mano por quien cotiza, con el precio del proveedor: no está en el catálogo. */
+  adHoc?: boolean;
   /**
    * El catálogo no le pone precio y hay que ponérselo al cotizar.
    *
