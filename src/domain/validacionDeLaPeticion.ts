@@ -1,3 +1,4 @@
+import { CLIENTES_ESPECIALES } from "./documentImportTypes";
 /**
  * Lo que se enseña para validar una petición antes de trabajarla.
  *
@@ -88,7 +89,7 @@ export function nochesDe(desde?: string | null, hasta?: string | null): number |
 
 const CANALES: Record<string, string> = {
   GENERIC: "Colegio, club o agencia",
-  SWISS_TTOO: "Turoperador suizo",
+  ...Object.fromEntries(CLIENTES_ESPECIALES.map((c) => [c.codigo, `Cliente especial · ${c.nombre}`])),
 };
 
 export const DEPARTAMENTOS: Record<string, string> = {
@@ -200,7 +201,7 @@ export function bloquesParaValidar(p: PeticionParaValidar): BloqueParaValidar[] 
         {
           que: "Cotizamos para",
           valor: CANALES[texto(p.canal)] ?? CANALES.GENERIC,
-          nota: "El mismo hotel tiene una tarifa pactada con el turoperador suizo y otra general.",
+          nota: "El mismo hotel tiene una tarifa general y otra pactada con cada cliente especial.",
         },
         {
           que: "Departamento",

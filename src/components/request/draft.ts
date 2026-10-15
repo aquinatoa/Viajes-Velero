@@ -1,3 +1,4 @@
+import type { ClientSegment } from "../../domain/documentImportTypes";
 import type { NormalizedRequestDraft, ParseTripRequestInput } from "../../domain/types";
 
 /**
@@ -32,7 +33,7 @@ export interface BorradorSolicitud {
    */
   solicitudId?: string | null;
   /** Para qué cliente se cotiza: cambia qué tarifas se ofrecen. */
-  canal?: "GENERIC" | "SWISS_TTOO";
+  canal?: ClientSegment;
   mensajes: string[];
   redaccion: string;
   form: ParseTripRequestInput;

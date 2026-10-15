@@ -11,6 +11,7 @@ import type {
 } from "../src/domain/types";
 import { comprobar } from "./encajeConLaPeticion";
 import { deriveSalePrice } from "./pricing";
+import { textoDelPeriodo, valeParaElViaje } from "../src/domain/periodosDeActividad";
 
 const prisma = new PrismaClient();
 
@@ -33,6 +34,19 @@ async function loadSourceDocumentNames(
   });
 
   return new Map(documents.map((document) => [document.id, document.controlName]));
+}
+
+/** El departamento de cada documento (GROUPS, SPORTS o null = los dos). */
+async function loadSourceDocumentDepartments(
+  ids: (string | null | undefined)[]
+): Promise<Map<string, string | null>> {
+  const uniqueIds = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+  if (uniqueIds.length === 0) return new Map();
+  const documents = await prisma.sourceDocument.findMany({
+    where: { id: { in: uniqueIds } },
+    select: { id: true, department: true }
+  });
+  return new Map(documents.map((document) => [document.id, document.department ?? null]));
 }
 
 /**
@@ -444,6 +458,20 @@ export async function searchAccommodationsDb(
     accommodations.map((accommodation) => accommodation.sourceDocumentId)
   );
 
+  // Filtro por departamento. Javier, 08/10/2026: el mismo hotel tiene precios
+  // distintos para Grupos y para Turismo Deportivo, y hasta ahora salían
+  // mezclados. El departamento es del DOCUMENTO de origen: cambiarlo en Tarifas
+  // vale al momento. Sin departamento en la petición, o en el documento, vale.
+  const wantedDepartment = (filters.department ?? "").trim() || null;
+  const documentDepartments = await loadSourceDocumentDepartments([
+    ...accommodations.map((accommodation) => accommodation.sourceDocumentId),
+    ...accommodations.flatMap((accommodation) => accommodation.rates.map((rate) => rate.sourceDocumentId)),
+  ]);
+  const departamentoDe = (rate: { sourceDocumentId: string | null }, accommodation: { sourceDocumentId: string | null }) => {
+    const doc = rate.sourceDocumentId ?? accommodation.sourceDocumentId;
+    return doc ? documentDepartments.get(doc) ?? null : null;
+  };
+
   // Exclusión por categoría: si piden N★ se descartan los de categoría inferior.
   const reqStarsFilter = requestedStars(filters.categoryRequested);
   // Exclusión por zona: si el destino tiene zona conocida (p. ej. Salou → Costa
@@ -469,7 +497,13 @@ export async function searchAccommodationsDb(
           return [];
         }
       }
-      return accommodation.rates.filter(matchesSegment).map((rate) => {
+      return accommodation.rates
+        .filter(matchesSegment)
+        .filter((rate) => {
+          const departamento = departamentoDe(rate, accommodation);
+          return !wantedDepartment || !departamento || departamento === wantedDepartment;
+        })
+        .map((rate) => {
         const scored = scoreAccommodationMatch(accommodation, rate, filters);
         return {
           accommodation: {
@@ -743,7 +777,9 @@ export async function searchActivitiesDb(
             commissionPercent: Number(rate.commissionPercent ?? 0),
             durationText: rate.durationText ?? "",
             sourceFile: rate.sourceFile ?? "",
-            sourceSheet: rate.sourceSheet ?? ""
+            sourceSheet: rate.sourceSheet ?? "",
+            dateFrom: rate.dateFrom ? rate.dateFrom.toISOString().slice(0, 10) : null,
+            dateTo: rate.dateTo ? rate.dateTo.toISOString().slice(0, 10) : null
           },
           score: scored.score,
           matchReasons: scored.reasons
@@ -772,10 +808,43 @@ export async function searchActivitiesDb(
   );
   const fueraDelDestino = perRateMatchesTodos.length > 0 && !perRateMatchesTodos.some(enDestino);
 
+  // El periodo de cada tarifa (Ruth y Javier, 08/10/2026: «dos periodos de
+  // aplicación al año»). Si una actividad tiene alguna tarifa que vale en las
+  // fechas del viaje, solo cuentan esas. Si no tiene ninguna, se enseña igual,
+  // marcada «fuera de temporada» con sus periodos: Javier quiere verlas todas.
+  const enTemporada = (item: ActivitySearchMatch) =>
+    valeParaElViaje(item.rate, filters.dateFrom, filters.dateTo);
+  const conTemporada = new Set(perRateMatches.filter(enTemporada).map((item) => item.activity.id));
+  const periodosDe = new Map<string, string[]>();
+  for (const item of perRateMatches) {
+    const lista = periodosDe.get(item.activity.id) ?? [];
+    const clave = `${item.rate.dateFrom ?? ""}|${textoDelPeriodo(item.rate.dateFrom, item.rate.dateTo)}`;
+    if (!lista.includes(clave)) lista.push(clave);
+    periodosDe.set(item.activity.id, lista);
+  }
+  // En orden de calendario y sin la clave de ordenar.
+  for (const [id, lista] of periodosDe) {
+    periodosDe.set(id, [...lista].sort().map((clave) => clave.slice(clave.indexOf("|") + 1)));
+  }
+  const perRateVigentes: ActivitySearchMatch[] = perRateMatches
+    .filter((item) => enTemporada(item) || !conTemporada.has(item.activity.id))
+    .map((item) =>
+      enTemporada(item)
+        ? item
+        : {
+            ...item,
+            fueraDeTemporada: true,
+            matchReasons: [
+              `Fuera de temporada en esas fechas: vale ${(periodosDe.get(item.activity.id) ?? []).join(" y ")}.`,
+              ...item.matchReasons,
+            ],
+          },
+    );
+
   // Una sola tarjeta por ACTIVIDAD: su mejor tarifa (mayor score; a igualdad, la
   // más barata con precio > 0). Evita repetir la misma actividad por cada tramo.
   const bestByActivity = new Map<string, ActivitySearchMatch>();
-  for (const item of perRateMatches) {
+  for (const item of perRateVigentes) {
     const current = bestByActivity.get(item.activity.id);
     if (
       !current ||
@@ -791,7 +860,7 @@ export async function searchActivitiesDb(
   // Las demás tarifas de cada actividad, para que quien cotiza sepa cuál se
   // ha elegido y entre cuáles. Igual que en los alojamientos.
   const tarifasPorActividad = new Map<string, ActivitySearchMatch["rate"][]>();
-  for (const item of perRateMatches) {
+  for (const item of perRateVigentes) {
     const lista = tarifasPorActividad.get(item.activity.id) ?? [];
     lista.push(item.rate);
     tarifasPorActividad.set(item.activity.id, lista);
@@ -818,6 +887,7 @@ export async function searchActivitiesDb(
     .sort(
       (a, b) =>
         Number(b.destacada) - Number(a.destacada) ||
+        Number(Boolean(a.fueraDeTemporada)) - Number(Boolean(b.fueraDeTemporada)) ||
         b.score - a.score ||
         a.activity.activityName.localeCompare(b.activity.activityName, "es"),
     );

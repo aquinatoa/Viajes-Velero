@@ -243,6 +243,13 @@ model ActivityRate {
   commissionPercent Decimal?
   /// Para qué cliente vale este precio. null = cualquiera.
   clientSegment     String?
+  /// El periodo en que vale. Una actividad puede tener varios al año, cada uno
+  /// su tarifa (Ruth, 08/10/2026: el Tuna Tour de Balfegó, «dos periodos de
+  /// aplicación al año»). Sin fechas = todo el año. Venían en la lectura y se
+  /// perdían al publicar.
+  seasonName        String?
+  dateFrom          DateTime?
+  dateTo            DateTime?
   durationText      String?
   sourceFile        String?
   sourceSheet       String?
@@ -384,6 +391,12 @@ model SourceDocument {
   // Para qué cliente es la tarifa cuando rateKind = SALE. El mismo alojamiento
   // tiene precios distintos por canal (p. ej. TTOO suizo vs. cliente general).
   clientSegment String?
+  // Para qué departamento son estas tarifas: GROUPS, SPORTS o null (los dos).
+  // Javier, 08/10/2026: «hay un hotel que tiene precios diferentes dependiendo
+  // de si es para un grupo o si es para turismo deportivo». Se lee del
+  // documento al buscar, así que cambiarlo aquí vale al momento, sin volver a
+  // publicar.
+  department    String?
 
   status           String   @default("UPLOADED")
   extractionStatus String   @default("NOT_STARTED")

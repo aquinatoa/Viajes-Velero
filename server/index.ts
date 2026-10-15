@@ -53,6 +53,7 @@ import {
   attachInventoryDocumentFile,
   countInventoryDocumentStaging,
   bulkUpdateStagingReview,
+  duplicateStagingActivityRate,
   confirmAccommodationAssignmentDb,
   createInventoryDocument,
   createInventoryDocumentStaging,
@@ -80,6 +81,7 @@ import { toRateKind } from "./pricing";
 import { listarLecturasIa, registrarLecturaIa, updateInventoryDocumentAiUsage } from "./documentImportDb";
 import { resumirConsumo } from "./consumoIa";
 import type { AiUsage } from "../src/domain/documentImportTypes";
+import { CLIENT_SEGMENTS } from "../src/domain/documentImportTypes";
 import {
   approveTripProposalDb,
   ensureTripRequestDealDb,
@@ -576,10 +578,18 @@ function validateRateDeclaration(payload: {
   ) {
     return "El margen tiene que ser un porcentaje entre 0 y 100.";
   }
-  if (clientSegment && !["GENERIC", "SWISS_TTOO"].includes(clientSegment)) {
+  if (clientSegment && !(CLIENT_SEGMENTS as string[]).includes(clientSegment)) {
     return "El tipo de cliente no es uno de los conocidos.";
   }
   return null;
+}
+
+/** Grupos, Turismo Deportivo o los dos (null). */
+function validateDepartment(department: unknown): string | null {
+  if (department === undefined || department === null || department === "") return null;
+  return department === "GROUPS" || department === "SPORTS"
+    ? null
+    : "El departamento tiene que ser Grupos o Turismo Deportivo.";
 }
 
 app.post("/api/inventory/documents", async (request, response) => {
@@ -594,6 +604,7 @@ app.post("/api/inventory/documents", async (request, response) => {
       rateKind?: string;
       marginPercent?: number | null;
       clientSegment?: string | null;
+      department?: string | null;
     };
 
     if (!payload.controlName?.trim()) {
@@ -603,7 +614,7 @@ app.post("/api/inventory/documents", async (request, response) => {
       return;
     }
 
-    const rateKindError = validateRateDeclaration(payload);
+    const rateKindError = validateRateDeclaration(payload) ?? validateDepartment(payload.department);
     if (rateKindError) {
       response.status(400).json({ error: rateKindError });
       return;
@@ -619,6 +630,7 @@ app.post("/api/inventory/documents", async (request, response) => {
       rateKind: payload.rateKind,
       marginPercent: payload.marginPercent,
       clientSegment: payload.clientSegment,
+      department: payload.department || null,
     });
 
     response.json(document);
@@ -685,6 +697,7 @@ app.patch("/api/inventory/documents/:id", async (request, response) => {
       rateKind?: string;
       marginPercent?: number | null;
       clientSegment?: string | null;
+      department?: string | null;
     };
 
     if (payload.controlName !== undefined && !payload.controlName.trim()) {
@@ -692,7 +705,7 @@ app.patch("/api/inventory/documents/:id", async (request, response) => {
       return;
     }
 
-    const rateKindError = validateRateDeclaration(payload);
+    const rateKindError = validateRateDeclaration(payload) ?? validateDepartment(payload.department);
     if (rateKindError) {
       response.status(400).json({ error: rateKindError });
       return;
@@ -1271,6 +1284,22 @@ app.patch("/api/inventory/staging/bulk", async (request, response) => {
     }
     console.error("Error bulk-updating staging entities", error);
     response.status(500).json({ error: "No se pudo actualizar el estado de los candidatos." });
+  }
+});
+
+// Otro periodo para una tarifa de actividad: la copia sale pendiente y sin
+// fechas (ver `duplicateStagingActivityRate`).
+app.post("/api/inventory/staging/activity-rates/:id/duplicate", async (request, response) => {
+  try {
+    const copia = await duplicateStagingActivityRate(String(request.params.id));
+    if (!copia) {
+      response.status(404).json({ error: "Tarifa no encontrada." });
+      return;
+    }
+    response.json(copia);
+  } catch (error) {
+    console.error("Error duplicating staging activity rate", error);
+    response.status(500).json({ error: "No se pudo duplicar la tarifa." });
   }
 });
 

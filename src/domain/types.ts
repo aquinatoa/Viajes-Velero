@@ -151,6 +151,12 @@ export interface SearchFilters {
    */
   clientSegment?: string | null;
   /**
+   * El departamento de la petición: GROUPS o SPORTS. Filtra los alojamientos,
+   * porque el mismo hotel vale distinto para un colegio y para un club. No
+   * filtra actividades: Javier las quiere ver todas siempre.
+   */
+  department?: string | null;
+  /**
    * Lo que el centro pidió en prosa: dietas, accesibilidad, lo que sea.
    *
    * Se leía del mensaje y se pintaba en pantalla, pero no llegaba a la
@@ -249,6 +255,9 @@ export interface ActivityRate {
   durationText: string;
   sourceFile: string;
   sourceSheet: string;
+  /** El periodo en que vale (AAAA-MM-DD). Sin fechas, todo el año. */
+  dateFrom?: string | null;
+  dateTo?: string | null;
 }
 
 export interface AccommodationSearchMatch {
@@ -289,6 +298,11 @@ export interface ActivitySearchMatch {
   lineas?: LineaDeActividad[];
   /** No está en el destino pedido ni en su zona: se enseña igual, marcada. */
   fueraDelDestino?: boolean;
+  /**
+   * Ninguna de sus tarifas vale en las fechas del viaje (el Tuna Tour Educa en
+   * julio). Se enseña igual, marcada y después de las que sí.
+   */
+  fueraDeTemporada?: boolean;
   /**
    * El catálogo no le pone precio y hay que ponérselo al cotizar.
    *

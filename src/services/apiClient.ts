@@ -528,6 +528,15 @@ export function bulkUpdateInventoryStagingApi(
   );
 }
 
+/** Copia una tarifa de actividad en revisión para darle otro periodo. */
+export function duplicateStagingActivityRateApi(id: string) {
+  return postJson<{ id: string }>(
+    `/api/inventory/staging/activity-rates/${encodeURIComponent(id)}/duplicate`,
+    {},
+    "No se pudo duplicar la tarifa.",
+  );
+}
+
 // Regenerar candidatos: descarta el staging actual y lo vuelve a crear con IA.
 /** Firma el reparto: "estas tarifas son de este alojamiento". */
 export function confirmAssignmentApi(documentId: string, accommodationIds: string[]) {

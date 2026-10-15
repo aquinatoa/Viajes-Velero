@@ -3,8 +3,9 @@ import type {
   ClientSegment,
   InventoryTargetType,
   RateKind,
+  TariffDepartment,
 } from "../../domain/documentImportTypes";
-import { DEFAULT_MARGIN_PERCENT } from "../../domain/documentImportTypes";
+import { CLIENTES_ESPECIALES, DEFAULT_MARGIN_PERCENT } from "../../domain/documentImportTypes";
 import {
   analyzeInventoryDocumentApi,
   createInventoryDocumentApi,
@@ -54,9 +55,16 @@ function deducirDelNombre(fileName: string) {
     .replace(/\s{2,}/g, " ")
     .trim();
 
+  // Departamento: solo cuando el nombre lo dice sin duda. Si no, los dos, y
+  // quien sube lo cambia con un clic.
+  const departamento: TariffDepartment | "" = /futbol|fútbol|sport|deportiv/i.test(sinExtension)
+    ? "SPORTS"
+    : "";
+
   return {
     año: año ? Number(año[1]) : null,
     nombre: nombre.length > 2 ? nombre : sinExtension,
+    departamento,
   };
 }
 
@@ -88,6 +96,9 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
   const [rateKind, setRateKind] = useState<RateKind>("PURCHASE");
   const [margen, setMargen] = useState<number>(DEFAULT_MARGIN_PERCENT);
   const [cliente, setCliente] = useState<ClientSegment>("GENERIC");
+  // Javier, 08/10/2026: el mismo hotel vale distinto para Grupos y para
+  // Turismo Deportivo. "" = vale para los dos.
+  const [departamento, setDepartamento] = useState<TariffDepartment | "">("");
 
   const [paso, setPaso] = useState<PasoKey | null>(null);
   const [segundosLeyendo, setSegundosLeyendo] = useState(0);
@@ -101,6 +112,7 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
     setFile(elegido);
     setNombre(deducido.nombre);
     setAño(deducido.año);
+    setDepartamento(deducido.departamento);
     setError(null);
   }
 
@@ -108,6 +120,7 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
     setFile(null);
     setNombre("");
     setAño(null);
+    setDepartamento("");
     setUbicacion("");
     if (inputRef.current) inputRef.current.value = "";
   }
@@ -122,8 +135,9 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
         venta,
       )} de venta. El comercial podrá ajustarlo en cada presupuesto.`;
     }
-    if (cliente === "SWISS_TTOO") {
-      return "Los precios entran tal cual, sin margen. Y solo se ofrecerán al turoperador suizo: no aparecerán al cotizar para ningún otro cliente.";
+    const especial = CLIENTES_ESPECIALES.find((c) => c.codigo === cliente);
+    if (especial) {
+      return `Los precios entran tal cual, sin margen. Y solo se ofrecerán a ${especial.nombre}: no aparecerán al cotizar para ningún otro cliente.`;
     }
     return "Los precios entran tal cual, sin margen. Se ofrecerán al cotizar para colegios, clubes y agencias.";
   }, [rateKind, margen, cliente]);
@@ -144,6 +158,7 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
         rateKind,
         marginPercent: rateKind === "PURCHASE" ? margen : null,
         clientSegment: rateKind === "SALE" ? cliente : null,
+        department: departamento || null,
       });
 
       setPaso("subiendo");
@@ -371,18 +386,48 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
                     Cualquier cliente
                     <em>colegios, clubes, agencias</em>
                   </button>
-                  <button
-                    type="button"
-                    className={`alta__chip${cliente === "SWISS_TTOO" ? " on" : ""}`}
-                    disabled={trabajando}
-                    onClick={() => setCliente("SWISS_TTOO")}
-                  >
-                    Turoperador suizo
-                    <em>Destination · Travelclub</em>
-                  </button>
+                  {/* Clientes con tarifa propia. Antes solo existía el
+                      turoperador suizo; Javier pidió llamarlo «cliente
+                      especial» porque hay más (Azul Marino). */}
+                  {CLIENTES_ESPECIALES.map((especial) => (
+                    <button
+                      key={especial.codigo}
+                      type="button"
+                      className={`alta__chip${cliente === especial.codigo ? " on" : ""}`}
+                      disabled={trabajando}
+                      onClick={() => setCliente(especial.codigo)}
+                    >
+                      Cliente especial · {especial.nombre}
+                      <em>{especial.detalle}</em>
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
+
+            <div className="alta__sub">
+              <span className="alta__sub-q">¿Para qué departamento?</span>
+              <div className="alta__chips">
+                {(
+                  [
+                    ["", "Los dos", "Grupos y Turismo Deportivo"],
+                    ["GROUPS", "Grupos", "colegios y agencias"],
+                    ["SPORTS", "Turismo Deportivo", "clubes y torneos"],
+                  ] as const
+                ).map(([valor, etiqueta, detalle]) => (
+                  <button
+                    key={valor || "los-dos"}
+                    type="button"
+                    className={`alta__chip${departamento === valor ? " on" : ""}`}
+                    disabled={trabajando}
+                    onClick={() => setDepartamento(valor)}
+                  >
+                    {etiqueta}
+                    <em>{detalle}</em>
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {/* La consecuencia, en dinero. Explica el margen sin explicarlo. */}
             <p className="alta__example">{ejemplo}</p>

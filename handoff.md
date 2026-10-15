@@ -2229,3 +2229,29 @@ Ruth. No impiden cotizar, pero no salen en la propuesta.
 - `PETICIONES-cliente-estado-2026-10-08.md`, `PLAN-respuestas-2026-10-08.md`.
 - `Oravia - 2026-10-08 - Transcripcion Fathom.md`: la reunión del 08/10.
 - `TRABAJOS-05-10.md`: el diario de trabajo del 05 al 08/10.
+
+## Tanda 3 en local (rama `tanda-3`, 15/10/2026) · sin subir, a la espera de su OK
+
+Lo pedido en la reunión del 08/10 (minutos 8-13 de la transcripción):
+
+- **Periodos en las actividades.** `ActivityRate` ya guarda `seasonName`,
+  `dateFrom` y `dateTo`; antes se leían y se perdían al publicar. El lector de
+  la plantilla crea una tarifa por periodo cuando la columna «Temporada /
+  Validez» lo dice sin adivinar («Del 01/05/2027 al 31/10/2027», «2027 (excepto
+  julio y agosto)»; ver `src/domain/periodosDeActividad.ts`). En la revisión hay
+  una columna «Periodo» y un botón **Duplicar**, que crea una copia pendiente y
+  sin fechas. Al cotizar, una actividad sin tarifa en las fechas del viaje sale
+  igual, marcada **«Fuera de temporada»** y al final. La migración
+  `periodos_de_actividades_publicadas` pone los periodos a las 24 tarifas ya
+  publicadas (21 se parten en dos), sin tocar los ids ni la revisión de Ruth.
+  El Tuna Tour de Balfegó trae las fechas en las observaciones: hay que
+  ponérselas a mano con Duplicar.
+- **Departamento en los documentos** (`SourceDocument.department`: GROUPS,
+  SPORTS o null = los dos). Se elige al subir, se cambia al editar y se filtra
+  en la lista de Tarifas. Al cotizar **filtra solo alojamientos**: para
+  actividades Javier dijo «que no las filtre, da igual». Se lee del documento
+  al buscar, así que cambiarlo vale al momento. La migración pone Deportivo a
+  los documentos de fútbol; «Hoteles Oravia 2027» queda para los dos.
+- **«Cliente especial»** sustituye a «Turoperador suizo». La lista está en
+  `CLIENTES_ESPECIALES` (`src/domain/documentImportTypes.ts`): turoperador suizo
+  (el código sigue siendo `SWISS_TTOO`) y Azul Marino. Añadir uno es una línea.

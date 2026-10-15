@@ -27,6 +27,7 @@ export interface CreateInventoryDocumentInput {
   rateKind?: string;
   marginPercent?: number | null;
   clientSegment?: string | null;
+  department?: string | null;
   originalFileName?: string;
   fileMimeType?: string;
   fileSizeBytes?: number;
@@ -55,6 +56,7 @@ export async function createInventoryDocument(input: CreateInventoryDocumentInpu
       rateKind: toRateKind(input.rateKind),
       marginPercent: input.marginPercent ?? null,
       clientSegment: input.clientSegment ?? null,
+      department: input.department ?? null,
       originalFileName: input.originalFileName ?? null,
       fileMimeType: input.fileMimeType ?? null,
       fileSizeBytes: input.fileSizeBytes ?? null,
@@ -184,6 +186,7 @@ export interface UpdateInventoryDocumentMetadataInput {
   rateKind?: string;
   marginPercent?: number | null;
   clientSegment?: string | null;
+  department?: string | null;
 }
 
 /**
@@ -205,6 +208,7 @@ export async function updateInventoryDocumentMetadata(
   if (input.rateKind !== undefined) data.rateKind = toRateKind(input.rateKind);
   if (input.marginPercent !== undefined) data.marginPercent = input.marginPercent ?? null;
   if (input.clientSegment !== undefined) data.clientSegment = input.clientSegment || null;
+  if (input.department !== undefined) data.department = input.department || null;
 
   const updated = await prisma.sourceDocument.update({
     where: { id: documentId },
@@ -253,6 +257,7 @@ export async function listInventoryDocuments() {
       rateKind: true,
       marginPercent: true,
       clientSegment: true,
+      department: true,
       status: true,
       extractionStatus: true,
       requiresOcr: true,
@@ -694,6 +699,8 @@ export async function createInventoryDocumentStaging(
     _activityName: rate.activityName,
     year: rate.year ?? null,
     seasonName: rate.seasonName ?? null,
+    dateFrom: toStagingDate(rate.dateFrom),
+    dateTo: toStagingDate(rate.dateTo),
     ageLabel: rate.ageLabel ?? null,
     ageMin: rate.ageMin ?? null,
     ageMax: rate.ageMax ?? null,
@@ -1243,6 +1250,31 @@ export async function updateStagingEntity(
  * uno no se puede cambiar (p. ej. aprobar una tarifa sin precio), se omite con
  * su motivo y el resto continúa. No publica nada.
  */
+/**
+ * Copia una tarifa de actividad en revisión para darle otro periodo.
+ *
+ * Ruth, 08/10/2026: el Tuna Tour de Balfegó vale del 1 de abril al 5 de junio
+ * y de septiembre a mediados de octubre, y solo se podía poner un «desde-hasta».
+ * La copia sale PENDIENTE y SIN fechas: no se publica hasta que alguien le pone
+ * su periodo y la aprueba, así que duplicar nunca cuela una tarifa repetida.
+ */
+export async function duplicateStagingActivityRate(id: string) {
+  const original = await prisma.stagingActivityRate.findUnique({ where: { id } });
+  if (!original) return null;
+  const { id: _id, dateFrom: _desde, dateTo: _hasta, reviewStatus: _estado, rawText, ...resto } = original;
+  const copia = await prisma.stagingActivityRate.create({
+    data: {
+      ...resto,
+      dateFrom: null,
+      dateTo: null,
+      reviewStatus: "PENDING",
+      requiresReview: true,
+      rawText: rawText ? `${rawText} · otro periodo` : "Otro periodo",
+    },
+  });
+  return decimalsToNumbers(copia);
+}
+
 export async function bulkUpdateStagingReview(
   entityKey: string,
   ids: string[],
@@ -1700,6 +1732,11 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
         salePvpAmount: activitySalePrice,
         costNetAmount: activityCostPrice,
         clientSegment: context.clientSegment ?? null,
+        // El periodo: venía en la lectura y se perdía aquí, así que cada
+        // actividad tenía un solo precio para todo el año.
+        seasonName: rate.seasonName,
+        dateFrom: rate.dateFrom,
+        dateTo: rate.dateTo,
         commissionPercent: rate.commissionPercent,
         durationText: rate.durationText,
         sourceDocumentId,
@@ -2306,7 +2343,9 @@ export async function getPublishedInventoryCatalog(): Promise<PublishedInventory
       id: rate.id,
       year: rate.year,
       label: rate.ageLabel,
-      period: catalogPeriod({ dateFrom: null, dateTo: null }),
+      period: catalogPeriod({ dateFrom: rate.dateFrom, dateTo: rate.dateTo, seasonName: rate.seasonName }),
+      dateFrom: rate.dateFrom ? rate.dateFrom.toISOString().slice(0, 10) : null,
+      dateTo: rate.dateTo ? rate.dateTo.toISOString().slice(0, 10) : null,
       currency: rate.currency,
       amount: decimalToNumber(rate.salePvpAmount),
       ageLabel: rate.ageLabel,

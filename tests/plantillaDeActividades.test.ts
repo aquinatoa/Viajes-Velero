@@ -285,5 +285,45 @@ prueba("la edad en números, para que la búsqueda pueda puntuar", () => {
   assert.equal(calella?.ageMax, null);
 });
 
+console.log("Periodos de la temporada");
+
+const CON_PERIODOS = escribirExcel("periodos.xlsx", [
+  CABECERA,
+  fila({
+    "Proveedor / Centro": "Water Sports Center Calella", Zona: "Calella", Actividad: "Kayak",
+    "Unidad de tarifa": "pax/actividad", "Temporada / Validez": "2027 (excepto julio y agosto)", Cost: 8.5, "neto venta": 9,
+  }),
+  fila({
+    "Proveedor / Centro": "Club Nàutic Salou", Zona: "Salou", Actividad: "Patinete acuático",
+    "Unidad de tarifa": "pax/actividad", "Temporada / Validez": "Del 01/05/2027 al 31/10/2027", Cost: 12, "neto venta": 15,
+  }),
+  fila({
+    "Proveedor / Centro": "Grup Balfegó", Zona: "L'Ametlla de Mar", Actividad: "Tuna Tour Educa",
+    "Unidad de tarifa": "pax/actividad", "Temporada / Validez": "Tarifa solicitada para 2027 (pendiente de confirmar)",
+    Cost: 17.1, "neto venta": 18.05,
+  }),
+]);
+
+prueba("«excepto julio y agosto» da dos tarifas, cada una con su periodo y el mismo precio", () => {
+  const r = leerPlantillaDeActividades(CON_PERIODOS, "Periodos", 2027)!;
+  const kayak = r.candidateActivityRates.filter((t) => t.activityName.startsWith("Kayak"));
+  assert.deepEqual(
+    kayak.map((t) => [t.dateFrom, t.dateTo, t.salePvpAmount, t.costNetAmount]),
+    [
+      ["2027-01-01", "2027-06-30", 9, 8.5],
+      ["2027-09-01", "2027-12-31", 9, 8.5],
+    ],
+  );
+});
+
+prueba("un rango con fechas da una tarifa con ese periodo; lo que no es fecha, todo el año", () => {
+  const r = leerPlantillaDeActividades(CON_PERIODOS, "Periodos", 2027)!;
+  const patinete = r.candidateActivityRates.filter((t) => t.activityName.startsWith("Patinete"));
+  assert.deepEqual(patinete.map((t) => [t.dateFrom, t.dateTo]), [["2027-05-01", "2027-10-31"]]);
+  const tuna = r.candidateActivityRates.filter((t) => t.activityName.startsWith("Tuna"));
+  assert.deepEqual(tuna.map((t) => [t.dateFrom ?? null, t.dateTo ?? null]), [[null, null]]);
+  assert.equal(r.detectedActivities.length, 3, "una actividad por fila, aunque tenga dos periodos");
+});
+
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);
 if (fallidas > 0) process.exit(1);

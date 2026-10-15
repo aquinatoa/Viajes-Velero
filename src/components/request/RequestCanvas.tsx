@@ -80,6 +80,7 @@ import type {
   SearchActivitiesResult,
   TripProposal,
 } from "../../domain/types";
+import { CLIENTES_ESPECIALES } from "../../domain/documentImportTypes";
 
 /**
  * El lienzo: pantalla de nueva solicitud.
@@ -183,8 +184,8 @@ function euros(valor: number): string {
 function canalEnPalabras(segmento: string | null | undefined): string {
   const s = (segmento ?? "").trim();
   if (!s || s === "GENERIC") return "general · vale para cualquier cliente";
-  if (s === "SWISS_TTOO") return "turoperador suizo";
-  return s;
+  const especial = CLIENTES_ESPECIALES.find((c) => c.codigo === s);
+  return especial ? `cliente especial · ${especial.nombre.toLowerCase()}` : s;
 }
 
 /**
@@ -784,6 +785,9 @@ export function RequestCanvas({
         // (el turoperador suizo) no aparecían NUNCA: quedaban cargadas y
         // muertas.
         clientSegment: canalPedido,
+        // El departamento filtra los alojamientos: el mismo hotel vale
+        // distinto para un colegio y para un club (Javier, 08/10/2026).
+        department: departamento || null,
         // Lo que el centro pidió en prosa y el tope por alumno. Se leían del
         // mensaje y se pintaban en pantalla, pero no llegaban a la búsqueda:
         // los dos celíacos y la alumna con movilidad reducida no influían en
@@ -2031,6 +2035,17 @@ export function RequestCanvas({
                             {item.fueraDelDestino ? (
                               <span className="cv__actchip cv__actchip--fuera">Fuera del destino</span>
                             ) : null}
+                            {/* Ninguna de sus tarifas vale en esas fechas (el
+                                Tuna Tour Educa en julio). Se ve igual: Javier
+                                quiere todas siempre, pero que se note. */}
+                            {item.fueraDeTemporada ? (
+                              <span
+                                className="cv__actchip cv__actchip--fuera"
+                                title={item.matchReasons.find((m) => m.startsWith("Fuera de temporada")) ?? undefined}
+                              >
+                                Fuera de temporada
+                              </span>
+                            ) : null}
                           </span>
                           <span className="cv__acts2">{[item.activity.locationMain, item.activity.durationText].filter(Boolean).join(" · ")}</span>
                           {/* Qué tarifa es. PortAventura Park tiene 81 y aquí
@@ -2964,12 +2979,17 @@ function CamposEntendido({
             placeholder="IES JAUME BALMES 2027"
           />
           {/* Sin esto no se sabe qué tarifa aplica: el mismo hotel tiene una
-              pactada con el turoperador suizo y otra general. */}
+              general y otra pactada con un cliente especial (el turoperador
+              suizo, Azul Marino). */}
           <label className="cv__field">
             <span>Cotizamos para</span>
             <select value={canal} onChange={(evento) => setCanal(evento.target.value as ClientSegment)}>
               <option value="GENERIC">Colegio, club o agencia</option>
-              <option value="SWISS_TTOO">Turoperador suizo</option>
+              {CLIENTES_ESPECIALES.map((c) => (
+                <option key={c.codigo} value={c.codigo}>
+                  Cliente especial · {c.nombre}
+                </option>
+              ))}
             </select>
           </label>
           {/* El departamento decide DOS cosas: el campo «Departamento» del
@@ -2988,7 +3008,10 @@ function CamposEntendido({
               <option value="GROUPS">Grupos</option>
               <option value="SPORTS">Turismo Deportivo</option>
             </select>
-            <small>Clasifica el trato en el CRM y elige el buzón desde el que sale el correo.</small>
+            <small>
+              Clasifica el trato en el CRM, elige el buzón desde el que sale el correo y qué tarifas de
+              hotel se ofrecen.
+            </small>
           </label>
         </div>
         {/* Que el contacto venga del CRM hay que decirlo: si no, el operador no
