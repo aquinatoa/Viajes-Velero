@@ -1,9 +1,9 @@
 # Handoff - Oravia (antes Viajes Velero Ops)
 
 > Documento de compactación de contexto para continuar el trabajo en una conversación nueva
-> sin arrastrar todo el historial. Última actualización: **2026-09-23** (escrita el 24/09).
+> sin arrastrar todo el historial. Última actualización: **2026-10-15**.
 >
-> **Lo último está AL FINAL**, en «Estado a 23/09/2026», dentro de «Septiembre de 2026». Lo anterior
+> **Lo último está AL FINAL**, en «Estado a 15/10/2026», dentro de «Octubre de 2026». Lo anterior
 > se conservó tal cual se escribió y hay partes caducadas: donde ponga «31/31 tests» o «75» hoy son
 > **198**, la rama `feat/documental-review-workspace` se fusionó hace tiempo, y el despliegue
 > automático, que «no había funcionado nunca», funcionó por primera vez el 23/09/2026.
@@ -2064,3 +2064,168 @@ salió lo de verdad:
 Las opciones, la tabla de decisión y lo que hay que preguntarle están en
 `TRABAJOS-28-09.md`, sección «El correo entrante, comprobado». El diagnóstico se
 repite cuando haga falta con `node scripts/diagnostico-buzones.mjs`.
+
+
+# Octubre de 2026
+
+## Estado a 15/10/2026 (lo hecho del 29/09 al 15/10)
+
+> Producción en **`600c1b8`** (desplegado el 15/10 de madrugada). En local no
+> queda **ninguna rama sin fusionar**. Las ramas `tanda-1`, `tanda-2`,
+> `servicios-contratados`, `viajes-por-departamento` y `costes-futbol` están
+> fusionadas u obsoletas.
+
+### Qué hay en producción
+
+| Fecha | Qué | Notas |
+|---|---|---|
+| 06/10 | **Plantilla de actividades leída sin IA** (`server/plantillaDeActividades.ts`) | La plantilla de Oravia (hoja «Tarifas») se vuelca celda a celda; cada precio lleva su fila del Excel. Los PDF de hoteles siguen con IA. |
+| 06/10 | **Revisión por proveedor** (`RevisionPorProveedor.tsx`) | Aprobar un proveedor entero con un botón que dice lo que hace. |
+| 06/10 | **Viajes por departamento** (`server/tratosPorDepartamento.ts`) | GROUPS / SPORTS según el campo Departamento del trato. |
+| 08/10 | **tanda-1** | Actividades siempre todas (las de fuera del destino, marcadas `fueraDelDestino`), buscador con lupa amarilla, destacadas por `ACTIVIDADES_DESTACADAS`, fechas «dd.mm. – dd.mm.aaaa», motivo real del 400 de Zoho, precio por alumno grande en el PDF, **líneas de actividad tarifa × cantidad** («no todos son adultos»), con la migración `lineas_de_actividad`. |
+| 13/10 | **tanda-2** | Viajes por rango de fechas (por defecto el año siguiente, se recuerda en el navegador) y calendario con todos los grupos del CRM: ventana del día y aviso ⚠ en fechas que no cuadran (12 tratos con salida antes que llegada). |
+| 13/10 | **Servicios Contratados** (`server/serviciosContratados.ts`) | Al elegir opción se rellena el subformulario del trato. Detalle abajo. |
+| 13/10 | **Coste de las tarifas** | Arreglo + migración `coste_desde_azul_marino`: hoteles **646/646 con coste**. |
+| 15/10 | **Coste del fútbol** | Migración generada desde el Excel de Cambrils Park (`scripts/generar-costes-futbol.mjs`). Con coste: 36/54 de la venta general y 36/42 de la suiza. Sin coste: las 18 de AD y los 6 bungalós, que el Excel no trae. |
+| 15/10 | **Actividades v2 publicadas** | 129 actividades y 128 tarifas, todas con coste. Ver abajo. |
+
+### Servicios Contratados: lo que no se ve desde fuera
+
+- **Sus funciones Deluge mandan.** La API no deja leer su código:
+  `functions.READ` y `functions.ALL` dan «Ámbito de OAuth no válido». Anthony
+  las pegó a mano el 13/10.
+  - `NEO_Actualizar_Totales_Por_Presupuesto` se ejecuta en cada edición. Pone
+    Importe = suma de las filas con `Validado` + `Coste` + `Precio` del
+    presupuesto `N_Presupuesto_Subformulario`. Una fila sin coste no cuenta:
+    por eso el importe volvía a 0. Si el producto es `Usage_Unit = P.Pax`,
+    multiplica Viajeros × Cantidad × Precio. El depósito es el 30 %, solo si
+    está vacío.
+  - `JZ_NEO_Subform_Servicios_Contratados` rehace las filas con id nuevo
+    (las nuestras se reconocen por la referencia ORV- en Comentarios), copia
+    el `Precio_de_coste` del producto si falta Coste y, en P.Pax, pone en
+    Cantidad las noches entre entrada y salida.
+- **La API v8 conserva las filas que no se mandan.** Para borrar una hay que
+  mandar `{id, _delete: null}`. Se borran solo las que escribió la app para
+  esa propuesta. Si el trato ya tiene filas ajenas, las nuestras van en el
+  siguiente número de presupuesto.
+- **Coste y validado.** El coste es el neto de la tarifa del catálogo que se
+  vende a ese precio (`costeDelPrecio`). La fila va **validada** si el coste
+  se sabe; Javier lo aprobó el 13/10. Si no hay coste, va sin validar y lo
+  dice en Comentarios.
+- **Productos y proveedores** se buscan por nombre y, si no existen, se crean
+  con Tipo_de_Servicio «Alojamiento», unidad P.Pax, precio y coste. Sin el tipo
+  de servicio, el lookup da `FILTER_CRITERIA_NOT_SATISFIED`.
+- **Trato de prueba** `734060000032084001` (IES JAUME BALMES 2027,
+  ORV-2026-0006): importe 8.971,04 €, coste 8.424 €, margen 6,1 %. El margen
+  de su función va sobre la venta; el 6,5 % del Excel va sobre el coste.
+  Script para reescribirlo: `node --import tsx scripts/contratar-en-zoho.ts
+  ORV-2026-0006` (**escribe en el CRM real**).
+
+### El coste de las tarifas: fue culpa nuestra
+
+- El maestro de hoteles se publicó como documento de **venta**. La venta se
+  guardaba bien, pero su columna «Cost» acababa en **`netAzulmarinoAmount`**
+  («neto azul marino», que es otro precio) y el coste quedaba vacío. Arreglado
+  en `resolveRatePrices`: un documento de venta conserva el coste si trae una
+  cifra aparte y menor que la venta.
+- En local, además, el espejo del catálogo guardaba la venta también como
+  coste, así que salía margen 0. Arreglado en `scripts/espejar-catalogo.mjs`.
+  Para rellenar el coste sin volver a espejar: `scripts/costes-del-servidor.mjs`.
+  **No espejar con `--limpiar`**: borra lo publicado en local, incluida la
+  plantilla de actividades.
+
+### Actividades v2: cómo se publicaron (15/10)
+
+Ruth (o alguien de Oravia) revisó el documento a mano el 07/10, de 9:56 a 13:37,
+pero no llegó a publicar. Con el OK de Javier (los precios del Excel están
+validados) se aprobaron **solo las 6 que dejó sin tocar** (Ohana Diving ×3 y
+Grup Balfegó ×3) y se publicó lo aprobado. **Lo rechazado no se tocó.**
+Quedan **80 condiciones pendientes** de pago, cancelación y gratuidades: decide
+Ruth. No impiden cotizar, pero no salen en la propuesta.
+
+### Decisiones de Javier (13/10 y 14/10)
+
+- «Cost» es lo que pagan al hotel; «neto venta» lo que cobran.
+- Márgenes del 8 % y del 6,5 % correctos.
+- «Validado» se puede marcar solo: los costes del Excel ya están validados.
+- El Excel de Cambrils Park es el de 2027.
+- Hecho por su lado: la copia del correo en Dinahosting (groups@ y sports@) y
+  el subdominio.
+
+### Correo y servidor
+
+- **La recogida de correo funciona.** La bandeja de producción tiene 119
+  correos de groups@ y 81 de sports@ desde el 09/10.
+- **Subdominio**: https://presupuesto.oraviatravel.com, http redirige a https,
+  certificado válido hasta el **03/01/2027** (comprobar que se renueva solo).
+- **El servidor NO tiene el `.env.servidor` del 08/10.** En producción salen 0
+  actividades destacadas; en local, con el mismo valor, salen 7. El token nuevo
+  de Zoho (…988ed) entró el 07/10, así que puede tenerlo o no. Sin él,
+  Servicios Contratados falla con los tratos reales. **Se le ha pedido a Mateo**
+  que compruebe el token y la línea `ACTIVIDADES_DESTACADAS`, o que ponga el
+  fichero entero. El fichero está revisado el 15/10: no le falta ninguna
+  variable que use el código.
+- **El puerto 5432 sigue abierto a Internet.** También es de Mateo.
+- Cómo comprobarlo cuando conteste: buscar actividades en producción (Salou,
+  14-15 años); «1 día PortAventura Park» tiene que salir `destacada: true`.
+
+### Pendiente
+
+**De otros:**
+- **Mateo**: `.env` del 08/10 y cerrar el puerto 5432.
+- **Correo a Javier listo y sin enviar**: `correo-javier-15-10.md`. Se envía
+  cuando Mateo confirme; si no, con la versión B del párrafo.
+- **Javier**: sus actividades «top» para `ACTIVIDADES_DESTACADAS` (hoy es un
+  valor provisional), y el coste de las 24 tarifas de fútbol sin coste, si las
+  usan.
+- **Ruth**: las 80 condiciones pendientes de las actividades.
+
+**Tanda 3 (nuestra):**
+1. Dos o más periodos por tarifa de actividad: «Duplicar tarifa» y leer dos
+   rangos de la plantilla.
+2. Departamento (Grupos / Turismo Deportivo) al subir documentos de hoteles.
+   Javier, 07/10: el mismo hotel tiene tarifas distintas en uno y otro.
+3. Renombrar «Turoperador suizo» como «Cliente especial»: clientes con tarifa
+   propia, como Azul Marino.
+4. ~~Hoteles subidos dos veces~~: **comprobado el 15/10, no hay ninguno**
+   (34 alojamientos publicados, ningún nombre repetido).
+
+**Después:**
+- Adjuntos en la conversación.
+- Tarifa ad hoc (Ruth, 29/09) junto con el neto del cliente especial: falta su
+  Excel.
+- Correos automáticos a proveedores y clientes: los tiene que definir Javier.
+- Dónde vive el segundo vencimiento del cobro.
+- Borrar los tratos de prueba `734060000032099001` y `734060000032084001`.
+- Revisar dietas y accesibilidad.
+- **Nuevo**: el documento del turoperador suizo mete los tres hoteles de
+  Cambrils Park (MED1, MED2/3, Villa Bonita) en **un solo alojamiento**,
+  «CAMBRILS PARK-FUTBOL SALOU», así que al cotizar no se sabe cuál es. En la
+  venta general sí van separados.
+- **Nuevo**: el documento «Fútbol Salou 2027 · venta general» figura como
+  pendiente de revisión, aunque sus 54 tarifas están publicadas.
+
+### Trampas aprendidas en estas dos semanas
+
+- **La API local no se recarga sola.** Al cambiar de rama o de código del
+  servidor hay que matar el proceso del puerto 8787 y volver a lanzar
+  `npm run api`.
+- **`npm test` necesita `npm run db:local` encendido.** El 15/10 se subió con
+  las pruebas locales en rojo por tener la base apagada; las de GitHub pasaron,
+  pero no hay que encadenar el push sin mirar el resultado.
+- **Lecturas de producción** con el login de `.env.produccion` contra la API
+  (`/api/inventory/...`, `/api/correo/bandeja`, `/api/search/activities`).
+  Nunca pegar secretos en el chat.
+- **El `.env` local escribe en el CRM real.** Los scripts de prueba van siempre
+  contra el trato de prueba.
+
+### Ficheros de trabajo de estas fechas
+
+- `PENDIENTE-MATEO.md`: lista viva del servidor (actualizada el 15/10).
+- `correo-javier-15-10.md`: el próximo correo. Sustituye a los del 13/10-b y
+  14/10, que no se enviaron.
+- `INFORME-estado-app-2026-10-08.html` / `.md`: las 27 peticiones del cliente
+  con su estado al 08/10.
+- `PETICIONES-cliente-estado-2026-10-08.md`, `PLAN-respuestas-2026-10-08.md`.
+- `Oravia - 2026-10-08 - Transcripcion Fathom.md`: la reunión del 08/10.
+- `TRABAJOS-05-10.md`: el diario de trabajo del 05 al 08/10.
