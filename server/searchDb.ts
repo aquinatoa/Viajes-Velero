@@ -12,6 +12,7 @@ import type {
 import { comprobar } from "./encajeConLaPeticion";
 import { deriveSalePrice } from "./pricing";
 import { textoDelPeriodo, valeParaElViaje } from "../src/domain/periodosDeActividad";
+import { precioParaElCliente } from "../src/domain/precioClienteEspecial";
 
 const prisma = new PrismaClient();
 
@@ -505,6 +506,15 @@ export async function searchAccommodationsDb(
         })
         .map((rate) => {
         const scored = scoreAccommodationMatch(accommodation, rate, filters);
+        // El cliente especial sin tarifa propia en este hotel: la general con
+        // su porcentaje, si lo tiene (Javier, 28/09/2026).
+        const especial = precioParaElCliente(
+          Number(rate.pvpAmount ?? 0),
+          wantedSegment,
+          rate,
+          accommodation.rates.some((r) => r.clientSegment === wantedSegment),
+        );
+        if (especial.motivo) scored.reasons.push(especial.motivo);
         return {
           accommodation: {
             id: accommodation.id,
@@ -532,7 +542,7 @@ export async function searchAccommodationsDb(
             minNights: rate.minNights ?? 0,
             boardType: rate.boardType ?? "",
             tariffUnit: rate.tariffUnit ?? "",
-            pvpAmount: Number(rate.pvpAmount ?? 0),
+            pvpAmount: especial.precio,
             netSaleAmount: Number(rate.netSaleAmount ?? 0),
             netAzulmarinoAmount: Number(rate.netAzulmarinoAmount ?? 0),
             clientSegment: rate.clientSegment ?? "",
@@ -745,6 +755,13 @@ export async function searchActivitiesDb(
           rate,
           filters,
         );
+        const especial = precioParaElCliente(
+          Number(rate.salePvpAmount ?? 0),
+          wantedSegment,
+          rate,
+          activity.rates.some((r) => r.clientSegment === wantedSegment),
+        );
+        if (especial.motivo) scored.reasons.push(especial.motivo);
         return {
           activity: {
             id: activity.id,
@@ -771,7 +788,7 @@ export async function searchActivitiesDb(
             ageLabel: rate.ageLabel ?? "",
             ageMin: rate.ageMin ?? 0,
             ageMax: rate.ageMax ?? 0,
-            salePvpAmount: Number(rate.salePvpAmount ?? 0),
+            salePvpAmount: especial.precio,
             costNetAmount: Number(rate.costNetAmount ?? 0),
             clientSegment: rate.clientSegment ?? "",
             commissionPercent: Number(rate.commissionPercent ?? 0),

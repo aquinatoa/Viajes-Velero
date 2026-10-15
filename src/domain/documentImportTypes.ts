@@ -112,11 +112,17 @@ export interface ClienteEspecial {
   codigo: Exclude<ClientSegment, "GENERIC">;
   nombre: string;
   detalle: string;
+  /**
+   * Su porcentaje sobre el PVP general cuando NO tiene tarifa propia cargada
+   * (-10 = un 10 % menos). null = sin porcentaje: se le cotiza el general. Ver
+   * `precioParaElCliente`. Pendiente de que Javier diga el de cada uno.
+   */
+  porcentajeSobrePvp: number | null;
 }
 
 export const CLIENTES_ESPECIALES: ClienteEspecial[] = [
-  { codigo: "SWISS_TTOO", nombre: "Turoperador suizo", detalle: "Destination · Travelclub" },
-  { codigo: "AZUL_MARINO", nombre: "Azul Marino", detalle: "precio propio pactado" },
+  { codigo: "SWISS_TTOO", nombre: "Turoperador suizo", detalle: "Destination · Travelclub", porcentajeSobrePvp: null },
+  { codigo: "AZUL_MARINO", nombre: "Azul Marino", detalle: "precio propio pactado", porcentajeSobrePvp: null },
 ];
 
 export const CLIENT_SEGMENTS: ClientSegment[] = ["GENERIC", ...CLIENTES_ESPECIALES.map((c) => c.codigo)];
