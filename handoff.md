@@ -2255,3 +2255,33 @@ Lo pedido en la reunión del 08/10 (minutos 8-13 de la transcripción):
 - **«Cliente especial»** sustituye a «Turoperador suizo». La lista está en
   `CLIENTES_ESPECIALES` (`src/domain/documentImportTypes.ts`): turoperador suizo
   (el código sigue siendo `SWISS_TTOO`) y Azul Marino. Añadir uno es una línea.
+
+## Más en `tanda-3` (15/10/2026, tarde) · todo en local, sin subir
+
+Tras el correo de Javier del 15/10 (los 30 días de prueba «se nos están
+pasando»; ya pagó; espera que el plazo cuente desde que esté lista) se cerró
+todo lo nuestro de la reunión del 08/10 y del inventario. El informe de qué
+revisar y qué está bloqueado: **`INFORME-revision-local-2026-10-15.html`**.
+
+- **Tarifas ad hoc** (`src/domain/adHoc.ts`, `AltaAdHoc.tsx`): «+ Fuera del
+  catálogo» en alojamientos y actividades; id `adhoc:`, se guarda sin enlace
+  al catálogo. El texto pegado del proveedor NO va al PDF (lleva el coste). No
+  guarda coste: en Servicios Contratados su fila entra sin validar.
+- **Adjuntos en la conversación** (`server/adjuntosDeCorreo.ts`, tabla
+  `CorreoAdjunto`): hasta 5 de 25 MB al responder; los del colegio se guardan
+  al recoger el correo (sin las imágenes de firma); descarga con sesión.
+- **Cliente especial con porcentaje** (`precioClienteEspecial.ts`): su tarifa
+  propia manda, **por nombre de hotel o actividad**; si no, la general con su
+  porcentaje (`porcentajeSobrePvp`, hoy vacío: falta que Javier lo dé).
+- **Tarifa suiza separada** (migración generada por
+  `scripts/generar-separar-cambrils-suizo.mjs`): las 42 tarifas pasan de
+  «CAMBRILS PARK-FUTBOL SALOU» a MED1 (12), MED2/3 (12) y Villa Bonita (18). Si
+  se vuelve a publicar ese documento desde la revisión, volvería a juntarlos.
+- **Dietas y accesibilidad**: el Excel de hoteles solo lo dice en 2 y 1
+  hoteles, igual que la app. No se perdió nada; falta el dato en origen.
+
+Bloqueado por decisiones o datos: plazo de 30 días (Anthony y Cristian), `.env`
+de Mateo, porcentajes de clientes especiales, descuento de 2 € automático,
+coste de 24 tarifas de fútbol, sesión con los comerciales, condiciones de Ruth,
+actividades top, correos automáticos, segundo vencimiento, borrar tratos de
+prueba (después de validar Servicios Contratados en producción).
