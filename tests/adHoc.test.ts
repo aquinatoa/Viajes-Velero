@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 
 import {
   actividadComoResultado,
+  codigoDeRegimen,
   conLoAdHoc,
   esAdHoc,
   hotelComoResultado,
@@ -69,6 +70,14 @@ prueba("una actividad necesita nombre y precio por alumno", () => {
   assert.equal(problemasDeLaActividad({ nombre: "Bodega", precioPorAlumno: 12 }).length, 0);
   assert.equal(problemasDeLaActividad({ nombre: "", precioPorAlumno: 12 }).length, 1);
   assert.equal(problemasDeLaActividad({ nombre: "Bodega", precioPorAlumno: 0 }).length, 1);
+});
+
+prueba("el régimen de la petición se traduce al código del desplegable", () => {
+  assert.equal(codigoDeRegimen("pensión completa"), "PC");
+  assert.equal(codigoDeRegimen("media pensión"), "MP");
+  assert.equal(codigoDeRegimen("MP"), "MP");
+  assert.equal(codigoDeRegimen("alojamiento y desayuno"), "AD");
+  assert.equal(codigoDeRegimen(""), "");
 });
 
 console.log("Como un resultado de búsqueda");

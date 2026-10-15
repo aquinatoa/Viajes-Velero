@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  codigoDeRegimen,
   nuevoIdAdHoc,
   problemasDeLaActividad,
   problemasDelHotel,
@@ -42,7 +43,7 @@ export function AltaAdHoc(props: PropsHotel | PropsActividad) {
   const [nombre, setNombre] = useState("");
   const [proveedor, setProveedor] = useState("");
   const [localidad, setLocalidad] = useState(props.tipo === "hotel" ? props.localidadPorDefecto : "");
-  const [regimen, setRegimen] = useState(props.tipo === "hotel" ? props.regimenPorDefecto || "PC" : "");
+  const [regimen, setRegimen] = useState(props.tipo === "hotel" ? codigoDeRegimen(props.regimenPorDefecto) || "PC" : "");
   const [precio, setPrecio] = useState("");
   const [precioProfesor, setPrecioProfesor] = useState("");
   const [condiciones, setCondiciones] = useState("");

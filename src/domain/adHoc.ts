@@ -61,6 +61,21 @@ export interface ActividadAdHoc {
 
 const REGIMENES = new Set(["PC", "MP", "AD", "SA"]);
 
+/**
+ * El régimen de la petición («pensión completa», «MP»…) como código del
+ * desplegable. Venía tal cual y el desplegable no lo reconocía: se veía PC
+ * elegido, pero al añadir decía «Elige el régimen».
+ */
+export function codigoDeRegimen(texto: string | null | undefined): string {
+  const t = (texto ?? "").trim().toLowerCase();
+  if (REGIMENES.has(t.toUpperCase())) return t.toUpperCase();
+  if (t.includes("completa")) return "PC";
+  if (t.includes("media")) return "MP";
+  if (t.includes("desayuno")) return "AD";
+  if (t.includes("solo")) return "SA";
+  return "";
+}
+
 /** Lo que falta para que el hotel se pueda usar. Vacío = vale. */
 export function problemasDelHotel(h: Partial<HotelAdHoc>): string[] {
   const problemas: string[] = [];
