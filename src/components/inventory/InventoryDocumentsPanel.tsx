@@ -469,7 +469,7 @@ export function InventoryDocumentsPanel() {
               />
               <span>
                 <strong>De venta</strong>
-                <small>Lo que cobráis al cliente. Se guarda tal cual, sin tocar.</small>
+                <small>Lo que cobráis al cliente: el importe se toma del documento tal cual. Si trae también el coste, se guarda para el margen.</small>
               </span>
             </label>
           </div>

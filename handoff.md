@@ -2383,3 +2383,37 @@ en el destino (antes 19). Sigue pendiente de Mateo el `.env` del 08/10 y el puer
 Parte de horas (pestaña del informe, 19/10): 43:00 h imputadas en Projects hasta
 el 07/10 (31 h vendidas, 3.250 € + 48,42 € de Azure, oportunidad ganada); ~25 h
 hechas sin imputar desde el 08/10, propuesta pendiente de que Anthony la confirme.
+
+## Reunión «Revisión Oravia» del 19/10/2026 (Javier, Cristian, Anthony; 26 min)
+
+En producción tras la reunión: `1f6b366` (tanda-3) y `668142d` (el Excel de
+extras de MSH, que falló dos veces a Javier, ya se lee: 61 extras). En local,
+rama `reunion-19-10` (`30572b6`), **sin subir**:
+
+- **El más reciente manda** al publicar: lo publicado desde otro documento
+  con el mismo nombre, cliente y departamento se sustituye (`loQueSustituye`
+  en `documentImportDb.ts`). Antes, un Excel actualizado subido como
+  documento nuevo duplicaba cada hotel. Comprobado en producción: hoy no
+  sustituiría nada.
+- **Nota en «De venta»**: el importe se toma del documento; si trae el coste,
+  se guarda para el margen.
+- **Descuento por actividad** (`src/domain/descuentoDeActividad.ts`): € por
+  persona o %, en cada actividad elegida; sale en «Revisar y enviar» y en el
+  documento («Precio con descuento: …»).
+
+Lo que quedó de la reunión:
+- Javier: la columna **«Neto especial»** de sus Excel (además de «Neto»):
+  falta saber para qué cliente es cada una.
+- Javier: los **24 sin coste** (AD y bungalós del fútbol) **no los usan**: D5 cerrado.
+- Las **80 condiciones** de actividades pendientes son nuestras. Criterio de
+  Ruth en lo ya revisado: rechazó «Pago 30/70» (20) y aprobó «Pago 50/50»
+  (21); el resto (cancelación general, gratuidades) está a medias.
+- **Correo entrante**: las respuestas del colegio aún no entran en producción
+  (depende del `.env` de Mateo); mientras, se gestionan desde Zoho Mail.
+- **Servicios Contratados**: Zoho devuelve error al actualizar el subformulario; ticket abierto.
+- Javier cambió una contraseña y tiene que pasarla.
+- **Extras y facturación**: lo pedido hasta ahora queda dentro de la bolsa;
+  desde que estén en rodaje, todo lo nuevo se presupuesta antes. Anthony se
+  comprometió a compartir el documento de alcance y extras.
+- **Hoy**: correo a Javier con lo que queda en producción para sus pruebas, y
+  después una sesión con el paso a paso de los cambios.

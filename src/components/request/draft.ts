@@ -1,5 +1,6 @@
 import type { ActividadAdHoc, HotelAdHoc } from "../../domain/adHoc";
 import type { ClientSegment } from "../../domain/documentImportTypes";
+import type { DescuentoDeActividad } from "../../domain/descuentoDeActividad";
 import type { NormalizedRequestDraft, ParseTripRequestInput } from "../../domain/types";
 
 /**
@@ -65,6 +66,8 @@ export interface BorradorSolicitud {
    * volvía a salir sin poder elegirse.
    */
   preciosFijados?: Record<string, number>;
+  /** El descuento elegido en cada actividad (19/10/2026). */
+  descuentos?: Record<string, DescuentoDeActividad>;
   /** Hoteles y actividades fuera del catálogo, con el precio del proveedor. */
   hotelesAdHoc?: HotelAdHoc[];
   actividadesAdHoc?: ActividadAdHoc[];

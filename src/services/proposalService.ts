@@ -1,4 +1,5 @@
 import { porAlumno, totalDeLineas } from "../domain/lineasDeActividad";
+import { textoDelDescuento } from "../domain/descuentoDeActividad";
 import type {
   ApproveProposalInput,
   BuildProposalInput,
@@ -129,7 +130,13 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
             : rate.salePvpAmount > 0
               ? formatCurrencyExact(rate.salePvpAmount)
               : "A consultar",
-        descriptionSnapshot: selected.activity.descriptionText,
+        // El descuento se dice en el documento: Oravia lo usa para promocionar
+        // que el colegio contrate también el alojamiento (19/10/2026).
+        descriptionSnapshot: selected.descuento
+          ? [selected.activity.descriptionText, `Precio con descuento: ${textoDelDescuento(selected.descuento)}.`]
+              .filter(Boolean)
+              .join("\n")
+          : selected.activity.descriptionText,
         lines: activas.length ? activas : null,
         amountTotal: total,
         // Con líneas (varias tarifas × cantidad) no hay un coste por alumno.

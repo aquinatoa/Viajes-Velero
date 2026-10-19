@@ -322,6 +322,12 @@ export interface ActivitySearchMatch {
   /** El precio que ha puesto a mano quien cotiza, cuando lo ha puesto. */
   precioFijado?: number | null;
   /**
+   * El descuento elegido para esta actividad (reunión del 19/10/2026) y el
+   * precio por alumno que tenía antes. Si lo hay, `rate.salePvpAmount` ya es el
+   * precio con descuento.
+   */
+  descuento?: { tipo: "EUR" | "PCT"; valor: number; antes: number } | null;
+  /**
    * Las demás tarifas de la actividad para este canal. PortAventura Park tiene
    * 81 -tramo de edad × tipo de entrada × periodo- y quien cotizaba veía una
    * sola, sin saber cuál era ni que había otras.
