@@ -58,8 +58,23 @@ function norm(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
+/**
+ * Zoho devuelve el texto del trato con entidades HTML: «Salou &amp; Calafell»
+ * salía tal cual en la ficha (Ruth, 19/10/2026).
+ */
+function sinEntidades(texto: string): string {
+  return texto
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
 /** Extrae datos legibles + fechas reales de la Descripción del flujo "Planificar". */
-function parseTrip(description: string) {
+function parseTrip(descripcionDeZoho: string) {
+  const description = sinEntidades(descripcionDeZoho);
   const get = (label: string) => {
     const m = description.match(new RegExp(`^${label}:\\s*(.+)$`, "im"));
     return m ? m[1].trim() : "";

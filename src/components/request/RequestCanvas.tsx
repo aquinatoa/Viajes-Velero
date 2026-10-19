@@ -88,6 +88,7 @@ import type {
   TripProposal,
 } from "../../domain/types";
 import { nombreDelCanal } from "../../domain/clientesEspeciales";
+import { siguientesNombre } from "../../domain/tituloDelViaje";
 import { useClientesEspeciales } from "../useClientesEspeciales";
 import type { ClienteEspecial } from "../../domain/documentImportTypes";
 import {
@@ -2709,7 +2710,7 @@ export function RequestCanvas({
         </span>
         <span className="cv__footr">
           {guardadoEn && !enviada ? "Guardado · " : ""}
-          {noches ? `${noches} noches · ${entendido?.participants ?? 0} alumnos` : "Sin fechas todavía"}
+          {noches ? `${noches} ${noches === 1 ? "noche" : "noches"} · ${entendido?.participants ?? 0} alumnos` : "Sin fechas todavía"}
         </span>
       </footer>
       </div>
@@ -3213,7 +3214,20 @@ function CamposEntendido({
           <Campo
             etiqueta="Centro"
             valor={form.centreName ?? ""}
-            onChange={(v) => setForm({ ...form, centreName: v })}
+            onChange={(v) =>
+              setForm({
+                ...form,
+                centreName: v,
+                // El nombre del viaje sigue al centro mientras sea el
+                // automático; si lo escribiste a mano, no se toca.
+                opportunityName: siguientesNombre(
+                  form.opportunityName,
+                  form.centreName,
+                  v,
+                  (entendido?.dateFrom ?? "").slice(0, 4) || null,
+                ),
+              })
+            }
             placeholder="IES Jaume Balmes"
             resaltar={!(form.centreName ?? "").trim()}
             ayuda="El colegio, club o agencia. Es lo que da nombre a la cuenta en Zoho."

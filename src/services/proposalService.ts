@@ -79,7 +79,7 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
       participants,
       teachers,
       totalPvpText: formatCurrencyExact(total),
-      priceBreakdownText: `${desglose.join(" + ")}, por noche x ${nights} noches`,
+      priceBreakdownText: `${desglose.join(" + ")}, por noche x ${nights} ${nights === 1 ? "noche" : "noches"}`,
       conditionsText: selected.accommodation.conditionsText,
       observationsText: selected.accommodation.observations,
       // Las gratuidades: «1 gratuidad en base doble por cada 25 de pago». Están

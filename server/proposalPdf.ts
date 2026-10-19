@@ -346,7 +346,7 @@ function drawOption(doc: PDFKit.PDFDocument, option: PdfOption, top: number): nu
 
   const details = [
     option.boardType,
-    option.nights ? `${option.nights} noches` : null,
+    option.nights ? `${option.nights} ${option.nights === 1 ? "noche" : "noches"}` : null,
     option.participants ? `${option.participants} participantes` : null,
     option.teachers ? `${option.teachers} profesores` : null,
   ].filter(Boolean);
@@ -373,7 +373,7 @@ function drawOption(doc: PDFKit.PDFDocument, option: PdfOption, top: number): nu
     y = doc.y + 3;
     doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
     doc.text(
-      `Toda la estancia: ${desglose.noches} noches a ${formatMoney(desglose.alumnos.precio)} por alumno y noche`,
+      `Toda la estancia: ${desglose.noches} ${desglose.noches === 1 ? "noche" : "noches"} a ${formatMoney(desglose.alumnos.precio)} por alumno y noche`,
       50,
       y,
       { width: 495 },

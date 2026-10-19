@@ -7,6 +7,7 @@ import type {
   PrepareCrmPayloadInput
 } from "../domain/types";
 import { createId } from "./utils";
+import { esNombreVacio, nombreAutomatico } from "../domain/tituloDelViaje";
 
 /**
  * Nombre del viaje cuando el operador no escribe uno: "IES Vega Baja · Salou,
@@ -201,7 +202,13 @@ export const prepareNewOpportunityPayload = ({
   // CRM aparecían filas idénticas del tipo "3 opciones, 4 noches, 45
   // participantes y 0 actividades": imposible distinguir una de otra. El
   // respaldo tiene que identificar el viaje, no describirlo.
-  const dealName = opportunityName?.trim() || nombreDeViaje(client, request);
+  // Un nombre que es solo «2027» tampoco identifica nada: el del centro.
+  const centro = (request as { centreName?: string }).centreName?.trim();
+  const dealName = !esNombreVacio(opportunityName)
+    ? opportunityName!.trim()
+    : centro
+      ? nombreAutomatico(centro, (request.dateFrom ?? "").slice(0, 4) || null)
+      : nombreDeViaje(client, request);
 
   // Importe del trato = total de la opción 1 (la principal/mejor).
   const amount = amountFromText(proposal.accommodationOptions[0]?.totalPvpText);
