@@ -2369,3 +2369,17 @@ lista de partida. La búsqueda lee el porcentaje de la base. Prueba nueva
 También del 19/10, al revisar: desplegables legibles en el lienzo y en
 Tarifas (`color-scheme: light` en `:root`) y filtro por departamento en
 «Catálogo publicado».
+
+## En producción: `1f6b366` (19/10/2026, 11:39)
+
+`tanda-3` fusionada en `main` y desplegada (GitHub Actions en verde). Comprobado
+en presupuesto.oraviatravel.com con el admin de producción: clientes especiales
+en la base (suizo y Azul Marino), departamentos de los documentos (fútbol y
+«Tarifas Oravia Sports» = Deportivo, el resto para los dos), catálogo por
+departamento (36/30/36 alojamientos), Cambrils Park del suizo en sus tres hoteles,
+45 tarifas de actividad con periodo y, buscando en Salou, 126 de 147 actividades
+en el destino (antes 19). Sigue pendiente de Mateo el `.env` del 08/10 y el puerto.
+
+Parte de horas (pestaña del informe, 19/10): 43:00 h imputadas en Projects hasta
+el 07/10 (31 h vendidas, 3.250 € + 48,42 € de Azure, oportunidad ganada); ~25 h
+hechas sin imputar desde el 08/10, propuesta pendiente de que Anthony la confirme.
