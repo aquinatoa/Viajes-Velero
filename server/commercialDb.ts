@@ -306,6 +306,8 @@ export interface SaveTripProposalInput {
   proposalStatus: string;
   approvedOptionNumber?: number | null;
   summaryText?: string | null;
+  /** La composición de la estancia, en JSON. */
+  stayJson?: string | null;
   accommodationOptions: {
     optionNumber: number;
     accommodationId: string;
@@ -359,16 +361,17 @@ function lineasDesdeJson(texto: string | null | undefined): LineaDeActividad[] |
  * aprobada ni con una entrega que ya salió (enviada o simulada). Es lo que
  * permite que reintentar el cierre reescriba la propuesta en vez de crear otra.
  */
-async function findReusableProposal(tripRequestId: string, versionNumber: number) {
+async function findReusableProposal(tripRequestId: string) {
+  // Cualquier versión sin enviar: la de un cierre que reventó a mitad, o la
+  // que se está rehaciendo (19/10/2026).
   return prisma.tripProposal.findFirst({
     where: {
       tripRequestId,
-      versionNumber,
       proposalStatus: { not: "APPROVED" as never },
       deliveries: { none: { status: { in: ["SENT", "SIMULATED"] as never } } },
     },
     orderBy: { createdAt: "desc" },
-    select: { id: true },
+    select: { id: true, versionNumber: true },
   });
 }
 
@@ -383,7 +386,17 @@ async function findReusableProposal(tripRequestId: string, versionNumber: number
  * un `create` a secas, cada reintento dejaba una propuesta huérfana más.
  */
 export async function saveTripProposalDb(input: SaveTripProposalInput): Promise<TripProposal> {
-  const reusable = await findReusableProposal(input.tripRequestId, input.versionNumber);
+  const reusable = await findReusableProposal(input.tripRequestId);
+  // Si ya salió una versión, la nueva es la siguiente: «Rehacer la propuesta»
+  // (Ruth, 19/10/2026). Lo enviado no se toca: cada versión tiene su documento.
+  const ultima = reusable
+    ? null
+    : await prisma.tripProposal.findFirst({
+        where: { tripRequestId: input.tripRequestId },
+        orderBy: { versionNumber: "desc" },
+        select: { versionNumber: true },
+      });
+  const version = reusable ? reusable.versionNumber : ultima ? ultima.versionNumber + 1 : input.versionNumber;
 
   if (reusable) {
     // Las opciones se reemplazan enteras (no se casan una a una): el usuario
@@ -396,7 +409,8 @@ export async function saveTripProposalDb(input: SaveTripProposalInput): Promise<
 
   const data = {
     tripRequestId: input.tripRequestId,
-    versionNumber: input.versionNumber,
+    versionNumber: version,
+    stayJson: input.stayJson ?? null,
     proposalStatus: input.proposalStatus as never,
     approvedOptionNumber: input.approvedOptionNumber ?? null,
     summaryText: input.summaryText ?? null,

@@ -626,6 +626,18 @@ export function RequestCanvas({
     }
   }
 
+  // «Rehacer la propuesta» llega con ?borrador=… en la dirección: se abre ese.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("borrador");
+    if (!id) return;
+    window.history.replaceState({}, "", window.location.pathname);
+    void continuarBorrador(id).then(() =>
+      setAviso("Propuesta enviada abierta para rehacerla: cambia lo que haga falta y envíala; saldrá como versión nueva."),
+    );
+    // Solo al entrar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /**
    * Quién es ese correo en el CRM, en cuanto se sabe.
    *
@@ -1572,6 +1584,7 @@ export function RequestCanvas({
             Object.entries(lineas).map(([id, ls]) => [id, lineasConDescuento(ls, descuentos[id])]),
           ),
           selectedActivityIds: programaBase,
+          composicion,
         },
       });
       setPropuesta(nueva);

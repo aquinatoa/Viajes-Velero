@@ -375,6 +375,8 @@ export interface ProposalBuilderState {
   activityLines?: Record<string, LineaDeActividad[]>;
   /** Actividades elegidas para todo el viaje (aplican a todas las opciones). */
   selectedActivityIds: string[];
+  /** Pensión por noche y habitación de profesores y chófer (19/10/2026). */
+  composicion?: import("./estancia").ComposicionDeLaEstancia;
 }
 
 export interface ProposalAccommodationOption {

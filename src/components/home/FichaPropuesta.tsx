@@ -1,5 +1,5 @@
 import { ChangePanel } from "./ChangePanel";
-import { marcarOpcionApi, renombrarViajeApi, sendProposalDeliveryApi } from "../../services/apiClient";
+import { marcarOpcionApi, rehacerPropuestaApi, renombrarViajeApi, sendProposalDeliveryApi } from "../../services/apiClient";
 import { siguientePasoDelExpediente } from "../../domain/siguientePaso";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useState } from "react";
@@ -251,6 +251,22 @@ export function FichaPropuesta({ delivery, onClose }: FichaPropuestaProps) {
               cambiar algo. */}
           <button type="button" className="cv__ghost cv__ghost--sm" onClick={() => setRecotizando(true)}>
             Ha cambiado algo
+          </button>
+          {/* Cambiar un hotel o el programa de lo ya enviado (Ruth, 19/10/2026):
+              se abre en Nueva solicitud y sale como versión siguiente. */}
+          <button
+            type="button"
+            className="cv__ghost cv__ghost--sm"
+            onClick={async () => {
+              try {
+                const r = await rehacerPropuestaApi(delivery.id);
+                window.location.assign(`/solicitudes/nueva?borrador=${encodeURIComponent(r.borradorId)}`);
+              } catch (e: unknown) {
+                setAvisoNombre(e instanceof Error ? e.message : "No se pudo preparar la propuesta para rehacerla.");
+              }
+            }}
+          >
+            Rehacer la propuesta
           </button>
           {ficha.crm.dealUrl ? (
             <a className="cv__ghost cv__ghost--sm" href={ficha.crm.dealUrl} target="_blank" rel="noreferrer">

@@ -166,6 +166,7 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
     versionNumber: 1,
     proposalStatus: "READY_FOR_APPROVAL",
     summaryText,
+    stayJson: input.builderState.composicion ? JSON.stringify(input.builderState.composicion) : null,
     accommodationOptions,
     activityOptions
   });

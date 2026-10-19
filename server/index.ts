@@ -27,6 +27,7 @@ import { leerAdjunto } from "./adjuntosDeCorreo";
 import { leerCotizacionDelProveedor, leerJustificante } from "./cotizacionDelProveedor";
 import type { ContextoDeCotizacion } from "../src/domain/cotizacionDelProveedor";
 import { fichaDeLaPropuesta, renombrarViaje } from "./fichaPropuesta";
+import { borradorParaRehacer } from "./rehacerPropuesta";
 import {
   borrarSolicitudDb,
   queSeVaABorrar,
@@ -2261,6 +2262,29 @@ app.post("/api/deliveries/:id/nombre", requireAuth, async (request, response) =>
   } catch (error) {
     console.error("Error cambiando el nombre del viaje", error);
     response.status(500).json({ error: "No se pudo cambiar el nombre." });
+  }
+});
+
+// Rehacer una propuesta ya enviada (Ruth, 19/10/2026: «sustituir un hotel por
+// otro»): arma un borrador del lienzo con todo lo de esa entrega. Al enviarlo
+// se guarda como la versión siguiente; lo enviado no se toca.
+app.post("/api/deliveries/:id/rehacer", requireAuth, async (request, response) => {
+  try {
+    const user = (request as AuthedRequest).user;
+    const r = await borradorParaRehacer(
+      String(request.params.id),
+      user ? deliveryVisibilityWhere(user) : {},
+      user ? { id: user.id, department: user.department } : null,
+    );
+    if (!r) {
+      response.status(404).json({ error: "Ese presupuesto no existe o no es tuyo." });
+      return;
+    }
+    await writeAudit({ user, action: "PROPUESTA_REHECHA", entity: `RequestDraft:${r.borradorId}`, detail: r.titulo });
+    response.json(r);
+  } catch (error) {
+    console.error("Error preparando la propuesta para rehacerla", error);
+    response.status(500).json({ error: "No se pudo preparar la propuesta para rehacerla." });
   }
 });
 

@@ -268,6 +268,9 @@ model TripProposal {
   approvedOptionNumber Int?
   summaryText          String?
   crmPayloadJson       String?
+  /// La composición de la estancia (pensión por noche, profesores, chófer) con
+  /// la que se cotizó: «Rehacer la propuesta» la recupera (19/10/2026).
+  stayJson             String?
   createdAt            DateTime                      @default(now())
   updatedAt            DateTime                      @updatedAt
   tripRequest          TripRequest                   @relation(fields: [tripRequestId], references: [id], onDelete: Cascade)

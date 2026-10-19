@@ -1286,3 +1286,12 @@ export function renombrarViajeApi(deliveryId: string, nombre: string) {
     "No se pudo cambiar el nombre.",
   );
 }
+
+/** Prepara un borrador del lienzo con todo lo de una propuesta enviada, para rehacerla. */
+export function rehacerPropuestaApi(deliveryId: string) {
+  return postJson<{ borradorId: string; titulo: string; avisos: string[] }>(
+    `/api/deliveries/${encodeURIComponent(deliveryId)}/rehacer`,
+    {},
+    "No se pudo preparar la propuesta para rehacerla.",
+  );
+}
