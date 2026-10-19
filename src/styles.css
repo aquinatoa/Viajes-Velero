@@ -6556,6 +6556,41 @@ button.cw-ev__more:hover { text-decoration: underline; }
   box-shadow: 0 0 0 3px rgba(252, 187, 55, 0.45);
 }
 
+/* Los desplegables («Cotizamos para», «Departamento») iban sin estilo y el
+   navegador les ponía la letra casi blanca: no se leía lo elegido ni las
+   opciones de la lista (Anthony, 19/10/2026). Igual que las cajas de texto,
+   con la letra y el fondo puestos, también en cada opción. */
+.cv__field select {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: var(--surface);
+  color: var(--ink);
+  color-scheme: light;
+  cursor: pointer;
+}
+
+.cv__field select:hover:not(:focus) {
+  border-color: rgba(19, 46, 93, 0.3);
+}
+
+.cv__field select:focus {
+  outline: none;
+  border-color: var(--cv-navy);
+  box-shadow: 0 0 0 3px rgba(252, 187, 55, 0.45);
+}
+
+.cv__field select option {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.cv__field select option:checked {
+  background: var(--cv-navy);
+  color: #fff;
+}
+
 /* Lo que falta se seÃ±ala, no se bloquea. */
 .cv__field--miss input {
   border-color: rgba(252, 187, 55, 0.75);
