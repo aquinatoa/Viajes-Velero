@@ -2290,10 +2290,15 @@ export async function getPublishedInventoryCatalog(): Promise<PublishedInventory
   const documents = documentIds.length
     ? await prisma.sourceDocument.findMany({
         where: { id: { in: documentIds } },
-        select: { id: true, controlName: true },
+        select: { id: true, controlName: true, department: true },
       })
     : [];
   const documentNames = new Map(documents.map((doc) => [doc.id, doc.controlName]));
+  // El departamento se lee del documento, como al cotizar: cambiarlo en
+  // «Editar» vale al momento también aquí.
+  const documentDepartments = new Map(
+    documents.map((doc) => [doc.id, (doc.department as "GROUPS" | "SPORTS" | null) ?? null]),
+  );
 
   const mappedAccommodations = accommodations.map((accommodation) => ({
     id: accommodation.id,
@@ -2306,6 +2311,9 @@ export async function getPublishedInventoryCatalog(): Promise<PublishedInventory
     sourceDocumentId: accommodation.sourceDocumentId,
     sourceDocumentName: accommodation.sourceDocumentId
       ? documentNames.get(accommodation.sourceDocumentId) ?? null
+      : null,
+    sourceDocumentDepartment: accommodation.sourceDocumentId
+      ? documentDepartments.get(accommodation.sourceDocumentId) ?? null
       : null,
     rates: accommodation.rates.map((rate) => ({
       id: rate.id,
@@ -2338,6 +2346,9 @@ export async function getPublishedInventoryCatalog(): Promise<PublishedInventory
     sourceDocumentId: activity.sourceDocumentId,
     sourceDocumentName: activity.sourceDocumentId
       ? documentNames.get(activity.sourceDocumentId) ?? null
+      : null,
+    sourceDocumentDepartment: activity.sourceDocumentId
+      ? documentDepartments.get(activity.sourceDocumentId) ?? null
       : null,
     rates: activity.rates.map((rate) => ({
       id: rate.id,

@@ -812,6 +812,8 @@ export interface CatalogAccommodation {
   categoryType?: string | null;
   sourceDocumentId?: string | null;
   sourceDocumentName?: string | null;
+  /** El departamento de su documento; null = vale para los dos. */
+  sourceDocumentDepartment?: TariffDepartment | null;
   /**
    * Lo que el alojamiento incluye y bajo qué condiciones.
    *
@@ -833,6 +835,8 @@ export interface CatalogActivity {
   locationMain?: string | null;
   sourceDocumentId?: string | null;
   sourceDocumentName?: string | null;
+  /** El departamento de su documento; null = vale para los dos. */
+  sourceDocumentDepartment?: TariffDepartment | null;
   rates: CatalogRate[];
   /** Condiciones publicadas de la actividad (gratuidades, minimos, edades...). */
   policies?: Array<{ id: string; policyType: string; policyText: string }>;

@@ -911,6 +911,27 @@ select.doc-search {
   color: var(--ink);
 }
 
+/* El departamento de un alojamiento o actividad del catálogo, cuando su
+   documento es de uno solo. Los de «los dos» no llevan etiqueta. */
+.dept-tag {
+  display: inline-block;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.dept-tag--groups {
+  background: rgba(19, 46, 93, 0.1);
+  color: var(--brand);
+}
+
+.dept-tag--sports {
+  background: rgba(252, 187, 55, 0.22);
+  color: #6b4a06;
+}
+
 .chip {
   font-size: 0.82rem;
   border: 1px solid rgba(19, 35, 47, 0.16);
