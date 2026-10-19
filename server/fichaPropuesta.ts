@@ -254,3 +254,23 @@ export async function fichaDeLaPropuesta(deliveryId: string, visibilidad: Record
     publicToken: delivery.publicToken,
   };
 }
+
+/**
+ * Cambia el nombre del grupo de la solicitud de una entrega (Ruth, 19/10/2026).
+ * Devuelve la solicitud con el nombre de antes, o null si no existe o no es
+ * visible para quien lo pide. El trato de Zoho lo cambia quien llama.
+ */
+export async function renombrarViaje(
+  deliveryId: string,
+  nombre: string,
+  visibilidad: Record<string, unknown>,
+): Promise<{ id: string; crmDealId: string | null; opportunityName: string | null } | null> {
+  const entrega = await prisma.proposalDelivery.findFirst({
+    where: { id: deliveryId, ...visibilidad },
+    select: { proposal: { select: { tripRequest: { select: { id: true, crmDealId: true, opportunityName: true } } } } },
+  });
+  const solicitud = entrega?.proposal?.tripRequest ?? null;
+  if (!solicitud) return null;
+  await prisma.tripRequest.update({ where: { id: solicitud.id }, data: { opportunityName: nombre } });
+  return solicitud;
+}

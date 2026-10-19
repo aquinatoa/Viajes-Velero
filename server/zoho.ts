@@ -1097,6 +1097,8 @@ export async function updateZohoDeal(payload: {
   chosenOption?: number | null;
   note?: string;
   noteDate?: string; // YYYY-MM-DD (lo pone el backend)
+  /** El nombre del grupo, cuando se cambia desde la ficha (19/10/2026). */
+  dealName?: string;
 }): Promise<{ dealId: string; stage?: string; chosenOption?: number | null }> {
   const needsDescription = payload.chosenOption != null || (payload.note && payload.note.trim());
 
@@ -1126,6 +1128,7 @@ export async function updateZohoDeal(payload: {
 
   const update: Record<string, unknown> = {};
   if (payload.stage) update.Stage = payload.stage;
+  if (payload.dealName && payload.dealName.trim()) update.Deal_Name = payload.dealName.trim();
   if (needsDescription) update.Description = description.trim();
 
   if (Object.keys(update).length > 0) {

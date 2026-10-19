@@ -12363,6 +12363,41 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
   font-size: 12.5px;
   color: var(--ink);
 }
+/* Cambiar el nombre del grupo desde la ficha (19/10/2026). */
+.ficha__renombrar {
+  margin-left: 10px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+.ficha__nombre {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 4px 0;
+}
+.ficha__nombre input {
+  min-width: 280px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 18px;
+  font-weight: 700;
+}
+.ficha__aviso {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
 /* La estancia: pensión por noche, profesores y chófer (19/10/2026). */
 .es {
   display: grid;

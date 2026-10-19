@@ -1277,3 +1277,12 @@ export function detectarClienteEspecialApi(archivo: File) {
     "No se pudo leer el cliente del documento.",
   );
 }
+
+/** Cambia el nombre del grupo de un viaje: en la aplicación y en la oportunidad de Zoho. */
+export function renombrarViajeApi(deliveryId: string, nombre: string) {
+  return postJson<{ nombre: string; enElCrm: "CAMBIADO" | "SIN_TRATO" | "FALLO"; motivo: string | null }>(
+    `/api/deliveries/${encodeURIComponent(deliveryId)}/nombre`,
+    { nombre },
+    "No se pudo cambiar el nombre.",
+  );
+}
