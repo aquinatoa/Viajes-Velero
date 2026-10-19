@@ -73,7 +73,7 @@ interface ProviderCallConfig {
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
-const DEFAULT_ANTHROPIC_MODEL = "claude-opus-5";
+export const DEFAULT_ANTHROPIC_MODEL = "claude-opus-5";
 
 /**
  * Techo de salida de cada modelo, en tokens.
@@ -139,7 +139,7 @@ function maxOutputTokensFor(model: string): number {
  * Lee la configuración de IA desde variables de entorno.
  * No expone secretos: solo se usan internamente para decidir el proveedor.
  */
-function getAiProviderConfig(): AiProviderConfig {
+export function getAiProviderConfig(): AiProviderConfig {
   return {
     provider: (process.env.AI_PROVIDER ?? "").trim().toLowerCase(),
     anthropicApiKey: (process.env.ANTHROPIC_API_KEY ?? "").trim(),
@@ -894,7 +894,7 @@ async function mapWithConcurrency<T, R>(
   return resultados;
 }
 
-function mapAnthropicError(error: unknown): AiAnalysisError {
+export function mapAnthropicError(error: unknown): AiAnalysisError {
   // El motivo del proveedor se conserva SIEMPRE. El 25/09/2026 la cuenta se
   // quedó sin saldo, el proveedor lo decía con todas las letras, y esta función
   // lo convertía en «revisa el modelo o el tamaño del documento».
@@ -915,7 +915,7 @@ function mapAnthropicError(error: unknown): AiAnalysisError {
  * 3. Extrae el primer objeto JSON balanceado (contando llaves, respetando cadenas).
  * 4. Tolera comas finales antes de } o ].
  */
-function parseModelJson(text: string): unknown {
+export function parseModelJson(text: string): unknown {
   const cleaned = stripCodeFences(text).trim();
 
   const direct = tryParseJson(cleaned);

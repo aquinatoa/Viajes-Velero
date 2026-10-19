@@ -96,8 +96,38 @@ export type AvailabilityStatus = "BLOCKED" | "ON_REQUEST" | "SPECIAL_RATE" | "UN
  */
 export type RateKind = "PURCHASE" | "SALE" | "UNKNOWN";
 
-/** Canal de venta al que pertenece una tarifa de venta. */
-export type ClientSegment = "GENERIC" | "SWISS_TTOO";
+/**
+ * Canal de venta al que pertenece una tarifa de venta: cualquier cliente o un
+ * CLIENTE ESPECIAL con tarifa propia.
+ *
+ * Javier, 08/10/2026: «en vez de turoperador suizo yo pondría cliente
+ * especial», porque dentro de cada departamento hay 2-3 clientes con precio
+ * propio: el turoperador suizo (Deportivo) y Azul Marino, por ejemplo. El
+ * código SWISS_TTOO se conserva: es lo que llevan guardadas sus 42 tarifas.
+ *
+ * Desde el 19/10/2026 los clientes especiales viven en la base de datos (tabla
+ * `ClienteEspecial`) y se dan de alta al subir su tarifa: el código es el que
+ * se le da al crearlo. `CLIENTES_ESPECIALES` son los dos de partida, que la
+ * pantalla usa mientras carga la lista de verdad.
+ */
+export type ClientSegment = string;
+
+export interface ClienteEspecial {
+  codigo: string;
+  nombre: string;
+  detalle: string;
+  /**
+   * Su porcentaje sobre el PVP general cuando NO tiene tarifa propia cargada
+   * (-10 = un 10 % menos). null = sin porcentaje: se le cotiza el general. Ver
+   * `precioParaElCliente`. Pendiente de que Javier diga el de cada uno.
+   */
+  porcentajeSobrePvp: number | null;
+}
+
+export const CLIENTES_ESPECIALES: ClienteEspecial[] = [
+  { codigo: "SWISS_TTOO", nombre: "Turoperador suizo", detalle: "Destination · Travelclub", porcentajeSobrePvp: null },
+  { codigo: "AZUL_MARINO", nombre: "Azul Marino", detalle: "precio propio pactado", porcentajeSobrePvp: null },
+];
 
 export const rateKindLabels: Record<RateKind, string> = {
   PURCHASE: "De compra",
@@ -105,9 +135,16 @@ export const rateKindLabels: Record<RateKind, string> = {
   UNKNOWN: "Sin declarar",
 };
 
-export const clientSegmentLabels: Record<ClientSegment, string> = {
-  GENERIC: "Cualquier otro cliente",
-  SWISS_TTOO: "Turoperador suizo",
+/**
+ * Para qué departamento son las tarifas de un documento. Javier, 08/10/2026:
+ * «hay un hotel que tiene precios diferentes dependiendo de si es para un grupo
+ * o si es para turismo deportivo». null = vale para los dos.
+ */
+export type TariffDepartment = "GROUPS" | "SPORTS";
+
+export const tariffDepartmentLabels: Record<TariffDepartment, string> = {
+  GROUPS: "Grupos",
+  SPORTS: "Turismo Deportivo",
 };
 
 /** Margen por defecto del sistema cuando el documento es de compra. */
@@ -123,6 +160,7 @@ export interface CreateSourceDocumentInput {
   rateKind?: RateKind;
   marginPercent?: number | null;
   clientSegment?: ClientSegment | null;
+  department?: TariffDepartment | null;
 }
 
 export interface SourceDocumentSummary {
@@ -135,6 +173,7 @@ export interface SourceDocumentSummary {
   rateKind?: RateKind;
   marginPercent?: number | null;
   clientSegment?: ClientSegment | null;
+  department?: TariffDepartment | null;
   status: SourceDocumentStatus;
   extractionStatus: ExtractionStatus;
   requiresOcr: boolean;
@@ -402,6 +441,9 @@ export interface AiCandidateActivityRate {
   rateUnit?: string | null;
   year?: number | null;
   seasonName?: string | null;
+  /** El periodo en que vale (AAAA-MM-DD). Sin fechas, todo el año. */
+  dateFrom?: string | null;
+  dateTo?: string | null;
   currency?: string | null;
   salePvpAmount?: number | null;
   costNetAmount?: number | null;
@@ -766,6 +808,8 @@ export interface CatalogAccommodation {
   categoryType?: string | null;
   sourceDocumentId?: string | null;
   sourceDocumentName?: string | null;
+  /** El departamento de su documento; null = vale para los dos. */
+  sourceDocumentDepartment?: TariffDepartment | null;
   /**
    * Lo que el alojamiento incluye y bajo qué condiciones.
    *
@@ -787,6 +831,8 @@ export interface CatalogActivity {
   locationMain?: string | null;
   sourceDocumentId?: string | null;
   sourceDocumentName?: string | null;
+  /** El departamento de su documento; null = vale para los dos. */
+  sourceDocumentDepartment?: TariffDepartment | null;
   rates: CatalogRate[];
   /** Condiciones publicadas de la actividad (gratuidades, minimos, edades...). */
   policies?: Array<{ id: string; policyType: string; policyText: string }>;

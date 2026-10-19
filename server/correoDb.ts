@@ -123,7 +123,7 @@ export interface MensajeQueLlega extends CorreoEntrante {
 export async function guardarMensajeEntrante(
   mensaje: MensajeQueLlega,
   envios: EnvioConocido[],
-): Promise<{ guardado: boolean; emparejadoPor: string | null; reference: string | null }> {
+): Promise<{ guardado: boolean; emparejadoPor: string | null; reference: string | null; id?: string }> {
   const repetido = await yaGuardado(
     mensaje.messageId ?? null,
     mensaje.buzon,
@@ -153,12 +153,13 @@ export async function guardarMensajeEntrante(
     ...(pareja ? { delivery: { connect: { id: pareja.deliveryId } } } : {}),
   };
 
-  await prisma.correoMensaje.create({ data });
+  const creado = await prisma.correoMensaje.create({ data });
 
   return {
     guardado: true,
     emparejadoPor: pareja?.emparejadoPor ?? null,
     reference: pareja?.reference ?? null,
+    id: creado.id,
   };
 }
 
@@ -167,6 +168,7 @@ export async function hiloDeLaEntrega(deliveryId: string) {
   return prisma.correoMensaje.findMany({
     where: { deliveryId },
     orderBy: { fecha: "asc" },
+    include: { adjuntos: { select: { id: true, nombre: true, tipo: true, tamano: true } } },
   });
 }
 

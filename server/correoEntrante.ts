@@ -17,6 +17,7 @@
 
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
+import { adjuntosQueSeGuardan, guardarAdjuntos } from "./adjuntosDeCorreo";
 import { PrismaClient } from "@prisma/client";
 import { loadMailSettings, mailboxFor, type MailSettings } from "./mailConfig";
 import { enviosParaEmparejar, guardarMensajeEntrante, type Buzon } from "./correoDb";
@@ -169,6 +170,11 @@ export async function traerDeUnaCarpeta(
       );
 
       if (resultado.guardado) {
+        // Los adjuntos del colegio: la lista de alumnos, el justificante…
+        // Antes se perdían; solo quedaba el texto.
+        if (resultado.id && correo.attachments?.length) {
+          await guardarAdjuntos(resultado.id, adjuntosQueSeGuardan(correo.attachments));
+        }
         base.guardados += 1;
         if (resultado.emparejadoPor) base.emparejados += 1;
         else base.sinExpediente += 1;

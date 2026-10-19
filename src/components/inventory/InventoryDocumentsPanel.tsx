@@ -6,10 +6,11 @@ import type {
   InventoryTargetType,
   RateKind,
   SourceDocumentSummary,
+  TariffDepartment,
 } from "../../domain/documentImportTypes";
 import {
-  clientSegmentLabels,
   DEFAULT_MARGIN_PERCENT,
+  tariffDepartmentLabels,
 } from "../../domain/documentImportTypes";
 import {
   createInventoryDocumentApi,
@@ -23,6 +24,8 @@ import { InventoryCatalogView } from "./InventoryCatalogView";
 import { ConsumoIaView } from "./ConsumoIaView";
 import { DocumentWorkspace } from "./DocumentWorkspace";
 import { NewDocumentDropzone } from "./NewDocumentDropzone";
+import { nombreDelCanal } from "../../domain/clientesEspeciales";
+import { useClientesEspeciales } from "../useClientesEspeciales";
 import {
   extractionStatusLabels,
   getErrorMessage,
@@ -40,11 +43,16 @@ const initialForm: CreateSourceDocumentInput = {
   rateKind: "PURCHASE",
   marginPercent: DEFAULT_MARGIN_PERCENT,
   clientSegment: null,
+  department: null,
 };
 
 export function InventoryDocumentsPanel() {
+  const clientesEspeciales = useClientesEspeciales();
   const [documents, setDocuments] = useState<SourceDocumentSummary[]>([]);
   const [documentFilter, setDocumentFilter] = useState("");
+  // Javier, 08/10/2026: «podríamos filtrar las tarifas por departamento». Un
+  // documento sin departamento vale para los dos y sale en los dos filtros.
+  const [departmentFilter, setDepartmentFilter] = useState<TariffDepartment | "">("");
   const [form, setForm] = useState<CreateSourceDocumentInput>(initialForm);
   const [selectedFiles, setSelectedFiles] = useState<Record<string, File | undefined>>({});
   const [uploadingDocumentId, setUploadingDocumentId] = useState<string | null>(null);
@@ -153,6 +161,7 @@ export function InventoryDocumentsPanel() {
       rateKind: document.rateKind ?? "UNKNOWN",
       marginPercent: document.marginPercent ?? null,
       clientSegment: document.clientSegment ?? null,
+      department: document.department ?? null,
     });
     setFormOpen(true);
     setErrorMessage(null);
@@ -190,6 +199,7 @@ export function InventoryDocumentsPanel() {
       controlYear: form.controlYear ? Number(form.controlYear) : null,
       marginPercent: isPurchase ? (form.marginPercent ?? DEFAULT_MARGIN_PERCENT) : null,
       clientSegment: isSale ? (form.clientSegment ?? "GENERIC") : null,
+      department: form.department || null,
     };
 
     setSaving(true);
@@ -277,7 +287,12 @@ export function InventoryDocumentsPanel() {
     : documents;
   // Ordena por "más pendientes primero" sin mutar el array de origen; los
   // documentos sin pendientes mantienen su orden relativo original (sort estable).
-  const filteredDocuments = [...matchedDocuments].sort(
+  const filteredDocuments = [...matchedDocuments]
+    .filter(
+      (document) =>
+        !departmentFilter || !document.department || document.department === departmentFilter,
+    )
+    .sort(
     (a, b) => (b.pendingReviewCount ?? 0) - (a.pendingReviewCount ?? 0),
   );
 
@@ -496,12 +511,17 @@ export function InventoryDocumentsPanel() {
                   }))
                 }
               >
-                <option value="GENERIC">Cualquier otro cliente</option>
-                <option value="SWISS_TTOO">Turoperador suizo (Destination · Travelclub)</option>
+                <option value="GENERIC">Cualquier cliente</option>
+                {clientesEspeciales.map((especial) => (
+                  <option key={especial.codigo} value={especial.codigo}>
+                    Cliente especial · {especial.nombre}
+                    {especial.detalle ? ` (${especial.detalle})` : ""}
+                  </option>
+                ))}
               </select>
               <small>
                 El mismo alojamiento puede tener precios distintos según el cliente. Al cotizar se
-                elegirá cuál toca.
+                elegirá cuál toca. Un cliente especial nuevo se da de alta al subir su documento.
               </small>
             </label>
           ) : null}
@@ -514,6 +534,27 @@ export function InventoryDocumentsPanel() {
             </p>
           ) : null}
         </fieldset>
+
+        <label className="field">
+          <span>Departamento</span>
+          <select
+            value={form.department ?? ""}
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                department: (event.target.value || null) as TariffDepartment | null,
+              }))
+            }
+          >
+            <option value="">Los dos (Grupos y Turismo Deportivo)</option>
+            <option value="GROUPS">Grupos</option>
+            <option value="SPORTS">Turismo Deportivo</option>
+          </select>
+          <small>
+            Al cotizar solo se ofrecen las tarifas del departamento de la petición. Cambiarlo vale al
+            momento, sin volver a publicar.
+          </small>
+        </label>
 
         <label className="field">
           <span>Año / temporada</span>
@@ -592,6 +633,16 @@ export function InventoryDocumentsPanel() {
             onChange={(event) => setDocumentFilter(event.target.value)}
             placeholder="Buscar por nombre, ubicación o estado"
           />
+          <select
+            className="doc-search"
+            aria-label="Departamento"
+            value={departmentFilter}
+            onChange={(event) => setDepartmentFilter(event.target.value as TariffDepartment | "")}
+          >
+            <option value="">Todos los departamentos</option>
+            <option value="GROUPS">Grupos</option>
+            <option value="SPORTS">Turismo Deportivo</option>
+          </select>
           <button type="button" onClick={() => void loadDocuments()}>
             Actualizar
           </button>
@@ -674,6 +725,7 @@ export function InventoryDocumentsPanel() {
                     <span className="doc-cell__sub" title={document.controlLocation ?? ""}>
                       {targetTypeLabels[document.targetType]}
                       {document.controlLocation ? ` · ${document.controlLocation}` : ""}
+                      {` · ${document.department ? tariffDepartmentLabels[document.department] : "Grupos y Deportivo"}`}
                     </span>
                   </td>
 
@@ -690,9 +742,7 @@ export function InventoryDocumentsPanel() {
                       <span className="doc-kind doc-kind--sell">
                         Venta
                         <em>
-                          {document.clientSegment
-                            ? clientSegmentLabels[document.clientSegment]
-                            : "Cualquier cliente"}
+                          {nombreDelCanal(document.clientSegment, clientesEspeciales)}
                         </em>
                       </span>
                     ) : (

@@ -18,6 +18,8 @@ import type {
   UnpublishResult,
 } from "../domain/documentImportTypes";
 import type { Client, SearchFilters, TripProposal, TripRequest } from "../domain/types";
+import type { ContextoDeCotizacion, LecturaDeCotizacion } from "../domain/cotizacionDelProveedor";
+import type { ClienteEspecial } from "../domain/documentImportTypes";
 
 // Mismo origen: en dev lo resuelve el proxy de Vite (`/api` -> :8787) y en
 // produccion nginx hace de proxy al Node. VITE_API_BASE_URL solo hace falta
@@ -528,6 +530,15 @@ export function bulkUpdateInventoryStagingApi(
   );
 }
 
+/** Copia una tarifa de actividad en revisión para darle otro periodo. */
+export function duplicateStagingActivityRateApi(id: string) {
+  return postJson<{ id: string }>(
+    `/api/inventory/staging/activity-rates/${encodeURIComponent(id)}/duplicate`,
+    {},
+    "No se pudo duplicar la tarifa.",
+  );
+}
+
 // Regenerar candidatos: descarta el staging actual y lo vuelve a crear con IA.
 /** Firma el reparto: "estas tarifas son de este alojamiento". */
 export function confirmAssignmentApi(documentId: string, accommodationIds: string[]) {
@@ -903,6 +914,37 @@ export interface MensajeDeCorreo {
   /** MESSAGE_ID, ASUNTO o REMITENTE. Vacío si nadie supo de qué viaje era. */
   emparejadoPor: string | null;
   visto: boolean;
+  /** Los ficheros que trajo o con los que salió. */
+  adjuntos?: AdjuntoDeCorreo[];
+}
+
+export interface AdjuntoDeCorreo {
+  id: string;
+  nombre: string;
+  tipo: string;
+  tamano: number;
+}
+
+/**
+ * Descarga un adjunto de la conversación. Con la sesión en la cabecera, como
+ * el PDF: el token no acaba en la URL.
+ */
+export async function descargarAdjuntoDeCorreo(adjunto: AdjuntoDeCorreo): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/correo/adjuntos/${encodeURIComponent(adjunto.id)}`, {
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, "No se pudo descargar el adjunto.");
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement("a");
+  enlace.href = url;
+  enlace.download = adjunto.nombre;
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 /** La conversación con el colegio, en orden. */
@@ -920,12 +962,18 @@ export function hiloDelExpedienteApi(deliveryId: string) {
  * el hilo pero no ha salido. Es el mismo comportamiento que el envío de la
  * propuesta, para poder probar el circuito antes de que el correo esté listo.
  */
-export function escribirAlContactoApi(deliveryId: string, texto: string, asunto?: string) {
-  return postJson<{ enviado: boolean; simulado: boolean; messageId: string | null }>(
-    `/api/deliveries/${encodeURIComponent(deliveryId)}/correo`,
-    { texto, asunto },
-    "No se pudo enviar el mensaje.",
-  );
+export function escribirAlContactoApi(deliveryId: string, texto: string, asunto?: string, adjuntos: File[] = []) {
+  type Respuesta = { enviado: boolean; simulado: boolean; messageId: string | null };
+  const ruta = `/api/deliveries/${encodeURIComponent(deliveryId)}/correo`;
+  if (adjuntos.length === 0) {
+    return postJson<Respuesta>(ruta, { texto, asunto }, "No se pudo enviar el mensaje.");
+  }
+  // Con ficheros, como formulario: el servidor los recoge en «adjuntos».
+  const formulario = new FormData();
+  formulario.append("texto", texto);
+  if (asunto) formulario.append("asunto", asunto);
+  for (const fichero of adjuntos) formulario.append("adjuntos", fichero);
+  return postFormData<Respuesta>(ruta, formulario, "No se pudo enviar el mensaje.");
 }
 
 /** Lo que se lleva por delante borrar una solicitud. */
@@ -1162,5 +1210,70 @@ export function borrarBorradorApi(id: string) {
   return deleteJson<{ ok: true }>(
     `/api/commercial/drafts/${encodeURIComponent(id)}`,
     "No se pudo borrar el borrador.",
+  );
+}
+
+/**
+ * Leer la cotización de un proveedor para algo fuera del catálogo: el fichero
+ * o el correo pegado. Se guarda como justificante y devuelve el coste leído.
+ */
+export function leerCotizacionDelProveedorApi(
+  contexto: ContextoDeCotizacion,
+  archivo: File | null,
+  texto: string,
+) {
+  type Respuesta = {
+    id: string;
+    documento: string | null;
+    lectura: LecturaDeCotizacion;
+  };
+  const formulario = new FormData();
+  formulario.append("contexto", JSON.stringify(contexto));
+  formulario.append("texto", texto);
+  if (archivo) formulario.append("archivo", archivo);
+  return postFormData<Respuesta>("/api/cotizaciones-proveedor/lectura", formulario, "No se pudo leer la cotización.");
+}
+
+/** Descargar el justificante de un precio ad hoc. */
+export async function descargarCotizacionDelProveedor(id: string, nombre: string | null): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/cotizaciones-proveedor/${encodeURIComponent(id)}`, {
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, "No se pudo descargar la cotización.");
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement("a");
+  enlace.href = url;
+  enlace.download = nombre || "cotizacion-proveedor.txt";
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** Los clientes especiales (precio propio pactado), de la base de datos. */
+export function listarClientesEspecialesApi() {
+  return getJson<{ clientes: ClienteEspecial[] }>("/api/clientes-especiales", "No se pudo cargar la lista de clientes especiales.");
+}
+
+/** Da de alta un cliente especial; si ya existe uno con ese nombre, devuelve ese. */
+export function crearClienteEspecialApi(datos: { nombre: string; detalle: string; porcentajeSobrePvp: number | null }) {
+  return postJson<{ cliente: ClienteEspecial; nuevo: boolean }>(
+    "/api/clientes-especiales",
+    datos,
+    "No se pudo dar de alta el cliente especial.",
+  );
+}
+
+/** Para qué cliente es la tarifa del documento, leído por la IA. */
+export function detectarClienteEspecialApi(archivo: File) {
+  const formulario = new FormData();
+  formulario.append("archivo", archivo);
+  return postFormData<{ nombre: string; detalle: string; cita: string; aviso: string; existente: ClienteEspecial | null }>(
+    "/api/clientes-especiales/detectar",
+    formulario,
+    "No se pudo leer el cliente del documento.",
   );
 }

@@ -1,5 +1,6 @@
 import type { LineaDeActividad } from "../src/domain/lineasDeActividad";
 import { PrismaClient } from "@prisma/client";
+import { esAdHoc } from "../src/domain/adHoc";
 import type {
   Client,
   TripProposal,
@@ -320,6 +321,9 @@ export interface SaveTripProposalInput {
     conditionsText?: string | null;
     freePolicyText?: string | null;
     observationsText?: string | null;
+    studentCostAmount?: number | null;
+    teacherCostAmount?: number | null;
+    supplierQuoteId?: string | null;
     isSelected?: boolean;
   }[];
   activityOptions: {
@@ -333,6 +337,8 @@ export interface SaveTripProposalInput {
     descriptionSnapshot?: string | null;
     lines?: unknown[] | null;
     amountTotal?: number | null;
+    unitCostAmount?: number | null;
+    supplierQuoteId?: string | null;
     isSelected?: boolean;
   }[];
 }
@@ -396,7 +402,9 @@ export async function saveTripProposalDb(input: SaveTripProposalInput): Promise<
     summaryText: input.summaryText ?? null,
     accommodationOptions: {
       create: input.accommodationOptions.map((option) => ({
-        accommodationId: option.accommodationId,
+        // Un alojamiento ad hoc no está en el catálogo: no hay fila a la que
+        // apuntar. La propuesta conserva su foto (nombre, precio, condiciones).
+        accommodationId: esAdHoc(option.accommodationId) ? null : option.accommodationId,
         optionNumber: option.optionNumber,
         accommodationNameSnapshot: option.accommodationNameSnapshot ?? null,
         boardType: option.boardType ?? null,
@@ -410,12 +418,15 @@ export async function saveTripProposalDb(input: SaveTripProposalInput): Promise<
         conditionsText: option.conditionsText ?? null,
         freePolicyText: option.freePolicyText ?? null,
         observationsText: option.observationsText ?? null,
+        studentCostAmount: option.studentCostAmount ?? null,
+        teacherCostAmount: option.teacherCostAmount ?? null,
+        supplierQuoteId: option.supplierQuoteId ?? null,
         isSelected: option.isSelected ?? false,
       })),
     },
     activityOptions: {
       create: input.activityOptions.map((option) => ({
-        activityId: option.activityId,
+        activityId: esAdHoc(option.activityId) ? null : option.activityId,
         optionNumber: option.optionNumber,
         displayOrder: option.displayOrder,
         activityNameSnapshot: option.activityNameSnapshot,
@@ -425,6 +436,8 @@ export async function saveTripProposalDb(input: SaveTripProposalInput): Promise<
         descriptionSnapshot: option.descriptionSnapshot ?? null,
         linesJson: option.lines && option.lines.length ? JSON.stringify(option.lines) : null,
         amountTotal: option.amountTotal ?? null,
+        unitCostAmount: option.unitCostAmount ?? null,
+        supplierQuoteId: option.supplierQuoteId ?? null,
         isSelected: option.isSelected ?? false,
       })),
     },

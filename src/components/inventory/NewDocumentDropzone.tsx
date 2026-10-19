@@ -3,16 +3,24 @@ import type {
   ClientSegment,
   InventoryTargetType,
   RateKind,
+  TariffDepartment,
 } from "../../domain/documentImportTypes";
 import { DEFAULT_MARGIN_PERCENT } from "../../domain/documentImportTypes";
+import { pareceElMismo } from "../../domain/clientesEspeciales";
 import {
   analyzeInventoryDocumentApi,
+  crearClienteEspecialApi,
   createInventoryDocumentApi,
+  detectarClienteEspecialApi,
   esperarLecturaDeDocumento,
   createInventoryDocumentStagingApi,
   uploadInventoryDocumentFileApi,
 } from "../../services/apiClient";
 import { getErrorMessage } from "./inventoryFormatting";
+import { recargarClientesEspeciales, useClientesEspeciales } from "../useClientesEspeciales";
+
+/** El valor del desplegable para dar de alta un cliente que aún no existe. */
+const NUEVO = "__nuevo__";
 
 /**
  * Alta de un documento de tarifas: el archivo primero.
@@ -54,9 +62,16 @@ function deducirDelNombre(fileName: string) {
     .replace(/\s{2,}/g, " ")
     .trim();
 
+  // Departamento: solo cuando el nombre lo dice sin duda. Si no, los dos, y
+  // quien sube lo cambia con un clic.
+  const departamento: TariffDepartment | "" = /futbol|fútbol|sport|deportiv/i.test(sinExtension)
+    ? "SPORTS"
+    : "";
+
   return {
     año: año ? Number(año[1]) : null,
     nombre: nombre.length > 2 ? nombre : sinExtension,
+    departamento,
   };
 }
 
@@ -88,6 +103,19 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
   const [rateKind, setRateKind] = useState<RateKind>("PURCHASE");
   const [margen, setMargen] = useState<number>(DEFAULT_MARGIN_PERCENT);
   const [cliente, setCliente] = useState<ClientSegment>("GENERIC");
+  // Anthony, 19/10/2026: «cualquier cliente, cliente especial, y pedir los
+  // datos del cliente especial o tomarlos del documento». Antes había un botón
+  // por cliente fijo en el código.
+  const clientesEspeciales = useClientesEspeciales();
+  const [esEspecial, setEsEspecial] = useState(false);
+  const [nuevoNombre, setNuevoNombre] = useState("");
+  const [nuevoDetalle, setNuevoDetalle] = useState("");
+  const [nuevoPorcentaje, setNuevoPorcentaje] = useState("");
+  const [leyendoCliente, setLeyendoCliente] = useState(false);
+  const [lecturaCliente, setLecturaCliente] = useState<string | null>(null);
+  // Javier, 08/10/2026: el mismo hotel vale distinto para Grupos y para
+  // Turismo Deportivo. "" = vale para los dos.
+  const [departamento, setDepartamento] = useState<TariffDepartment | "">("");
 
   const [paso, setPaso] = useState<PasoKey | null>(null);
   const [segundosLeyendo, setSegundosLeyendo] = useState(0);
@@ -101,6 +129,7 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
     setFile(elegido);
     setNombre(deducido.nombre);
     setAño(deducido.año);
+    setDepartamento(deducido.departamento);
     setError(null);
   }
 
@@ -108,6 +137,7 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
     setFile(null);
     setNombre("");
     setAño(null);
+    setDepartamento("");
     setUbicacion("");
     if (inputRef.current) inputRef.current.value = "";
   }
@@ -122,13 +152,58 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
         venta,
       )} de venta. El comercial podrá ajustarlo en cada presupuesto.`;
     }
-    if (cliente === "SWISS_TTOO") {
-      return "Los precios entran tal cual, sin margen. Y solo se ofrecerán al turoperador suizo: no aparecerán al cotizar para ningún otro cliente.";
+    if (esEspecial) {
+      const especial =
+        cliente === NUEVO ? nuevoNombre.trim() : clientesEspeciales.find((c) => c.codigo === cliente)?.nombre ?? "";
+      return especial
+        ? `Los precios entran tal cual, sin margen. Y solo se ofrecerán a ${especial}: no aparecerán al cotizar para ningún otro cliente.`
+        : "Los precios entran tal cual, sin margen. Elige para qué cliente especial son, o sácalo del documento.";
     }
     return "Los precios entran tal cual, sin margen. Se ofrecerán al cotizar para colegios, clubes y agencias.";
-  }, [rateKind, margen, cliente]);
+  }, [rateKind, margen, cliente, esEspecial, nuevoNombre, clientesEspeciales]);
 
-  const puedeEnviar = Boolean(file) && nombre.trim().length > 0 && !trabajando;
+  // Con «cliente especial» hay que saber cuál: uno que exista o el nombre del nuevo.
+  const clienteListo =
+    rateKind !== "SALE" ||
+    !esEspecial ||
+    (cliente === NUEVO ? nuevoNombre.trim().length > 0 : clientesEspeciales.some((c) => c.codigo === cliente));
+  const puedeEnviar = Boolean(file) && nombre.trim().length > 0 && !trabajando && clienteListo;
+
+  function elegirTipoDeCliente(especial: boolean) {
+    setEsEspecial(especial);
+    setLecturaCliente(null);
+    setCliente(especial ? "" : "GENERIC");
+  }
+
+  /** Lee el documento elegido y dice para qué cliente es. */
+  async function sacarClienteDelDocumento() {
+    if (!file) return;
+    setLeyendoCliente(true);
+    setLecturaCliente(null);
+    setError(null);
+    try {
+      const r = await detectarClienteEspecialApi(file);
+      const existente =
+        r.existente ?? (r.nombre ? clientesEspeciales.find((c) => pareceElMismo(c, r.nombre)) ?? null : null);
+      const cita = r.cita ? ` Sale de: «${r.cita}».` : "";
+      const aviso = r.aviso ? ` Ojo: ${r.aviso}` : "";
+      if (existente) {
+        setCliente(existente.codigo);
+        setLecturaCliente(`El documento es para ${existente.nombre}, que ya está dado de alta.${cita}${aviso}`);
+      } else if (r.nombre) {
+        setCliente(NUEVO);
+        setNuevoNombre(r.nombre);
+        setNuevoDetalle(r.detalle);
+        setLecturaCliente(`El documento es para «${r.nombre}», que aún no está: revisa sus datos abajo.${cita}${aviso}`);
+      } else {
+        setLecturaCliente(`El documento no dice para qué cliente es: elígelo o escribe sus datos.${aviso}`);
+      }
+    } catch (caught) {
+      setLecturaCliente(getErrorMessage(caught, "No se pudo leer el cliente del documento. Escríbelo a mano."));
+    } finally {
+      setLeyendoCliente(false);
+    }
+  }
 
   async function handleSubmit() {
     if (!file || !nombre.trim()) return;
@@ -136,6 +211,20 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
 
     try {
       setPaso("creando");
+      // Un cliente especial nuevo se da de alta antes que su documento: sus
+      // tarifas llevan su código. Si ya existía uno con ese nombre, se usa ese.
+      let segmento = cliente;
+      if (rateKind === "SALE" && esEspecial && cliente === NUEVO) {
+        const porcentaje = nuevoPorcentaje.trim() ? Number(nuevoPorcentaje.replace(",", ".")) : null;
+        const alta = await crearClienteEspecialApi({
+          nombre: nuevoNombre.trim(),
+          detalle: nuevoDetalle.trim(),
+          porcentajeSobrePvp: porcentaje !== null && Number.isFinite(porcentaje) ? porcentaje : null,
+        });
+        segmento = alta.cliente.codigo;
+        setCliente(segmento);
+        await recargarClientesEspeciales();
+      }
       const documento = await createInventoryDocumentApi({
         targetType: tipo,
         controlName: nombre.trim(),
@@ -143,7 +232,8 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
         controlYear: año,
         rateKind,
         marginPercent: rateKind === "PURCHASE" ? margen : null,
-        clientSegment: rateKind === "SALE" ? cliente : null,
+        clientSegment: rateKind === "SALE" ? (esEspecial ? segmento : "GENERIC") : null,
+        department: departamento || null,
       });
 
       setPaso("subiendo");
@@ -364,25 +454,117 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
                 <div className="alta__chips">
                   <button
                     type="button"
-                    className={`alta__chip${cliente === "GENERIC" ? " on" : ""}`}
+                    className={`alta__chip${!esEspecial ? " on" : ""}`}
                     disabled={trabajando}
-                    onClick={() => setCliente("GENERIC")}
+                    onClick={() => elegirTipoDeCliente(false)}
                   >
                     Cualquier cliente
                     <em>colegios, clubes, agencias</em>
                   </button>
                   <button
                     type="button"
-                    className={`alta__chip${cliente === "SWISS_TTOO" ? " on" : ""}`}
+                    className={`alta__chip${esEspecial ? " on" : ""}`}
                     disabled={trabajando}
-                    onClick={() => setCliente("SWISS_TTOO")}
+                    onClick={() => elegirTipoDeCliente(true)}
                   >
-                    Turoperador suizo
-                    <em>Destination · Travelclub</em>
+                    Cliente especial
+                    <em>con precio propio pactado</em>
                   </button>
                 </div>
+
+                {esEspecial ? (
+                  <div className="alta__especial">
+                    <div className="alta__auto-fields">
+                      <label>
+                        ¿Qué cliente?
+                        <select value={cliente} disabled={trabajando} onChange={(e) => setCliente(e.target.value)}>
+                          <option value="">Elige…</option>
+                          {clientesEspeciales.map((c) => (
+                            <option key={c.codigo} value={c.codigo}>
+                              {c.nombre}
+                              {c.detalle ? ` · ${c.detalle}` : ""}
+                            </option>
+                          ))}
+                          <option value={NUEVO}>＋ Uno nuevo…</option>
+                        </select>
+                      </label>
+                    </div>
+                    <button
+                      type="button"
+                      className="alta__leer"
+                      disabled={trabajando || leyendoCliente || !file}
+                      onClick={() => void sacarClienteDelDocumento()}
+                    >
+                      {leyendoCliente ? "Leyendo el documento…" : "Sacarlo del documento"}
+                    </button>
+                    {lecturaCliente ? <p className="alta__leido">{lecturaCliente}</p> : null}
+
+                    {cliente === NUEVO ? (
+                      <div className="alta__auto-fields">
+                        <label>
+                          Nombre del cliente
+                          <input
+                            value={nuevoNombre}
+                            disabled={trabajando}
+                            onChange={(e) => setNuevoNombre(e.target.value)}
+                            placeholder="Turoperador suizo"
+                          />
+                        </label>
+                        <label>
+                          Quién es (opcional)
+                          <input
+                            value={nuevoDetalle}
+                            disabled={trabajando}
+                            onChange={(e) => setNuevoDetalle(e.target.value)}
+                            placeholder="Destination · Travelclub"
+                          />
+                        </label>
+                        <label>
+                          % sobre el PVP general (opcional)
+                          <input
+                            inputMode="decimal"
+                            value={nuevoPorcentaje}
+                            disabled={trabajando}
+                            onChange={(e) => setNuevoPorcentaje(e.target.value)}
+                            placeholder="−10 = un 10 % menos"
+                          />
+                        </label>
+                      </div>
+                    ) : null}
+                    {cliente === NUEVO ? (
+                      <p className="alta__leido alta__leido--nota">
+                        El porcentaje se usa al cotizarle un hotel o una actividad del que no tenga tarifa propia. Si no
+                        lo sabes, déjalo vacío: se le cotizará el precio general.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             )}
+
+            <div className="alta__sub">
+              <span className="alta__sub-q">¿Para qué departamento?</span>
+              <div className="alta__chips">
+                {(
+                  [
+                    ["", "Los dos", "Grupos y Turismo Deportivo"],
+                    ["GROUPS", "Grupos", "colegios y agencias"],
+                    ["SPORTS", "Turismo Deportivo", "clubes y torneos"],
+                  ] as const
+                ).map(([valor, etiqueta, detalle]) => (
+                  <button
+                    key={valor || "los-dos"}
+                    type="button"
+                    className={`alta__chip${departamento === valor ? " on" : ""}`}
+                    disabled={trabajando}
+                    onClick={() => setDepartamento(valor)}
+                  >
+                    {etiqueta}
+                    <em>{detalle}</em>
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {/* La consecuencia, en dinero. Explica el margen sin explicarlo. */}
             <p className="alta__example">{ejemplo}</p>

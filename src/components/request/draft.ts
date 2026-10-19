@@ -1,3 +1,5 @@
+import type { ActividadAdHoc, HotelAdHoc } from "../../domain/adHoc";
+import type { ClientSegment } from "../../domain/documentImportTypes";
 import type { NormalizedRequestDraft, ParseTripRequestInput } from "../../domain/types";
 
 /**
@@ -32,7 +34,7 @@ export interface BorradorSolicitud {
    */
   solicitudId?: string | null;
   /** Para qué cliente se cotiza: cambia qué tarifas se ofrecen. */
-  canal?: "GENERIC" | "SWISS_TTOO";
+  canal?: ClientSegment;
   mensajes: string[];
   redaccion: string;
   form: ParseTripRequestInput;
@@ -63,6 +65,9 @@ export interface BorradorSolicitud {
    * volvía a salir sin poder elegirse.
    */
   preciosFijados?: Record<string, number>;
+  /** Hoteles y actividades fuera del catálogo, con el precio del proveedor. */
+  hotelesAdHoc?: HotelAdHoc[];
+  actividadesAdHoc?: ActividadAdHoc[];
 }
 
 function almacen(): Storage | null {

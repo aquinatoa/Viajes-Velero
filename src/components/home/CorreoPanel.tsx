@@ -1,10 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  descargarAdjuntoDeCorreo,
   escribirAlContactoApi,
   hiloDelExpedienteApi,
   type MensajeDeCorreo,
   type ProposalDelivery,
 } from "../../services/apiClient";
+
+/** Hasta 5 ficheros de 25 MB, lo mismo que acepta el servidor. */
+const MAXIMO_ADJUNTOS = 5;
+const TAMANO_MAXIMO = 25 * 1024 * 1024;
+
+function tamano(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
+}
 
 /**
  * La conversación con el colegio, dentro de su propuesta. Piezas C4 y C5.
@@ -53,7 +63,23 @@ export function CorreoPanel({ delivery, titulo, onClose }: CorreoPanelProps) {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState("");
   const [aviso, setAviso] = useState("");
+  // Javier, 08/10/2026: «subir un documento a la conversación con el
+  // cliente, en plan de te vuelvo a enviar el presupuesto».
+  const [adjuntos, setAdjuntos] = useState<File[]>([]);
+  const selector = useRef<HTMLInputElement | null>(null);
   const finDelHilo = useRef<HTMLDivElement | null>(null);
+
+  function anadirAdjuntos(lista: FileList | null) {
+    if (!lista) return;
+    const nuevos = [...lista];
+    const grandes = nuevos.filter((f) => f.size > TAMANO_MAXIMO);
+    const validos = nuevos.filter((f) => f.size <= TAMANO_MAXIMO);
+    const juntos = [...adjuntos, ...validos].slice(0, MAXIMO_ADJUNTOS);
+    setAdjuntos(juntos);
+    if (grandes.length) setError(`«${grandes[0].name}» pasa de 25 MB y no se puede adjuntar.`);
+    else if (adjuntos.length + validos.length > MAXIMO_ADJUNTOS) setError(`Como mucho ${MAXIMO_ADJUNTOS} adjuntos por mensaje.`);
+    if (selector.current) selector.current.value = "";
+  }
 
   async function cargar(bajarAlFinal = false) {
     try {
@@ -87,8 +113,9 @@ export function CorreoPanel({ delivery, titulo, onClose }: CorreoPanelProps) {
     setError("");
     setAviso("");
     try {
-      const r = await escribirAlContactoApi(delivery.id, cuerpo);
+      const r = await escribirAlContactoApi(delivery.id, cuerpo, undefined, adjuntos);
       setTexto("");
+      setAdjuntos([]);
       setAviso(
         r.simulado
           ? "Anotado en la conversación, pero NO ha salido: falta la clave del buzón."
@@ -139,6 +166,26 @@ export function CorreoPanel({ delivery, titulo, onClose }: CorreoPanelProps) {
                     </div>
                     <div className="hilo__asunto">{m.asunto}</div>
                     <div className="hilo__cuerpo">{m.cuerpo}</div>
+                    {m.adjuntos?.length ? (
+                      <ul className="hilo__adjuntos">
+                        {m.adjuntos.map((a) => (
+                          <li key={a.id}>
+                            <button
+                              type="button"
+                              className="hilo__adjunto"
+                              title="Descargar"
+                              onClick={() =>
+                                void descargarAdjuntoDeCorreo(a).catch((err) =>
+                                  setError(err instanceof Error ? err.message : "No se pudo descargar el adjunto."),
+                                )
+                              }
+                            >
+                              📎 {a.nombre} <span>{tamano(a.tamano)}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                     {origen ? <div className="hilo__origen">{origen}</div> : null}
                   </li>
                 );
@@ -160,6 +207,25 @@ export function CorreoPanel({ delivery, titulo, onClose }: CorreoPanelProps) {
         </div>
 
         <footer className="rv__foot hilo__pie">
+          {adjuntos.length ? (
+            <ul className="hilo__adjuntos hilo__adjuntos--nuevos">
+              {adjuntos.map((f, i) => (
+                <li key={`${f.name}-${i}`}>
+                  <span className="hilo__adjunto">
+                    📎 {f.name} <span>{tamano(f.size)}</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="cv__ghost cv__ghost--sm"
+                    aria-label={`Quitar ${f.name}`}
+                    onClick={() => setAdjuntos(adjuntos.filter((_, j) => j !== i))}
+                  >
+                    Quitar
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <label className="hilo__escribir">
             <span className="sr-only">Escribir al colegio</span>
             <textarea
@@ -170,13 +236,29 @@ export function CorreoPanel({ delivery, titulo, onClose }: CorreoPanelProps) {
               disabled={enviando}
             />
           </label>
+          <input
+            ref={selector}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => anadirAdjuntos(e.target.files)}
+          />
+          <button
+            type="button"
+            className="cv__ghost cv__ghost--sm"
+            onClick={() => selector.current?.click()}
+            disabled={enviando || adjuntos.length >= MAXIMO_ADJUNTOS}
+            title="Adjuntar un presupuesto revisado, un plano… (hasta 5, de 25 MB)"
+          >
+            Adjuntar
+          </button>
           <button
             type="button"
             className="cv__primary cv__primary--sm"
             onClick={() => void enviar()}
             disabled={enviando || !texto.trim()}
           >
-            {enviando ? "Enviando…" : "Enviar"}
+            {enviando ? "Enviando…" : adjuntos.length ? `Enviar con ${adjuntos.length} adjunto${adjuntos.length === 1 ? "" : "s"}` : "Enviar"}
           </button>
         </footer>
       </aside>

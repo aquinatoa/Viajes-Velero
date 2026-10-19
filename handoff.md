@@ -2229,3 +2229,143 @@ Ruth. No impiden cotizar, pero no salen en la propuesta.
 - `PETICIONES-cliente-estado-2026-10-08.md`, `PLAN-respuestas-2026-10-08.md`.
 - `Oravia - 2026-10-08 - Transcripcion Fathom.md`: la reunión del 08/10.
 - `TRABAJOS-05-10.md`: el diario de trabajo del 05 al 08/10.
+
+## Tanda 3 en local (rama `tanda-3`, 15/10/2026) · sin subir, a la espera de su OK
+
+Lo pedido en la reunión del 08/10 (minutos 8-13 de la transcripción):
+
+- **Periodos en las actividades.** `ActivityRate` ya guarda `seasonName`,
+  `dateFrom` y `dateTo`; antes se leían y se perdían al publicar. El lector de
+  la plantilla crea una tarifa por periodo cuando la columna «Temporada /
+  Validez» lo dice sin adivinar («Del 01/05/2027 al 31/10/2027», «2027 (excepto
+  julio y agosto)»; ver `src/domain/periodosDeActividad.ts`). En la revisión hay
+  una columna «Periodo» y un botón **Duplicar**, que crea una copia pendiente y
+  sin fechas. Al cotizar, una actividad sin tarifa en las fechas del viaje sale
+  igual, marcada **«Fuera de temporada»** y al final. La migración
+  `periodos_de_actividades_publicadas` pone los periodos a las 24 tarifas ya
+  publicadas (21 se parten en dos), sin tocar los ids ni la revisión de Ruth.
+  El Tuna Tour de Balfegó trae las fechas en las observaciones: hay que
+  ponérselas a mano con Duplicar.
+- **Departamento en los documentos** (`SourceDocument.department`: GROUPS,
+  SPORTS o null = los dos). Se elige al subir, se cambia al editar y se filtra
+  en la lista de Tarifas. Al cotizar **filtra solo alojamientos**: para
+  actividades Javier dijo «que no las filtre, da igual». Se lee del documento
+  al buscar, así que cambiarlo vale al momento. La migración pone Deportivo a
+  los documentos de fútbol; «Hoteles Oravia 2027» queda para los dos.
+- **«Cliente especial»** sustituye a «Turoperador suizo». La lista está en
+  `CLIENTES_ESPECIALES` (`src/domain/documentImportTypes.ts`): turoperador suizo
+  (el código sigue siendo `SWISS_TTOO`) y Azul Marino. Añadir uno es una línea.
+
+## Más en `tanda-3` (15/10/2026, tarde) · todo en local, sin subir
+
+Tras el correo de Javier del 15/10 (los 30 días de prueba «se nos están
+pasando»; ya pagó; espera que el plazo cuente desde que esté lista) se cerró
+todo lo nuestro de la reunión del 08/10 y del inventario. El informe de qué
+revisar y qué está bloqueado: **`INFORME-revision-local-2026-10-15.html`**.
+
+- **Tarifas ad hoc** (`src/domain/adHoc.ts`, `AltaAdHoc.tsx`): «+ Fuera del
+  catálogo» en alojamientos y actividades; id `adhoc:`, se guarda sin enlace
+  al catálogo. El texto pegado del proveedor NO va al PDF (lleva el coste). No
+  guarda coste: en Servicios Contratados su fila entra sin validar.
+- **Adjuntos en la conversación** (`server/adjuntosDeCorreo.ts`, tabla
+  `CorreoAdjunto`): hasta 5 de 25 MB al responder; los del colegio se guardan
+  al recoger el correo (sin las imágenes de firma); descarga con sesión.
+- **Cliente especial con porcentaje** (`precioClienteEspecial.ts`): su tarifa
+  propia manda, **por nombre de hotel o actividad**; si no, la general con su
+  porcentaje (`porcentajeSobrePvp`, hoy vacío: falta que Javier lo dé).
+- **Tarifa suiza separada** (migración generada por
+  `scripts/generar-separar-cambrils-suizo.mjs`): las 42 tarifas pasan de
+  «CAMBRILS PARK-FUTBOL SALOU» a MED1 (12), MED2/3 (12) y Villa Bonita (18). Si
+  se vuelve a publicar ese documento desde la revisión, volvería a juntarlos.
+- **Dietas y accesibilidad**: el Excel de hoteles solo lo dice en 2 y 1
+  hoteles, igual que la app. No se perdió nada; falta el dato en origen.
+
+Bloqueado por decisiones o datos: plazo de 30 días (Anthony y Cristian), `.env`
+de Mateo, porcentajes de clientes especiales, descuento de 2 € automático,
+coste de 24 tarifas de fútbol, sesión con los comerciales, condiciones de Ruth,
+actividades top, correos automáticos, segundo vencimiento, borrar tratos de
+prueba (después de validar Servicios Contratados en producción).
+
+### Arreglos salidos al preparar las guías de prueba (15/10/2026, noche)
+
+- **Actividades «fuera del destino»** (también en producción): la plantilla v2
+  se subió con ubicación «Costa Daurada» y esa palabra quedó como localidad
+  de sus 129 actividades; no coincidía con ningún destino. Ahora, si la
+  localidad es un nombre de zona, manda el sitio de la actividad. En local,
+  Salou pasa de ~19 a 128 actividades en el destino.
+- **Duplicar tarifa** lleva a Pendientes y a la ficha de esa actividad: la
+  copia nace pendiente y desde Aprobados no se veía.
+- **Ad hoc**: el régimen de la petición se precarga como código («pensión
+  completa» → PC); antes decía «Elige el régimen» aunque se viera elegido.
+- **Mensajes de prueba que el lector entiende enteros** (están en el informe):
+  Salou y Cambrils se leen completos; Calella no está en la lista de pueblos y
+  la app pregunta el destino.
+
+### Fuera del catálogo = adjuntar la cotización del proveedor (15/10/2026, noche)
+
+Anthony vio el formulario de teclear precios y pidió que fuera «un adjuntar
+documento, como el analizador de tarifas, pero más sencillo, porque ya
+sabríamos de qué hoteles estamos subiendo la información», teniendo en cuenta
+lo de Javier (29/09: «el proveedor nos cotiza en el momento un correo»; «los
+hoteles no tienen tarifas de grupos»). Commit `f1177af` en `tanda-3`.
+
+- **Paso 1** en `AltaAdHoc.tsx`: se adjunta PDF, foto, Excel, .txt o .eml, o se
+  pega el correo. `POST /api/cotizaciones-proveedor/lectura` (multipart
+  `archivo` + `texto` + `contexto` JSON) guarda el justificante (tabla
+  `CotizacionProveedor`, ficheros en `ORAVIA_STORAGE_DIR/cotizaciones-proveedor/<id>/`)
+  y lo lee con Claude (`server/cotizacionDelProveedor.ts`: mismo
+  `getAiProviderConfig`, PDF/imagen como bloque nativo, Excel/.txt por
+  `extractDocumentText`, .eml con `mailparser`). Si la lectura falla, el
+  justificante se guarda igual y se pone el coste a mano. Word y .msg: aviso.
+- **Paso 2**: propone el COSTE (por alumno y noche; pasa precios por estancia
+  y elige el régimen pedido, avisando), aplica el margen del departamento
+  (8 % Grupos / 12 % Deportivo, `src/domain/cotizacionDelProveedor.ts`) y
+  enseña el precio al colegio. Todo editable.
+- **El coste se guarda en la propuesta**: `ProposalAccommodationOption.studentCostAmount/
+  teacherCostAmount/supplierQuoteId` y `ProposalActivityOption.unitCostAmount/
+  supplierQuoteId` (migración `20261015140000_cotizacion_del_proveedor`). Se
+  guarda para TODAS las opciones (el neto de la tarifa elegida), no solo las ad
+  hoc. `costeDeLaFila` en Servicios Contratados usa el guardado y, si no hay
+  (propuestas viejas), `costeDelPrecio` como antes.
+- **Manda sobre el catálogo**: `conLoAdHoc(..., nombreDe)` quita el del
+  catálogo con el mismo nombre normalizado y `sustituidosPor` cambia la
+  elección.
+- Probado: lectura real de un correo (126 € estancia → 42 €/noche, descarta MP)
+  y por HTTP (.txt de actividad, Word rechazado con justificante, descarga).
+  Pruebas: `test:cotizacion` (nueva), `test:adhoc`, `test:contratado`; batería
+  entera en verde. Guía R1 del informe reescrita; fichero de prueba en
+  `pruebas-locales/cotizacion-bodega.txt` (sin versionar).
+- **Pregunta para Javier**: si el proveedor dice «IVA aparte», ¿se suma al
+  coste? Hoy se avisa y no se suma.
+
+### Informe: pestaña «Alcance y extras» (19/10/2026)
+
+En `INFORME-revision-local-2026-10-15.html` hay una pestaña nueva (sin tocar
+Puntos ni las guías) que separa lo del **alcance** (propuesta del 10/07,
+bloques 1–11, ≈145 h; los **correctivos** cuentan como alcance con su marca)
+de lo **extra**, con su estado (producción, local, bloqueado, pendiente) y
+quién lo pidió. Datos en el array `INVENTARIO` del propio HTML; criterio de
+cada fila caso dudoso en su campo `por`. Ojo comercial: la ampliación de
+agosto (115–135 h) sigue «pendiente de aprobar con Raúl» en
+`comunicaciones/REGISTRO.md`, y lo de septiembre y octubre no está estimado.
+Pendiente sin empezar que no estaba en el informe: idiomas CAT/ENG/FR (Ruth, 21/09).
+
+### Clientes especiales en la base de datos (19/10/2026)
+
+Al revisar R4, Anthony: «cualquier cliente, cliente especial, y pedir los datos
+del cliente especial o tomarlos del documento». Tabla `ClienteEspecial`
+(migración `20261019100000_clientes_especiales`, siembra SWISS_TTOO y
+AZUL_MARINO con su código de siempre). `server/clientesEspeciales.ts`:
+listar, alta (si ya existe uno con ese nombre devuelve ese) y
+`detectarClienteEnDocumento` (IA; reutiliza `loQueSeLeEnsena`/`preguntarAlModelo`
+de `cotizacionDelProveedor.ts`). Endpoints `GET/POST /api/clientes-especiales` y
+`POST /api/clientes-especiales/detectar`. En pantalla, `useClientesEspeciales()`
+(una carga compartida) en la subida, la edición del documento y «Cotizamos
+para». `ClientSegment` pasa a ser `string`; `CLIENTES_ESPECIALES` queda como
+lista de partida. La búsqueda lee el porcentaje de la base. Prueba nueva
+`test:clientes`; guía R4 rehecha con `pruebas-locales/tarifa-suizo.txt` y
+`tarifa-cliente-nuevo.txt`.
+
+También del 19/10, al revisar: desplegables legibles en el lienzo y en
+Tarifas (`color-scheme: light` en `:root`) y filtro por departamento en
+«Catálogo publicado».

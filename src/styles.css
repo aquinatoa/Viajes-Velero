@@ -1,5 +1,9 @@
 :root {
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  /* La app es clara. Sin esto, un navegador en modo oscuro pinta en negro los
+     campos y desplegables que no llevan color propio (el buscador y el filtro
+     de Tarifas, «Cotizamos para»…: Anthony, 19/10/2026). */
+  color-scheme: light;
   color: var(--ink);
   background-color: var(--bg);
   line-height: 1.55;
@@ -892,6 +896,40 @@ tr.is-selected {
   border: 1px solid rgba(19, 35, 47, 0.18);
   border-radius: 10px;
   font-size: 0.88rem;
+  /* Con su fondo y su letra: sin ellos salían negros en modo oscuro. */
+  background: var(--surface);
+  color: var(--ink);
+}
+
+select.doc-search {
+  min-width: 200px;
+  cursor: pointer;
+}
+
+.doc-search option {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+/* El departamento de un alojamiento o actividad del catálogo, cuando su
+   documento es de uno solo. Los de «los dos» no llevan etiqueta. */
+.dept-tag {
+  display: inline-block;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.dept-tag--groups {
+  background: rgba(19, 46, 93, 0.1);
+  color: var(--brand);
+}
+
+.dept-tag--sports {
+  background: rgba(252, 187, 55, 0.22);
+  color: #6b4a06;
 }
 
 .chip {
@@ -6556,6 +6594,41 @@ button.cw-ev__more:hover { text-decoration: underline; }
   box-shadow: 0 0 0 3px rgba(252, 187, 55, 0.45);
 }
 
+/* Los desplegables («Cotizamos para», «Departamento») iban sin estilo y el
+   navegador les ponía la letra casi blanca: no se leía lo elegido ni las
+   opciones de la lista (Anthony, 19/10/2026). Igual que las cajas de texto,
+   con la letra y el fondo puestos, también en cada opción. */
+.cv__field select {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: var(--surface);
+  color: var(--ink);
+  color-scheme: light;
+  cursor: pointer;
+}
+
+.cv__field select:hover:not(:focus) {
+  border-color: rgba(19, 46, 93, 0.3);
+}
+
+.cv__field select:focus {
+  outline: none;
+  border-color: var(--cv-navy);
+  box-shadow: 0 0 0 3px rgba(252, 187, 55, 0.45);
+}
+
+.cv__field select option {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.cv__field select option:checked {
+  background: var(--cv-navy);
+  color: #fff;
+}
+
 /* Lo que falta se seÃ±ala, no se bloquea. */
 .cv__field--miss input {
   border-color: rgba(252, 187, 55, 0.75);
@@ -9862,6 +9935,39 @@ button.cw-ev__more:hover { text-decoration: underline; }
   color: #fff;
 }
 
+/* Cliente especial: cuál es, o darlo de alta (19/10/2026). */
+.alta__especial {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.alta__leer {
+  justify-self: start;
+  background: var(--cv-amber, #fcbb37);
+  color: #3d2c05;
+  border: 0;
+  font-weight: 700;
+}
+
+.alta__leer:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.alta__leido {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+
+.alta__leido--nota {
+  color: var(--muted);
+}
+
 .alta__chip--free {
   display: flex;
   align-items: center;
@@ -12059,3 +12165,250 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 .cv__info--act { margin-left: 42px; }
 .tarifas__tabla .tarifas__precio--elegida { background: var(--highlight-bg, rgba(31, 122, 77, 0.12)); font-weight: 700; }
 .tarifas__marca { color: var(--ok, #1f7a4d); }
+
+/* Hoteles y actividades fuera del catálogo («ad hoc»): Ruth, 29/09/2026. */
+.ah {
+  margin: 10px 0 14px;
+  padding: 14px 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  display: grid;
+  gap: 10px;
+}
+.ah__t {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.ah__t span {
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--muted);
+}
+.ah__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.ah select,
+.ah textarea {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.ah__problemas {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--danger, #b42318);
+  font-size: 13px;
+}
+.ah__acc {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ah__lista {
+  list-style: none;
+  margin: 6px 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.ah__lista li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13.5px;
+}
+.ah__lista li span:not(.cv__actchip) {
+  color: var(--muted);
+}
+.ah__lista li button {
+  margin-left: auto;
+}
+/* La cotización del proveedor: primero el documento, luego la revisión. */
+.ah__paso {
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.ah__n {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.ah__n b {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--cv-navy);
+  color: #fff;
+  font-size: 12px;
+}
+.ah__drop {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  text-align: center;
+  padding: 18px 14px;
+  border: 2px dashed var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.ah__drop small {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.ah__drop:hover,
+.ah__drop.on {
+  border-color: var(--cv-amber);
+  background: rgba(252, 187, 55, .08);
+}
+.ah__drop.lleno {
+  border-style: solid;
+  border-color: var(--cv-navy);
+}
+.ah__quitar {
+  justify-self: start;
+}
+.ah__error {
+  margin: 0;
+  color: var(--danger, #b42318);
+  font-size: 13px;
+}
+.ah__avisos {
+  margin: 0;
+  padding: 8px 12px 8px 28px;
+  border-radius: 8px;
+  background: rgba(252, 187, 55, .14);
+  color: var(--ink);
+  font-size: 13px;
+}
+.ah__avisos--uno {
+  padding-left: 12px;
+}
+.ah__cita {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.ah__cita q {
+  color: var(--ink);
+  font-style: italic;
+}
+.ah__just {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.ah__enlace {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.ah__margen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.ah__margen .alta__chip {
+  padding: 6px 12px;
+}
+.ah__margen input {
+  width: 80px;
+}
+.ah__venta {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink);
+}
+.ah__venta small {
+  color: var(--muted);
+}
+/* «+ Fuera del catálogo»: en amarillo, como la lupa, para que se vea que la
+   opción existe (Anthony, 15/10/2026: «no se aprecia que exista»). */
+.cv__ghost.ah__abrir {
+  margin-left: auto;
+  border: 0;
+  background: var(--cv-amber);
+  color: #3d2c05;
+  font-weight: 700;
+  box-shadow: var(--shadow-panel);
+  transition: background 160ms var(--ease-out), transform 120ms var(--ease-out);
+}
+.cv__ghost.ah__abrir:hover:not(:disabled) {
+  background: #e9a81f;
+  transform: translateY(-1px);
+}
+.cv__ghost.ah__abrir:focus-visible {
+  outline: 3px solid rgba(252, 187, 55, .45);
+  outline-offset: 2px;
+}
+/* Abierto, como la lupa abierta: azul. */
+.cv__ghost.ah__abrir[aria-expanded="true"] {
+  background: var(--cv-navy);
+  color: #fff;
+}
+
+/* Adjuntos de la conversación con el colegio (Javier, 08/10/2026). */
+.hilo__adjuntos {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.hilo__adjuntos--nuevos {
+  flex-basis: 100%;
+  margin: 0 0 6px;
+}
+.hilo__adjuntos--nuevos li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.hilo__adjunto {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+}
+button.hilo__adjunto:hover {
+  background: var(--surface-2);
+}
+.hilo__adjunto span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.hilo__pie {
+  flex-wrap: wrap;
+}

@@ -6,6 +6,7 @@ import type {
   AiDetectedActivity,
   AiDocumentAnalysisResult,
 } from "../src/domain/documentImportTypes";
+import { leerPeriodos } from "../src/domain/periodosDeActividad";
 
 const XLSX = XLSXModule as typeof import("xlsx");
 
@@ -300,11 +301,20 @@ function volcarHoja(
     const { minPax, maxPax } = tamanoDeGrupo(grupo);
     const { ageMin, ageMax } = edadDesdeTexto(edad);
     const variante = [grupo, edad].filter(Boolean).join(" · ");
-    tarifas.push({
+    const anio = anoDeTemporada(temporada) ?? controlYear;
+    // Una tarifa por periodo cuando la temporada los dice sin adivinar («Del
+    // 01/05/2027 al 31/10/2027», «2027 (excepto julio y agosto)»). Si no, una
+    // sola que vale todo el año, y quien revisa puede duplicarla y ponerle
+    // fechas (el Tuna Tour de Balfegó las trae en las observaciones).
+    const periodos: Array<{ desde: string | null; hasta: string | null }> = leerPeriodos(temporada, anio);
+    if (periodos.length === 0) periodos.push({ desde: null, hasta: null });
+    for (const periodo of periodos) tarifas.push({
       activityName: nombre,
       rateUnit: unidadDeTarifa(f.celda("unidad")),
-      year: anoDeTemporada(temporada) ?? controlYear,
+      year: anio,
       seasonName: temporada,
+      dateFrom: periodo.desde,
+      dateTo: periodo.hasta,
       currency: "EUR",
       salePvpAmount: f.venta,
       costNetAmount: f.coste,

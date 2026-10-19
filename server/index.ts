@@ -22,6 +22,9 @@ import {
 import { searchAccommodationsDb, searchActivitiesDb } from "./searchDb";
 import { bandeja, hiloDeLaEntrega } from "./correoDb";
 import { escribirAlContacto } from "./correoSaliente";
+import { leerAdjunto } from "./adjuntosDeCorreo";
+import { leerCotizacionDelProveedor, leerJustificante } from "./cotizacionDelProveedor";
+import type { ContextoDeCotizacion } from "../src/domain/cotizacionDelProveedor";
 import { fichaDeLaPropuesta } from "./fichaPropuesta";
 import {
   borrarSolicitudDb,
@@ -53,6 +56,7 @@ import {
   attachInventoryDocumentFile,
   countInventoryDocumentStaging,
   bulkUpdateStagingReview,
+  duplicateStagingActivityRate,
   confirmAccommodationAssignmentDb,
   createInventoryDocument,
   createInventoryDocumentStaging,
@@ -80,6 +84,13 @@ import { toRateKind } from "./pricing";
 import { listarLecturasIa, registrarLecturaIa, updateInventoryDocumentAiUsage } from "./documentImportDb";
 import { resumirConsumo } from "./consumoIa";
 import type { AiUsage } from "../src/domain/documentImportTypes";
+import {
+  codigosDeClientesEspeciales,
+  crearClienteEspecial,
+  detectarClienteEnDocumento,
+  listarClientesEspeciales,
+  problemasDelAlta,
+} from "./clientesEspeciales";
 import {
   approveTripProposalDb,
   ensureTripRequestDealDb,
@@ -553,11 +564,15 @@ app.post("/api/crm/opportunities/:id/update", async (request, response) => {
  * Se valida en el servidor y no solo en la pantalla porque de esto depende que
  * una tarifa se publique con margen o sin él.
  */
-function validateRateDeclaration(payload: {
-  rateKind?: string;
-  marginPercent?: number | null;
-  clientSegment?: string | null;
-}): string | null {
+function validateRateDeclaration(
+  payload: {
+    rateKind?: string;
+    marginPercent?: number | null;
+    clientSegment?: string | null;
+  },
+  /** Los códigos de los clientes especiales que existen (de la base de datos). */
+  segmentosValidos: string[],
+): string | null {
   const { rateKind, marginPercent, clientSegment } = payload;
 
   if (rateKind !== undefined && !["PURCHASE", "SALE", "UNKNOWN"].includes(rateKind)) {
@@ -576,10 +591,18 @@ function validateRateDeclaration(payload: {
   ) {
     return "El margen tiene que ser un porcentaje entre 0 y 100.";
   }
-  if (clientSegment && !["GENERIC", "SWISS_TTOO"].includes(clientSegment)) {
-    return "El tipo de cliente no es uno de los conocidos.";
+  if (clientSegment && clientSegment !== "GENERIC" && !segmentosValidos.includes(clientSegment)) {
+    return "Ese cliente especial no existe: dalo de alta al subir el documento.";
   }
   return null;
+}
+
+/** Grupos, Turismo Deportivo o los dos (null). */
+function validateDepartment(department: unknown): string | null {
+  if (department === undefined || department === null || department === "") return null;
+  return department === "GROUPS" || department === "SPORTS"
+    ? null
+    : "El departamento tiene que ser Grupos o Turismo Deportivo.";
 }
 
 app.post("/api/inventory/documents", async (request, response) => {
@@ -594,6 +617,7 @@ app.post("/api/inventory/documents", async (request, response) => {
       rateKind?: string;
       marginPercent?: number | null;
       clientSegment?: string | null;
+      department?: string | null;
     };
 
     if (!payload.controlName?.trim()) {
@@ -603,7 +627,8 @@ app.post("/api/inventory/documents", async (request, response) => {
       return;
     }
 
-    const rateKindError = validateRateDeclaration(payload);
+    const rateKindError =
+      validateRateDeclaration(payload, await codigosDeClientesEspeciales()) ?? validateDepartment(payload.department);
     if (rateKindError) {
       response.status(400).json({ error: rateKindError });
       return;
@@ -619,6 +644,7 @@ app.post("/api/inventory/documents", async (request, response) => {
       rateKind: payload.rateKind,
       marginPercent: payload.marginPercent,
       clientSegment: payload.clientSegment,
+      department: payload.department || null,
     });
 
     response.json(document);
@@ -685,6 +711,7 @@ app.patch("/api/inventory/documents/:id", async (request, response) => {
       rateKind?: string;
       marginPercent?: number | null;
       clientSegment?: string | null;
+      department?: string | null;
     };
 
     if (payload.controlName !== undefined && !payload.controlName.trim()) {
@@ -692,7 +719,8 @@ app.patch("/api/inventory/documents/:id", async (request, response) => {
       return;
     }
 
-    const rateKindError = validateRateDeclaration(payload);
+    const rateKindError =
+      validateRateDeclaration(payload, await codigosDeClientesEspeciales()) ?? validateDepartment(payload.department);
     if (rateKindError) {
       response.status(400).json({ error: rateKindError });
       return;
@@ -1271,6 +1299,22 @@ app.patch("/api/inventory/staging/bulk", async (request, response) => {
     }
     console.error("Error bulk-updating staging entities", error);
     response.status(500).json({ error: "No se pudo actualizar el estado de los candidatos." });
+  }
+});
+
+// Otro periodo para una tarifa de actividad: la copia sale pendiente y sin
+// fechas (ver `duplicateStagingActivityRate`).
+app.post("/api/inventory/staging/activity-rates/:id/duplicate", async (request, response) => {
+  try {
+    const copia = await duplicateStagingActivityRate(String(request.params.id));
+    if (!copia) {
+      response.status(404).json({ error: "Tarifa no encontrada." });
+      return;
+    }
+    response.json(copia);
+  } catch (error) {
+    console.error("Error duplicating staging activity rate", error);
+    response.status(500).json({ error: "No se pudo duplicar la tarifa." });
   }
 });
 
@@ -2189,13 +2233,20 @@ app.get("/api/deliveries/:id/correo", requireAuth, async (request, response) => 
   }
 });
 
-app.post("/api/deliveries/:id/correo", requireAuth, async (request, response) => {
+// Con adjuntos va como formulario (multipart); sin ellos, como JSON. Hasta 5.
+app.post("/api/deliveries/:id/correo", requireAuth, upload.array("adjuntos", 5), async (request, response) => {
   try {
     const body = (request.body ?? {}) as { texto?: string; asunto?: string };
+    const ficheros = (request.files as Express.Multer.File[] | undefined) ?? [];
     const resultado = await escribirAlContacto(
       String(request.params.id),
       String(body.texto ?? ""),
       body.asunto,
+      ficheros.map((f) => ({
+        nombre: decodeFileName(f.originalname),
+        tipo: f.mimetype || "application/octet-stream",
+        contenido: f.buffer,
+      })),
     );
 
     if (!resultado.enviado && !resultado.simulado) {
@@ -2214,6 +2265,162 @@ app.post("/api/deliveries/:id/correo", requireAuth, async (request, response) =>
   } catch (error) {
     console.error("Error escribiendo al contacto", error);
     response.status(500).json({ error: "No se pudo enviar el mensaje." });
+  }
+});
+
+// Descargar un adjunto de la conversación. Con sesión: son documentos del
+// colegio (listas de alumnos) y no pueden quedar a la vista de cualquiera.
+app.get("/api/correo/adjuntos/:id", requireAuth, async (request, response) => {
+  try {
+    const adjunto = await leerAdjunto(String(request.params.id));
+    if (!adjunto) {
+      response.status(404).json({ error: "Ese adjunto ya no está." });
+      return;
+    }
+    response.setHeader("Content-Type", adjunto.tipo);
+    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(adjunto.nombre)}`);
+    response.sendFile(adjunto.ruta);
+  } catch (error) {
+    console.error("Error descargando un adjunto", error);
+    response.status(500).json({ error: "No se pudo descargar el adjunto." });
+  }
+});
+
+// Los clientes especiales (los que tienen precio propio pactado). Se dan de
+// alta al subir su tarifa; la lista la usan la subida, la edición del
+// documento y «Cotizamos para».
+app.get("/api/clientes-especiales", requireAuth, async (_request, response) => {
+  try {
+    response.json({ clientes: await listarClientesEspeciales() });
+  } catch (error) {
+    console.error("Error listando los clientes especiales", error);
+    response.status(500).json({ error: "No se pudo cargar la lista de clientes especiales." });
+  }
+});
+
+app.post("/api/clientes-especiales", requireAuth, async (request, response) => {
+  try {
+    const body = (request.body ?? {}) as { nombre?: unknown; detalle?: unknown; porcentajeSobrePvp?: unknown };
+    const problemas = problemasDelAlta(body);
+    if (problemas.length) {
+      response.status(400).json({ error: problemas.join(" ") });
+      return;
+    }
+    const porcentaje =
+      body.porcentajeSobrePvp === null || body.porcentajeSobrePvp === undefined || body.porcentajeSobrePvp === ""
+        ? null
+        : Number(body.porcentajeSobrePvp);
+    const usuario = (request as AuthedRequest).user;
+    const resultado = await crearClienteEspecial(
+      { nombre: String(body.nombre), detalle: typeof body.detalle === "string" ? body.detalle : null, porcentajeSobrePvp: porcentaje },
+      usuario?.email ?? null,
+    );
+    if (resultado.nuevo) {
+      await writeAudit({
+        user: usuario,
+        action: "CLIENTE_ESPECIAL_ALTA",
+        entity: `ClienteEspecial:${resultado.cliente.codigo}`,
+        detail: resultado.cliente.nombre,
+      });
+    }
+    response.json(resultado);
+  } catch (error) {
+    console.error("Error dando de alta un cliente especial", error);
+    response.status(500).json({ error: "No se pudo dar de alta el cliente especial." });
+  }
+});
+
+// Para qué cliente es la tarifa que se va a subir, leído del propio documento.
+app.post("/api/clientes-especiales/detectar", requireAuth, upload.single("archivo"), async (request, response) => {
+  try {
+    if (!request.file) {
+      response.status(400).json({ error: "Elige primero el documento." });
+      return;
+    }
+    const resultado = await detectarClienteEnDocumento({
+      nombre: decodeFileName(request.file.originalname),
+      tipo: request.file.mimetype || "application/octet-stream",
+      contenido: request.file.buffer,
+    });
+    response.json(resultado);
+  } catch (error) {
+    console.error("Error leyendo el cliente del documento", error);
+    response.status(502).json({
+      error: `No se pudo leer el cliente del documento: ${error instanceof Error ? error.message : String(error)}. Escríbelo a mano.`,
+    });
+  }
+});
+
+// La cotización de un proveedor para un hotel o una actividad fuera del
+// catálogo (Javier, 29/09/2026): se adjunta el fichero o se pega el correo, se
+// guarda como justificante y se lee el coste. Quien cotiza lo revisa antes de
+// añadirlo; aquí no se elige nada.
+app.post("/api/cotizaciones-proveedor/lectura", requireAuth, upload.single("archivo"), async (request, response) => {
+  try {
+    const body = (request.body ?? {}) as { texto?: string; contexto?: string };
+    let contexto: ContextoDeCotizacion;
+    try {
+      contexto = JSON.parse(String(body.contexto ?? "{}")) as ContextoDeCotizacion;
+    } catch {
+      response.status(400).json({ error: "Falta el contexto de la petición." });
+      return;
+    }
+    if (contexto.tipo !== "hotel" && contexto.tipo !== "actividad") {
+      response.status(400).json({ error: "Tipo de cotización no válido." });
+      return;
+    }
+    const fichero = request.file
+      ? {
+          nombre: decodeFileName(request.file.originalname),
+          tipo: request.file.mimetype || "application/octet-stream",
+          contenido: request.file.buffer,
+        }
+      : null;
+    const texto = String(body.texto ?? "");
+    if (!fichero && !texto.trim()) {
+      response.status(400).json({ error: "Adjunta la cotización del proveedor o pega su correo." });
+      return;
+    }
+    const usuario = (request as AuthedRequest).user;
+    const resultado = await leerCotizacionDelProveedor({
+      fichero,
+      textoPegado: texto,
+      contexto,
+      usuario: usuario?.email ?? null,
+    });
+    await writeAudit({
+      user: usuario,
+      action: "COTIZACION_PROVEEDOR_LEIDA",
+      entity: `CotizacionProveedor:${resultado.id}`,
+      detail: `${contexto.tipo} · ${resultado.documento ?? "texto pegado"} · coste ${resultado.lectura.coste ?? "sin leer"}`,
+    });
+    response.json(resultado);
+  } catch (error) {
+    console.error("Error leyendo la cotización del proveedor", error);
+    response.status(500).json({ error: "No se pudo guardar la cotización del proveedor." });
+  }
+});
+
+// El justificante de un precio ad hoc. Con sesión: lleva el coste.
+app.get("/api/cotizaciones-proveedor/:id", requireAuth, async (request, response) => {
+  try {
+    const justificante = await leerJustificante(String(request.params.id));
+    if (!justificante) {
+      response.status(404).json({ error: "Esa cotización ya no está." });
+      return;
+    }
+    if ("texto" in justificante) {
+      response.setHeader("Content-Type", "text/plain; charset=utf-8");
+      response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''cotizacion-proveedor.txt");
+      response.send(justificante.texto);
+      return;
+    }
+    response.setHeader("Content-Type", justificante.tipo);
+    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(justificante.nombre)}`);
+    response.sendFile(justificante.ruta);
+  } catch (error) {
+    console.error("Error descargando la cotización del proveedor", error);
+    response.status(500).json({ error: "No se pudo descargar la cotización." });
   }
 });
 

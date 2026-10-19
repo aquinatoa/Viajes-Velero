@@ -243,6 +243,13 @@ model ActivityRate {
   commissionPercent Decimal?
   /// Para qué cliente vale este precio. null = cualquiera.
   clientSegment     String?
+  /// El periodo en que vale. Una actividad puede tener varios al año, cada uno
+  /// su tarifa (Ruth, 08/10/2026: el Tuna Tour de Balfegó, «dos periodos de
+  /// aplicación al año»). Sin fechas = todo el año. Venían en la lectura y se
+  /// perdían al publicar.
+  seasonName        String?
+  dateFrom          DateTime?
+  dateTo            DateTime?
   durationText      String?
   sourceFile        String?
   sourceSheet       String?
@@ -289,6 +296,13 @@ model ProposalAccommodationOption {
   // Estaban en el catalogo y no llegaban a la propuesta, asi que el documento
   // que ve el colegio no las decia. Es informacion que cambia el precio.
   freePolicyText            String?
+  /// Lo que nos cobra el proveedor por alumno y por profesor y noche: el coste
+  /// de la tarifa elegida. Servicios Contratados lo usa antes que buscarlo en
+  /// el catálogo, y en un alojamiento ad hoc es el único sitio donde está.
+  studentCostAmount         Decimal?
+  teacherCostAmount         Decimal?
+  /// El justificante del precio cuando es ad hoc (CotizacionProveedor). Solo Oravia.
+  supplierQuoteId           String?
   isSelected                Boolean        @default(false)
   proposal                  TripProposal   @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   /// Si el alojamiento desaparece del catalogo, la opcion NO se borra.
@@ -319,6 +333,9 @@ model ProposalActivityOption {
   linesJson            String?
   /// El total del grupo: la suma de las líneas.
   amountTotal          Decimal?
+  /// Lo que nos cobra el proveedor por alumno. Ver el alojamiento.
+  unitCostAmount       Decimal?
+  supplierQuoteId      String?
   isSelected           Boolean      @default(true)
   proposal             TripProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   /// Igual que en el alojamiento: la actividad puede desaparecer del catalogo
@@ -384,6 +401,12 @@ model SourceDocument {
   // Para qué cliente es la tarifa cuando rateKind = SALE. El mismo alojamiento
   // tiene precios distintos por canal (p. ej. TTOO suizo vs. cliente general).
   clientSegment String?
+  // Para qué departamento son estas tarifas: GROUPS, SPORTS o null (los dos).
+  // Javier, 08/10/2026: «hay un hotel que tiene precios diferentes dependiendo
+  // de si es para un grupo o si es para turismo deportivo». Se lee del
+  // documento al buscar, así que cambiarlo aquí vale al momento, sin volver a
+  // publicar.
+  department    String?
 
   status           String   @default("UPLOADED")
   extractionStatus String   @default("NOT_STARTED")
@@ -915,10 +938,60 @@ model CorreoMensaje {
   /// Si alguien de Oravia ya lo ha visto en la app.
   visto Boolean @default(false)
 
+  /// Los ficheros que trae o que se mandaron con él.
+  adjuntos CorreoAdjunto[]
+
   createdAt DateTime @default(now())
 
   @@index([deliveryId])
   @@index([buzon, direccion])
   @@index([fecha])
   @@index([emparejadoPor])
+}
+
+/// Un fichero de la conversación con el colegio: lo que manda él (la lista de
+/// alumnos, el justificante) o lo que le mandamos (un presupuesto revisado).
+/// Javier, 08/10/2026. El fichero vive en el almacén; aquí, dónde está.
+/// Un cliente con precio propio pactado (turoperador, agencia, club). Sus
+/// tarifas llevan su `codigo` en `clientSegment`. Hasta el 19/10/2026 eran dos
+/// fijos en el código; ahora se dan de alta al subir su tarifa.
+model ClienteEspecial {
+  codigo             String   @id
+  nombre             String
+  detalle            String?
+  /// Sobre el PVP general cuando no tiene tarifa propia (-10 = un 10 % menos).
+  porcentajeSobrePvp Decimal?
+  activo             Boolean  @default(true)
+  creadoPor          String?
+  createdAt          DateTime @default(now())
+}
+
+/// La cotización que mandó un proveedor para un hotel o una actividad fuera
+/// del catálogo (Javier, 29/09/2026): el fichero o el correo pegado, y lo que
+/// se leyó de él. Es el justificante del precio ad hoc; nunca sale al colegio.
+model CotizacionProveedor {
+  id          String   @id @default(cuid())
+  /// hotel | actividad
+  tipo        String
+  nombre      String?
+  tipoFichero String?
+  tamano      Int?
+  ruta        String?
+  textoPegado String?
+  lecturaJson String?
+  creadoPor   String?
+  createdAt   DateTime @default(now())
+}
+
+model CorreoAdjunto {
+  id        String       @id @default(cuid())
+  mensajeId String
+  mensaje   CorreoMensaje @relation(fields: [mensajeId], references: [id], onDelete: Cascade)
+  nombre    String
+  tipo      String
+  tamano    Int
+  ruta      String
+  createdAt DateTime     @default(now())
+
+  @@index([mensajeId])
 }

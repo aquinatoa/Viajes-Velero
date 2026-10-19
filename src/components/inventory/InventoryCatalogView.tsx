@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { rejillaDeActividad, rejillaDeAlojamiento } from "../../domain/rejillaDeTarifas";
 import { TablaDeTarifas } from "./TablaDeTarifas";
-import type {
-  CatalogAccommodation,
-  CatalogActivity,
-  PublishedInventoryCatalog,
+import {
+  tariffDepartmentLabels,
+  type CatalogAccommodation,
+  type CatalogActivity,
+  type PublishedInventoryCatalog,
+  type TariffDepartment,
 } from "../../domain/documentImportTypes";
 import { getInventoryCatalogApi } from "../../services/apiClient";
 import { getErrorMessage } from "./inventoryFormatting";
@@ -13,13 +15,18 @@ import { getErrorMessage } from "./inventoryFormatting";
  * Catálogo global del inventario operativo publicado: reúne TODOS los
  * alojamientos y actividades (de cualquier documento, e incluso heredados de
  * Excel) en una sola vista de solo lectura, mostrando claramente de qué
- * documento de origen proviene cada uno. Tiene buscador por texto.
+ * documento de origen proviene cada uno. Tiene buscador por texto y filtro por
+ * departamento (Anthony, 19/10/2026: «lo de filtrar es para el catálogo
+ * publicado»): un documento de Grupos sale con Grupos, uno de Turismo
+ * Deportivo con Deportivo, y uno «para los dos» con cualquiera, igual que al
+ * cotizar.
  */
 export function InventoryCatalogView() {
   const [catalog, setCatalog] = useState<PublishedInventoryCatalog | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [departamento, setDepartamento] = useState<TariffDepartment | "">("");
 
   async function loadCatalog() {
     setLoading(true);
@@ -51,8 +58,19 @@ export function InventoryCatalogView() {
       .toLowerCase()
       .includes(normalized);
 
-  const accommodations = (catalog?.accommodations ?? []).filter(matchesAccommodation);
-  const activities = (catalog?.activities ?? []).filter(matchesActivity);
+  /** Sin departamento en el documento: vale para los dos. */
+  const delDepartamento = (item: { sourceDocumentDepartment?: TariffDepartment | null }) =>
+    !departamento || !item.sourceDocumentDepartment || item.sourceDocumentDepartment === departamento;
+
+  const accommodations = (catalog?.accommodations ?? []).filter(
+    (item) => matchesAccommodation(item) && delDepartamento(item),
+  );
+  const activities = (catalog?.activities ?? []).filter((item) => matchesActivity(item) && delDepartamento(item));
+
+  const etiquetaDepartamento = (valor?: TariffDepartment | null) =>
+    valor ? (
+      <span className={`dept-tag dept-tag--${valor.toLowerCase()}`}>{tariffDepartmentLabels[valor]}</span>
+    ) : null;
 
   const originLabel = (name?: string | null) =>
     name ? `Origen: ${name}` : "Origen: importado (Excel)";
@@ -78,6 +96,16 @@ export function InventoryCatalogView() {
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Buscar por nombre, ubicación, proveedor o documento"
           />
+          <select
+            className="doc-search"
+            aria-label="Departamento"
+            value={departamento}
+            onChange={(event) => setDepartamento(event.target.value as TariffDepartment | "")}
+          >
+            <option value="">Todos los departamentos</option>
+            <option value="GROUPS">Grupos</option>
+            <option value="SPORTS">Turismo Deportivo</option>
+          </select>
           <button type="button" disabled={loading} onClick={() => void loadCatalog()}>
             {loading ? "Actualizando..." : "Actualizar"}
           </button>
@@ -95,7 +123,11 @@ export function InventoryCatalogView() {
           <section>
             <h4>Alojamientos ({accommodations.length})</h4>
             {accommodations.length === 0 ? (
-              <p className="rate-table__empty">Sin alojamientos que coincidan.</p>
+              <p className="rate-table__empty">
+                {departamento
+                  ? `Sin alojamientos de ${tariffDepartmentLabels[departamento]} que coincidan.`
+                  : "Sin alojamientos que coincidan."}
+              </p>
             ) : (
               <ul className="published-list">
                 {accommodations.map((accommodation) => (
@@ -110,6 +142,7 @@ export function InventoryCatalogView() {
                           <span className="published-item__meta">{accommodation.categoryType}</span>
                         ) : null}
                         <span className="origin-tag">{originLabel(accommodation.sourceDocumentName)}</span>
+                        {etiquetaDepartamento(accommodation.sourceDocumentDepartment)}
                         <span className="published-item__count">
                           {accommodation.rates.length} tarifa(s)
                         </span>
@@ -132,7 +165,11 @@ export function InventoryCatalogView() {
           <section>
             <h4>Actividades ({activities.length})</h4>
             {activities.length === 0 ? (
-              <p className="rate-table__empty">Sin actividades que coincidan.</p>
+              <p className="rate-table__empty">
+                {departamento
+                  ? `Sin actividades de ${tariffDepartmentLabels[departamento]} que coincidan.`
+                  : "Sin actividades que coincidan."}
+              </p>
             ) : (
               <ul className="published-list">
                 {activities.map((activity) => (
@@ -147,6 +184,7 @@ export function InventoryCatalogView() {
                           <span className="published-item__meta">{activity.supplierName}</span>
                         ) : null}
                         <span className="origin-tag">{originLabel(activity.sourceDocumentName)}</span>
+                        {etiquetaDepartamento(activity.sourceDocumentDepartment)}
                         <span className="published-item__count">
                           {activity.rates.length} tarifa(s)
                         </span>

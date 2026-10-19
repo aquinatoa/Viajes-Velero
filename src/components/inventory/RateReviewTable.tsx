@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import type { StagingEntityKey } from "../../domain/documentImportTypes";
-import { patchInventoryStagingApi } from "../../services/apiClient";
+import { textoDelPeriodo } from "../../domain/periodosDeActividad";
+import { duplicateStagingActivityRateApi, patchInventoryStagingApi } from "../../services/apiClient";
 import {
   formatAmount,
   getErrorMessage,
@@ -370,6 +371,12 @@ interface RateReviewTableProps {
     label: string,
   ) => void;
   onSaved: () => Promise<void> | void;
+  /**
+   * Tras duplicar una tarifa: la copia sale PENDIENTE, así que en la pestaña
+   * Aprobados no se ve y parecía que el botón no hacía nada. Quien la usa lleva
+   * a Pendientes, a esa actividad.
+   */
+  onDuplicada?: (actividadId: string, copiaId: string) => void;
 }
 
 /**
@@ -382,6 +389,21 @@ export function RateReviewTable(props: RateReviewTableProps) {
   const { rates, entity, parentEntity, parentId, busy, columns, openId } = props;
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [duplicando, setDuplicando] = useState(false);
+
+  // Otro periodo para la misma tarifa: se copia y se abre la copia para
+  // ponerle las fechas. Sale pendiente, así que no se publica sin revisar.
+  async function duplicar(id: string) {
+    setDuplicando(true);
+    try {
+      const copia = await duplicateStagingActivityRateApi(id);
+      await props.onSaved();
+      setExpandedId(copia.id);
+      props.onDuplicada?.(parentId, copia.id);
+    } finally {
+      setDuplicando(false);
+    }
+  }
 
   // Al pulsar un precio en la matriz se abre aquí el editor de esa tarifa.
   useEffect(() => {
@@ -561,6 +583,17 @@ export function RateReviewTable(props: RateReviewTableProps) {
                       >
                         {isExpanded ? "Cerrar" : "Editar"}
                       </button>
+                      {entity === "activity-rates" ? (
+                        <button
+                          type="button"
+                          className="link-action"
+                          disabled={busy || duplicando}
+                          title="Crea una copia pendiente y sin fechas para ponerle otro periodo"
+                          onClick={() => void duplicar(rate.id)}
+                        >
+                          Duplicar
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                   {isExpanded ? (
@@ -639,6 +672,15 @@ export const RATE_UNIT_LABELS: Record<string, string> = {
  */
 export const activityRateColumns: CandidateColumn[] = [
   { header: "Variante", render: (i) => cell(i.ageLabel) },
+  // Una actividad puede tener varios periodos al año, cada uno con su tarifa
+  // (el Tuna Tour de Balfegó). Sin fechas vale todo el año.
+  {
+    header: "Periodo",
+    render: (i) =>
+      i.dateFrom || i.dateTo
+        ? textoDelPeriodo(i.dateFrom as string | null, i.dateTo as string | null)
+        : <span className="rate-table__empty">todo el año</span>,
+  },
   {
     header: "Cómo se cobra",
     render: (i) => {

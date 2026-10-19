@@ -80,6 +80,18 @@ import type {
   SearchActivitiesResult,
   TripProposal,
 } from "../../domain/types";
+import { nombreDelCanal } from "../../domain/clientesEspeciales";
+import { useClientesEspeciales } from "../useClientesEspeciales";
+import type { ClienteEspecial } from "../../domain/documentImportTypes";
+import {
+  actividadComoResultado,
+  conLoAdHoc,
+  hotelComoResultado,
+  sustituidosPor,
+  type ActividadAdHoc,
+  type HotelAdHoc,
+} from "../../domain/adHoc";
+import { AltaAdHoc, ListaAdHoc } from "./AltaAdHoc";
 
 /**
  * El lienzo: pantalla de nueva solicitud.
@@ -180,11 +192,10 @@ function euros(valor: number): string {
 }
 
 /** El canal de una tarifa, en palabras. GENERIC es un código interno, no un nombre. */
-function canalEnPalabras(segmento: string | null | undefined): string {
+function canalEnPalabras(segmento: string | null | undefined, clientes: ClienteEspecial[]): string {
   const s = (segmento ?? "").trim();
   if (!s || s === "GENERIC") return "general · vale para cualquier cliente";
-  if (s === "SWISS_TTOO") return "turoperador suizo";
-  return s;
+  return nombreDelCanal(s, clientes).replace("Cliente especial", "cliente especial");
 }
 
 /**
@@ -415,6 +426,18 @@ export function RequestCanvas({
    * lo demás: es una decisión suya, no un dato del catálogo.
    */
   const [preciosFijados, setPreciosFijados] = useState<Record<string, number>>({});
+  /**
+   * Hoteles y actividades fuera del catálogo, con el precio del proveedor
+   * (Ruth, 29/09/2026). Viven en la cotización: se mezclan con lo que devuelve
+   * cada búsqueda y viajan con el borrador.
+   */
+  const [hotelesAdHoc, setHotelesAdHoc] = useState<HotelAdHoc[]>([]);
+  const [actividadesAdHoc, setActividadesAdHoc] = useState<ActividadAdHoc[]>([]);
+  const [altaAdHoc, setAltaAdHoc] = useState<"hotel" | "actividad" | null>(null);
+  // La búsqueda se lanza desde manejadores que aún no ven el estado nuevo
+  // (recuperar un borrador): lee lo ad hoc de aquí.
+  const adHocRef = useRef<{ hoteles: HotelAdHoc[]; actividades: ActividadAdHoc[] }>({ hoteles: [], actividades: [] });
+  adHocRef.current = { hoteles: hotelesAdHoc, actividades: actividadesAdHoc };
 
   // Cierre
   /**
@@ -558,6 +581,9 @@ export function RequestCanvas({
       setProgramaBase(estado.programaBase ?? []);
       setExcepciones(estado.excepciones ?? {});
       setPreciosFijados(estado.preciosFijados ?? {});
+      setHotelesAdHoc(estado.hotelesAdHoc ?? []);
+      setActividadesAdHoc(estado.actividadesAdHoc ?? []);
+      adHocRef.current = { hoteles: estado.hotelesAdHoc ?? [], actividades: estado.actividadesAdHoc ?? [] };
       setRecuperable(null);
 
       // Las tarifas pueden haber cambiado desde que se guardó: se vuelve a
@@ -642,6 +668,8 @@ export function RequestCanvas({
         programaBase,
         excepciones,
         preciosFijados,
+        hotelesAdHoc,
+        actividadesAdHoc,
       };
 
       // En el navegador, siempre: es la red que salva lo escrito si se cae la
@@ -669,7 +697,7 @@ export function RequestCanvas({
     return () => {
       if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
     };
-  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, solicitudId, canal, enviada]);
+  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, hotelesAdHoc, actividadesAdHoc, solicitudId, canal, enviada]);
 
   /** Recupera el borrador y vuelve a buscar hoteles: las tarifas pueden haber cambiado. */
   function recuperar() {
@@ -689,6 +717,9 @@ export function RequestCanvas({
     setProgramaBase(recuperable.programaBase);
     setExcepciones(recuperable.excepciones);
     setPreciosFijados(recuperable.preciosFijados ?? {});
+    setHotelesAdHoc(recuperable.hotelesAdHoc ?? []);
+    setActividadesAdHoc(recuperable.actividadesAdHoc ?? []);
+    adHocRef.current = { hoteles: recuperable.hotelesAdHoc ?? [], actividades: recuperable.actividadesAdHoc ?? [] };
     if (recuperable.entendido) {
       setParseResult({
         normalized: recuperable.entendido,
@@ -784,6 +815,9 @@ export function RequestCanvas({
         // (el turoperador suizo) no aparecían NUNCA: quedaban cargadas y
         // muertas.
         clientSegment: canalPedido,
+        // El departamento filtra los alojamientos: el mismo hotel vale
+        // distinto para un colegio y para un club (Javier, 08/10/2026).
+        department: departamento || null,
         // Lo que el centro pidió en prosa y el tope por alumno. Se leían del
         // mensaje y se pintaban en pantalla, pero no llegaban a la búsqueda:
         // los dos celíacos y la alumna con movilidad reducida no influían en
@@ -795,8 +829,24 @@ export function RequestCanvas({
         searchAccommodationsApi(filtros),
         searchActivitiesApi(filtros),
       ]);
-      setHoteles(alojamientos);
-      setActividades(planes);
+      // Lo ad hoc no sale de la búsqueda: se vuelve a poner delante.
+      const anioAdHoc = Number((datos.dateFrom ?? "").slice(0, 4)) || new Date().getFullYear();
+      setHoteles(
+        conLoAdHoc(
+          alojamientos,
+          adHocRef.current.hoteles.map((h) => hotelComoResultado(h, anioAdHoc)),
+          (m) => m.accommodation.id,
+          (m) => m.accommodation.accommodationName,
+        ),
+      );
+      setActividades(
+        conLoAdHoc(
+          planes,
+          adHocRef.current.actividades.map((a) => actividadComoResultado(a, anioAdHoc)),
+          (m) => m.activity.id,
+          (m) => m.activity.activityName,
+        ),
+      );
       if (alojamientos.matches.length === 0) {
         setAviso(porQueNoHayHoteles(datos, alojamientos));
       }
@@ -844,6 +894,80 @@ export function RequestCanvas({
   /** Sin precio no se puede elegir: entraría en el documento valiendo cero. */
   function faltaPonerlePrecio(item: ActivitySearchMatch): boolean {
     return Boolean(item.precioAFijar) && !preciosFijados[item.activity.id];
+  }
+
+  /** El año de la petición: para la tarifa de lo ad hoc. */
+  function anioDeLaPeticion(): number {
+    return Number((entendido?.dateFrom ?? "").slice(0, 4)) || new Date().getFullYear();
+  }
+
+  function anadirHotelAdHoc(hotel: HotelAdHoc) {
+    // «Que mande sobre el catálogo»: el mismo hotel del catálogo se va de la
+    // lista y, si estaba elegido, el ad hoc ocupa su sitio.
+    const sustituidos = new Set(
+      sustituidosPor(hoteles?.matches ?? [], hotel, (m) => m.accommodation.id, (m) => m.accommodation.accommodationName),
+    );
+    setHotelesAdHoc((actuales) => [...actuales, hotel]);
+    setHoteles((actual) =>
+      actual
+        ? conLoAdHoc(
+            actual,
+            [hotelComoResultado(hotel, anioDeLaPeticion())],
+            (m) => m.accommodation.id,
+            (m) => m.accommodation.accommodationName,
+          )
+        : actual,
+    );
+    setElegidos((actuales) => {
+      const habia = actuales.some((id) => sustituidos.has(id));
+      const sinEl = actuales.filter((id) => !sustituidos.has(id));
+      if (habia) return [...sinEl, hotel.id];
+      // Si quien lo mete es para ofrecerlo: queda elegido si hay hueco.
+      return sinEl.length < MAX_OPCIONES ? [...sinEl, hotel.id] : sinEl;
+    });
+    setAltaAdHoc(null);
+  }
+
+  function anadirActividadAdHoc(actividad: ActividadAdHoc) {
+    const sustituidas = new Set(
+      sustituidosPor(actividades?.matches ?? [], actividad, (m) => m.activity.id, (m) => m.activity.activityName),
+    );
+    setActividadesAdHoc((actuales) => [...actuales, actividad]);
+    setActividades((actual) =>
+      actual
+        ? conLoAdHoc(
+            actual,
+            [actividadComoResultado(actividad, anioDeLaPeticion())],
+            (m) => m.activity.id,
+            (m) => m.activity.activityName,
+          )
+        : actual,
+    );
+    setProgramaBase((actuales) => [...actuales.filter((id) => !sustituidas.has(id)), actividad.id]);
+    setAltaAdHoc(null);
+  }
+
+  /** Lo que ya se sabe de la petición, para leer la cotización del proveedor. */
+  function contextoDeCotizacion() {
+    return {
+      destino: entendido?.destinationText ?? "",
+      regimen: entendido?.regimeRequested ?? "",
+      fechaEntrada: entendido?.dateFrom ?? "",
+      fechaSalida: entendido?.dateTo ?? "",
+      alumnos: entendido?.participants ?? null,
+      profesores: entendido?.teachers ?? null,
+    };
+  }
+
+  function quitarAdHoc(id: string) {
+    setHotelesAdHoc((actuales) => actuales.filter((h) => h.id !== id));
+    setActividadesAdHoc((actuales) => actuales.filter((a) => a.id !== id));
+    setHoteles((actual) => (actual ? { ...actual, matches: actual.matches.filter((m) => m.accommodation.id !== id) } : actual));
+    setActividades((actual) =>
+      actual ? { ...actual, matches: actual.matches.filter((m) => m.activity.id !== id) } : actual,
+    );
+    setElegidos((actuales) => actuales.filter((e) => e !== id));
+    setProgramaBase((actuales) => actuales.filter((e) => e !== id));
   }
 
   function matchHotel(id: string): AccommodationSearchMatch | undefined {
@@ -1852,6 +1976,14 @@ export function RequestCanvas({
                   <span className="cv__lbl">
                     {hoteles.matches.length} con tarifa · elige hasta {MAX_OPCIONES}
                   </span>
+                  <button
+                    type="button"
+                    className="cv__ghost cv__ghost--sm ah__abrir"
+                    aria-expanded={altaAdHoc === "hotel"}
+                    onClick={() => setAltaAdHoc((a) => (a === "hotel" ? null : "hotel"))}
+                  >
+                    + Fuera del catálogo
+                  </button>
                   <div className="cv__seg" role="tablist" aria-label="Vista">
                     <button type="button" className={vista === "lista" ? "is-on" : ""} onClick={() => setVista("lista")}>
                       Lista
@@ -1871,6 +2003,14 @@ export function RequestCanvas({
                   <span className="cv__lbl">
                     {(actividades?.matches.length ?? 0)} disponibles · van en todas las opciones
                   </span>
+                  <button
+                    type="button"
+                    className="cv__ghost cv__ghost--sm ah__abrir"
+                    aria-expanded={altaAdHoc === "actividad"}
+                    onClick={() => setAltaAdHoc((a) => (a === "actividad" ? null : "actividad"))}
+                  >
+                    + Fuera del catálogo
+                  </button>
                   {(actividades?.matches.length ?? 0) > 0 ? (
                     <div className={buscadorAbierto ? "cv__buscar is-open" : "cv__buscar"}>
                       <span className="cv__buscar-pill">
@@ -1918,6 +2058,45 @@ export function RequestCanvas({
                   ) : null}
                 </div>
               )}
+
+              {selec === "alojamientos" && altaAdHoc === "hotel" ? (
+                <AltaAdHoc
+                  tipo="hotel"
+                  contexto={contextoDeCotizacion()}
+                  departamento={departamento}
+                  onAnadir={anadirHotelAdHoc}
+                  onCerrar={() => setAltaAdHoc(null)}
+                />
+              ) : null}
+              {selec === "actividades" && altaAdHoc === "actividad" ? (
+                <AltaAdHoc
+                  tipo="actividad"
+                  contexto={contextoDeCotizacion()}
+                  departamento={departamento}
+                  onAnadir={anadirActividadAdHoc}
+                  onCerrar={() => setAltaAdHoc(null)}
+                />
+              ) : null}
+              <ListaAdHoc
+                elementos={
+                  selec === "alojamientos"
+                    ? hotelesAdHoc.map((h) => ({
+                        id: h.id,
+                        nombre: h.nombre,
+                        detalle: `${h.regimen} · ${h.precioAlumno.toLocaleString("es-ES")} € alumno/noche${h.precioProfesor ? ` · ${h.precioProfesor.toLocaleString("es-ES")} € profesor/noche` : ""}${h.costeAlumno ? ` · coste ${h.costeAlumno.toLocaleString("es-ES")} € (+${(h.margen ?? 0).toLocaleString("es-ES")} %)` : ""}`,
+                        cotizacionId: h.cotizacionId,
+                        documento: h.documento,
+                      }))
+                    : actividadesAdHoc.map((a) => ({
+                        id: a.id,
+                        nombre: a.nombre,
+                        detalle: `${a.proveedor ? `${a.proveedor} · ` : ""}${a.precioPorAlumno.toLocaleString("es-ES")} € por alumno${a.coste ? ` · coste ${a.coste.toLocaleString("es-ES")} € (+${(a.margen ?? 0).toLocaleString("es-ES")} %)` : ""}`,
+                        cotizacionId: a.cotizacionId,
+                        documento: a.documento,
+                      }))
+                }
+                onQuitar={quitarAdHoc}
+              />
             </>
           ) : null}
 
@@ -2028,8 +2207,20 @@ export function RequestCanvas({
                           <span className="cv__actt">
                             {item.activity.activityName}
                             {item.destacada ? <span className="cv__actchip cv__actchip--top">Destacada</span> : null}
+                            {item.adHoc ? <span className="cv__actchip cv__actchip--top">Ad hoc</span> : null}
                             {item.fueraDelDestino ? (
                               <span className="cv__actchip cv__actchip--fuera">Fuera del destino</span>
+                            ) : null}
+                            {/* Ninguna de sus tarifas vale en esas fechas (el
+                                Tuna Tour Educa en julio). Se ve igual: Javier
+                                quiere todas siempre, pero que se note. */}
+                            {item.fueraDeTemporada ? (
+                              <span
+                                className="cv__actchip cv__actchip--fuera"
+                                title={item.matchReasons.find((m) => m.startsWith("Fuera de temporada")) ?? undefined}
+                              >
+                                Fuera de temporada
+                              </span>
                             ) : null}
                           </span>
                           <span className="cv__acts2">{[item.activity.locationMain, item.activity.durationText].filter(Boolean).join(" · ")}</span>
@@ -2635,7 +2826,8 @@ function PanelEntendido({
     canal,
     departamento,
   };
-  const bloques = bloquesParaValidar(datos);
+  const clientesEspeciales = useClientesEspeciales();
+  const bloques = bloquesParaValidar(datos, clientesEspeciales);
   const faltan = loQueFaltaDeVerdad(datos);
 
   // Escape cierra, como cualquier ventana. Sin esto hay que buscar la aspa.
@@ -2830,6 +3022,7 @@ function CamposEntendido({
   setDepartamento: (valor: "GROUPS" | "SPORTS" | "") => void;
   contactoCrm: ContactoDelCrm | null;
 }) {
+  const clientesEspeciales = useClientesEspeciales();
   return (
     <>
       <section className="cv__ventbloq">
@@ -2964,12 +3157,17 @@ function CamposEntendido({
             placeholder="IES JAUME BALMES 2027"
           />
           {/* Sin esto no se sabe qué tarifa aplica: el mismo hotel tiene una
-              pactada con el turoperador suizo y otra general. */}
+              general y otra pactada con un cliente especial (el turoperador
+              suizo, Azul Marino). */}
           <label className="cv__field">
             <span>Cotizamos para</span>
             <select value={canal} onChange={(evento) => setCanal(evento.target.value as ClientSegment)}>
               <option value="GENERIC">Colegio, club o agencia</option>
-              <option value="SWISS_TTOO">Turoperador suizo</option>
+              {clientesEspeciales.map((c) => (
+                <option key={c.codigo} value={c.codigo}>
+                  Cliente especial · {c.nombre}
+                </option>
+              ))}
             </select>
           </label>
           {/* El departamento decide DOS cosas: el campo «Departamento» del
@@ -2988,7 +3186,10 @@ function CamposEntendido({
               <option value="GROUPS">Grupos</option>
               <option value="SPORTS">Turismo Deportivo</option>
             </select>
-            <small>Clasifica el trato en el CRM y elige el buzón desde el que sale el correo.</small>
+            <small>
+              Clasifica el trato en el CRM, elige el buzón desde el que sale el correo y qué tarifas de
+              hotel se ofrecen.
+            </small>
           </label>
         </div>
         {/* Que el contacto venga del CRM hay que decirlo: si no, el operador no
@@ -3308,6 +3509,7 @@ function DetalleAlojamiento({
   desde: string;
   hasta: string;
 }) {
+  const clientesEspeciales = useClientesEspeciales();
   const nAlumno = precioDeTarifa(item.rate);
   const nProfesor = item.singleRate ? precioDeTarifa(item.singleRate) : nAlumno;
   const dias = Math.max(noches, 1);
@@ -3383,7 +3585,7 @@ function DetalleAlojamiento({
           ) : null}
           <div>
             <dt>Tarifa</dt>
-            <dd>{canalEnPalabras(item.rate.clientSegment)}</dd>
+            <dd>{canalEnPalabras(item.rate.clientSegment, clientesEspeciales)}</dd>
           </div>
         </dl>
 
@@ -3905,6 +4107,7 @@ function ListaOpciones({
                 <span className="cv__hotelm">
                   <span className="cv__hotelt">
                     {item.accommodation.accommodationName}
+                    {item.adHoc ? <span className="cv__actchip cv__actchip--top">Ad hoc</span> : null}
                     {enElPodio.has(item.accommodation.id) ? (
                       <span className="cv__reco">recomendado</span>
                     ) : null}

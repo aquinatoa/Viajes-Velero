@@ -151,6 +151,12 @@ export interface SearchFilters {
    */
   clientSegment?: string | null;
   /**
+   * El departamento de la petición: GROUPS o SPORTS. Filtra los alojamientos,
+   * porque el mismo hotel vale distinto para un colegio y para un club. No
+   * filtra actividades: Javier las quiere ver todas siempre.
+   */
+  department?: string | null;
+  /**
    * Lo que el centro pidió en prosa: dietas, accesibilidad, lo que sea.
    *
    * Se leía del mensaje y se pintaba en pantalla, pero no llegaba a la
@@ -249,6 +255,9 @@ export interface ActivityRate {
   durationText: string;
   sourceFile: string;
   sourceSheet: string;
+  /** El periodo en que vale (AAAA-MM-DD). Sin fechas, todo el año. */
+  dateFrom?: string | null;
+  dateTo?: string | null;
 }
 
 export interface AccommodationSearchMatch {
@@ -276,6 +285,10 @@ export interface AccommodationSearchMatch {
    * sola de las cuarenta que tiene el 4R y no sabía que había alternativas.
    */
   alternativas?: AccommodationRate[];
+  /** Metido a mano por quien cotiza, con el precio del proveedor: no está en el catálogo. */
+  adHoc?: boolean;
+  /** Ad hoc: el justificante del precio (la cotización del proveedor guardada). */
+  cotizacionId?: string | null;
 }
 
 export interface ActivitySearchMatch {
@@ -289,6 +302,15 @@ export interface ActivitySearchMatch {
   lineas?: LineaDeActividad[];
   /** No está en el destino pedido ni en su zona: se enseña igual, marcada. */
   fueraDelDestino?: boolean;
+  /**
+   * Ninguna de sus tarifas vale en las fechas del viaje (el Tuna Tour Educa en
+   * julio). Se enseña igual, marcada y después de las que sí.
+   */
+  fueraDeTemporada?: boolean;
+  /** Metida a mano por quien cotiza, con el precio del proveedor: no está en el catálogo. */
+  adHoc?: boolean;
+  /** Ad hoc: el justificante del precio (la cotización del proveedor guardada). */
+  cotizacionId?: string | null;
   /**
    * El catálogo no le pone precio y hay que ponérselo al cotizar.
    *
@@ -366,6 +388,11 @@ export interface ProposalAccommodationOption {
   observationsText: string;
   /** Las gratuidades del hotel. Cambian el precio, asi que van en la propuesta. */
   freePolicyText?: string;
+  /** Lo que nos cobra el proveedor por alumno y por profesor y noche, si se sabe. */
+  studentCostAmount?: number | null;
+  teacherCostAmount?: number | null;
+  /** Ad hoc: la cotización del proveedor que justifica el precio. */
+  supplierQuoteId?: string | null;
   isSelected: boolean;
 }
 
@@ -384,6 +411,9 @@ export interface ProposalActivityOption {
   lines?: LineaDeActividad[] | null;
   /** El total del grupo para esta actividad. */
   amountTotal?: number | null;
+  /** Lo que nos cobra el proveedor por alumno, si se sabe. */
+  unitCostAmount?: number | null;
+  supplierQuoteId?: string | null;
   isSelected: boolean;
 }
 

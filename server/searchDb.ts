@@ -11,6 +11,9 @@ import type {
 } from "../src/domain/types";
 import { comprobar } from "./encajeConLaPeticion";
 import { deriveSalePrice } from "./pricing";
+import { textoDelPeriodo, valeParaElViaje } from "../src/domain/periodosDeActividad";
+import { precioParaElCliente } from "../src/domain/precioClienteEspecial";
+import { listarClientesEspeciales } from "./clientesEspeciales";
 
 const prisma = new PrismaClient();
 
@@ -33,6 +36,19 @@ async function loadSourceDocumentNames(
   });
 
   return new Map(documents.map((document) => [document.id, document.controlName]));
+}
+
+/** El departamento de cada documento (GROUPS, SPORTS o null = los dos). */
+async function loadSourceDocumentDepartments(
+  ids: (string | null | undefined)[]
+): Promise<Map<string, string | null>> {
+  const uniqueIds = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+  if (uniqueIds.length === 0) return new Map();
+  const documents = await prisma.sourceDocument.findMany({
+    where: { id: { in: uniqueIds } },
+    select: { id: true, department: true }
+  });
+  return new Map(documents.map((document) => [document.id, document.department ?? null]));
 }
 
 /**
@@ -333,7 +349,20 @@ function scoreAccommodationMatch(
  * estaba publicado antes de existir `locality`.
  */
 function dondeSeBusca(activity: { locality?: string | null; locationMain: string | null }): string | null {
-  return activity.locality?.trim() || activity.locationMain;
+  const localidad = activity.locality?.trim();
+  // Una «localidad» que es el nombre de una ZONA no es un pueblo. La plantilla
+  // de actividades v2 se subió con ubicación «Costa Daurada» y esa palabra se
+  // copió a sus 129 actividades: ninguna coincidía con ningún destino y todas
+  // salían «fuera del destino», hasta buscando en Salou las de Salou, y las de
+  // Calella (que está en el Maresme) contaban como Costa Daurada (15/10/2026).
+  // Si el sitio dice dónde, manda el sitio.
+  if (localidad && esNombreDeZona(localidad) && activity.locationMain?.trim()) return activity.locationMain;
+  return localidad || activity.locationMain;
+}
+
+/** «Costa Daurada», «Costa Brava»…: un nombre de zona, no de pueblo. */
+function esNombreDeZona(texto: string | null | undefined): boolean {
+  return Object.prototype.hasOwnProperty.call(ZONES, normalizeText(texto ?? ""));
 }
 
 function scoreActivityMatch(
@@ -354,9 +383,15 @@ function scoreActivityMatch(
     score += 50;
     // Se nombra el SITIO, no el pueblo: es lo que le interesa a quien cotiza.
     reasons.push(`Ubicación coincidente: ${activity.locationMain ?? donde}.`);
-  } else if (locA && zonaDeCualquiera(donde) && zonaDeCualquiera(donde) === zoneOf(filters.destinationText)) {
-    score += 18;
-    reasons.push(`En la misma zona: ${activity.locationMain ?? donde}.`);
+  } else {
+    // La zona del sitio; si el sitio no está en ninguna lista (Altafulla), la
+    // zona que traía el documento como localidad.
+    const zona =
+      zonaDeCualquiera(donde) || (esNombreDeZona(activity.locality) ? normalizeText(activity.locality ?? "") : "");
+    if (locA && zona && zona === zoneOf(filters.destinationText)) {
+      score += 18;
+      reasons.push(`En la misma zona: ${activity.locationMain ?? donde}.`);
+    }
   }
 
   // Edad: si la tarifa tiene tramo y solapa, +40; tarifa de adulto, +20; si la
@@ -439,10 +474,41 @@ export async function searchAccommodationsDb(
   const wantedSegment = (filters.clientSegment ?? "").trim() || null;
   const matchesSegment = (rate: { clientSegment?: string | null }) =>
     esParaCualquierCliente(rate.clientSegment) || rate.clientSegment === wantedSegment;
+  // Su porcentaje sobre el PVP general, de la base de datos (19/10/2026).
+  const clientesEspeciales = wantedSegment ? await listarClientesEspeciales() : [];
 
   const documentNames = await loadSourceDocumentNames(
     accommodations.map((accommodation) => accommodation.sourceDocumentId)
   );
+
+  // «Su tarifa propia manda» (Javier, 28/09/2026), por NOMBRE de hotel y no por
+  // registro: la tarifa del suizo y la general del mismo hotel vienen de
+  // documentos distintos y son alojamientos distintos con el mismo nombre. Sin
+  // esto, al cotizar para el suizo «Mediterrània MED1» salía dos veces, con su
+  // precio y con el general.
+  const especialPedido =
+    wantedSegment && !esParaCualquierCliente(wantedSegment) ? wantedSegment : null;
+  const hotelesConPropia = new Set(
+    especialPedido
+      ? accommodations
+          .filter((a) => a.rates.some((r) => r.clientSegment === especialPedido))
+          .map((a) => normalizeText(a.accommodationName))
+      : [],
+  );
+
+  // Filtro por departamento. Javier, 08/10/2026: el mismo hotel tiene precios
+  // distintos para Grupos y para Turismo Deportivo, y hasta ahora salían
+  // mezclados. El departamento es del DOCUMENTO de origen: cambiarlo en Tarifas
+  // vale al momento. Sin departamento en la petición, o en el documento, vale.
+  const wantedDepartment = (filters.department ?? "").trim() || null;
+  const documentDepartments = await loadSourceDocumentDepartments([
+    ...accommodations.map((accommodation) => accommodation.sourceDocumentId),
+    ...accommodations.flatMap((accommodation) => accommodation.rates.map((rate) => rate.sourceDocumentId)),
+  ]);
+  const departamentoDe = (rate: { sourceDocumentId: string | null }, accommodation: { sourceDocumentId: string | null }) => {
+    const doc = rate.sourceDocumentId ?? accommodation.sourceDocumentId;
+    return doc ? documentDepartments.get(doc) ?? null : null;
+  };
 
   // Exclusión por categoría: si piden N★ se descartan los de categoría inferior.
   const reqStarsFilter = requestedStars(filters.categoryRequested);
@@ -469,8 +535,27 @@ export async function searchAccommodationsDb(
           return [];
         }
       }
-      return accommodation.rates.filter(matchesSegment).map((rate) => {
+      const tienePropia = hotelesConPropia.has(normalizeText(accommodation.accommodationName));
+      return accommodation.rates
+        .filter(matchesSegment)
+        // Si el cliente especial tiene la suya para este hotel, la general no.
+        .filter((rate) => !tienePropia || rate.clientSegment === especialPedido)
+        .filter((rate) => {
+          const departamento = departamentoDe(rate, accommodation);
+          return !wantedDepartment || !departamento || departamento === wantedDepartment;
+        })
+        .map((rate) => {
         const scored = scoreAccommodationMatch(accommodation, rate, filters);
+        // El cliente especial sin tarifa propia en este hotel: la general con
+        // su porcentaje, si lo tiene (Javier, 28/09/2026).
+        const especial = precioParaElCliente(
+          Number(rate.pvpAmount ?? 0),
+          wantedSegment,
+          rate,
+          tienePropia,
+          clientesEspeciales,
+        );
+        if (especial.motivo) scored.reasons.push(especial.motivo);
         return {
           accommodation: {
             id: accommodation.id,
@@ -498,7 +583,7 @@ export async function searchAccommodationsDb(
             minNights: rate.minNights ?? 0,
             boardType: rate.boardType ?? "",
             tariffUnit: rate.tariffUnit ?? "",
-            pvpAmount: Number(rate.pvpAmount ?? 0),
+            pvpAmount: especial.precio,
             netSaleAmount: Number(rate.netSaleAmount ?? 0),
             netAzulmarinoAmount: Number(rate.netAzulmarinoAmount ?? 0),
             clientSegment: rate.clientSegment ?? "",
@@ -690,17 +775,33 @@ export async function searchActivitiesDb(
   const wantedSegment = (filters.clientSegment ?? "").trim() || null;
   const matchesSegment = (rate: { clientSegment?: string | null }) =>
     esParaCualquierCliente(rate.clientSegment) || rate.clientSegment === wantedSegment;
+  // Su porcentaje sobre el PVP general, de la base de datos (19/10/2026).
+  const clientesEspeciales = wantedSegment ? await listarClientesEspeciales() : [];
 
   const documentNames = await loadSourceDocumentNames(
     activities.map((activity) => activity.sourceDocumentId)
+  );
+  // «Su tarifa propia manda», por nombre de actividad (ver alojamientos).
+  const especialPedidoAct =
+    wantedSegment && !esParaCualquierCliente(wantedSegment) ? wantedSegment : null;
+  const actividadesConPropia = new Set(
+    especialPedidoAct
+      ? activities
+          .filter((a) => a.rates.some((r) => r.clientSegment === especialPedidoAct))
+          .map((a) => normalizeText(a.activityName))
+      : [],
   );
   const documentLocations = await loadSourceDocumentLocations(
     activities.map((activity) => activity.sourceDocumentId)
   );
 
   const perRateMatchesTodos: ActivitySearchMatch[] = activities
-    .flatMap((activity) =>
-      activity.rates.filter(matchesSegment).map((rate) => {
+    .flatMap((activity) => {
+      const tienePropia = actividadesConPropia.has(normalizeText(activity.activityName));
+      return activity.rates
+        .filter(matchesSegment)
+        .filter((rate) => !tienePropia || rate.clientSegment === especialPedidoAct)
+        .map((rate) => {
         const scored = scoreActivityMatch(
           {
             ...activity,
@@ -711,6 +812,14 @@ export async function searchActivitiesDb(
           rate,
           filters,
         );
+        const especial = precioParaElCliente(
+          Number(rate.salePvpAmount ?? 0),
+          wantedSegment,
+          rate,
+          tienePropia,
+          clientesEspeciales,
+        );
+        if (especial.motivo) scored.reasons.push(especial.motivo);
         return {
           activity: {
             id: activity.id,
@@ -737,19 +846,21 @@ export async function searchActivitiesDb(
             ageLabel: rate.ageLabel ?? "",
             ageMin: rate.ageMin ?? 0,
             ageMax: rate.ageMax ?? 0,
-            salePvpAmount: Number(rate.salePvpAmount ?? 0),
+            salePvpAmount: especial.precio,
             costNetAmount: Number(rate.costNetAmount ?? 0),
             clientSegment: rate.clientSegment ?? "",
             commissionPercent: Number(rate.commissionPercent ?? 0),
             durationText: rate.durationText ?? "",
             sourceFile: rate.sourceFile ?? "",
-            sourceSheet: rate.sourceSheet ?? ""
+            sourceSheet: rate.sourceSheet ?? "",
+            dateFrom: rate.dateFrom ? rate.dateFrom.toISOString().slice(0, 10) : null,
+            dateTo: rate.dateTo ? rate.dateTo.toISOString().slice(0, 10) : null
           },
           score: scored.score,
           matchReasons: scored.reasons
         };
-      })
-    );
+      });
+    });
   // Se enseñan TODAS, siempre. Lo decidió Javier en la reunión del 08/10/2026:
   // «que salgan todas las actividades siempre, que no las filtre, da igual» —
   // a veces no hay disponibilidad en Salou y el grupo se va a Cambrils a hacer
@@ -772,10 +883,43 @@ export async function searchActivitiesDb(
   );
   const fueraDelDestino = perRateMatchesTodos.length > 0 && !perRateMatchesTodos.some(enDestino);
 
+  // El periodo de cada tarifa (Ruth y Javier, 08/10/2026: «dos periodos de
+  // aplicación al año»). Si una actividad tiene alguna tarifa que vale en las
+  // fechas del viaje, solo cuentan esas. Si no tiene ninguna, se enseña igual,
+  // marcada «fuera de temporada» con sus periodos: Javier quiere verlas todas.
+  const enTemporada = (item: ActivitySearchMatch) =>
+    valeParaElViaje(item.rate, filters.dateFrom, filters.dateTo);
+  const conTemporada = new Set(perRateMatches.filter(enTemporada).map((item) => item.activity.id));
+  const periodosDe = new Map<string, string[]>();
+  for (const item of perRateMatches) {
+    const lista = periodosDe.get(item.activity.id) ?? [];
+    const clave = `${item.rate.dateFrom ?? ""}|${textoDelPeriodo(item.rate.dateFrom, item.rate.dateTo)}`;
+    if (!lista.includes(clave)) lista.push(clave);
+    periodosDe.set(item.activity.id, lista);
+  }
+  // En orden de calendario y sin la clave de ordenar.
+  for (const [id, lista] of periodosDe) {
+    periodosDe.set(id, [...lista].sort().map((clave) => clave.slice(clave.indexOf("|") + 1)));
+  }
+  const perRateVigentes: ActivitySearchMatch[] = perRateMatches
+    .filter((item) => enTemporada(item) || !conTemporada.has(item.activity.id))
+    .map((item) =>
+      enTemporada(item)
+        ? item
+        : {
+            ...item,
+            fueraDeTemporada: true,
+            matchReasons: [
+              `Fuera de temporada en esas fechas: vale ${(periodosDe.get(item.activity.id) ?? []).join(" y ")}.`,
+              ...item.matchReasons,
+            ],
+          },
+    );
+
   // Una sola tarjeta por ACTIVIDAD: su mejor tarifa (mayor score; a igualdad, la
   // más barata con precio > 0). Evita repetir la misma actividad por cada tramo.
   const bestByActivity = new Map<string, ActivitySearchMatch>();
-  for (const item of perRateMatches) {
+  for (const item of perRateVigentes) {
     const current = bestByActivity.get(item.activity.id);
     if (
       !current ||
@@ -791,7 +935,7 @@ export async function searchActivitiesDb(
   // Las demás tarifas de cada actividad, para que quien cotiza sepa cuál se
   // ha elegido y entre cuáles. Igual que en los alojamientos.
   const tarifasPorActividad = new Map<string, ActivitySearchMatch["rate"][]>();
-  for (const item of perRateMatches) {
+  for (const item of perRateVigentes) {
     const lista = tarifasPorActividad.get(item.activity.id) ?? [];
     lista.push(item.rate);
     tarifasPorActividad.set(item.activity.id, lista);
@@ -818,6 +962,7 @@ export async function searchActivitiesDb(
     .sort(
       (a, b) =>
         Number(b.destacada) - Number(a.destacada) ||
+        Number(Boolean(a.fueraDeTemporada)) - Number(Boolean(b.fueraDeTemporada)) ||
         b.score - a.score ||
         a.activity.activityName.localeCompare(b.activity.activityName, "es"),
     );
