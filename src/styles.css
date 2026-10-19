@@ -9935,6 +9935,39 @@ button.cw-ev__more:hover { text-decoration: underline; }
   color: #fff;
 }
 
+/* Cliente especial: cuál es, o darlo de alta (19/10/2026). */
+.alta__especial {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.alta__leer {
+  justify-self: start;
+  background: var(--cv-amber, #fcbb37);
+  color: #3d2c05;
+  border: 0;
+  font-weight: 700;
+}
+
+.alta__leer:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.alta__leido {
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--ink-2);
+}
+
+.alta__leido--nota {
+  color: var(--muted);
+}
+
 .alta__chip--free {
   display: flex;
   align-items: center;

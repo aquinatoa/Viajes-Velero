@@ -80,7 +80,9 @@ import type {
   SearchActivitiesResult,
   TripProposal,
 } from "../../domain/types";
-import { CLIENTES_ESPECIALES } from "../../domain/documentImportTypes";
+import { nombreDelCanal } from "../../domain/clientesEspeciales";
+import { useClientesEspeciales } from "../useClientesEspeciales";
+import type { ClienteEspecial } from "../../domain/documentImportTypes";
 import {
   actividadComoResultado,
   conLoAdHoc,
@@ -190,11 +192,10 @@ function euros(valor: number): string {
 }
 
 /** El canal de una tarifa, en palabras. GENERIC es un código interno, no un nombre. */
-function canalEnPalabras(segmento: string | null | undefined): string {
+function canalEnPalabras(segmento: string | null | undefined, clientes: ClienteEspecial[]): string {
   const s = (segmento ?? "").trim();
   if (!s || s === "GENERIC") return "general · vale para cualquier cliente";
-  const especial = CLIENTES_ESPECIALES.find((c) => c.codigo === s);
-  return especial ? `cliente especial · ${especial.nombre.toLowerCase()}` : s;
+  return nombreDelCanal(s, clientes).replace("Cliente especial", "cliente especial");
 }
 
 /**
@@ -2825,7 +2826,8 @@ function PanelEntendido({
     canal,
     departamento,
   };
-  const bloques = bloquesParaValidar(datos);
+  const clientesEspeciales = useClientesEspeciales();
+  const bloques = bloquesParaValidar(datos, clientesEspeciales);
   const faltan = loQueFaltaDeVerdad(datos);
 
   // Escape cierra, como cualquier ventana. Sin esto hay que buscar la aspa.
@@ -3020,6 +3022,7 @@ function CamposEntendido({
   setDepartamento: (valor: "GROUPS" | "SPORTS" | "") => void;
   contactoCrm: ContactoDelCrm | null;
 }) {
+  const clientesEspeciales = useClientesEspeciales();
   return (
     <>
       <section className="cv__ventbloq">
@@ -3160,7 +3163,7 @@ function CamposEntendido({
             <span>Cotizamos para</span>
             <select value={canal} onChange={(evento) => setCanal(evento.target.value as ClientSegment)}>
               <option value="GENERIC">Colegio, club o agencia</option>
-              {CLIENTES_ESPECIALES.map((c) => (
+              {clientesEspeciales.map((c) => (
                 <option key={c.codigo} value={c.codigo}>
                   Cliente especial · {c.nombre}
                 </option>
@@ -3506,6 +3509,7 @@ function DetalleAlojamiento({
   desde: string;
   hasta: string;
 }) {
+  const clientesEspeciales = useClientesEspeciales();
   const nAlumno = precioDeTarifa(item.rate);
   const nProfesor = item.singleRate ? precioDeTarifa(item.singleRate) : nAlumno;
   const dias = Math.max(noches, 1);
@@ -3581,7 +3585,7 @@ function DetalleAlojamiento({
           ) : null}
           <div>
             <dt>Tarifa</dt>
-            <dd>{canalEnPalabras(item.rate.clientSegment)}</dd>
+            <dd>{canalEnPalabras(item.rate.clientSegment, clientesEspeciales)}</dd>
           </div>
         </dl>
 

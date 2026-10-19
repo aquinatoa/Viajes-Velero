@@ -13,6 +13,7 @@ import { comprobar } from "./encajeConLaPeticion";
 import { deriveSalePrice } from "./pricing";
 import { textoDelPeriodo, valeParaElViaje } from "../src/domain/periodosDeActividad";
 import { precioParaElCliente } from "../src/domain/precioClienteEspecial";
+import { listarClientesEspeciales } from "./clientesEspeciales";
 
 const prisma = new PrismaClient();
 
@@ -473,6 +474,8 @@ export async function searchAccommodationsDb(
   const wantedSegment = (filters.clientSegment ?? "").trim() || null;
   const matchesSegment = (rate: { clientSegment?: string | null }) =>
     esParaCualquierCliente(rate.clientSegment) || rate.clientSegment === wantedSegment;
+  // Su porcentaje sobre el PVP general, de la base de datos (19/10/2026).
+  const clientesEspeciales = wantedSegment ? await listarClientesEspeciales() : [];
 
   const documentNames = await loadSourceDocumentNames(
     accommodations.map((accommodation) => accommodation.sourceDocumentId)
@@ -550,6 +553,7 @@ export async function searchAccommodationsDb(
           wantedSegment,
           rate,
           tienePropia,
+          clientesEspeciales,
         );
         if (especial.motivo) scored.reasons.push(especial.motivo);
         return {
@@ -771,6 +775,8 @@ export async function searchActivitiesDb(
   const wantedSegment = (filters.clientSegment ?? "").trim() || null;
   const matchesSegment = (rate: { clientSegment?: string | null }) =>
     esParaCualquierCliente(rate.clientSegment) || rate.clientSegment === wantedSegment;
+  // Su porcentaje sobre el PVP general, de la base de datos (19/10/2026).
+  const clientesEspeciales = wantedSegment ? await listarClientesEspeciales() : [];
 
   const documentNames = await loadSourceDocumentNames(
     activities.map((activity) => activity.sourceDocumentId)
@@ -811,6 +817,7 @@ export async function searchActivitiesDb(
           wantedSegment,
           rate,
           tienePropia,
+          clientesEspeciales,
         );
         if (especial.motivo) scored.reasons.push(especial.motivo);
         return {

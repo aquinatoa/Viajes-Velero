@@ -9,8 +9,6 @@ import type {
   TariffDepartment,
 } from "../../domain/documentImportTypes";
 import {
-  CLIENTES_ESPECIALES,
-  clientSegmentLabels,
   DEFAULT_MARGIN_PERCENT,
   tariffDepartmentLabels,
 } from "../../domain/documentImportTypes";
@@ -26,6 +24,8 @@ import { InventoryCatalogView } from "./InventoryCatalogView";
 import { ConsumoIaView } from "./ConsumoIaView";
 import { DocumentWorkspace } from "./DocumentWorkspace";
 import { NewDocumentDropzone } from "./NewDocumentDropzone";
+import { nombreDelCanal } from "../../domain/clientesEspeciales";
+import { useClientesEspeciales } from "../useClientesEspeciales";
 import {
   extractionStatusLabels,
   getErrorMessage,
@@ -47,6 +47,7 @@ const initialForm: CreateSourceDocumentInput = {
 };
 
 export function InventoryDocumentsPanel() {
+  const clientesEspeciales = useClientesEspeciales();
   const [documents, setDocuments] = useState<SourceDocumentSummary[]>([]);
   const [documentFilter, setDocumentFilter] = useState("");
   // Javier, 08/10/2026: «podríamos filtrar las tarifas por departamento». Un
@@ -511,15 +512,16 @@ export function InventoryDocumentsPanel() {
                 }
               >
                 <option value="GENERIC">Cualquier cliente</option>
-                {CLIENTES_ESPECIALES.map((especial) => (
+                {clientesEspeciales.map((especial) => (
                   <option key={especial.codigo} value={especial.codigo}>
-                    Cliente especial · {especial.nombre} ({especial.detalle})
+                    Cliente especial · {especial.nombre}
+                    {especial.detalle ? ` (${especial.detalle})` : ""}
                   </option>
                 ))}
               </select>
               <small>
                 El mismo alojamiento puede tener precios distintos según el cliente. Al cotizar se
-                elegirá cuál toca.
+                elegirá cuál toca. Un cliente especial nuevo se da de alta al subir su documento.
               </small>
             </label>
           ) : null}
@@ -740,9 +742,7 @@ export function InventoryDocumentsPanel() {
                       <span className="doc-kind doc-kind--sell">
                         Venta
                         <em>
-                          {document.clientSegment
-                            ? clientSegmentLabels[document.clientSegment]
-                            : "Cualquier cliente"}
+                          {nombreDelCanal(document.clientSegment, clientesEspeciales)}
                         </em>
                       </span>
                     ) : (

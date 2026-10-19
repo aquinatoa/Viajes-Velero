@@ -2349,3 +2349,23 @@ cada fila caso dudoso en su campo `por`. Ojo comercial: la ampliación de
 agosto (115–135 h) sigue «pendiente de aprobar con Raúl» en
 `comunicaciones/REGISTRO.md`, y lo de septiembre y octubre no está estimado.
 Pendiente sin empezar que no estaba en el informe: idiomas CAT/ENG/FR (Ruth, 21/09).
+
+### Clientes especiales en la base de datos (19/10/2026)
+
+Al revisar R4, Anthony: «cualquier cliente, cliente especial, y pedir los datos
+del cliente especial o tomarlos del documento». Tabla `ClienteEspecial`
+(migración `20261019100000_clientes_especiales`, siembra SWISS_TTOO y
+AZUL_MARINO con su código de siempre). `server/clientesEspeciales.ts`:
+listar, alta (si ya existe uno con ese nombre devuelve ese) y
+`detectarClienteEnDocumento` (IA; reutiliza `loQueSeLeEnsena`/`preguntarAlModelo`
+de `cotizacionDelProveedor.ts`). Endpoints `GET/POST /api/clientes-especiales` y
+`POST /api/clientes-especiales/detectar`. En pantalla, `useClientesEspeciales()`
+(una carga compartida) en la subida, la edición del documento y «Cotizamos
+para». `ClientSegment` pasa a ser `string`; `CLIENTES_ESPECIALES` queda como
+lista de partida. La búsqueda lee el porcentaje de la base. Prueba nueva
+`test:clientes`; guía R4 rehecha con `pruebas-locales/tarifa-suizo.txt` y
+`tarifa-cliente-nuevo.txt`.
+
+También del 19/10, al revisar: desplegables legibles en el lienzo y en
+Tarifas (`color-scheme: light` en `:root`) y filtro por departamento en
+«Catálogo publicado».

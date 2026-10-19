@@ -1,4 +1,5 @@
-import { CLIENTES_ESPECIALES } from "./documentImportTypes";
+import { CLIENTES_ESPECIALES, type ClienteEspecial } from "./documentImportTypes";
+import { nombreDelCanal } from "./clientesEspeciales";
 /**
  * Lo que se enseña para validar una petición antes de trabajarla.
  *
@@ -87,10 +88,6 @@ export function nochesDe(desde?: string | null, hasta?: string | null): number |
   return n > 0 ? n : null;
 }
 
-const CANALES: Record<string, string> = {
-  GENERIC: "Colegio, club o agencia",
-  ...Object.fromEntries(CLIENTES_ESPECIALES.map((c) => [c.codigo, `Cliente especial · ${c.nombre}`])),
-};
 
 export const DEPARTAMENTOS: Record<string, string> = {
   GROUPS: "Grupos",
@@ -105,7 +102,11 @@ export const DEPARTAMENTOS: Record<string, string> = {
  * que se comprueba; y al final el centro, que es lo que va al CRM y a quién se
  * le manda.
  */
-export function bloquesParaValidar(p: PeticionParaValidar): BloqueParaValidar[] {
+export function bloquesParaValidar(
+  p: PeticionParaValidar,
+  /** Los clientes especiales que existen (de la base de datos); por defecto, los de partida. */
+  clientes: ClienteEspecial[] = CLIENTES_ESPECIALES,
+): BloqueParaValidar[] {
   const noches = nochesDe(p.dateFrom, p.dateTo);
   const sinDecir = "no lo han dicho";
 
@@ -200,7 +201,7 @@ export function bloquesParaValidar(p: PeticionParaValidar): BloqueParaValidar[] 
         { que: "Nombre del viaje", valor: texto(p.opportunityName) || "—", falta: !texto(p.opportunityName) },
         {
           que: "Cotizamos para",
-          valor: CANALES[texto(p.canal)] ?? CANALES.GENERIC,
+          valor: nombreDelCanal(texto(p.canal), clientes, "Colegio, club o agencia"),
           nota: "El mismo hotel tiene una tarifa general y otra pactada con cada cliente especial.",
         },
         {

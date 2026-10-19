@@ -104,12 +104,16 @@ export type RateKind = "PURCHASE" | "SALE" | "UNKNOWN";
  * especial», porque dentro de cada departamento hay 2-3 clientes con precio
  * propio: el turoperador suizo (Deportivo) y Azul Marino, por ejemplo. El
  * código SWISS_TTOO se conserva: es lo que llevan guardadas sus 42 tarifas.
- * Añadir un cliente especial es añadir una línea a `CLIENTES_ESPECIALES`.
+ *
+ * Desde el 19/10/2026 los clientes especiales viven en la base de datos (tabla
+ * `ClienteEspecial`) y se dan de alta al subir su tarifa: el código es el que
+ * se le da al crearlo. `CLIENTES_ESPECIALES` son los dos de partida, que la
+ * pantalla usa mientras carga la lista de verdad.
  */
-export type ClientSegment = "GENERIC" | "SWISS_TTOO" | "AZUL_MARINO";
+export type ClientSegment = string;
 
 export interface ClienteEspecial {
-  codigo: Exclude<ClientSegment, "GENERIC">;
+  codigo: string;
   nombre: string;
   detalle: string;
   /**
@@ -125,18 +129,10 @@ export const CLIENTES_ESPECIALES: ClienteEspecial[] = [
   { codigo: "AZUL_MARINO", nombre: "Azul Marino", detalle: "precio propio pactado", porcentajeSobrePvp: null },
 ];
 
-export const CLIENT_SEGMENTS: ClientSegment[] = ["GENERIC", ...CLIENTES_ESPECIALES.map((c) => c.codigo)];
-
 export const rateKindLabels: Record<RateKind, string> = {
   PURCHASE: "De compra",
   SALE: "De venta",
   UNKNOWN: "Sin declarar",
-};
-
-export const clientSegmentLabels: Record<ClientSegment, string> = {
-  GENERIC: "Cualquier cliente",
-  SWISS_TTOO: "Cliente especial · Turoperador suizo",
-  AZUL_MARINO: "Cliente especial · Azul Marino",
 };
 
 /**

@@ -19,6 +19,7 @@ import type {
 } from "../domain/documentImportTypes";
 import type { Client, SearchFilters, TripProposal, TripRequest } from "../domain/types";
 import type { ContextoDeCotizacion, LecturaDeCotizacion } from "../domain/cotizacionDelProveedor";
+import type { ClienteEspecial } from "../domain/documentImportTypes";
 
 // Mismo origen: en dev lo resuelve el proxy de Vite (`/api` -> :8787) y en
 // produccion nginx hace de proxy al Node. VITE_API_BASE_URL solo hace falta
@@ -1250,4 +1251,29 @@ export async function descargarCotizacionDelProveedor(id: string, nombre: string
   enlace.click();
   enlace.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** Los clientes especiales (precio propio pactado), de la base de datos. */
+export function listarClientesEspecialesApi() {
+  return getJson<{ clientes: ClienteEspecial[] }>("/api/clientes-especiales", "No se pudo cargar la lista de clientes especiales.");
+}
+
+/** Da de alta un cliente especial; si ya existe uno con ese nombre, devuelve ese. */
+export function crearClienteEspecialApi(datos: { nombre: string; detalle: string; porcentajeSobrePvp: number | null }) {
+  return postJson<{ cliente: ClienteEspecial; nuevo: boolean }>(
+    "/api/clientes-especiales",
+    datos,
+    "No se pudo dar de alta el cliente especial.",
+  );
+}
+
+/** Para qué cliente es la tarifa del documento, leído por la IA. */
+export function detectarClienteEspecialApi(archivo: File) {
+  const formulario = new FormData();
+  formulario.append("archivo", archivo);
+  return postFormData<{ nombre: string; detalle: string; cita: string; aviso: string; existente: ClienteEspecial | null }>(
+    "/api/clientes-especiales/detectar",
+    formulario,
+    "No se pudo leer el cliente del documento.",
+  );
 }

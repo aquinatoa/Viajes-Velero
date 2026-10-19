@@ -99,7 +99,7 @@ function tipoDeImagenOPdf(nombre: string, tipo: string): string {
  * (.eml) el cuerpo y su primer PDF o imagen adjuntos, que es donde suelen
  * venir los precios.
  */
-async function loQueSeLeEnsena(
+export async function loQueSeLeEnsena(
   fichero: FicheroDeCotizacion,
   ruta: string,
 ): Promise<{ bloques: Bloque[]; texto: string; problema: string | null }> {
@@ -213,7 +213,7 @@ function instrucciones(contexto: ContextoDeCotizacion, texto: string, pegado: st
     .join("\n");
 }
 
-async function preguntarAlModelo(bloques: Bloque[], prompt: string): Promise<unknown> {
+export async function preguntarAlModelo(bloques: Bloque[], prompt: string, sistema: string = SISTEMA): Promise<unknown> {
   const config = getAiProviderConfig();
   if (config.provider !== "anthropic" || !config.anthropicApiKey) {
     throw new Error("La lectura automática no está configurada en este servidor (AI_PROVIDER / ANTHROPIC_API_KEY).");
@@ -223,7 +223,7 @@ async function preguntarAlModelo(bloques: Bloque[], prompt: string): Promise<unk
     const stream = client.messages.stream({
       model: config.model || DEFAULT_ANTHROPIC_MODEL,
       max_tokens: 4000,
-      system: SISTEMA,
+      system: sistema,
       messages: [{ role: "user", content: [...bloques, { type: "text", text: prompt }] }],
     });
     const mensaje = await stream.finalMessage();

@@ -84,7 +84,13 @@ import { toRateKind } from "./pricing";
 import { listarLecturasIa, registrarLecturaIa, updateInventoryDocumentAiUsage } from "./documentImportDb";
 import { resumirConsumo } from "./consumoIa";
 import type { AiUsage } from "../src/domain/documentImportTypes";
-import { CLIENT_SEGMENTS } from "../src/domain/documentImportTypes";
+import {
+  codigosDeClientesEspeciales,
+  crearClienteEspecial,
+  detectarClienteEnDocumento,
+  listarClientesEspeciales,
+  problemasDelAlta,
+} from "./clientesEspeciales";
 import {
   approveTripProposalDb,
   ensureTripRequestDealDb,
@@ -558,11 +564,15 @@ app.post("/api/crm/opportunities/:id/update", async (request, response) => {
  * Se valida en el servidor y no solo en la pantalla porque de esto depende que
  * una tarifa se publique con margen o sin él.
  */
-function validateRateDeclaration(payload: {
-  rateKind?: string;
-  marginPercent?: number | null;
-  clientSegment?: string | null;
-}): string | null {
+function validateRateDeclaration(
+  payload: {
+    rateKind?: string;
+    marginPercent?: number | null;
+    clientSegment?: string | null;
+  },
+  /** Los códigos de los clientes especiales que existen (de la base de datos). */
+  segmentosValidos: string[],
+): string | null {
   const { rateKind, marginPercent, clientSegment } = payload;
 
   if (rateKind !== undefined && !["PURCHASE", "SALE", "UNKNOWN"].includes(rateKind)) {
@@ -581,8 +591,8 @@ function validateRateDeclaration(payload: {
   ) {
     return "El margen tiene que ser un porcentaje entre 0 y 100.";
   }
-  if (clientSegment && !(CLIENT_SEGMENTS as string[]).includes(clientSegment)) {
-    return "El tipo de cliente no es uno de los conocidos.";
+  if (clientSegment && clientSegment !== "GENERIC" && !segmentosValidos.includes(clientSegment)) {
+    return "Ese cliente especial no existe: dalo de alta al subir el documento.";
   }
   return null;
 }
@@ -617,7 +627,8 @@ app.post("/api/inventory/documents", async (request, response) => {
       return;
     }
 
-    const rateKindError = validateRateDeclaration(payload) ?? validateDepartment(payload.department);
+    const rateKindError =
+      validateRateDeclaration(payload, await codigosDeClientesEspeciales()) ?? validateDepartment(payload.department);
     if (rateKindError) {
       response.status(400).json({ error: rateKindError });
       return;
@@ -708,7 +719,8 @@ app.patch("/api/inventory/documents/:id", async (request, response) => {
       return;
     }
 
-    const rateKindError = validateRateDeclaration(payload) ?? validateDepartment(payload.department);
+    const rateKindError =
+      validateRateDeclaration(payload, await codigosDeClientesEspeciales()) ?? validateDepartment(payload.department);
     if (rateKindError) {
       response.status(400).json({ error: rateKindError });
       return;
@@ -2271,6 +2283,71 @@ app.get("/api/correo/adjuntos/:id", requireAuth, async (request, response) => {
   } catch (error) {
     console.error("Error descargando un adjunto", error);
     response.status(500).json({ error: "No se pudo descargar el adjunto." });
+  }
+});
+
+// Los clientes especiales (los que tienen precio propio pactado). Se dan de
+// alta al subir su tarifa; la lista la usan la subida, la edición del
+// documento y «Cotizamos para».
+app.get("/api/clientes-especiales", requireAuth, async (_request, response) => {
+  try {
+    response.json({ clientes: await listarClientesEspeciales() });
+  } catch (error) {
+    console.error("Error listando los clientes especiales", error);
+    response.status(500).json({ error: "No se pudo cargar la lista de clientes especiales." });
+  }
+});
+
+app.post("/api/clientes-especiales", requireAuth, async (request, response) => {
+  try {
+    const body = (request.body ?? {}) as { nombre?: unknown; detalle?: unknown; porcentajeSobrePvp?: unknown };
+    const problemas = problemasDelAlta(body);
+    if (problemas.length) {
+      response.status(400).json({ error: problemas.join(" ") });
+      return;
+    }
+    const porcentaje =
+      body.porcentajeSobrePvp === null || body.porcentajeSobrePvp === undefined || body.porcentajeSobrePvp === ""
+        ? null
+        : Number(body.porcentajeSobrePvp);
+    const usuario = (request as AuthedRequest).user;
+    const resultado = await crearClienteEspecial(
+      { nombre: String(body.nombre), detalle: typeof body.detalle === "string" ? body.detalle : null, porcentajeSobrePvp: porcentaje },
+      usuario?.email ?? null,
+    );
+    if (resultado.nuevo) {
+      await writeAudit({
+        user: usuario,
+        action: "CLIENTE_ESPECIAL_ALTA",
+        entity: `ClienteEspecial:${resultado.cliente.codigo}`,
+        detail: resultado.cliente.nombre,
+      });
+    }
+    response.json(resultado);
+  } catch (error) {
+    console.error("Error dando de alta un cliente especial", error);
+    response.status(500).json({ error: "No se pudo dar de alta el cliente especial." });
+  }
+});
+
+// Para qué cliente es la tarifa que se va a subir, leído del propio documento.
+app.post("/api/clientes-especiales/detectar", requireAuth, upload.single("archivo"), async (request, response) => {
+  try {
+    if (!request.file) {
+      response.status(400).json({ error: "Elige primero el documento." });
+      return;
+    }
+    const resultado = await detectarClienteEnDocumento({
+      nombre: decodeFileName(request.file.originalname),
+      tipo: request.file.mimetype || "application/octet-stream",
+      contenido: request.file.buffer,
+    });
+    response.json(resultado);
+  } catch (error) {
+    console.error("Error leyendo el cliente del documento", error);
+    response.status(502).json({
+      error: `No se pudo leer el cliente del documento: ${error instanceof Error ? error.message : String(error)}. Escríbelo a mano.`,
+    });
   }
 });
 

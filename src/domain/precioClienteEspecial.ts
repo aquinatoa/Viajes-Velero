@@ -10,13 +10,16 @@
  *   2. Si no, la general con SU porcentaje sobre el PVP.
  *   3. Si no tiene porcentaje, la general tal cual.
  *
- * El porcentaje de cada cliente está en `CLIENTES_ESPECIALES`. A 15/10/2026
- * no tenemos ninguno: falta que Javier diga el de cada cliente.
+ * El porcentaje de cada cliente está en la tabla `ClienteEspecial` (desde el
+ * 19/10/2026; antes, en `CLIENTES_ESPECIALES`). Se pone al darlo de alta.
  */
 import { CLIENTES_ESPECIALES, type ClienteEspecial } from "./documentImportTypes";
 
-export function porcentajeDelCliente(segmento: string | null | undefined): number | null {
-  const cliente = CLIENTES_ESPECIALES.find((c) => c.codigo === segmento);
+export function porcentajeDelCliente(
+  segmento: string | null | undefined,
+  clientes: ClienteEspecial[] = CLIENTES_ESPECIALES,
+): number | null {
+  const cliente = clientes.find((c) => c.codigo === segmento);
   return cliente?.porcentajeSobrePvp ?? null;
 }
 
