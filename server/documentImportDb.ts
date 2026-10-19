@@ -681,7 +681,27 @@ export async function createInventoryDocumentStaging(
         `${suplementos.filas.length} distintos. En cada uno se dice en cuántas filas venía.`,
     );
   }
-  const adjustmentData = suplementos.filas.map((supplement) => ({
+  /**
+   * Suplementos sin ningún alojamiento al que colgarlos.
+   *
+   * Javier, 19/10/2026: el Excel de extras de MSH (hielo, balones perdidos,
+   * entrenamientos, árbitros) falló dos veces al leerlo. La IA lo vio como
+   * actividades y además propuso «suplementos»; sin hotel en el documento, esos
+   * suplementos iban al «primer alojamiento», que no existía, y la lectura
+   * entera reventaba (`reading 'push'`) después de pagarla.
+   *
+   * Se probó a convertirlos en actividades y no: con ese Excel eran las notas
+   * de la columna «Observaciones» («Sin margen», «Venta por debajo de coste»),
+   * mientras los 61 extras de verdad ya venían como actividades. Así que no se
+   * guardan, y se avisa de cuáles eran por si alguno sí se vende suelto.
+   */
+  const sinAlojamiento =
+    (analysis.detectedAccommodations?.length ?? 0) === 0 &&
+    analysis.detectedAccommodation == null &&
+    !hasAccommodationData;
+  const suplementosComoExtras = sinAlojamiento ? suplementos.filas : [];
+
+  const adjustmentData = (sinAlojamiento ? [] : suplementos.filas).map((supplement) => ({
     _accommodationName: supplement.accommodationName ?? null,
     adjustmentType: supplement.adjustmentType ?? "UNKNOWN",
     concept: supplement.concept,
@@ -715,6 +735,17 @@ export async function createInventoryDocumentStaging(
     confidenceScore: confidence,
     reviewStatus: "PENDING",
   }));
+
+  // Los suplementos de un documento sin alojamientos: no se guardan, se avisa.
+  const descartados = suplementosComoExtras.map((s) => (s.concept ?? "").trim()).filter(Boolean);
+  if (descartados.length > 0) {
+    warnings.push(
+      `${descartados.length} suplemento(s) o nota(s) sin alojamiento en el documento no se han guardado (${descartados
+        .slice(0, 4)
+        .join(" · ")}${descartados.length > 4 ? "…" : ""}). Suelen ser observaciones de la tabla; si alguno se vende suelto, revisa el documento.`,
+    );
+  }
+  const actividadesACrear = analysis.detectedActivities;
 
   // Una condición con `activityName` es de esa actividad y de ninguna otra:
   // ni va a un alojamiento ni se copia al resto de actividades.
@@ -822,16 +853,16 @@ export async function createInventoryDocumentStaging(
     const index = indexFor(rate._accommodationName);
     if (index < 0) {
       orphanRates.push(rate._accommodationName ?? "(sin nombre)");
-      ratesByAccommodation[0].push(rate);
+      ratesByAccommodation[0]?.push(rate);
     } else {
-      ratesByAccommodation[index].push(rate);
+      ratesByAccommodation[index]?.push(rate);
     }
   }
 
   const adjustmentsByAccommodation = accommodationsToCreate.map(() => [] as typeof adjustmentData);
   for (const adjustment of adjustmentData) {
     const index = indexFor(adjustment._accommodationName);
-    adjustmentsByAccommodation[index < 0 ? 0 : index].push(adjustment);
+    adjustmentsByAccommodation[index < 0 ? 0 : index]?.push(adjustment);
   }
 
   if (orphanRates.length > 0) {
@@ -897,7 +928,7 @@ export async function createInventoryDocumentStaging(
       tarifasPorActividad.set(clave, [...(tarifasPorActividad.get(clave) ?? []), rate]);
     }
 
-    for (const activity of analysis.detectedActivities) {
+    for (const activity of actividadesACrear) {
       const suyas = tarifasPorActividad.get(normalizeKey(activity.activityName)) ?? [];
       const rates = suyas.map(({ _activityName, ...rate }) => rate);
       // Las generales del documento (si es de solo actividades) más las de
@@ -932,7 +963,7 @@ export async function createInventoryDocumentStaging(
 
     const sinDuenyo = activityRateData.filter(
       (rate) =>
-        !analysis.detectedActivities.some(
+        !actividadesACrear.some(
           (activity) => normalizeKey(activity.activityName) === normalizeKey(rate._activityName),
         ),
     );

@@ -940,6 +940,49 @@ async function main() {
     );
   });
 
+  await test("extras sin hotel: la lectura no revienta y los suplementos sueltos se avisan", async () => {
+    // Javier, 19/10/2026: el Excel de extras de MSH falló dos veces con
+    // «Cannot read properties of undefined (reading 'push')».
+    const docExtras = await db.createInventoryDocument({
+      targetType: "ACTIVITY",
+      controlName: "Extras MSH 2027",
+      controlYear: 2027,
+    });
+    const analisis = {
+      mode: "mock" as const,
+      documentSummary: "Extras del Mediterranean Sports Hub",
+      detectedAccommodation: null,
+      detectedAccommodations: [],
+      detectedActivities: [{ activityName: "Ice (2 kg bag)" }, { activityName: "Extra training 1 h 30 - natural grass" }],
+      candidateRates: [],
+      candidateActivityRates: [
+        { activityName: "Ice (2 kg bag)", rateUnit: "PER_SERVICE", year: 2027, currency: "EUR", salePvpAmount: 3 },
+        { activityName: "Extra training 1 h 30 - natural grass", rateUnit: "PER_SERVICE", year: 2027, currency: "EUR", salePvpAmount: 605 },
+      ],
+      // Lo que propuso la IA como «suplementos»: las notas de la columna Observaciones.
+      candidateSupplements: [
+        { concept: "Sin margen" },
+        { concept: "Venta por debajo de coste" },
+        { concept: "Compra variable - partido amistoso fin de semana", amount: 70, appliesPer: "per team" },
+      ],
+      candidatePolicies: [],
+      candidateBlackoutDates: [],
+      warnings: [],
+      confidence: 0.8,
+    };
+
+    const creado = await db.createInventoryDocumentStaging(docExtras.id, analisis as never, {
+      targetType: "ACTIVITY",
+      controlName: "Extras MSH 2027",
+    });
+
+    assert.equal(creado.accommodations, 0, "no se inventa ningún hotel");
+    assert.equal(creado.adjustments, 0, "ningún suplemento se cuelga de un hotel que no existe");
+    assert.equal(creado.activities, 2, "solo los extras de verdad");
+    assert.equal(creado.activityRates, 2);
+    assert.match(creado.warnings.join(" | "), /3 suplemento\(s\) o nota\(s\) sin alojamiento .*Sin margen/);
+  });
+
   await test("aprueba actividad + tarifa con precio + política; omite la tarifa sin precio", async () => {
     const actResult = await db.bulkUpdateStagingReview("activities", [stagingActivityId], "APPROVED");
     assert.equal(actResult.updated, 1);
