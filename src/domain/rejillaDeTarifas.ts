@@ -160,6 +160,13 @@ export function rejillaDeAlojamiento(tarifas: TarifaDeCatalogo[]): Rejilla | nul
     if (ocupaciones.length > 1) partesColumna.push(texto(t.occupancyLabel) || "sin ocupación");
     if (servicios.length > 1) partesColumna.push(texto(t.includedService) || "sin servicio");
     if (canales.length > 1) partesColumna.push(texto(t.clientSegment) || "sin canal");
+    // Los tramos por duración de la estancia: el 4R cobra distinto con 1-2
+    // noches, 3 o 4 y más. Sin esto los tres precios caían en la misma celda y
+    // parecía un error (Ruth, 19/10/2026).
+    if (noches.length > 1) {
+      const n = Number(texto(t.minNights)) || 1;
+      partesColumna.push(`desde ${n} noche${n === 1 ? "" : "s"}`);
+    }
     return {
       fila: etiquetaDePeriodo(t),
       grupo: regimenes.length > 1 ? etiquetaDeRegimen(t.boardType) || "sin régimen" : "",
