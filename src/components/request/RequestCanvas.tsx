@@ -7,6 +7,13 @@ import {
   type LineaDeActividad,
   type TramoDeEdad,
 } from "../../domain/lineasDeActividad";
+import {
+  descuentoValido,
+  lineasConDescuento,
+  precioConDescuento,
+  textoDelDescuento,
+  type DescuentoDeActividad,
+} from "../../domain/descuentoDeActividad";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildProposal,
@@ -427,6 +434,12 @@ export function RequestCanvas({
    */
   const [preciosFijados, setPreciosFijados] = useState<Record<string, number>>({});
   /**
+   * El descuento de cada actividad (reunión del 19/10/2026: «en cada concepto
+   * de actividades poder elegir si aplica el descuento», abierto en importe o
+   * porcentaje). Se elige en el programa y sale en el resumen y el documento.
+   */
+  const [descuentos, setDescuentos] = useState<Record<string, DescuentoDeActividad>>({});
+  /**
    * Hoteles y actividades fuera del catálogo, con el precio del proveedor
    * (Ruth, 29/09/2026). Viven en la cotización: se mezclan con lo que devuelve
    * cada búsqueda y viajan con el borrador.
@@ -581,6 +594,7 @@ export function RequestCanvas({
       setProgramaBase(estado.programaBase ?? []);
       setExcepciones(estado.excepciones ?? {});
       setPreciosFijados(estado.preciosFijados ?? {});
+      setDescuentos(estado.descuentos ?? {});
       setHotelesAdHoc(estado.hotelesAdHoc ?? []);
       setActividadesAdHoc(estado.actividadesAdHoc ?? []);
       adHocRef.current = { hoteles: estado.hotelesAdHoc ?? [], actividades: estado.actividadesAdHoc ?? [] };
@@ -668,6 +682,7 @@ export function RequestCanvas({
         programaBase,
         excepciones,
         preciosFijados,
+        descuentos,
         hotelesAdHoc,
         actividadesAdHoc,
       };
@@ -697,7 +712,7 @@ export function RequestCanvas({
     return () => {
       if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
     };
-  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, hotelesAdHoc, actividadesAdHoc, solicitudId, canal, enviada]);
+  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, descuentos, hotelesAdHoc, actividadesAdHoc, solicitudId, canal, enviada]);
 
   /** Recupera el borrador y vuelve a buscar hoteles: las tarifas pueden haber cambiado. */
   function recuperar() {
@@ -717,6 +732,7 @@ export function RequestCanvas({
     setProgramaBase(recuperable.programaBase);
     setExcepciones(recuperable.excepciones);
     setPreciosFijados(recuperable.preciosFijados ?? {});
+    setDescuentos(recuperable.descuentos ?? {});
     setHotelesAdHoc(recuperable.hotelesAdHoc ?? []);
     setActividadesAdHoc(recuperable.actividadesAdHoc ?? []);
     adHocRef.current = { hoteles: recuperable.hotelesAdHoc ?? [], actividades: recuperable.actividadesAdHoc ?? [] };
@@ -882,13 +898,36 @@ export function RequestCanvas({
         ? encontrada
         : { ...encontrada, rate: { ...encontrada.rate, salePvpAmount: puesto }, precioFijado: puesto };
     // Con líneas, lo que se suma por alumno es el total del grupo repartido.
+    // El descuento va a cada persona: a la tarifa o a cada línea.
+    const descuento = descuentos[id];
     const activas = (lineas[id] ?? []).filter((l) => l.cantidad > 0);
-    if (activas.length === 0) return base;
+    if (activas.length === 0) {
+      if (!descuentoValido(descuento)) return base;
+      const antes = base.rate.salePvpAmount;
+      return {
+        ...base,
+        rate: { ...base.rate, salePvpAmount: precioConDescuento(antes, descuento) },
+        descuento: { ...descuento, antes },
+      };
+    }
+    const alumnos = entendido?.participants ?? 0;
+    const conDescuento = lineasConDescuento(activas, descuento);
     return {
       ...base,
-      lineas: activas,
-      rate: { ...base.rate, salePvpAmount: porAlumno(activas, entendido?.participants ?? 0) },
+      lineas: conDescuento,
+      rate: { ...base.rate, salePvpAmount: porAlumno(conDescuento, alumnos) },
+      descuento: descuentoValido(descuento) ? { ...descuento, antes: porAlumno(activas, alumnos) } : null,
     };
+  }
+
+  /** Pone, cambia o quita el descuento de una actividad. */
+  function ponerDescuento(id: string, tipo: "" | "EUR" | "PCT", valor: number | null) {
+    setDescuentos((antes) => {
+      const siguiente = { ...antes };
+      if (!tipo) delete siguiente[id];
+      else siguiente[id] = { tipo, valor: valor ?? antes[id]?.valor ?? (tipo === "EUR" ? 2 : 10) };
+      return siguiente;
+    });
   }
 
   /** Sin precio no se puede elegir: entraría en el documento valiendo cero. */
@@ -1497,7 +1536,9 @@ export function RequestCanvas({
         builderState: {
           selectedAccommodationIds: elegidos,
           activitiesByOption: actividadesPorOpcion,
-          activityLines: lineas,
+          activityLines: Object.fromEntries(
+            Object.entries(lineas).map(([id, ls]) => [id, lineasConDescuento(ls, descuentos[id])]),
+          ),
           selectedActivityIds: programaBase,
         },
       });
@@ -2254,6 +2295,45 @@ export function RequestCanvas({
                       >
                         Ver tarifas
                       </button>
+                      {puesta ? (
+                        <div className="cv__desc">
+                          <label>
+                            <span>Descuento</span>
+                            <select
+                              value={descuentos[item.activity.id]?.tipo ?? ""}
+                              onChange={(e) => ponerDescuento(item.activity.id, e.target.value as "" | "EUR" | "PCT", null)}
+                            >
+                              <option value="">Sin descuento</option>
+                              <option value="EUR">€ por persona</option>
+                              <option value="PCT">%</option>
+                            </select>
+                          </label>
+                          {descuentos[item.activity.id] ? (
+                            <label>
+                              <span className="sr-only">Importe del descuento</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step={descuentos[item.activity.id].tipo === "EUR" ? "0.5" : "1"}
+                                inputMode="decimal"
+                                value={descuentos[item.activity.id].valor}
+                                onChange={(e) =>
+                                  ponerDescuento(item.activity.id, descuentos[item.activity.id].tipo, Number(e.target.value))
+                                }
+                              />
+                              <span aria-hidden="true">{descuentos[item.activity.id].tipo === "EUR" ? "€" : "%"}</span>
+                            </label>
+                          ) : null}
+                          {(() => {
+                            const m = matchActividad(item.activity.id);
+                            return m?.descuento ? (
+                              <span className="cv__desc-r">
+                                {euros(m.descuento.antes)} → <b>{euros(m.rate.salePvpAmount)}</b> por alumno
+                              </span>
+                            ) : null;
+                          })()}
+                        </div>
+                      ) : null}
                     </li>
                   );
                 })}
@@ -2526,6 +2606,15 @@ export function RequestCanvas({
                                 ? enOpcion.map((a) => a.activity.activityName).join(" · ")
                                 : "Sin actividades"}
                             </p>
+                            {enOpcion.some((a) => a.descuento) ? (
+                              <p className="rv__desc">
+                                Con descuento:{" "}
+                                {enOpcion
+                                  .filter((a) => a.descuento)
+                                  .map((a) => `${a.activity.activityName} (${textoDelDescuento(a.descuento)})`)
+                                  .join(" · ")}
+                              </p>
+                            ) : null}
                           </li>
                         );
                       })}

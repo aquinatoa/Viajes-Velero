@@ -162,6 +162,12 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
     return "Los precios entran tal cual, sin margen. Se ofrecerán al cotizar para colegios, clubes y agencias.";
   }, [rateKind, margen, cliente, esEspecial, nuevoNombre, clientesEspeciales]);
 
+  // Javier, 19/10/2026: «indica aquí que el importe lo coge del Excel». Y su
+  // duda: en uno de venta, ¿hay que poner también el coste? No hace falta, pero
+  // si viene, se guarda: es lo que dice el margen en el CRM.
+  const notaDeVenta =
+    "El precio de venta se toma de la columna de venta del documento. Si trae también el coste (compra, «Cost», neto), se guarda como coste para saber el margen; si no, no pasa nada.";
+
   // Con «cliente especial» hay que saber cuál: uno que exista o el nombre del nuevo.
   const clienteListo =
     rateKind !== "SALE" ||
@@ -410,7 +416,7 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
               >
                 <span className="alta__card-k">De venta</span>
                 <span className="alta__card-d">
-                  Lo que cobráis al cliente. Se guarda tal cual, sin tocar.
+                  Lo que cobráis al cliente. El importe se toma del documento tal cual, sin margen.
                 </span>
               </button>
             </div>
@@ -568,6 +574,7 @@ export function NewDocumentDropzone({ onDone, onCancel }: Props) {
 
             {/* La consecuencia, en dinero. Explica el margen sin explicarlo. */}
             <p className="alta__example">{ejemplo}</p>
+            {rateKind === "SALE" ? <p className="alta__example alta__example--nota">{notaDeVenta}</p> : null}
           </div>
 
           {/* ---------- 4 · una sola acción ---------- */}

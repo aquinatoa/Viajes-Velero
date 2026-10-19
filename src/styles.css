@@ -9990,6 +9990,13 @@ button.cw-ev__more:hover { text-decoration: underline; }
 }
 
 /* El ejemplo en euros: explica el margen sin tener que explicarlo. */
+/* La nota de un documento de venta: de dónde sale el importe (19/10/2026). */
+.alta__example.alta__example--nota {
+  background: var(--surface-2);
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
 .alta__example {
   margin: 0;
   padding: var(--sp-3) var(--sp-4);
@@ -12347,6 +12354,45 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 }
 .ah__venta small {
   color: var(--muted);
+}
+/* El descuento de una actividad elegida (19/10/2026). */
+.cv__desc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 4px 0 8px 34px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.cv__desc label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cv__desc select,
+.cv__desc input {
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+.cv__desc input {
+  width: 72px;
+}
+.cv__desc-r {
+  color: var(--muted);
+}
+.cv__desc-r b {
+  color: var(--ink);
+}
+.rv__desc {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: #6b4a06;
 }
 /* «+ Fuera del catálogo»: en amarillo, como la lupa, para que se vea que la
    opción existe (Anthony, 15/10/2026: «no se aprecia que exista»). */

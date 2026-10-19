@@ -1440,6 +1440,87 @@ export interface PublishApprovedResult {
 
 const isApprovedStatus = (status: string) => status === "APPROVED";
 
+/** Un nombre para comparar entre documentos: sin tildes, mayúsculas ni espacios de más. */
+function nombreParaCruzar(nombre: unknown): string {
+  return String(nombre ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Lo publicado desde OTROS documentos que este documento sustituye.
+ *
+ * Javier, 19/10/2026: «si subimos el archivo todo el rato actualizado, ¿no va a
+ * duplicar productos?». Hasta ahora sí: volver a publicar el MISMO documento
+ * sustituía lo suyo, pero un Excel actualizado subido como documento nuevo
+ * creaba otra vez cada hotel al lado del viejo, y al cotizar salían los dos.
+ *
+ * Regla: el más reciente manda. Se sustituye lo publicado con el mismo nombre
+ * (sin tildes ni mayúsculas) desde un documento del MISMO cliente (general o
+ * cada cliente especial) y del MISMO departamento. Así el Mediterrània del
+ * turoperador suizo no pisa al de la venta general, ni una tarifa de Deportivo
+ * a la de Grupos. Lo cargado a mano desde Excel (sin documento) no se toca. Las
+ * propuestas ya enviadas no pierden nada: guardan su foto.
+ */
+async function loQueSustituye(
+  sourceDocumentId: string,
+  alojamientosNuevos: Record<string, unknown>[],
+  actividadesNuevas: Record<string, unknown>[],
+): Promise<{ accommodationIds: string[]; activityIds: string[]; avisos: string[] }> {
+  const vacio = { accommodationIds: [], activityIds: [], avisos: [] };
+  const este = await prisma.sourceDocument.findUnique({
+    where: { id: sourceDocumentId },
+    select: { clientSegment: true, department: true },
+  });
+  if (!este) return vacio;
+  const segmento = (s: string | null | undefined) => (!s || s === "GENERIC" ? "GENERIC" : s);
+  const mismos = await prisma.sourceDocument.findMany({
+    where: { id: { not: sourceDocumentId } },
+    select: { id: true, controlName: true, clientSegment: true, department: true },
+  });
+  const delMismoCanal = mismos.filter(
+    (d) => segmento(d.clientSegment) === segmento(este.clientSegment) && (d.department ?? null) === (este.department ?? null),
+  );
+  if (delMismoCanal.length === 0) return vacio;
+  const nombreDoc = new Map(delMismoCanal.map((d) => [d.id, d.controlName]));
+  const ids = [...nombreDoc.keys()];
+
+  const nombresAloj = new Set(alojamientosNuevos.map((a) => nombreParaCruzar(a.accommodationName)).filter(Boolean));
+  const nombresAct = new Set(actividadesNuevas.map((a) => nombreParaCruzar(a.activityName)).filter(Boolean));
+
+  const [aloj, act] = await Promise.all([
+    nombresAloj.size
+      ? prisma.accommodation.findMany({ where: { sourceDocumentId: { in: ids } }, select: { id: true, accommodationName: true, sourceDocumentId: true } })
+      : Promise.resolve([]),
+    nombresAct.size
+      ? prisma.activity.findMany({ where: { sourceDocumentId: { in: ids } }, select: { id: true, activityName: true, sourceDocumentId: true } })
+      : Promise.resolve([]),
+  ]);
+  const alojSust = aloj.filter((a) => nombresAloj.has(nombreParaCruzar(a.accommodationName)));
+  const actSust = act.filter((a) => nombresAct.has(nombreParaCruzar(a.activityName)));
+
+  const avisos: string[] = [];
+  const resumir = (filas: Array<{ nombre: string; doc: string | null }>, que: string) => {
+    if (filas.length === 0) return;
+    const porDoc = new Map<string, string[]>();
+    for (const f of filas) porDoc.set(f.doc ?? "otro documento", [...(porDoc.get(f.doc ?? "otro documento") ?? []), f.nombre]);
+    for (const [doc, nombres] of porDoc) {
+      avisos.push(
+        `Sustituye ${nombres.length} ${que} ya publicado(s) desde «${doc}» con el mismo nombre (${nombres
+          .slice(0, 4)
+          .join(", ")}${nombres.length > 4 ? "…" : ""}): el documento más reciente manda y no se duplican.`,
+      );
+    }
+  };
+  resumir(alojSust.map((a) => ({ nombre: a.accommodationName, doc: nombreDoc.get(a.sourceDocumentId ?? "") ?? null })), "alojamiento(s)");
+  resumir(actSust.map((a) => ({ nombre: a.activityName, doc: nombreDoc.get(a.sourceDocumentId ?? "") ?? null })), "actividad(es)");
+
+  return { accommodationIds: alojSust.map((a) => a.id), activityIds: actSust.map((a) => a.id), avisos };
+}
+
 /**
  * Construye el plan de publicación (registros a crear, advertencias y conteos
  * de omisiones) a partir de los candidatos staging aprobados. Es de SOLO
@@ -1832,12 +1913,16 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
     });
   }
 
+  const sustituye = await loQueSustituye(sourceDocumentId, accommodationsToCreate, activitiesToCreate);
+  for (const s of sustituye.avisos) warnings.push(s);
+
   return {
     accommodations,
     activities,
     anyPublishable,
     accommodationsToCreate,
     activitiesToCreate,
+    sustituye,
     warnings,
     skippedAccommodations,
     skippedRates,
@@ -1917,6 +2002,14 @@ export async function publishApprovedInventoryDocument(
     // reinsertar. No afecta a filas de Excel (sourceDocumentId null).
     await tx.accommodation.deleteMany({ where: { sourceDocumentId } });
     await tx.activity.deleteMany({ where: { sourceDocumentId } });
+    // Lo mismo publicado desde otro documento del mismo cliente y departamento:
+    // el más reciente manda (ver `loQueSustituye`).
+    if (plan.sustituye.accommodationIds.length > 0) {
+      await tx.accommodation.deleteMany({ where: { id: { in: plan.sustituye.accommodationIds } } });
+    }
+    if (plan.sustituye.activityIds.length > 0) {
+      await tx.activity.deleteMany({ where: { id: { in: plan.sustituye.activityIds } } });
+    }
 
     for (const data of plan.accommodationsToCreate) {
       await tx.accommodation.create({ data: data as never });

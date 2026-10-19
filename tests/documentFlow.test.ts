@@ -1949,6 +1949,75 @@ async function main() {
     assert.equal(await drafts.borrarBorradorDb(guardado.id), false, "borrarlo dos veces no revienta");
   });
 
+  // --- el más reciente manda: no se duplican hoteles entre documentos ----------
+  // Javier, 19/10/2026: «si subimos el archivo todo el rato actualizado, ¿no va a
+  // duplicar productos?». Un Excel actualizado subido como documento nuevo
+  // creaba cada hotel otra vez al lado del viejo.
+  async function publicarHotel(nombreDoc: string, hotel: string, pvp: number, clientSegment: string | null) {
+    const doc = await db.createInventoryDocument({
+      targetType: "ACCOMMODATION",
+      controlName: nombreDoc,
+      controlYear: 2027,
+      rateKind: "SALE",
+      clientSegment,
+    });
+    await db.createInventoryDocumentStaging(
+      doc.id,
+      {
+        mode: "mock",
+        documentSummary: nombreDoc,
+        detectedAccommodation: null,
+        detectedAccommodations: [{ accommodationName: hotel, locality: "Salou" }],
+        detectedActivities: [],
+        candidateRates: [
+          { accommodationName: hotel, year: 2027, boardType: "PC", currency: "EUR", pvpAmount: pvp, seasonName: "Mayo" },
+        ],
+        candidateActivityRates: [],
+        candidateSupplements: [],
+        candidatePolicies: [],
+        candidateBlackoutDates: [],
+        warnings: [],
+        confidence: 0.9,
+      } as never,
+      { targetType: "ACCOMMODATION", controlName: nombreDoc },
+    );
+    const det = await db.getInventoryDocumentDetail(doc.id);
+    const aloj = det!.stagingAccommodations[0];
+    await db.bulkUpdateStagingReview("accommodations", [aloj.id], "APPROVED");
+    await db.bulkUpdateStagingReview("accommodation-rates", aloj.rates.map((r: { id: string }) => r.id), "APPROVED");
+    const contexto = { controlYear: 2027, rateKind: "SALE" as const, clientSegment };
+    const simulacion = await db.dryRunPublishApprovedInventoryDocument(doc.id, contexto);
+    const resultado = await db.publishApprovedInventoryDocument(doc.id, contexto);
+    return { doc, simulacion, resultado };
+  }
+  const contarHotel = async (nombre: string) =>
+    prisma.accommodation.findMany({
+      where: { accommodationName: { equals: nombre, mode: "insensitive" } },
+      include: { rates: true },
+    });
+
+  await test("un Excel actualizado subido como documento nuevo sustituye al hotel, no lo duplica", async () => {
+    await publicarHotel("Hoteles 2027 (primera versión)", "Hotel Prueba Duplicado", 50, "GENERIC");
+    const { doc, simulacion, resultado } = await publicarHotel(
+      "Hoteles 2027 (actualizado)",
+      "HOTEL PRUEBA DUPLICADO",
+      55,
+      "GENERIC",
+    );
+    assert.match(simulacion.warnings.join(" | "), /Sustituye 1 alojamiento\(s\).*Hoteles 2027 \(primera versión\)/, "la simulación lo avisa antes de publicar");
+    assert.match(resultado.warnings.join(" | "), /el documento más reciente manda/);
+    const quedan = await contarHotel("Hotel Prueba Duplicado");
+    assert.equal(quedan.length, 1, "un solo hotel con ese nombre");
+    assert.equal(quedan[0].sourceDocumentId, doc.id, "el del documento nuevo");
+    assert.equal(Number(quedan[0].rates[0].pvpAmount), 55, "con el precio nuevo");
+  });
+
+  await test("la tarifa de un cliente especial no pisa a la general del mismo hotel", async () => {
+    await publicarHotel("Hoteles 2027 · turoperador suizo", "Hotel Prueba Duplicado", 45, "SWISS_TTOO");
+    const quedan = await contarHotel("Hotel Prueba Duplicado");
+    assert.equal(quedan.length, 2, "el general y el del suizo conviven");
+  });
+
   await prisma.$disconnect();
 
   // --- resumen -----------------------------------------------------------------
