@@ -1,5 +1,6 @@
 import { porAlumno, totalDeLineas } from "../domain/lineasDeActividad";
 import { textoDelDescuento } from "../domain/descuentoDeActividad";
+import { textoDelDesglose } from "../domain/estancia";
 import type {
   ApproveProposalInput,
   BuildProposalInput,
@@ -68,18 +69,23 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
       );
     }
 
+    // Con la estancia calculada en el lienzo (pensión por noche, profesores y
+    // chófer: Ruth, 19/10/2026), manda ella: total, desglose y pensiones.
+    const estancia = selected.estancia ?? null;
     return {
       optionNumber: index + 1,
       accommodationId: selected.accommodation.id,
       accommodationNameSnapshot: selected.accommodation.accommodationName,
-      boardType: rate.boardType,
+      boardType: estancia ? estancia.regimenes : rate.boardType,
       dateFrom: input.normalized.dateFrom,
       dateTo: input.normalized.dateTo,
       nights,
       participants,
       teachers,
-      totalPvpText: formatCurrencyExact(total),
-      priceBreakdownText: `${desglose.join(" + ")}, por noche x ${nights} ${nights === 1 ? "noche" : "noches"}`,
+      totalPvpText: formatCurrencyExact(estancia ? estancia.total : total),
+      priceBreakdownText: estancia
+        ? textoDelDesglose(estancia, participants, teachers, estancia.chofer)
+        : `${desglose.join(" + ")}, por noche x ${nights} ${nights === 1 ? "noche" : "noches"}`,
       conditionsText: selected.accommodation.conditionsText,
       observationsText: selected.accommodation.observations,
       // Las gratuidades: «1 gratuidad en base doble por cada 25 de pago». Están

@@ -14,6 +14,7 @@ import { deriveSalePrice } from "./pricing";
 import { textoDelPeriodo, valeParaElViaje } from "../src/domain/periodosDeActividad";
 import { precioParaElCliente } from "../src/domain/precioClienteEspecial";
 import { listarClientesEspeciales } from "./clientesEspeciales";
+import { suplementosDeHabitacion } from "../src/domain/estancia";
 
 const prisma = new PrismaClient();
 
@@ -464,9 +465,18 @@ export async function searchAccommodationsDb(
 
   const accommodations = await prisma.accommodation.findMany({
     include: {
-      rates: true
+      rates: true,
+      // Los suplementos de habitación («Individual +75 %», «Doble profes
+      // +10 %»): la estancia los aplica a profesores y chófer (19/10/2026).
+      adjustments: { select: { concept: true, amountType: true, amount: true } },
     }
   });
+  const suplementosPorHotel = new Map(
+    accommodations.map((a) => [
+      a.id,
+      suplementosDeHabitacion(a.adjustments.map((s) => ({ ...s, amount: s.amount === null ? null : Number(s.amount) }))),
+    ]),
+  );
 
   // Filtro por cliente: una tarifa pactada con un canal concreto NO puede
   // aparecer al cotizar para otro. Las tarifas sin canal valen para todos, que
@@ -711,6 +721,7 @@ export async function searchAccommodationsDb(
             participantes: filters.participants ?? null,
           },
         ),
+        suplementosHabitacion: suplementosPorHotel.get(item.accommodation.id) ?? {},
         alternativas: (porAlojamiento.get(item.accommodation.id) ?? [])
           .filter((otra) => otra.rate.id !== item.rate.id)
           .filter((otra) => valeParaEstasFechas(otra.rate, filters))

@@ -285,6 +285,14 @@ export interface AccommodationSearchMatch {
    * sola de las cuarenta que tiene el 4R y no sabía que había alternativas.
    */
   alternativas?: AccommodationRate[];
+  /**
+   * Lo que cuesta la estancia en este hotel con la composición elegida (pensión
+   * por noche, habitación de profesores y chófer). Lo pone el lienzo; si está,
+   * manda sobre `rate` para el precio y el desglose.
+   */
+  estancia?: (import("./estancia").ResultadoDeLaEstancia & { chofer: number }) | null;
+  /** Los suplementos de habitación del hotel, para profesores y chófer (19/10/2026). */
+  suplementosHabitacion?: { individual?: { tipo: "PCT" | "EUR"; valor: number } | null; doble?: { tipo: "PCT" | "EUR"; valor: number } | null };
   /** Metido a mano por quien cotiza, con el precio del proveedor: no está en el catálogo. */
   adHoc?: boolean;
   /** Ad hoc: el justificante del precio (la cotización del proveedor guardada). */

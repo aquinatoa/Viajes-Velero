@@ -36,12 +36,15 @@ prueba("los importes se leen con punto de miles y coma decimal", () => {
 });
 
 prueba("alumnos y profesores al mismo precio", () => {
-  assert.deepEqual(desgloseDeLaOpcion(PLANAS, "9.661,12 €"), {
+  const { tramos, ...d } = desgloseDeLaOpcion(PLANAS, "9.661,12 €")!;
+  assert.deepEqual(d, {
     alumnos: { pax: 48, precio: 43.13 },
     profesores: { pax: 8, precio: 43.13, individual: false },
     noches: 4,
     total: 9661.12,
   });
+  assert.equal(tramos.length, 1);
+  assert.equal(tramos[0].profesores?.habitacion, "MULTIPLE");
 });
 
 prueba("profesores en individual, a su precio", () => {

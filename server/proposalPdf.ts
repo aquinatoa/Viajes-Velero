@@ -372,8 +372,14 @@ function drawOption(doc: PDFKit.PDFDocument, option: PdfOption, top: number): nu
     }
     y = doc.y + 3;
     doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
+    // Con pensiones mezcladas, cada tramo con su precio (Ruth, 19/10/2026).
+    const plural = (n: number) => `${n} ${n === 1 ? "noche" : "noches"}`;
     doc.text(
-      `Toda la estancia: ${desglose.noches} ${desglose.noches === 1 ? "noche" : "noches"} a ${formatMoney(desglose.alumnos.precio)} por alumno y noche`,
+      desglose.tramos.length > 1
+        ? `Toda la estancia: ${desglose.tramos
+            .map((t) => `${plural(t.noches)} en ${t.regimen ?? ""} a ${formatMoney(t.alumnos.precio)}`)
+            .join(" y ")} por alumno y noche`
+        : `Toda la estancia: ${plural(desglose.noches)} a ${formatMoney(desglose.alumnos.precio)} por alumno y noche`,
       50,
       y,
       { width: 495 },

@@ -89,6 +89,9 @@ import type {
 } from "../../domain/types";
 import { nombreDelCanal } from "../../domain/clientesEspeciales";
 import { siguientesNombre } from "../../domain/tituloDelViaje";
+import { COMPOSICION_POR_DEFECTO, type ComposicionDeLaEstancia } from "../../domain/estancia";
+import { estanciaDeHotel } from "../../services/estanciaDeHotel";
+import { PanelEstancia } from "./PanelEstancia";
 import { useClientesEspeciales } from "../useClientesEspeciales";
 import type { ClienteEspecial } from "../../domain/documentImportTypes";
 import {
@@ -174,7 +177,7 @@ function precioPorAlumno(
   actividades: ActivitySearchMatch[],
   noches: number,
 ): number {
-  const base = precioDeTarifa(hotel.rate) * Math.max(noches, 1);
+  const base = hotel.estancia ? hotel.estancia.porAlumno : precioDeTarifa(hotel.rate) * Math.max(noches, 1);
   const extras = actividades.reduce((suma, item) => suma + (item.rate.salePvpAmount || 0), 0);
   return Math.round((base + extras) * 100) / 100;
 }
@@ -441,6 +444,12 @@ export function RequestCanvas({
    */
   const [descuentos, setDescuentos] = useState<Record<string, DescuentoDeActividad>>({});
   /**
+   * Cómo es la estancia (Ruth, 19/10/2026): la pensión de cada noche, y la
+   * habitación y pensión de profesores y chófer. Cada hotel la calcula con sus
+   * tarifas y suplementos.
+   */
+  const [composicion, setComposicion] = useState<ComposicionDeLaEstancia>(COMPOSICION_POR_DEFECTO);
+  /**
    * Hoteles y actividades fuera del catálogo, con el precio del proveedor
    * (Ruth, 29/09/2026). Viven en la cotización: se mezclan con lo que devuelve
    * cada búsqueda y viajan con el borrador.
@@ -596,6 +605,7 @@ export function RequestCanvas({
       setExcepciones(estado.excepciones ?? {});
       setPreciosFijados(estado.preciosFijados ?? {});
       setDescuentos(estado.descuentos ?? {});
+      setComposicion(estado.composicion ?? COMPOSICION_POR_DEFECTO);
       setHotelesAdHoc(estado.hotelesAdHoc ?? []);
       setActividadesAdHoc(estado.actividadesAdHoc ?? []);
       adHocRef.current = { hoteles: estado.hotelesAdHoc ?? [], actividades: estado.actividadesAdHoc ?? [] };
@@ -684,6 +694,7 @@ export function RequestCanvas({
         excepciones,
         preciosFijados,
         descuentos,
+        composicion,
         hotelesAdHoc,
         actividadesAdHoc,
       };
@@ -713,7 +724,7 @@ export function RequestCanvas({
     return () => {
       if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
     };
-  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, descuentos, hotelesAdHoc, actividadesAdHoc, solicitudId, canal, enviada]);
+  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, descuentos, composicion, hotelesAdHoc, actividadesAdHoc, solicitudId, canal, enviada]);
 
   /** Recupera el borrador y vuelve a buscar hoteles: las tarifas pueden haber cambiado. */
   function recuperar() {
@@ -734,6 +745,7 @@ export function RequestCanvas({
     setExcepciones(recuperable.excepciones);
     setPreciosFijados(recuperable.preciosFijados ?? {});
     setDescuentos(recuperable.descuentos ?? {});
+    setComposicion(recuperable.composicion ?? COMPOSICION_POR_DEFECTO);
     setHotelesAdHoc(recuperable.hotelesAdHoc ?? []);
     setActividadesAdHoc(recuperable.actividadesAdHoc ?? []);
     adHocRef.current = { hoteles: recuperable.hotelesAdHoc ?? [], actividades: recuperable.actividadesAdHoc ?? [] };
@@ -767,6 +779,25 @@ export function RequestCanvas({
   }
 
   const noches = entendido ? nochesEntre(entendido.dateFrom, entendido.dateTo) : 0;
+
+  /**
+   * Los hoteles con su estancia calculada (pensión por noche, profesores y
+   * chófer). Las tarjetas, el resumen y la propuesta leen de aquí, así que el
+   * precio que se ve es el que va al documento.
+   */
+  const hotelesVista = useMemo(() => {
+    if (!hoteles) return hoteles;
+    const viaje = {
+      fechaEntrada: entendido?.dateFrom ?? "",
+      noches,
+      alumnos: entendido?.participants ?? 0,
+      profesores: entendido?.teachers ?? 0,
+    };
+    return {
+      ...hoteles,
+      matches: hoteles.matches.map((m) => ({ ...m, estancia: estanciaDeHotel(m, composicion, viaje) })),
+    };
+  }, [hoteles, composicion, entendido?.dateFrom, entendido?.participants, entendido?.teachers, noches]);
 
   // La petición tal y como está ahora mismo, con lo que no cabe en el borrador
   // normalizado: el tope y los requisitos. Es lo que mira el chat para decidir
@@ -1011,7 +1042,7 @@ export function RequestCanvas({
   }
 
   function matchHotel(id: string): AccommodationSearchMatch | undefined {
-    return hoteles?.matches.find((m) => m.accommodation.id === id);
+    return hotelesVista?.matches.find((m) => m.accommodation.id === id);
   }
 
   // ── Los tres hitos, calculados del estado real ──────────────────────────────
@@ -1527,7 +1558,7 @@ export function RequestCanvas({
       const nueva = await buildProposal({
         tripRequestId: guardada.id,
         normalized: entendido,
-        accommodationMatches: hoteles?.matches ?? [],
+        accommodationMatches: hotelesVista?.matches ?? [],
         // Con el precio ya resuelto: las que el catálogo no tarifa llevan el
         // que puso quien cotiza. Mandando `matches` a secas, «Arbitraje» ni
         // llegaba, y si llegara entraría valiendo cero.
@@ -2142,6 +2173,17 @@ export function RequestCanvas({
             </>
           ) : null}
 
+          {selec === "alojamientos" && hoteles && hoteles.matches.length > 0 ? (
+            <PanelEstancia
+              composicion={composicion}
+              onCambiar={setComposicion}
+              fechaEntrada={entendido?.dateFrom ?? ""}
+              noches={noches}
+              profesores={entendido?.teachers ?? 0}
+              regimenPedido={entendido?.regimeRequested ?? ""}
+            />
+          ) : null}
+
           {selec === "alojamientos" ? (
             !hoteles ? (
             <div className="cv__slot">
@@ -2157,7 +2199,7 @@ export function RequestCanvas({
             </div>
           ) : vista === "lista" ? (
             <ListaOpciones
-              hoteles={hoteles.matches}
+              hoteles={hotelesVista?.matches ?? hoteles.matches}
               elegidos={elegidos}
               noches={noches}
               tope={tope}
@@ -3613,12 +3655,20 @@ function DetalleAlojamiento({
   hasta: string;
 }) {
   const clientesEspeciales = useClientesEspeciales();
-  const nAlumno = precioDeTarifa(item.rate);
-  const nProfesor = item.singleRate ? precioDeTarifa(item.singleRate) : nAlumno;
+  const nAlumno = item.estancia?.noches[0]?.alumno.precio ?? precioDeTarifa(item.rate);
+  const nProfesor =
+    item.estancia?.noches[0]?.profesor.precio ?? (item.singleRate ? precioDeTarifa(item.singleRate) : nAlumno);
   const dias = Math.max(noches, 1);
-  const totalAlumnos = nAlumno * alumnos * dias;
-  const totalProfesores = nProfesor * profesores * dias;
-  const total = totalAlumnos + totalProfesores;
+  const totalAlumnos = item.estancia
+    ? item.estancia.noches.reduce((s, n) => s + n.alumno.precio, 0) * alumnos
+    : nAlumno * alumnos * dias;
+  const totalProfesores = item.estancia
+    ? item.estancia.noches.reduce((s, n) => s + n.profesor.precio, 0) * profesores
+    : nProfesor * profesores * dias;
+  const totalChofer = item.estancia
+    ? item.estancia.noches.reduce((s, n) => s + (n.chofer?.precio ?? 0), 0) * item.estancia.chofer
+    : 0;
+  const total = totalAlumnos + totalProfesores + totalChofer;
 
   const alternativas = item.alternativas ?? [];
   const nombreTarifa = (r: AccommodationRate) =>
@@ -3709,9 +3759,33 @@ function DetalleAlojamiento({
                   {/* Sin tarifa individual los profesores se cotizan al precio de
                       los alumnos. Callarlo es prometer una habitacion individual
                       que nadie ha tarifado. */}
-                  {item.singleRate ? " · uso individual" : " · sin tarifa individual: mismo precio"}
+                  {item.estancia
+                    ? ` · ${item.estancia.noches[0]?.profesor.como ?? ""}`
+                    : item.singleRate
+                      ? " · uso individual"
+                      : " · sin tarifa individual: mismo precio"}
                 </td>
                 <td className="cv__num">{euros(totalProfesores)}</td>
+              </tr>
+            ) : null}
+            {item.estancia && item.estancia.chofer > 0 ? (
+              <tr>
+                <th scope="row">Chófer</th>
+                <td>
+                  {euros(item.estancia.noches[0]?.chofer?.precio ?? 0)} × {item.estancia.chofer} × {dias}{" "}
+                  {dias === 1 ? "noche" : "noches"} · {item.estancia.noches[0]?.chofer?.como}
+                </td>
+                <td className="cv__num">{euros(totalChofer)}</td>
+              </tr>
+            ) : null}
+            {item.estancia && item.estancia.tramos.length > 1 ? (
+              <tr>
+                <th scope="row">Pensión</th>
+                <td colSpan={2}>
+                  {item.estancia.tramos
+                    .map((tr) => `${tr.noches} ${tr.noches === 1 ? "noche" : "noches"} en ${tr.regimen} a ${euros(tr.alumno.precio)}`)
+                    .join(" · ")}
+                </td>
               </tr>
             ) : null}
             <tr className="cv__dettotal">
@@ -3721,6 +3795,13 @@ function DetalleAlojamiento({
             </tr>
           </tbody>
         </table>
+        {item.estancia && item.estancia.avisos.length > 0 ? (
+          <ul className="cv__detavisos">
+            {item.estancia.avisos.map((a) => (
+              <li key={a}>{a}</li>
+            ))}
+          </ul>
+        ) : null}
       </div>
 
       {/* 2 · Contra lo que pidio el centro, punto por punto. */}

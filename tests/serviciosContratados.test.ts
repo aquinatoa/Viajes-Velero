@@ -96,7 +96,8 @@ prueba("el proveedor se elige solo cuando hay uno claro", () => {
 console.log("El desglose");
 
 prueba("alumnos y profesores al mismo precio (sin tarifa individual)", () => {
-  const d = desgloseDeLaOpcion(PLANAS, "9.661,12 €");
+  const { tramos, ...d } = desgloseDeLaOpcion(PLANAS, "9.661,12 €")!;
+  assert.equal(tramos.length, 1, "una sola pensión: un tramo");
   assert.deepEqual(d, {
     alumnos: { pax: 48, precio: 43.13 },
     profesores: { pax: 8, precio: 43.13, individual: false },
@@ -237,6 +238,29 @@ prueba("si la app ya había escrito, se borran sus filas (y solo esas) y repite 
 prueba("las filas de OTRA propuesta de la app son ajenas para esta", () => {
   const r = planDelSubformulario([fila("a", "ALUMNOS · ORV-2026-0005", 1)], "ORV-2026-0006");
   assert.deepEqual(r, { conservar: ["a"], borrar: [], numero: 2 });
+});
+
+prueba("MP y PC mezcladas y chófer: una fila por tramo y por tipo de persona, con sus fechas", () => {
+  const r = filasDeLaOpcion({
+    accommodationNameSnapshot: "4R Hotels 3* – Salou & Calafell (Salou Park Resort II / Playa Park / Miramar Calafell)",
+    boardType: "MP + PC",
+    dateFrom: new Date("2027-03-23T00:00:00Z"),
+    dateTo: new Date("2027-03-26T00:00:00Z"),
+    priceBreakdownText:
+      "MP: 33,26 € x 50 alumnos + 58,21 € x 3 profesores (uso individual, suplemento +75 %) + 65,77 € x 1 chófer (individual, suplemento +75 %, PC), por noche x 2 noches · PC: 37,58 € x 50 alumnos + 65,77 € x 3 profesores (uso individual, suplemento +75 %) + 65,77 € x 1 chófer (individual, suplemento +75 %), por noche x 1 noche",
+    totalPvpText: "6.000,00 €",
+  })!;
+  assert.deepEqual(
+    r.filas.map((f) => [f.comentario, f.pax, f.precio, f.noches, f.fechaEntrada, f.fechaSalida]),
+    [
+      ["ALUMNOS EN MÚLTIPLE - MP", 50, 33.26, 2, "2027-03-23", "2027-03-25"],
+      ["PROFESORES EN INDIVIDUAL - MP", 3, 58.21, 2, "2027-03-23", "2027-03-25"],
+      ["CHÓFER EN INDIVIDUAL - PC", 1, 65.77, 2, "2027-03-23", "2027-03-25"],
+      ["ALUMNOS EN MÚLTIPLE - PC", 50, 37.58, 1, "2027-03-25", "2027-03-26"],
+      ["PROFESORES EN INDIVIDUAL - PC", 3, 65.77, 1, "2027-03-25", "2027-03-26"],
+      ["CHÓFER EN INDIVIDUAL - PC", 1, 65.77, 1, "2027-03-25", "2027-03-26"],
+    ],
+  );
 });
 
 prueba("el coste guardado al cotizar manda sobre el del catálogo", () => {

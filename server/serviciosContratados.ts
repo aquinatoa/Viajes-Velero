@@ -173,7 +173,7 @@ export function planDelSubformulario(
 
 /** Una fila del subformulario, todavía con nombres en vez de ids. */
 export interface FilaContratada {
-  quien: "alumnos" | "profesores";
+  quien: "alumnos" | "profesores" | "chofer";
   comentario: string;
   pax: number;
   precio: number;
@@ -213,7 +213,10 @@ export function costeDeLaFila(
   opcion: Pick<OpcionParaContratar, "studentCostAmount" | "teacherCostAmount">,
   tarifas: Array<{ pvp: number | null; neto: number | null }>,
 ): number | null {
-  const guardado = numeroONulo(fila.quien === "profesores" ? opcion.teacherCostAmount : opcion.studentCostAmount);
+  // Del chófer no se guarda coste: se deduce del catálogo, como antes.
+  const guardado = numeroONulo(
+    fila.quien === "profesores" ? opcion.teacherCostAmount : fila.quien === "alumnos" ? opcion.studentCostAmount : null,
+  );
   return guardado ?? costeDelPrecio(fila.precio, tarifas);
 }
 
@@ -232,41 +235,69 @@ export function filasDeLaOpcion(opcion: OpcionParaContratar): { filas: FilaContr
   const hotel = (opcion.accommodationNameSnapshot ?? "").trim();
   if (!d || !hotel) return null;
 
-  const corto = regimenCorto(opcion.boardType);
-  const sufijo = corto ? ` - ${corto}` : "";
   const hotelCorto = nombreCortoDelHotel(hotel) || hotel;
   // En el nombre del producto, como ellos: «Canada Palace», sin «Hotel».
   const hotelEnProducto = hotelCorto.replace(/^hotel\s+/i, "");
-  const comun = {
-    noches: d.noches,
-    proveedor: hotelCorto,
-    regimen: regimenEnCrm(opcion.boardType),
-    fechaEntrada: fecha(opcion.dateFrom),
-    fechaSalida: fecha(opcion.dateTo),
+  const NOMBRE: Record<"INDIVIDUAL" | "DOBLE" | "MULTIPLE", string> = {
+    INDIVIDUAL: "Individual",
+    DOBLE: "Doble",
+    MULTIPLE: "Múltiple",
   };
 
-  const filas: FilaContratada[] = [
-    {
-      ...comun,
-      quien: "alumnos",
-      comentario: `ALUMNOS EN MÚLTIPLE${sufijo}`,
-      pax: d.alumnos.pax,
-      precio: d.alumnos.precio,
-      producto: `Habitación Múltiple - ${hotelEnProducto}${sufijo}`,
-    },
-  ];
-  if (d.profesores && d.profesores.pax > 0) {
-    const tipo = d.profesores.individual ? "Individual" : "Múltiple";
-    filas.push({
-      ...comun,
-      quien: "profesores",
-      comentario: `PROFESORES EN ${tipo.toUpperCase()}${sufijo}`,
-      pax: d.profesores.pax,
-      precio: d.profesores.precio,
-      producto: `Habitación ${tipo} - ${hotelEnProducto}${sufijo}`,
-    });
+  // Un tramo por régimen y noches seguidas (Ruth, 19/10/2026: «MP y PC
+  // mezcladas»). Con un solo tramo, las filas de siempre.
+  const filas: FilaContratada[] = [];
+  let desplazamiento = 0;
+  for (const tramo of d.tramos) {
+    const regimenGrupo = tramo.regimen ?? opcion.boardType;
+    const entrada = sumarDias(opcion.dateFrom, desplazamiento);
+    const salida = d.tramos.length > 1 ? sumarDias(opcion.dateFrom, desplazamiento + tramo.noches) : fecha(opcion.dateTo);
+    desplazamiento += tramo.noches;
+    const fila = (
+      quien: FilaContratada["quien"],
+      etiqueta: string,
+      habitacion: "INDIVIDUAL" | "DOBLE" | "MULTIPLE",
+      pax: number,
+      precio: number,
+      regimenPropio: string | null | undefined,
+    ): FilaContratada => {
+      const regimen = regimenPropio || regimenGrupo;
+      const corto = regimenCorto(regimen);
+      const sufijo = corto ? ` - ${corto}` : "";
+      const tipo = NOMBRE[habitacion];
+      return {
+        quien,
+        comentario: `${etiqueta} EN ${tipo.toUpperCase()}${sufijo}`,
+        pax,
+        precio,
+        noches: tramo.noches,
+        producto: `Habitación ${tipo} - ${hotelEnProducto}${sufijo}`,
+        proveedor: hotelCorto,
+        regimen: regimenEnCrm(regimen),
+        fechaEntrada: entrada,
+        fechaSalida: salida,
+      };
+    };
+    filas.push(fila("alumnos", "ALUMNOS", "MULTIPLE", tramo.alumnos.pax, tramo.alumnos.precio, null));
+    if (tramo.profesores && tramo.profesores.pax > 0) {
+      filas.push(
+        fila("profesores", "PROFESORES", tramo.profesores.habitacion, tramo.profesores.pax, tramo.profesores.precio, tramo.profesores.regimen),
+      );
+    }
+    if (tramo.chofer && tramo.chofer.pax > 0) {
+      filas.push(fila("chofer", "CHÓFER", tramo.chofer.habitacion, tramo.chofer.pax, tramo.chofer.precio, tramo.chofer.regimen));
+    }
   }
   return { filas, total: d.total };
+}
+
+/** La fecha de entrada más N días, como «AAAA-MM-DD». */
+function sumarDias(desde: Date | string | null, dias: number): string | null {
+  const base = fecha(desde);
+  if (!base) return null;
+  const d = new Date(`${base}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
 }
 
 export interface ResultadoDeContratar {

@@ -12355,6 +12355,84 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 .ah__venta small {
   color: var(--muted);
 }
+.cv__detavisos {
+  margin: 8px 0 0;
+  padding: 8px 12px 8px 26px;
+  border-radius: 8px;
+  background: rgba(252, 187, 55, 0.14);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+/* La estancia: pensión por noche, profesores y chófer (19/10/2026). */
+.es {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.es__fila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+.es__t {
+  min-width: 150px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.es__t em {
+  font-style: normal;
+  color: #6b4a06;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.es__noches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.es__noche,
+.es__campo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.es__noche {
+  padding: 3px 6px 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.es__noche.is-cambiada {
+  border-color: var(--cv-amber, #fcbb37);
+  background: rgba(252, 187, 55, 0.1);
+}
+.es select,
+.es input {
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  padding: 4px 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+.es input {
+  width: 56px;
+}
+.es__nota {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
 /* El descuento de una actividad elegida (19/10/2026). */
 .cv__desc {
   display: flex;
