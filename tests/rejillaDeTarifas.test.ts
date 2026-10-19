@@ -131,6 +131,19 @@ prueba("una actividad con etiqueta simple es una tabla de una columna", () => {
   assert.deepEqual(r.grupos, [{ nombre: "", columnas: ["Precio"] }]);
 });
 
+prueba("los tramos por noches del 4R van en su columna, no en la misma celda", () => {
+  const periodo = { seasonName: "T. Baja", dateFrom: "2027-03-12", dateTo: "2027-05-28", occupancyLabel: "Múltiple" };
+  const r = rejillaDeAlojamiento([
+    tarifa({ ...periodo, boardType: "MP", minNights: 1, amount: 36.29 }),
+    tarifa({ ...periodo, boardType: "MP", minNights: 3, amount: 33.26 }),
+    tarifa({ ...periodo, boardType: "MP", minNights: 4, amount: 30.24 }),
+    tarifa({ ...periodo, boardType: "PC", minNights: 1, amount: 40.61 }),
+  ])!;
+  assert.equal(r.celdasAmbiguas, 0, "ya no hay celdas con varios precios");
+  const mp = r.grupos.find((g) => g.nombre === "Media pensión");
+  assert.deepEqual(mp?.columnas, ["desde 1 noche", "desde 3 noches", "desde 4 noches"]);
+});
+
 prueba("sin tarifas no hay rejilla", () => {
   assert.equal(rejillaDeAlojamiento([]), null);
   assert.equal(rejillaDeActividad([]), null);

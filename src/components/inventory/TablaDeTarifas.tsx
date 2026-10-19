@@ -89,7 +89,7 @@ export function TablaDeTarifas({ rejilla, seleccionadaId }: { rejilla: Rejilla; 
           {rejilla.celdasAmbiguas === 1
             ? "Hay una celda con más de un precio"
             : `Hay ${rejilla.celdasAmbiguas} celdas con más de un precio`}
-          : falta el dato que los distingue (la ocupación, el servicio incluido o el canal). Se enseñan
+          : falta el dato que los distingue (la ocupación, el servicio incluido, el canal o las noches). Se enseñan
           todos, de menor a mayor.
         </p>
       ) : null}
