@@ -2337,3 +2337,15 @@ hoteles no tienen tarifas de grupos»). Commit `f1177af` en `tanda-3`.
   `pruebas-locales/cotizacion-bodega.txt` (sin versionar).
 - **Pregunta para Javier**: si el proveedor dice «IVA aparte», ¿se suma al
   coste? Hoy se avisa y no se suma.
+
+### Informe: pestaña «Alcance y extras» (19/10/2026)
+
+En `INFORME-revision-local-2026-10-15.html` hay una pestaña nueva (sin tocar
+Puntos ni las guías) que separa lo del **alcance** (propuesta del 10/07,
+bloques 1–11, ≈145 h; los **correctivos** cuentan como alcance con su marca)
+de lo **extra**, con su estado (producción, local, bloqueado, pendiente) y
+quién lo pidió. Datos en el array `INVENTARIO` del propio HTML; criterio de
+cada fila caso dudoso en su campo `por`. Ojo comercial: la ampliación de
+agosto (115–135 h) sigue «pendiente de aprobar con Raúl» en
+`comunicaciones/REGISTRO.md`, y lo de septiembre y octubre no está estimado.
+Pendiente sin empezar que no estaba en el informe: idiomas CAT/ENG/FR (Ruth, 21/09).
