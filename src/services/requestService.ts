@@ -399,7 +399,9 @@ export function extractClientInfo(text: string): ExtractedClientInfo {
   // El curso («3er ESO») no se puede adivinar del mensaje, así que queda para
   // que lo añada quien cotiza. El campo es editable.
   if (centreName) {
-    const opportunityName = [centreName.toUpperCase(), year].filter(Boolean).join(" ").trim();
+    // Sin centro, nada: un nombre que es solo «2027» no dice qué grupo es y
+    // no seguía al centro cuando se escribía después (Ruth, 19/10/2026).
+    const opportunityName = centreName ? [centreName.toUpperCase(), year].filter(Boolean).join(" ").trim() : "";
     return { email, firstName, lastName, centreName, opportunityName };
   }
 

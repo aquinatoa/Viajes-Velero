@@ -198,7 +198,7 @@ export function PublicProposalPage({ token }: { token: string }) {
                 <div className="pp__optnum">Opción {option.optionNumber}</div>
                 <h2 className="pp__optname">{option.accommodationName ?? "Alojamiento"}</h2>
                 <p className="pp__optmeta">
-                  {[option.boardType, option.nights ? `${option.nights} noches` : null]
+                  {[option.boardType, option.nights ? `${option.nights} ${option.nights === 1 ? "noche" : "noches"}` : null]
                     .filter(Boolean)
                     .join("  ·  ")}
                 </p>

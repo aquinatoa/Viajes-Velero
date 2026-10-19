@@ -292,7 +292,7 @@ export function FichaPropuesta({ delivery, onClose }: FichaPropuestaProps) {
                 </div>
                 <div className="ficha__opnom">{o.alojamiento}</div>
                 <div className="ficha__opdet">
-                  {[o.regimen, o.noches ? `${o.noches} noches` : null].filter(Boolean).join(" · ")}
+                  {[o.regimen, o.noches ? `${o.noches} ${o.noches === 1 ? "noche" : "noches"}` : null].filter(Boolean).join(" · ")}
                 </div>
                 {o.desglose ? <div className="ficha__opdesg">{o.desglose}</div> : null}
                 {o.gratuidades ? (

@@ -23,6 +23,7 @@ import { buildProposalPdf, type PdfOption } from "./proposalPdf";
 import { canSend, loadMailSettings, mailboxFor, replyToFor } from "./mailConfig";
 import { marcarHito, type Hito } from "./crmPipeline";
 import { contratarEnElCrm } from "./serviciosContratados";
+import { tituloDelViaje } from "../src/domain/tituloDelViaje";
 import { borrarBorradorDeSolicitudDb } from "./draftsDb";
 import { guardarMensajeSaliente } from "./correoDb";
 
@@ -200,7 +201,8 @@ export async function prepareDelivery(input: PrepareDeliveryInput): Promise<Deli
       })),
   }));
 
-  const tripTitle = request.opportunityName ?? request.destinationText ?? "vuestro viaje";
+  // Si el nombre es solo un año («2027»), el del centro: Ruth, 19/10/2026.
+  const tripTitle = tituloDelViaje(request);
 
   const pdfPath = await buildProposalPdf({
     reference,

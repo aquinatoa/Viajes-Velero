@@ -1,4 +1,5 @@
 import { marcarOpcionElegida } from "./proposalDelivery";
+import { tituloDelViaje } from "../src/domain/tituloDelViaje";
 import { arrancarLaRecogida } from "./correoEntrante";
 import "./loadEnv";
 import express from "express";
@@ -2454,7 +2455,7 @@ app.get("/api/public/proposals/:token", async (request, response) => {
     response.json({
       reference: delivery.reference,
       department: delivery.department,
-      tripTitle: request_.opportunityName ?? request_.destinationText ?? "Vuestro viaje",
+      tripTitle: tituloDelViaje(request_),
       destination: request_.destinationText,
       dateFrom: request_.dateFrom,
       dateTo: request_.dateTo,

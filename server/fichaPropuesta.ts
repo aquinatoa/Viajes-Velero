@@ -22,6 +22,7 @@ import { clave, coloresDelEmbudo } from "./coloresDelEmbudo";
 import { PrismaClient } from "@prisma/client";
 import { FASES, FASE_DE_HITO } from "./crmPipeline";
 import { getZohoDealDetalle, getZohoDealStage } from "./zoho";
+import { tituloDelViaje } from "../src/domain/tituloDelViaje";
 
 const prisma = new PrismaClient();
 
@@ -159,7 +160,7 @@ export async function fichaDeLaPropuesta(deliveryId: string, visibilidad: Record
     department: delivery.department,
 
     viaje: {
-      nombre: solicitud.opportunityName ?? solicitud.destinationText ?? "Viaje sin nombre",
+      nombre: tituloDelViaje(solicitud),
       centro: solicitud.centreName ?? delivery.recipientName ?? solicitud.client?.fullName ?? null,
       destino: solicitud.destinationText,
       dateFrom: solicitud.dateFrom?.toISOString() ?? null,
