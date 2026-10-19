@@ -26,7 +26,7 @@ import { escribirAlContacto } from "./correoSaliente";
 import { leerAdjunto } from "./adjuntosDeCorreo";
 import { leerCotizacionDelProveedor, leerJustificante } from "./cotizacionDelProveedor";
 import type { ContextoDeCotizacion } from "../src/domain/cotizacionDelProveedor";
-import { fichaDeLaPropuesta } from "./fichaPropuesta";
+import { fichaDeLaPropuesta, renombrarViaje } from "./fichaPropuesta";
 import {
   borrarSolicitudDb,
   queSeVaABorrar,
@@ -2216,6 +2216,51 @@ app.get("/api/deliveries/:id/ficha", requireAuth, async (request, response) => {
   } catch (error) {
     console.error("Error cargando la ficha del presupuesto", error);
     response.status(500).json({ error: "No se pudo cargar el presupuesto." });
+  }
+});
+
+// Cambiar el nombre del grupo de un viaje ya creado (Ruth, 19/10/2026: «¿cómo
+// puedo editar el nombre del grupo una vez creado?»). Cambia el de la
+// aplicación y el de la oportunidad de Zoho; los correos ya enviados no.
+app.post("/api/deliveries/:id/nombre", requireAuth, async (request, response) => {
+  try {
+    const nombre = String((request.body ?? {}).nombre ?? "").trim();
+    if (!nombre) {
+      response.status(400).json({ error: "Escribe el nombre del grupo." });
+      return;
+    }
+    if (nombre.length > 120) {
+      response.status(400).json({ error: "El nombre es demasiado largo (máximo 120 caracteres)." });
+      return;
+    }
+    const user = (request as AuthedRequest).user;
+    const solicitud = await renombrarViaje(String(request.params.id), nombre, user ? deliveryVisibilityWhere(user) : {});
+    if (!solicitud) {
+      response.status(404).json({ error: "Ese presupuesto no existe o no es tuyo." });
+      return;
+    }
+    let enElCrm: "CAMBIADO" | "SIN_TRATO" | "FALLO" = "SIN_TRATO";
+    let motivo: string | null = null;
+    if (solicitud.crmDealId) {
+      try {
+        await updateZohoDeal({ dealId: solicitud.crmDealId, dealName: nombre });
+        enElCrm = "CAMBIADO";
+      } catch (error) {
+        enElCrm = "FALLO";
+        motivo = error instanceof Error ? error.message : String(error);
+        console.error("No se pudo cambiar el nombre del trato en Zoho", error);
+      }
+    }
+    await writeAudit({
+      user,
+      action: "VIAJE_RENOMBRADO",
+      entity: `TripRequest:${solicitud.id}`,
+      detail: `«${solicitud.opportunityName ?? ""}» → «${nombre}» · CRM: ${enElCrm}`,
+    });
+    response.json({ nombre, enElCrm, motivo });
+  } catch (error) {
+    console.error("Error cambiando el nombre del viaje", error);
+    response.status(500).json({ error: "No se pudo cambiar el nombre." });
   }
 });
 

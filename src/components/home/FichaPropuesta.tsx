@@ -1,5 +1,5 @@
 import { ChangePanel } from "./ChangePanel";
-import { marcarOpcionApi, sendProposalDeliveryApi } from "../../services/apiClient";
+import { marcarOpcionApi, renombrarViajeApi, sendProposalDeliveryApi } from "../../services/apiClient";
 import { siguientePasoDelExpediente } from "../../domain/siguientePaso";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useState } from "react";
@@ -97,6 +97,28 @@ export function FichaPropuesta({ delivery, onClose }: FichaPropuestaProps) {
    * marcabas la opción y la pantalla seguía diciendo «todavía no han elegido
    * ninguna» hasta recargar.
    */
+  // Cambiar el nombre del grupo (Ruth, 19/10/2026).
+  const [renombrando, setRenombrando] = useState<string | null>(null);
+  const [avisoNombre, setAvisoNombre] = useState<string | null>(null);
+
+  async function guardarNombre() {
+    if (renombrando === null) return;
+    try {
+      const r = await renombrarViajeApi(delivery.id, renombrando);
+      setRenombrando(null);
+      setAvisoNombre(
+        r.enElCrm === "CAMBIADO"
+          ? "Nombre cambiado, también en la oportunidad del CRM. Lo ya enviado no cambia; lo siguiente que salga, sí."
+          : r.enElCrm === "SIN_TRATO"
+            ? "Nombre cambiado. Este viaje no tiene oportunidad en el CRM."
+            : `Nombre cambiado en la aplicación, pero el CRM no lo aceptó: ${r.motivo ?? "sin motivo"}. Cámbialo allí a mano.`,
+      );
+      await cargar();
+    } catch (e: unknown) {
+      setAvisoNombre(e instanceof Error ? e.message : "No se pudo cambiar el nombre.");
+    }
+  }
+
   const cargar = useCallback(async () => {
     try {
       setFicha(await fichaDelPresupuestoApi(delivery.id));
@@ -171,7 +193,44 @@ export function FichaPropuesta({ delivery, onClose }: FichaPropuestaProps) {
           <button type="button" className="ficha__volver" onClick={onClose}>
             ← Volver a las propuestas
           </button>
-          <h1 className="ficha__t">{ficha.viaje.nombre}</h1>
+          {renombrando === null ? (
+            <h1 className="ficha__t">
+              {ficha.viaje.nombre}
+              <button
+                type="button"
+                className="ficha__renombrar"
+                onClick={() => {
+                  setAvisoNombre(null);
+                  setRenombrando(ficha.viaje.nombre);
+                }}
+              >
+                Cambiar nombre
+              </button>
+            </h1>
+          ) : (
+            <form
+              className="ficha__nombre"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void guardarNombre();
+              }}
+            >
+              <input
+                autoFocus
+                value={renombrando}
+                onChange={(e) => setRenombrando(e.target.value)}
+                aria-label="Nombre del grupo"
+                placeholder="AMA GUADALUPEKOA 2027"
+              />
+              <button type="submit" className="cv__primary cv__primary--sm" disabled={!renombrando.trim()}>
+                Guardar
+              </button>
+              <button type="button" className="cv__ghost cv__ghost--sm" onClick={() => setRenombrando(null)}>
+                Cancelar
+              </button>
+            </form>
+          )}
+          {avisoNombre ? <p className="ficha__aviso">{avisoNombre}</p> : null}
           <p className="ficha__sub">
             <span className="mono">{ficha.reference}</span>
             {ficha.viaje.centro ? ` · ${ficha.viaje.centro}` : ""}
