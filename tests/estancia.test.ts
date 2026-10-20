@@ -176,5 +176,34 @@ prueba("con un solo tramo y sin chófer, el texto de siempre", () => {
   );
 });
 
+prueba("«Múltiple (doble/triple/cuádruple)» es la de los alumnos, no la doble (Hotel Planas)", () => {
+  const multi = { occupancyLabel: "Múltiple (doble/triple/cuádruple)" };
+  const planas: TarifaDeHotel[] = [
+    { ...multi, boardType: "PC", minNights: 1, precio: 49.61 },
+    { ...multi, boardType: "MP", minNights: 1, precio: 41.64 },
+  ];
+  const r = precioDeLaEstancia({
+    fechaEntrada: "2027-06-05",
+    noches: 2,
+    alumnos: 25,
+    profesores: 2,
+    composicion: composicion({ regimenPorNoche: ["PC", "MP"], profesores: { habitacion: "DOBLE", regimen: "" } }),
+    elegida: planas[0],
+    otras: planas.slice(1),
+    suplementos: suplementosDeHabitacion([{ concept: "Habitación individual", amountType: "importe", amount: 25 }]),
+  });
+  // La MP existe: se cobra la suya, sin avisar de que falta.
+  assert.deepEqual(r.noches.map((n) => n.alumno.precio), [49.61, 41.64]);
+  assert.ok(!r.avisos.some((a) => a.includes("media pensión")), r.avisos.join(" | "));
+  // Sin doble ni suplemento de doble: múltiple, avisando, y el texto lo dice así.
+  assert.deepEqual(r.noches.map((n) => n.profesor.precio), [49.61, 41.64]);
+  assert.ok(r.avisos.some((a) => a.includes("habitación doble")), r.avisos.join(" | "));
+  const texto = textoDelDesglose(r, 25, 2, 0);
+  assert.ok(texto.includes("(sin tarifa de doble: precio de múltiple)"), texto);
+  const d = desgloseDeLaOpcion(texto, null)!;
+  assert.equal(d.tramos[0].profesores?.habitacion, "MULTIPLE");
+  assert.equal(d.tramos[0].profesores?.individual, false);
+});
+
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);
 if (fallidas > 0) process.exit(1);

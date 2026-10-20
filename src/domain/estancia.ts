@@ -73,6 +73,9 @@ const normal = (s: string | null | undefined) =>
 
 export function ocupacionDe(etiqueta: string | null | undefined): Habitacion {
   const t = normal(etiqueta);
+  // «Múltiple (doble/triple/cuádruple)» es la de los alumnos del Hotel Planas:
+  // dice «doble», pero no es la doble de los profesores (20/10/2026).
+  if (/multiple|triple|cuadruple|quadruple/.test(t)) return "MULTIPLE";
   if (/individual|single|\bsgl\b/.test(t)) return "INDIVIDUAL";
   if (/doble|double|\bdbl\b/.test(t)) return "DOBLE";
   return "MULTIPLE";
@@ -313,7 +316,11 @@ export function textoDelDesglose(r: ResultadoDeLaEstancia, alumnos: number, prof
 
 /** Lo de los profesores como lo leía Servicios Contratados: «uso individual» o «sin tarifa individual: mismo precio». */
 function comoProfesor(p: PrecioDePersona): string {
-  if (p.como.includes("sin tarifa")) return "sin tarifa individual: mismo precio";
+  if (p.como.includes("sin tarifa")) {
+    // La doble sin tarifa ni suplemento no es «sin tarifa individual»: lo
+    // que se cobra es la múltiple, y así lo lee Servicios Contratados.
+    return p.como.startsWith("doble") ? "sin tarifa de doble: precio de múltiple" : "sin tarifa individual: mismo precio";
+  }
   // Sin paréntesis dentro: el lector del desglose corta en el primero que cierra.
   const sup = /suplemento [^)]*/.exec(p.como)?.[0];
   if (p.como.startsWith("individual")) return `uso individual${sup ? `, ${sup}` : ""}`;
