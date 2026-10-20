@@ -130,13 +130,25 @@ prueba("ordenar no toca la lista original", () => {
 console.log("\nEl motivo, que es lo que permite discutirlo");
 
 prueba("cumplirlo todo se dice con todas las letras", () => {
-  assert.equal(razonDelPodio(hotel("A", [si("3★"), si("PC"), si("tope")])), "Cumple las 3 cosas que pidieron");
+  assert.equal(razonDelPodio(hotel("A", [si("3★"), si("PC"), si("tope")])), "Cumple todo lo que pidieron");
 });
 
 prueba("lo que falta por confirmar se dice, no se esconde", () => {
   const texto = razonDelPodio(hotel("A", [si("3★"), si("PC"), quizas("adaptada")]));
-  assert.match(texto, /Cumple 2 de 3/);
-  assert.match(texto, /1 por confirmar/);
+  assert.equal(texto, "Cumple lo pedido · 1 cosa por confirmar");
+});
+
+prueba("lo que no cumple se dice primero", () => {
+  const texto = razonDelPodio(hotel("A", [si("3★"), { que: "Media pensión", estado: "no_cumple" }, quizas("adaptada")]));
+  assert.equal(texto, "No cumple 1 de 3 · 1 cosa por confirmar");
+});
+
+prueba("tener más líneas cumplidas no sube a un hotel por encima de otro igual de bueno y más barato", () => {
+  const lista = [
+    hotel("Cinco líneas, caro", [si("3★"), si("PC"), si("tope"), si("noches"), si("plazas")], { precio: 90 }),
+    hotel("Tres líneas, barato", [si("3★"), si("PC"), si("tope")], { precio: 50 }),
+  ];
+  assert.equal(ordenarPorEncaje(lista)[0].accommodation.accommodationName, "Tres líneas, barato");
 });
 
 console.log(`\n${pasadas} pasadas, ${fallidas} fallidas\n`);

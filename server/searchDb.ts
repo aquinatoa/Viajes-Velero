@@ -744,7 +744,16 @@ export async function searchAccommodationsDb(
               item.accommodation.freePolicy,
             ],
           },
-          { boardType: item.rate.boardType, minNights: item.rate.minNights },
+          {
+            boardType: item.rate.boardType,
+            // El mínimo que exige el hotel en esa pensión: el menor de sus
+            // tramos, no el de la tarifa elegida (el 4R tiene precio desde 1 noche).
+            minNights: Math.min(
+              ...(porAlojamiento.get(item.accommodation.id) ?? [item])
+                .filter((o) => (o.rate.boardType ?? "").slice(0, 2) === (item.rate.boardType ?? "").slice(0, 2))
+                .map((o) => o.rate.minNights || 1),
+            ),
+          },
           {
             precioPorAlumno: noches ? porNoche * noches : null,
             noches,

@@ -25,7 +25,19 @@
 
 export type Estado = "cumple" | "no_cumple" | "no_consta";
 
+export type ClaveDeComprobacion =
+  | "categoria"
+  | "regimen"
+  | "tope"
+  | "noches"
+  | "plazas"
+  | "requisito"
+  | "disponibilidad"
+  | "destino";
+
 export interface Comprobacion {
+  /** De qué es: la pantalla rehace «regimen» y «tope» con la estancia (20/10/2026). */
+  clave?: ClaveDeComprobacion;
   /** Qué se comprueba, en una línea: «Pensión completa», «Dietas especiales». */
   que: string;
   estado: Estado;
@@ -107,8 +119,17 @@ function minimoDePlazas(textos: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+const sinTildes = (s: string | null | undefined) =>
+  (s ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
 /** ¿El hotel avisa de que su disponibilidad va bajo petición? */
-const BAJO_PETICION = /bajo petici[oó]n|on request|\bOR\b|sujeto a disponibilidad|consultar disponibilidad/i;
+// «(OR)» no: en el 4R es «Confirmación anticipada de hotel (OR) +10 %», pagar
+// por fijar qué hotel de la cadena toca, no la disponibilidad (20/10/2026).
+const BAJO_PETICION = /bajo petici[oó]n|on request|sujeto a disponibilidad|consultar disponibilidad/i;
 
 /**
  * La lista de comprobaciones de un alojamiento para esta petición.
@@ -125,6 +146,11 @@ export function comprobar(
 ): Comprobacion[] {
   const textos = alojamiento.textos.filter(Boolean).join(" · ");
   const lista: Comprobacion[] = [];
+  let desde = 0;
+  const marcar = (clave: ClaveDeComprobacion) => {
+    for (let i = desde; i < lista.length; i++) lista[i].clave ??= clave;
+    desde = lista.length;
+  };
 
   // — Categoría
   const pedidas = estrellas(peticion.categoryRequested);
@@ -147,6 +173,8 @@ export function comprobar(
     }
   }
 
+  marcar("categoria");
+
   // — Régimen
   const regPedido = regimen(peticion.boardType);
   const regTarifa = regimen(tarifa.boardType);
@@ -164,10 +192,13 @@ export function comprobar(
     }
   }
 
+  marcar("regimen");
+
   // — Precio contra el tope. Es lo primero que mira un colegio.
   const precio = datos.precioPorAlumno ?? null;
   if (peticion.topePorAlumno && precio !== null) {
-    const euros = (n: number) => `${Math.round(n)} €`;
+    const euros = (n: number) =>
+      `${Number.isInteger(Math.round(n * 100) / 100) ? String(Math.round(n)) : (Math.round(n * 100) / 100).toFixed(2).replace(".", ",")} €`;
     lista.push(
       precio <= peticion.topePorAlumno
         ? {
@@ -183,18 +214,22 @@ export function comprobar(
     );
   }
 
+  marcar("tope");
+
   // — Estancia mínima
-  if (tarifa.minNights && datos.noches) {
+  // `minNights` es el mínimo que de verdad exige el hotel en esa pensión, no el
+  // tramo de precio de la tarifa elegida: el 4R cobra distinto desde 1, 3 o 4
+  // noches y no exige ninguna (20/10/2026).
+  if (tarifa.minNights && tarifa.minNights > 1 && datos.noches) {
+    const que = `Estancia mínima ${tarifa.minNights} noches`;
     lista.push(
       datos.noches >= tarifa.minNights
-        ? { que: `Estancia mínima ${tarifa.minNights} noches`, estado: "cumple" }
-        : {
-            que: `Estancia mínima ${tarifa.minNights} noches`,
-            estado: "no_cumple",
-            detalle: `El viaje son ${datos.noches}`,
-          },
+        ? { que, estado: "cumple" }
+        : { que, estado: "no_cumple", detalle: `El viaje son ${datos.noches} ${datos.noches === 1 ? "noche" : "noches"}` },
     );
   }
+
+  marcar("noches");
 
   // — Mínimo de plazas del hotel contra el tamaño del grupo
   const minimo = minimoDePlazas(textos);
@@ -209,6 +244,8 @@ export function comprobar(
           },
     );
   }
+
+  marcar("plazas");
 
   // — Lo que el colegio pidió en prosa. Aquí es donde más «no consta» habrá, y
   //   es la información que faltaba: hasta ahora ni se preguntaba.
@@ -225,6 +262,8 @@ export function comprobar(
     );
   }
 
+  marcar("requisito");
+
   // — Y un aviso que no es un requisito pero cambia la respuesta que se da.
   if (BAJO_PETICION.test(textos)) {
     lista.push({
@@ -233,6 +272,19 @@ export function comprobar(
       detalle: "Hay que confirmarlo antes de prometer nada",
     });
   }
+  marcar("disponibilidad");
+
+  // — El destino: un hotel de Salou para un viaje a Cambrils no es «el destino».
+  const destino = sinTildes(peticion.destinationText);
+  const localidad = sinTildes(alojamiento.locality);
+  if (destino && localidad && !localidad.includes(destino) && !destino.includes(localidad.split(/[\s/(,]/)[0])) {
+    lista.push({
+      que: `En ${alojamiento.locality}`,
+      estado: "no_consta",
+      detalle: `Pedían ${peticion.destinationText}`,
+    });
+  }
+  marcar("destino");
 
   return lista;
 }

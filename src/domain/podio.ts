@@ -44,24 +44,28 @@ export function cuentaDelEncaje(lista: ComprobacionDeEncaje[] | undefined): Cuen
   };
 }
 
-/** El precio por persona y noche de una opción, para desempatar. */
-function porNoche(item: AccommodationSearchMatch): number {
-  return item.rate.pvpAmount || item.rate.netSaleAmount || 0;
+/** Lo que paga un alumno por la estancia (o la tarifa por noche si no hay estancia), para desempatar. */
+function precioParaOrdenar(item: AccommodationSearchMatch): number {
+  return item.estancia?.porAlumno ?? (item.rate.pvpAmount || item.rate.netSaleAmount || 0);
 }
 
 /**
- * Los mejores primero: más cosas cumplidas, menos cosas sin confirmar y, a
+ * Los mejores primero: nada que incumpla, menos cosas sin confirmar y, a
  * igualdad, más barato. El `score` de la búsqueda solo desempata al final.
  */
 export function ordenarPorEncaje(matches: AccommodationSearchMatch[]): AccommodationSearchMatch[] {
   return [...matches].sort((a, b) => {
     const ca = cuentaDelEncaje(a.encaje);
     const cb = cuentaDelEncaje(b.encaje);
+    // Lo que incumple y lo que hay que confirmar, y después el precio. No se
+    // premia tener MÁS líneas: un hotel con condiciones escritas no encaja
+    // mejor que otro que no las tiene (revisión del 20/10/2026: Planas de Salou
+    // salía 1.º para un viaje a Cambrils por cumplir «5 cosas»).
     if (ca.noCumple !== cb.noCumple) return ca.noCumple - cb.noCumple;
-    if (ca.cumple !== cb.cumple) return cb.cumple - ca.cumple;
     if (ca.noConsta !== cb.noConsta) return ca.noConsta - cb.noConsta;
-    if (b.score !== a.score) return b.score - a.score;
-    return porNoche(a) - porNoche(b);
+    const pa = precioParaOrdenar(a), pb = precioParaOrdenar(b);
+    if (pa !== pb) return pa - pb;
+    return b.score - a.score;
   });
 }
 
@@ -91,13 +95,12 @@ export function razonDelPodio(item: AccommodationSearchMatch): string {
   const n = cuentaDelEncaje(item.encaje);
   if (n.total === 0) return "Sin nada que comprobar";
 
-  const cumplidas =
-    n.cumple === 0
-      ? "No confirma nada de lo que pidieron"
-      : n.cumple === n.total
-        ? `Cumple las ${n.total} cosas que pidieron`
-        : `Cumple ${n.cumple} de ${n.total}`;
-
-  if (n.noConsta === 0) return cumplidas;
-  return `${cumplidas} · ${n.noConsta} ${n.noConsta === 1 ? "por confirmar" : "por confirmar"}`;
+  const porConfirmar = `${n.noConsta} ${n.noConsta === 1 ? "cosa por confirmar" : "cosas por confirmar"}`;
+  if (n.noCumple > 0) {
+    const no = `No cumple ${n.noCumple} de ${n.total}`;
+    return n.noConsta ? `${no} · ${porConfirmar}` : no;
+  }
+  if (n.noConsta === 0) return "Cumple todo lo que pidieron";
+  if (n.cumple === 0) return `No se puede confirmar nada: ${porConfirmar}`;
+  return `Cumple lo pedido · ${porConfirmar}`;
 }

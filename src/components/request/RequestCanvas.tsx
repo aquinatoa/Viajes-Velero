@@ -89,7 +89,8 @@ import type {
 } from "../../domain/types";
 import { nombreDelCanal } from "../../domain/clientesEspeciales";
 import { siguientesNombre } from "../../domain/tituloDelViaje";
-import { COMPOSICION_POR_DEFECTO, type ComposicionDeLaEstancia } from "../../domain/estancia";
+import { codigoDePension, COMPOSICION_POR_DEFECTO, type ComposicionDeLaEstancia } from "../../domain/estancia";
+import { encajeConLaEstancia } from "../../domain/encajeConLaEstancia";
 import { estanciaDeHotel } from "../../services/estanciaDeHotel";
 import { PanelEstancia } from "./PanelEstancia";
 import { useClientesEspeciales } from "../useClientesEspeciales";
@@ -180,6 +181,25 @@ function precioPorAlumno(
   const base = hotel.estancia ? hotel.estancia.porAlumno : precioDeTarifa(hotel.rate) * Math.max(noches, 1);
   const extras = actividades.reduce((suma, item) => suma + (item.rate.salePvpAmount || 0), 0);
   return Math.round((base + extras) * 100) / 100;
+}
+
+/**
+ * La pensión que se cobra: la de la estancia, con sus noches si se mezclan
+ * («Pensión completa 3 noches + Media pensión 2 noches»), o la de la tarifa.
+ * Antes la tarjeta, el podio y el detalle decían «Pensión completa» aunque se
+ * hubieran puesto noches en MP (revisión del 20/10/2026).
+ */
+function pensionQueSeCobra(item: AccommodationSearchMatch): string {
+  const e = item.estancia;
+  if (!e || e.noches.length === 0) {
+    return etiquetaDeRegimen(codigoDePension(item.rate.boardType)) || item.rate.boardType || "";
+  }
+  const cuenta = new Map<string, number>();
+  for (const n of e.noches) cuenta.set(n.regimen, (cuenta.get(n.regimen) ?? 0) + 1);
+  if (cuenta.size === 1) return etiquetaDeRegimen([...cuenta.keys()][0]);
+  return [...cuenta]
+    .map(([c, n]) => `${etiquetaDeRegimen(c)} ${n} ${n === 1 ? "noche" : "noches"}`)
+    .join(" + ");
 }
 
 function nochesEntre(desde: string, hasta: string): number {
@@ -813,7 +833,7 @@ export function RequestCanvas({
    * chófer). Las tarjetas, el resumen y la propuesta leen de aquí, así que el
    * precio que se ve es el que va al documento.
    */
-  const hotelesVista = useMemo(() => {
+  const hotelesConEstancia = useMemo(() => {
     if (!hoteles) return hoteles;
     const viaje = {
       fechaEntrada: entendido?.dateFrom ?? "",
@@ -979,6 +999,27 @@ export function RequestCanvas({
       descuento: descuentoValido(descuento) ? { ...descuento, antes: porAlumno(activas, alumnos) } : null,
     };
   }
+
+  // Lo que suma por alumno el programa (va en todas las opciones): el mismo en
+  // el podio, en la lista y en el tope de «Lo que pidió el centro». Antes el
+  // podio calculaba sin actividades y la lista con ellas, y el mismo hotel
+  // salía a dos precios en la misma pantalla (revisión del 20/10/2026).
+  const delPrograma = programaBase.map(matchActividad).filter(Boolean) as ActivitySearchMatch[];
+  const extraDelPrograma = Math.round(delPrograma.reduce((s, a) => s + (a.rate.salePvpAmount || 0), 0) * 100) / 100;
+
+  // La pensión y el tope de «Lo que pidió el centro», con la estancia que se
+  // cobra y no con una tarifa × noches.
+  const hotelesVista = useMemo(() => {
+    if (!hotelesConEstancia) return hotelesConEstancia;
+    const pension = codigoDePension(entendido?.regimeRequested);
+    return {
+      ...hotelesConEstancia,
+      matches: hotelesConEstancia.matches.map((m) => ({
+        ...m,
+        encaje: encajeConLaEstancia(m.encaje, m.estancia, { pension, tope, extraPorAlumno: extraDelPrograma }),
+      })),
+    };
+  }, [hotelesConEstancia, entendido?.regimeRequested, tope, extraDelPrograma]);
 
   /** Pone, cambia o quita el descuento de una actividad. */
   function ponerDescuento(id: string, tipo: "" | "EUR" | "PCT", valor: number | null) {
@@ -3635,6 +3676,7 @@ function fechaCorta(iso: string): string {
 function Podio({
   tres,
   elegidos,
+  delPrograma,
   noches,
   tope,
   onAlternar,
@@ -3642,6 +3684,8 @@ function Podio({
 }: {
   tres: AccommodationSearchMatch[];
   elegidos: string[];
+  /** Las actividades del programa: van en todas las opciones y se suman igual que en la lista. */
+  delPrograma: ActivitySearchMatch[];
   noches: number;
   tope: number | null;
   onAlternar: (id: string) => void;
@@ -3654,14 +3698,14 @@ function Podio({
       <p className="cv__podioh">
         <span className="cv__lbl">Los que mejor encajan</span>
         <span>
-          Ordenados por lo que pidió el centro, no por precio. Ninguno de estos incumple nada de lo que
+          Ordenados por lo que pidió el centro y, a igualdad, por precio. Ninguno de estos incumple nada de lo que
           pidieron.
         </span>
       </p>
       <ol className="cv__podiol">
         {tres.map((item, i) => {
           const puesto = elegidos.includes(item.accommodation.id);
-          const precio = precioPorAlumno(item, [], noches);
+          const precio = precioPorAlumno(item, delPrograma, noches);
           return (
             <li key={item.accommodation.id} className={puesto ? "cv__pcard is-on" : "cv__pcard"}>
               <button
@@ -3673,7 +3717,7 @@ function Podio({
                 <span className="cv__ppos">{i + 1}º</span>
                 <span className="cv__pt">{item.accommodation.accommodationName}</span>
                 <span className="cv__ps">
-                  {[item.accommodation.categoryType, etiquetaDeRegimen(item.rate.boardType), item.accommodation.locality]
+                  {[item.accommodation.categoryType, pensionQueSeCobra(item), item.accommodation.locality]
                     .filter(Boolean)
                     .join(" · ")}
                 </span>
@@ -3787,6 +3831,33 @@ function DetalleAlojamiento({
       })
     : null;
   const tramosDistintos = new Set(todasLasTarifas.map((r) => r.minNights || 1)).size > 1;
+  // Profesores y chófer: la tarifa de la que sale su precio (su individual o
+  // doble propia; con suplemento, la de los alumnos y se dice el suplemento).
+  const nochesPorTarifaDe = (quien: "profesor" | "chofer") => {
+    const m = new Map<string, number>();
+    for (const n of item.estancia?.noches ?? []) {
+      const p = quien === "profesor" ? n.profesor : n.chofer;
+      if (p?.tarifaId && p.tarifaId !== n.alumno.tarifaId) m.set(p.tarifaId, (m.get(p.tarifaId) ?? 0) + 1);
+    }
+    return m;
+  };
+  const tarifasDeProfesores = nochesPorTarifaDe("profesor");
+  const tarifasDeChofer = nochesPorTarifaDe("chofer");
+  const etiquetaDe = (r: AccommodationRate, quien: string, m: Map<string, number>): string | null => {
+    const n = m.get(r.id);
+    if (!n) return null;
+    return usaVarias || m.size > 1 ? `${quien} · ${n} ${n === 1 ? "noche" : "noches"}` : quien;
+  };
+  const etiquetasDeProfesoresYChofer = (r: AccommodationRate): string[] =>
+    item.estancia
+      ? [
+          profesores > 0 ? etiquetaDe(r, "profesores", tarifasDeProfesores) : null,
+          etiquetaDe(r, "chófer", tarifasDeChofer),
+        ].filter((x): x is string => Boolean(x))
+      : item.singleRate && r.id === item.singleRate.id
+        ? ["profesores"]
+        : [];
+
   const etiquetaAlumnos = (r: AccommodationRate): string | null => {
     if (!item.estancia) return r.id === item.rate.id ? "alumnos" : null;
     const n = nochesPorTarifa.get(r.id);
@@ -3838,15 +3909,32 @@ function DetalleAlojamiento({
             <dd>
               {alumnos} {alumnos === 1 ? "alumno" : "alumnos"}
               {profesores > 0 ? ` · ${profesores} ${profesores === 1 ? "profesor" : "profesores"}` : ""}
+              {item.estancia && item.estancia.chofer > 0
+                ? ` · ${item.estancia.chofer} ${item.estancia.chofer === 1 ? "chófer" : "chóferes"}`
+                : ""}
             </dd>
           </div>
           <div>
             <dt>Régimen</dt>
-            <dd>{etiquetaDeRegimen(item.rate.boardType) || "sin especificar en la tarifa"}</dd>
+            <dd>{pensionQueSeCobra(item) || "sin especificar en la tarifa"}</dd>
           </div>
           <div>
             <dt>Habitación</dt>
-            <dd>{item.rate.occupancyLabel || "la que trae la tarifa (sin detallar)"}</dd>
+            <dd>
+              {/* De cada uno: los alumnos en la de su tarifa; profesores y chófer
+                  en la que diga la estancia, con su suplemento (20/10/2026). */}
+              {item.estancia && item.estancia.noches[0]
+                ? [
+                    `alumnos en ${item.rate.occupancyLabel || "la de la tarifa"}`,
+                    profesores > 0 ? `profesores en ${item.estancia.noches[0].profesor.como}` : "",
+                    item.estancia.chofer > 0 && item.estancia.noches[0].chofer
+                      ? `${item.estancia.chofer === 1 ? "chófer" : "chóferes"} en ${item.estancia.noches[0].chofer.como}`
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : item.rate.occupancyLabel || "la que trae la tarifa (sin detallar)"}
+            </dd>
           </div>
           {item.rate.includedService ? (
             <div>
@@ -3896,7 +3984,11 @@ function DetalleAlojamiento({
                       los alumnos. Callarlo es prometer una habitacion individual
                       que nadie ha tarifado. */}
                   {item.estancia
-                    ? ` · ${item.estancia.noches[0]?.profesor.como ?? ""}`
+                    ? ` · ${item.estancia.noches[0]?.profesor.como ?? ""}${
+                        item.estancia.noches.some((n) => n.profesor.regimen !== n.regimen)
+                          ? `, ${etiquetaDeRegimen(item.estancia.noches[0].profesor.regimen).toLowerCase()}`
+                          : ""
+                      }`
                     : item.singleRate
                       ? " · uso individual"
                       : " · sin tarifa individual: mismo precio"}
@@ -3911,6 +4003,9 @@ function DetalleAlojamiento({
                   {tramosChofer ??
                     `${euros(item.estancia.noches[0]?.chofer?.precio ?? 0)} × ${item.estancia.chofer} × ${dias} ${dias === 1 ? "noche" : "noches"}`}{" "}
                   · {item.estancia.noches[0]?.chofer?.como}
+                  {item.estancia.noches.some((n) => n.chofer && n.chofer.regimen !== n.regimen)
+                    ? `, ${etiquetaDeRegimen(item.estancia.noches[0]?.chofer?.regimen ?? "").toLowerCase()}`
+                    : ""}
                 </td>
                 <td className="cv__num">{euros(totalChofer)}</td>
               </tr>
@@ -4001,7 +4096,7 @@ function DetalleAlojamiento({
                   <tr
                     key={r.id}
                     className={
-                      (item.singleRate && r.id === item.singleRate.id) || etiquetaAlumnos(r) ? "cv__detsel" : undefined
+                      etiquetasDeProfesoresYChofer(r).length || etiquetaAlumnos(r) ? "cv__detsel" : undefined
                     }
                   >
                     <td>
@@ -4012,12 +4107,12 @@ function DetalleAlojamiento({
                           <span className="cv__detchip">{etiquetaAlumnos(r)}</span>
                         </>
                       ) : null}
-                      {item.singleRate && r.id === item.singleRate.id ? (
-                        <>
+                      {etiquetasDeProfesoresYChofer(r).map((e) => (
+                        <span key={e}>
                           {" "}
-                          <span className="cv__detchip">profesores</span>
-                        </>
-                      ) : null}
+                          <span className="cv__detchip">{e}</span>
+                        </span>
+                      ))}
                     </td>
                     <td>{temporadaDe(r)}</td>
                     <td>{r.minNights || "—"}</td>
@@ -4028,9 +4123,10 @@ function DetalleAlojamiento({
             </table>
           </div>
           <p className="cv__detnota">
-            Solo las tarifas válidas para las fechas del viaje; las de otras temporadas no se enseñan. La
-            búsqueda elige la de los alumnos por lo que pidió el centro, y la de uso individual para los
-            profesores cuando la hay; de momento las demás no se pueden elegir desde aquí.
+            Las tarifas que valen para alguna noche del viaje (las que no dicen sus fechas también salen).
+            Las marcadas son las que se cobran, con sus noches; con suplemento, a profesores y chófer se les
+            cobra la de los alumnos más el suplemento. La pensión de cada noche y la habitación de profesores
+            y chófer se cambian en el panel de la estancia, encima de la lista.
           </p>
           {hayIndistinguibles ? (
             <p className="cv__detaviso">
@@ -4123,7 +4219,7 @@ function VentanaDeDetalle({
 
   const sub = [
     item.accommodation.categoryType,
-    etiquetaDeRegimen(item.rate.boardType),
+    pensionQueSeCobra(item),
     item.accommodation.locality,
   ]
     .filter(Boolean)
@@ -4409,6 +4505,7 @@ function ListaOpciones({
       <Podio
         tres={tres}
         elegidos={elegidos}
+        delPrograma={programaBase.map(matchActividad).filter(Boolean) as ActivitySearchMatch[]}
         noches={noches}
         tope={tope}
         onAlternar={onAlternar}
@@ -4430,7 +4527,7 @@ function ListaOpciones({
           const dentro = puesto ? enOpcion.filter((id) => !programaBase.includes(id)) : [];
           const precio = puesto
             ? precioPorAlumno(item, enOpcion.map(matchActividad).filter(Boolean) as ActivitySearchMatch[], noches)
-            : precioPorAlumno(item, [], noches);
+            : precioPorAlumno(item, programaBase.map(matchActividad).filter(Boolean) as ActivitySearchMatch[], noches);
           const abierto = detalle === item.accommodation.id;
 
           return (
@@ -4453,8 +4550,8 @@ function ListaOpciones({
                   <span className="cv__hotels2">
                     {[
                       item.accommodation.categoryType,
-                      item.rate.boardType,
-                      item.rate.occupancyLabel,
+                      pensionQueSeCobra(item),
+                      [item.rate.occupancyLabel, item.rate.includedService].filter(Boolean).join(" · "),
                       item.accommodation.locality,
                     ]
                       .filter(Boolean)
