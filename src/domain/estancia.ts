@@ -21,6 +21,8 @@
  * Contratados lo lee del desglose.
  */
 
+import { coberturaDeTarifa, type CoberturaDeTarifa } from "./fechasDeTarifa";
+
 export type Habitacion = "MULTIPLE" | "DOBLE" | "INDIVIDUAL";
 
 export interface Acompanantes {
@@ -49,11 +51,17 @@ export interface TarifaDeHotel {
   id?: string | null;
   boardType?: string | null;
   occupancyLabel?: string | null;
+  /** «Sin campo (acompañante)», «Campo natural»…: otro eje del precio. */
+  includedService?: string | null;
+  /** El nombre de la temporada: muchas veces trae las fechas (ver `fechasDeTarifa.ts`). */
+  seasonName?: string | null;
   dateFrom?: string | null;
   dateTo?: string | null;
   minNights?: number | null;
   /** Precio de venta por persona y noche. */
   precio: number;
+  /** Coste por persona y noche, si el documento lo trae. */
+  coste?: number | null;
 }
 
 export interface SuplementoDeHabitacion {
@@ -73,13 +81,17 @@ const normal = (s: string | null | undefined) =>
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase();
 
+/**
+ * La clase de habitación de una etiqueta del documento. Las hay de todo tipo:
+ * «Múltiple (doble/triple/cuádruple)» (Planas, de alumnos), «1 PAX X HAB»
+ * (Fútbol Salou, individual), «Apartamento ocupado por 1 persona», «DUI»,
+ * «Individual/DUI (+50% incl.)», «Estudiantes en doble (+25% incl.)»…
+ */
 export function ocupacionDe(etiqueta: string | null | undefined): Habitacion {
   const t = normal(etiqueta);
-  // «Múltiple (doble/triple/cuádruple)» es la de los alumnos del Hotel Planas:
-  // dice «doble», pero no es la doble de los profesores (20/10/2026).
   if (/multiple|triple|cuadruple|quadruple/.test(t)) return "MULTIPLE";
-  if (/individual|single|\bsgl\b/.test(t)) return "INDIVIDUAL";
-  if (/doble|double|\bdbl\b/.test(t)) return "DOBLE";
+  if (/individual|single|\bsgl\b|\bdui\b|uso indiv|\b1 ?pax\b|\b1 persona\b/.test(t)) return "INDIVIDUAL";
+  if (/doble|double|\bdbl\b|\b2 ?pax\b|\b2 personas\b/.test(t)) return "DOBLE";
   return "MULTIPLE";
 }
 
@@ -114,35 +126,26 @@ function sumarDias(iso: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Si la tarifa vale para la noche que empieza ese día. Sin fechas, vale. */
-function valeEseDia(t: TarifaDeHotel, fecha: string): boolean {
-  if (!t.dateFrom || !t.dateTo) return true;
-  return dia(t.dateFrom) <= fecha && fecha <= dia(t.dateTo);
+/**
+ * La pensión como código: «PC (PRECIO FINAL: alojamiento + régimen)» es PC,
+ * «SA (solo alojamiento)» es SA. «MP + Picnic» es otra cosa (lleva el
+ * almuerzo de pícnic) y no se mezcla con la MP.
+ */
+export function codigoDePension(texto: string | null | undefined): string {
+  const t = normal(texto).trim();
+  if (/picnic|picnick/.test(t)) return "MP+PICNIC";
+  const codigo = /^(pc|mp|ad|sa)\b/.exec(t)?.[1];
+  if (codigo) return codigo.toUpperCase();
+  if (/completa/.test(t)) return "PC";
+  if (/media/.test(t)) return "MP";
+  if (/desayuno/.test(t)) return "AD";
+  if (/solo aloj/.test(t)) return "SA";
+  return t.toUpperCase();
 }
 
-/**
- * La tarifa que toca: esa pensión, esa habitación, esa noche y el tramo por
- * duración que corresponde (el 4R: 1-2 noches, 3, 4 y más → la de mayor mínimo
- * que no pase de las noches del viaje). A igualdad, la más barata.
- */
-function tarifaPara(
-  tarifas: TarifaDeHotel[],
-  regimen: string,
-  habitacion: Habitacion,
-  fecha: string,
-  nochesTotales: number,
-): TarifaDeHotel | null {
-  const validas = tarifas.filter(
-    (t) =>
-      (t.boardType ?? "").toUpperCase() === regimen.toUpperCase() &&
-      ocupacionDe(t.occupancyLabel) === habitacion &&
-      valeEseDia(t, fecha) &&
-      (t.minNights ?? 1) <= Math.max(nochesTotales, 1),
-  );
-  if (validas.length === 0) return null;
-  const tramo = Math.max(...validas.map((t) => t.minNights ?? 1));
-  return validas.filter((t) => (t.minNights ?? 1) === tramo).sort((a, b) => a.precio - b.precio)[0];
-}
+/** La clave de una ocupación tal como la escribe el documento: «Doble», «1 PAX X HAB»… */
+const claveDeOcupacion = (s: string | null | undefined) => normal(s).replace(/\s+/g, " ").trim();
+const claveDeServicio = (s: string | null | undefined) => normal(s).replace(/\s+/g, " ").trim();
 
 function aplicarSuplemento(base: number, s: SuplementoDeHabitacion): number {
   return redondear(s.tipo === "PCT" ? base * (1 + s.valor / 100) : base + s.valor);
@@ -153,12 +156,14 @@ const NOMBRE_REGIMEN: Record<string, string> = {
   MP: "media pensión",
   AD: "alojamiento y desayuno",
   SA: "solo alojamiento",
+  "MP+PICNIC": "media pensión con pícnic",
 };
 const NOMBRE_HABITACION: Record<Habitacion, string> = {
   MULTIPLE: "múltiple",
   DOBLE: "doble",
   INDIVIDUAL: "individual",
 };
+const nombreDePension = (c: string) => NOMBRE_REGIMEN[c] ?? c.toLowerCase();
 
 export interface PrecioDePersona {
   precio: number;
@@ -167,6 +172,8 @@ export interface PrecioDePersona {
   regimen: string;
   /** La tarifa de la que sale el precio (con suplemento, la múltiple). */
   tarifaId?: string | null;
+  /** El coste de esa tarifa (con el suplemento aplicado), si se conoce. */
+  coste?: number | null;
 }
 
 export interface NocheDeLaEstancia {
@@ -175,6 +182,8 @@ export interface NocheDeLaEstancia {
   alumno: PrecioDePersona;
   profesor: PrecioDePersona;
   chofer: PrecioDePersona | null;
+  /** No hay tarifa del hotel para esa fecha: se ha puesto otra y se avisa. */
+  sinTarifa?: boolean;
 }
 
 /** Noches seguidas con los mismos precios: así se escribe y se lee el desglose. */
@@ -193,7 +202,7 @@ export interface ResultadoDeLaEstancia {
   porAlumno: number;
   total: number;
   avisos: string[];
-  /** «MP», «PC» o «MP + PC». */
+  /** «MP», «PC» o «MP + PC»: las pensiones que de verdad se cobran. */
   regimenes: string;
 }
 
@@ -203,69 +212,229 @@ export interface EntradaDeLaEstancia {
   alumnos: number;
   profesores: number;
   composicion: ComposicionDeLaEstancia;
-  /** La tarifa que eligió la búsqueda: la de respaldo si no hay otra. */
+  /** La tarifa que eligió la búsqueda: marca la habitación y el servicio de los alumnos. */
   elegida: TarifaDeHotel;
-  /** Todas las del hotel que valen para el viaje (otras pensiones, habitaciones, temporadas). */
+  /** Las demás del hotel (otras pensiones, habitaciones, temporadas). */
   otras: TarifaDeHotel[];
   suplementos: SuplementosDeHabitacion;
 }
 
+/** Avisos agrupados: «las noches del 05, 06 y 07/06» en vez de tres avisos. */
+class Avisos {
+  private porClave = new Map<string, { fechas: string[]; texto: (cuando: string) => string }>();
+  private sueltos = new Set<string>();
+  porNoche(clave: string, fecha: string, texto: (cuando: string) => string) {
+    const a = this.porClave.get(clave) ?? { fechas: [], texto };
+    if (!a.fechas.includes(fecha)) a.fechas.push(fecha);
+    this.porClave.set(clave, a);
+  }
+  suelto(texto: string) {
+    this.sueltos.add(texto);
+  }
+  lista(): string[] {
+    const grupos = [...this.porClave.values()].map((a) => a.texto(cuandoSon(a.fechas)));
+    return [...grupos, ...this.sueltos];
+  }
+}
+
+/** «la noche del 05/06», «las noches del 05, 06 y 07/06», «las noches del 30/05 y 01/06». */
+function cuandoSon(fechas: string[]): string {
+  const f = [...fechas].sort();
+  if (f.length === 1) return `la noche del ${fechaCorta(f[0])}`;
+  const mismoMes = f.every((x) => x.slice(5, 7) === f[0].slice(5, 7));
+  const partes = mismoMes ? f.map((x) => x.slice(8, 10)) : f.map(fechaCorta);
+  const ultima = partes.pop()!;
+  return `las noches del ${partes.join(", ")} y ${ultima}${mismoMes ? `/${f[0].slice(5, 7)}` : ""}`;
+}
+
 export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstancia {
   const nochesTotales = Math.max(e.noches, 0);
-  const tarifas = [e.elegida, ...e.otras];
-  const regimenBase = (e.elegida.boardType ?? "").toUpperCase();
-  const avisos = new Set<string>();
+  const todas = [e.elegida, ...e.otras.filter((t) => !t.id || t.id !== e.elegida.id)];
+  const cobertura = new Map<TarifaDeHotel, CoberturaDeTarifa>(todas.map((t) => [t, coberturaDeTarifa(t)]));
+  const pensionBase = codigoDePension(e.elegida.boardType);
+  const ocupacionAlumnos = claveDeOcupacion(e.elegida.occupancyLabel);
+  const claseAlumnos = ocupacionDe(e.elegida.occupancyLabel);
+  const servicioAlumnos = claveDeServicio(e.elegida.includedService);
+  const avisos = new Avisos();
   const cantidadChofer = Math.max(e.composicion.chofer?.cantidad ?? 0, 0);
 
-  /** La múltiple para esa pensión y noche: su precio y de qué tarifa sale. */
-  const multiple = (regimen: string, fecha: string): { precio: number; id: string | null } => {
-    const t = tarifaPara(tarifas, regimen, "MULTIPLE", fecha, nochesTotales);
-    if (t) return { precio: t.precio, id: t.id ?? null };
-    if (regimen !== regimenBase) {
-      avisos.add(
-        `No hay tarifa de ${NOMBRE_REGIMEN[regimen] ?? regimen} para la noche del ${fechaCorta(fecha)}: se cobra la de ${NOMBRE_REGIMEN[regimenBase] ?? regimenBase}.`,
-      );
+  /**
+   * De unas tarifas candidatas, la que vale esa noche: primero las que dicen
+   * que valen ese día (la más concreta manda: Semana Santa sobre T. Baja);
+   * si ninguna lo dice, las que no tienen fechas en ningún sitio. Dentro, el
+   * tramo por noches que toca y, a igualdad, la más barata.
+   */
+  const laQueVale = (candidatas: TarifaDeHotel[], fecha: string): TarifaDeHotel | null => {
+    const conFechas = candidatas.filter((t) => cobertura.get(t)!.vale(fecha) === true);
+    let grupo: TarifaDeHotel[];
+    if (conFechas.length > 0) {
+      const minimo = Math.min(...conFechas.map((t) => cobertura.get(t)!.dias));
+      grupo = conFechas.filter((t) => cobertura.get(t)!.dias === minimo);
+    } else {
+      grupo = candidatas.filter((t) => cobertura.get(t)!.vale(fecha) === null);
+      if (grupo.length === 0) return null;
+      const temporadas = new Set(grupo.map((t) => t.seasonName ?? ""));
+      if (temporadas.size > 1) {
+        // Varias temporadas sin fechas: la de la búsqueda, si está, y se avisa.
+        const deLaElegida = grupo.filter((t) => (t.seasonName ?? "") === (e.elegida.seasonName ?? ""));
+        if (deLaElegida.length) grupo = deLaElegida;
+        avisos.suelto(
+          `Las temporadas de este hotel no tienen fechas («${[...temporadas].filter(Boolean).slice(0, 3).join("», «")}»): se ha cobrado «${grupo[0].seasonName ?? "sin nombre"}» sin poder comprobar que sea la de estas fechas. Revísalo en el documento.`,
+        );
+      }
     }
-    return { precio: e.elegida.precio, id: e.elegida.id ?? null };
+    const tramos = grupo.filter((t) => (t.minNights ?? 1) <= Math.max(nochesTotales, 1));
+    const conTramo = tramos.length ? tramos : grupo;
+    const tramo = Math.max(...conTramo.map((t) => t.minNights ?? 1));
+    return conTramo.filter((t) => (t.minNights ?? 1) === tramo).sort((a, b) => a.precio - b.precio)[0] ?? null;
   };
 
-  const persona = (habitacion: Habitacion, regimen: string, fecha: string, quien: string): PrecioDePersona => {
-    const base = multiple(regimen, fecha);
-    if (habitacion === "MULTIPLE") return { precio: base.precio, como: "múltiple", regimen, tarifaId: base.id };
-    const propia = tarifaPara(tarifas, regimen, habitacion, fecha, nochesTotales);
-    if (propia) return { precio: propia.precio, como: NOMBRE_HABITACION[habitacion], regimen, tarifaId: propia.id ?? null };
-    const sup = habitacion === "INDIVIDUAL" ? e.suplementos.individual : e.suplementos.doble;
-    if (sup) {
-      const cuanto = sup.tipo === "PCT" ? `+${String(sup.valor).replace(".", ",")} %` : `+${String(sup.valor).replace(".", ",")} €`;
-      return {
-        precio: aplicarSuplemento(base.precio, sup),
-        como: `${NOMBRE_HABITACION[habitacion]} (suplemento ${cuanto})`,
-        regimen,
-        tarifaId: base.id,
-      };
-    }
-    avisos.add(
-      `El hotel no tiene tarifa ni suplemento de habitación ${NOMBRE_HABITACION[habitacion]}: ${quien} se cobra${quien.endsWith("es") ? "n" : ""} a precio de múltiple.`,
+  /** Las tarifas de los alumnos: su misma habitación y servicio; si no hay, su misma clase. */
+  const deAlumnos = (pension: string): TarifaDeHotel[] => {
+    const dePension = todas.filter((t) => codigoDePension(t.boardType) === pension);
+    const exactas = dePension.filter(
+      (t) => claveDeOcupacion(t.occupancyLabel) === ocupacionAlumnos && claveDeServicio(t.includedService) === servicioAlumnos,
     );
-    return { precio: base.precio, como: `${NOMBRE_HABITACION[habitacion]}: sin tarifa, precio de múltiple`, regimen, tarifaId: base.id };
+    if (exactas.length) return exactas;
+    const misma = dePension.filter(
+      (t) => ocupacionDe(t.occupancyLabel) === claseAlumnos && claveDeServicio(t.includedService) === servicioAlumnos,
+    );
+    if (misma.length) return misma;
+    return dePension.filter((t) => ocupacionDe(t.occupancyLabel) === claseAlumnos);
+  };
+
+  /** El precio de los alumnos esa noche con esa pensión, o null si el hotel no la tiene ese día. */
+  const precioAlumno = (pension: string, fecha: string): TarifaDeHotel | null => laQueVale(deAlumnos(pension), fecha);
+
+  const persona = (
+    habitacion: Habitacion,
+    pension: string,
+    fecha: string,
+    quien: "los profesores" | "el chófer",
+  ): PrecioDePersona => {
+    // La tarifa de los alumnos con esa pensión esa noche; si no la hay, la de la noche del grupo.
+    const base = precioAlumno(pension, fecha);
+    const pensionCobrada = base ? pension : null;
+    if (habitacion === claseAlumnos || habitacion === "MULTIPLE") {
+      if (base) return { precio: base.precio, como: NOMBRE_HABITACION[claseAlumnos], regimen: pension, tarifaId: base.id ?? null, coste: base.coste ?? null };
+    } else {
+      // Su propia tarifa de esa habitación, si el hotel la tiene (mismo servicio, si puede).
+      const deHabitacion = todas.filter(
+        (t) => codigoDePension(t.boardType) === pension && ocupacionDe(t.occupancyLabel) === habitacion,
+      );
+      const mismoServicio = deHabitacion.filter((t) => claveDeServicio(t.includedService) === servicioAlumnos);
+      const propia = laQueVale(mismoServicio.length ? mismoServicio : deHabitacion, fecha);
+      if (propia) return { precio: propia.precio, como: NOMBRE_HABITACION[habitacion], regimen: pension, tarifaId: propia.id ?? null, coste: propia.coste ?? null };
+      const sup = habitacion === "INDIVIDUAL" ? e.suplementos.individual : e.suplementos.doble;
+      if (sup && base) {
+        const cuanto = sup.tipo === "PCT" ? `+${String(sup.valor).replace(".", ",")} %` : `+${String(sup.valor).replace(".", ",")} €`;
+        return {
+          precio: aplicarSuplemento(base.precio, sup),
+          como: `${NOMBRE_HABITACION[habitacion]} (suplemento ${cuanto})`,
+          regimen: pension,
+          tarifaId: base.id ?? null,
+          coste: base.coste == null ? null : aplicarSuplemento(base.coste, sup),
+        };
+      }
+      if (base) {
+        const van = quien === "los profesores" ? "van" : "va";
+        // Si el hotel no tiene esa habitación en ninguna fecha, un solo aviso; si
+        // la tiene en otras, se dice qué noches faltan.
+        const habitacionesDelHotel = todas.filter((x) => ocupacionDe(x.occupancyLabel) === habitacion);
+        if (habitacionesDelHotel.length === 0) {
+          avisos.suelto(
+            `El hotel no tiene tarifa ni suplemento de habitación ${NOMBRE_HABITACION[habitacion]}: ${quien} ${van} a precio de ${NOMBRE_HABITACION[claseAlumnos]}.`,
+          );
+        } else {
+          avisos.porNoche(`sinhab-${habitacion}-${pension}-${quien}`, fecha, (cuando) =>
+            `No hay tarifa ${NOMBRE_HABITACION[habitacion]} de ${nombreDePension(pension)} para ${cuando} (ni suplemento): ${quien} ${van} a precio de ${NOMBRE_HABITACION[claseAlumnos]}.`,
+          );
+        }
+        return {
+          precio: base.precio,
+          como: `${NOMBRE_HABITACION[habitacion]}: sin tarifa, precio de ${NOMBRE_HABITACION[claseAlumnos]}`,
+          regimen: pension,
+          tarifaId: base.id ?? null,
+          coste: base.coste ?? null,
+        };
+      }
+    }
+    void pensionCobrada;
+    return { precio: NaN, como: "", regimen: pension, tarifaId: null };
   };
 
   const noches: NocheDeLaEstancia[] = [];
   for (let i = 0; i < nochesTotales; i++) {
     const fecha = sumarDias(e.fechaEntrada, i);
-    const regimen = (e.composicion.regimenPorNoche[i] || regimenBase || "").toUpperCase();
-    const regProf = (e.composicion.profesores.regimen || regimen).toUpperCase();
-    const regChof = (e.composicion.chofer?.regimen || regimen).toUpperCase();
-    noches.push({
-      fecha,
-      regimen,
-      alumno: (() => {
-        const m = multiple(regimen, fecha);
-        return { precio: m.precio, como: "múltiple", regimen, tarifaId: m.id };
-      })(),
-      profesor: persona(e.composicion.profesores.habitacion, regProf, fecha, "los profesores"),
-      chofer: cantidadChofer > 0 ? persona(e.composicion.chofer.habitacion, regChof, fecha, "el chófer") : null,
-    });
+    const pedida = codigoDePension(e.composicion.regimenPorNoche[i] || pensionBase) || pensionBase;
+    let pension = pedida;
+    let alumno = precioAlumno(pension, fecha);
+    let sinTarifa = false;
+    if (!alumno && pension !== pensionBase) {
+      // El hotel no tiene esa pensión esa noche: se cobra la del grupo, y lo dice.
+      const respaldo = precioAlumno(pensionBase, fecha);
+      if (respaldo) {
+        avisos.porNoche(`sinpension-${pedida}`, fecha, (cuando) =>
+          `El hotel no tiene ${nombreDePension(pedida)} para ${cuando}: van en ${nombreDePension(pensionBase)}.`,
+        );
+        pension = pensionBase;
+        alumno = respaldo;
+      }
+    }
+    if (!alumno) {
+      // Ninguna tarifa del hotel vale para esa fecha: se pone la de la búsqueda y se avisa.
+      sinTarifa = true;
+      alumno = e.elegida;
+      pension = pensionBase;
+      avisos.porNoche("sinfecha", fecha, (cuando) =>
+        `No hay tarifa del hotel para ${cuando}: se ha puesto la de «${e.elegida.seasonName ?? "la tarifa elegida"}»${
+          e.elegida.dateFrom && e.elegida.dateTo ? ` (${fechaCorta(e.elegida.dateFrom)}–${fechaCorta(e.elegida.dateTo)})` : ""
+        }, que no la cubre. Pide precio al hotel antes de enviarlo.`,
+      );
+    }
+    const alumnoPrecio: PrecioDePersona = {
+      precio: alumno.precio,
+      como: NOMBRE_HABITACION[claseAlumnos],
+      regimen: pension,
+      tarifaId: alumno.id ?? null,
+      coste: alumno.coste ?? null,
+    };
+    const conRespaldo = (p: PrecioDePersona): PrecioDePersona =>
+      Number.isFinite(p.precio) ? p : { ...alumnoPrecio, como: `${p.como || NOMBRE_HABITACION[claseAlumnos]}` };
+
+    const pensionProfesores = codigoDePension(e.composicion.profesores.regimen) || pension;
+    const pensionChofer = codigoDePension(e.composicion.chofer?.regimen) || pension;
+    // Sin profesores no se calcula ni se avisa nada de ellos.
+    let profesor =
+      e.profesores > 0
+        ? persona(e.composicion.profesores.habitacion, pensionProfesores, fecha, "los profesores")
+        : alumnoPrecio;
+    if (e.profesores > 0 && !Number.isFinite(profesor.precio) && pensionProfesores !== pension) {
+      avisos.porNoche(`sinpension-prof-${pensionProfesores}`, fecha, (cuando) =>
+        `El hotel no tiene ${nombreDePension(pensionProfesores)} para ${cuando}: los profesores van en ${nombreDePension(pension)}.`,
+      );
+      profesor = persona(e.composicion.profesores.habitacion, pension, fecha, "los profesores");
+    }
+    let chofer: PrecioDePersona | null = null;
+    if (cantidadChofer > 0) {
+      chofer = persona(e.composicion.chofer.habitacion, pensionChofer, fecha, "el chófer");
+      if (!Number.isFinite(chofer.precio) && pensionChofer !== pension) {
+        avisos.porNoche(`sinpension-chofer-${pensionChofer}`, fecha, (cuando) =>
+          `El hotel no tiene ${nombreDePension(pensionChofer)} para ${cuando}: el chófer va en ${nombreDePension(pension)}.`,
+        );
+        chofer = persona(e.composicion.chofer.habitacion, pension, fecha, "el chófer");
+      }
+      chofer = conRespaldo(chofer);
+    }
+    noches.push({ fecha, regimen: pension, alumno: alumnoPrecio, profesor: conRespaldo(profesor), chofer, sinTarifa });
+  }
+
+  // Lo que el documento no deja leer («excepto San Juan y puentes»).
+  const usadas = new Set(noches.map((n) => n.alumno.tarifaId));
+  for (const t of todas) {
+    if (t.id && usadas.has(t.id) && cobertura.get(t)!.conExcepciones) {
+      avisos.suelto(`La temporada «${t.seasonName}» tiene excepciones que no se pueden leer: confirma que ninguna noche caiga en ellas.`);
+    }
   }
 
   // Noches seguidas iguales, un tramo.
@@ -278,7 +447,9 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
       ultimo.alumno.precio === n.alumno.precio &&
       ultimo.profesor.precio === n.profesor.precio &&
       ultimo.profesor.como === n.profesor.como &&
-      (ultimo.chofer?.precio ?? null) === (n.chofer?.precio ?? null);
+      ultimo.profesor.regimen === n.profesor.regimen &&
+      (ultimo.chofer?.precio ?? null) === (n.chofer?.precio ?? null) &&
+      (ultimo.chofer?.regimen ?? null) === (n.chofer?.regimen ?? null);
     if (igual) ultimo.noches += 1;
     else tramos.push({ regimen: n.regimen, noches: 1, alumno: n.alumno, profesor: n.profesor, chofer: n.chofer });
   }
@@ -291,8 +462,8 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
       0,
     ),
   );
-  const regimenes = [...new Set(noches.map((n) => n.regimen).filter(Boolean))].join(" + ") || regimenBase;
-  return { noches, tramos, porAlumno, total, avisos: [...avisos], regimenes };
+  const regimenes = [...new Set(noches.map((n) => n.regimen).filter(Boolean))].join(" + ") || pensionBase;
+  return { noches, tramos, porAlumno, total, avisos: avisos.lista(), regimenes };
 }
 
 function fechaCorta(iso: string): string {

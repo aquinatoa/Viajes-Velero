@@ -22,10 +22,14 @@ function comoTarifa(t: AccommodationRate): TarifaDeHotel {
     id: t.id,
     boardType: t.boardType,
     occupancyLabel: t.occupancyLabel,
+    includedService: t.includedService || null,
+    seasonName: t.seasonName || null,
     dateFrom: t.dateFrom || null,
     dateTo: t.dateTo || null,
     minNights: t.minNights || null,
     precio: precioDe(t),
+    // El coste es el neto de venta, como en la propuesta (`proposalService`).
+    coste: t.netSaleAmount > 0 ? t.netSaleAmount : null,
   };
 }
 

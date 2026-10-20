@@ -15,6 +15,36 @@ import { textoDelPeriodo, valeParaElViaje } from "../src/domain/periodosDeActivi
 import { precioParaElCliente } from "../src/domain/precioClienteEspecial";
 import { listarClientesEspeciales } from "./clientesEspeciales";
 import { suplementosDeHabitacion } from "../src/domain/estancia";
+import { coberturaDeTarifa } from "../src/domain/fechasDeTarifa";
+
+/**
+ * Cuántas noches del viaje cubre una tarifa, con las fechas guardadas y las que
+ * trae el nombre de su temporada («T. Media (T2: 12/03-24/03 · 05/06-18/06)»,
+ * «T. Alta · 9, 10 y 14/06», «Domingo a Jueves»…). `sinSaber`: la tarifa no
+ * dice en ningún sitio qué días vale.
+ */
+export function nochesCubiertas(
+  tarifa: { seasonName?: string | null; dateFrom?: Date | string | null; dateTo?: Date | string | null },
+  desde: string | null | undefined,
+  hasta: string | null | undefined,
+): { cubiertas: number; total: number; sinSaber: boolean } {
+  if (!desde || !hasta) return { cubiertas: 0, total: 0, sinSaber: true };
+  const iso = (d: Date | string | null | undefined) =>
+    d ? (d instanceof Date ? d.toISOString() : String(d)).slice(0, 10) : null;
+  const c = coberturaDeTarifa({ seasonName: tarifa.seasonName, dateFrom: iso(tarifa.dateFrom), dateTo: iso(tarifa.dateTo) });
+  const inicio = new Date(`${String(desde).slice(0, 10)}T12:00:00Z`);
+  const fin = new Date(`${String(hasta).slice(0, 10)}T12:00:00Z`);
+  const total = Math.max(1, Math.round((fin.getTime() - inicio.getTime()) / 86400000));
+  let cubiertas = 0;
+  let sinSaber = false;
+  for (let i = 0; i < total; i++) {
+    const fecha = new Date(inicio.getTime() + i * 86400000).toISOString().slice(0, 10);
+    const v = c.vale(fecha);
+    if (v === true) cubiertas++;
+    if (v === null) sinSaber = true;
+  }
+  return { cubiertas, total, sinSaber };
+}
 
 const prisma = new PrismaClient();
 
@@ -303,15 +333,17 @@ function scoreAccommodationMatch(
     score += 8;
   }
 
-  // — Fechas: cubre la estancia (mucho); solapa parcial (poco).
-  if (filters.dateFrom && filters.dateTo && rate.dateFrom && rate.dateTo) {
-    const from = new Date(filters.dateFrom);
-    const to = new Date(filters.dateTo);
-    if (from >= rate.dateFrom && to <= rate.dateTo) {
+  // — Fechas: cubre la estancia (mucho); solapa parcial (poco). Con las fechas
+  // que trae el nombre de la temporada, no solo las guardadas (20/10/2026).
+  if (filters.dateFrom && filters.dateTo) {
+    const n = nochesCubiertas(rate, filters.dateFrom, filters.dateTo);
+    if (n.cubiertas === n.total) {
       score += 20;
       reasons.push(`Tarifa válida en ${rate.seasonName ?? "temporada"}.`);
-    } else if (to >= rate.dateFrom && from <= rate.dateTo) {
+    } else if (n.cubiertas > 0) {
       score += 6;
+    } else if (n.sinSaber) {
+      score += 4;
     }
   } else {
     score += 4;
@@ -664,16 +696,14 @@ export async function searchAccommodationsDb(
    * temporada legible no se descarta: no se puede afirmar que no valga.
    */
   const valeParaEstasFechas = (
-    tarifa: { dateFrom?: Date | string | null; dateTo?: Date | string | null },
+    tarifa: { seasonName?: string | null; dateFrom?: Date | string | null; dateTo?: Date | string | null },
     f: SearchFilters,
   ): boolean => {
     if (!f.dateFrom || !f.dateTo) return true;
-    const desde = new Date(f.dateFrom).getTime();
-    const hasta = new Date(f.dateTo).getTime();
-    const abre = tarifa.dateFrom ? new Date(tarifa.dateFrom).getTime() : NaN;
-    const cierra = tarifa.dateTo ? new Date(tarifa.dateTo).getTime() : NaN;
-    if (Number.isNaN(desde) || Number.isNaN(hasta) || Number.isNaN(abre) || Number.isNaN(cierra)) return true;
-    return abre <= hasta && cierra >= desde;
+    // Con las fechas del nombre de la temporada: la T. Media de junio del
+    // Canada Palace solo tenía guardado su primer tramo (marzo) y se quedaba fuera.
+    const n = nochesCubiertas(tarifa, f.dateFrom, f.dateTo);
+    return n.cubiertas > 0 || n.sinSaber;
   };
 
   const noches =

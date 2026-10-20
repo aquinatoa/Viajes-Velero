@@ -111,7 +111,7 @@ prueba("el chófer con su habitación y su propia pensión", () => {
   assert.equal(r.total, (36.29 * 50 + 63.51 * 3 + 71.07) * 2);
 });
 
-prueba("sin tarifa de esa pensión: se cobra la elegida y se avisa", () => {
+prueba("sin tarifa de esa pensión: va en la del grupo, lo dice la noche y se avisa", () => {
   const soloMp = R4.filter((t) => t.boardType === "MP");
   const r = precioDeLaEstancia({
     fechaEntrada: "2027-03-23",
@@ -124,7 +124,10 @@ prueba("sin tarifa de esa pensión: se cobra la elegida y se avisa", () => {
     suplementos: {},
   });
   assert.equal(r.noches[0].alumno.precio, 36.29);
-  assert.match(r.avisos.join(" "), /No hay tarifa de pensión completa para la noche del 23\/03/);
+  // La noche dice la pensión que se cobra, no la pedida: el documento no puede decir «PC» a precio de MP.
+  assert.equal(r.noches[0].regimen, "MP");
+  assert.equal(r.regimenes, "MP");
+  assert.deepEqual(r.avisos, ["El hotel no tiene pensión completa para la noche del 23/03: van en media pensión."]);
 });
 
 prueba("sin tarifa ni suplemento de individual: precio de múltiple, avisando", () => {
