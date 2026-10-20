@@ -2417,3 +2417,114 @@ Lo que quedó de la reunión:
   comprometió a compartir el documento de alcance y extras.
 - **Hoy**: correo a Javier con lo que queda en producción para sus pruebas, y
   después una sesión con el paso a paso de los cambios.
+
+## 19/10/2026 (tarde) · Los correos de Ruth: rama `ruth-19-10`, SIN SUBIR
+
+Los 8 puntos de los dos correos de Ruth del 19/10, en local sobre `main`
+(`8ca51c4`), 5 commits (`dc8e4e5` → `87e44d5`). Pruebas: `npm test` en verde.
+**Lleva una migración** (`20261019120000_composicion_de_la_estancia`: columna
+`stayJson` en `TripProposal`). Se sube solo con su orden expresa.
+
+- **Nombre del grupo** (`src/domain/tituloDelViaje.ts`): si va vacío o es solo
+  un año, se usa «CENTRO AÑO» en el trato, el correo, el PDF y la página.
+  Cambiar el centro en el lienzo actualiza el nombre si era el automático.
+- **«&amp;»** en la ficha descodificado; **«1 noche»** en singular en todas partes.
+- **Tramos por noches del 4R** (punto 4: «son tres hoteles»): NO son hoteles
+  distintos, son tarifas «desde N noches». La rejilla del catálogo saca una
+  columna por tramo (`rejillaDeTarifas.ts`). La búsqueda ya los aplicaba bien.
+- **La estancia** (`src/domain/estancia.ts`, panel `PanelEstancia.tsx`):
+  pensión noche a noche (MP y PC mezcladas), habitación y pensión de los
+  profesores, chófer (cuántos, habitación y pensión). Usa los **suplementos**
+  publicados («Habitación individual 75 %», «Doble profesores 10 %»); si el
+  hotel no tiene, cobra la múltiple y lo avisa. Va al desglose, al PDF y a
+  Servicios Contratados (filas por tramo y por persona).
+- **Cambiar el nombre del grupo** desde la ficha: aplicación + `Deal_Name` en Zoho.
+- **«Rehacer la propuesta»** en la ficha: abre en Nueva solicitud un borrador
+  con todo lo enviado (hoteles, actividades, ad hoc, composición). Sale como
+  **versión siguiente**; lo enviado no se toca.
+
+Comprobado en producción (solo lectura): **33 de 36 hoteles publicados tienen
+suplementos** (en `observations`, «Suplementos: …»); el 4R 3* y 4* tienen
+individual 75 y doble profesores 10. La copia local no los traía: se copiaron
+a la base LOCAL los 230 aprobados (29 hoteles). Prueba real del 4R 3* en
+Salou, 3 noches, 48 + 4: profesor en individual 58,21 € (33,26 × 1,75), en
+doble 36,59 €; MP+MP+PC con chófer → 104,10 €/alumno, 5.637,07 € total.
+
+Pendiente: su revisión en local → OK → fusionar y subir. Respuesta a Ruth
+cuando lo diga. Las 43 condiciones de actividades con el criterio de Ruth:
+sin decisión.
+
+## 20/10/2026 · Más en `ruth-19-10` (sigue SIN SUBIR) y el informe al día
+
+Al preparar las guías de revisión salieron tres cosas, arregladas en la rama:
+- `a35a282`: «Múltiple (doble/triple/cuádruple)» (Hotel Planas) se tomaba por
+  la doble de los profesores. Y la doble sin tarifa se escribía «sin tarifa
+  individual»; ahora «sin tarifa de doble: precio de múltiple».
+- `9558522`: el detalle del hotel enseña cada precio con sus noches cuando la
+  estancia cambia de temporada o de pensión (el 4R cambia el 07/06).
+- `1d8a835` y `5edc25e`: los **suplementos se ven** en el Catálogo publicado y
+  en la pestaña «Publicados» del documento, que además dice de cada tarifa su
+  habitación, fechas y «desde N noches». Era la queja de Ruth: solo veía «2027
+  · PC · 40,61 €».
+
+`.env` de Mateo: **hecho** (lo confirmó Mateo). Solo queda el puerto 5432.
+
+Informe `INFORME-revision-local-2026-10-15.html` al día: R8–R13 (Ruth) en ámbar
+con guía paso a paso y cifras exactas (petición de Salou, 4R 3*); R1–R7, D4 y
+D5 en producción; D2 solo el 5432; alcance y parte de horas hasta el 20/10.
+
+## 20/10/2026 · Revisión de todo lo que la solicitud enseña sobre tarifas
+
+Anthony: «no podemos dar mensajes erróneos». Cuatro revisiones con datos reales
+(lista de hoteles, detalle, actividades, lo que se envía): **46 puntos** en la
+pestaña «Revisión de tarifas» del informe, con caso real y arreglo.
+- **La rama `ruth-19-10` NO se puede subir así**: la estancia cobra mal con
+  etiquetas de habitación que no son «Múltiple» (Villa Bonita +95 €/alumno,
+  Eurosalou), con pensiones largas («PC (PRECIO FINAL…)») y rellena en
+  silencio las noches sin tarifa (P1–P4).
+- En producción ya cotizan mal: tarifas sin fechas (Cesar Augustus 159,75 en
+  vez de ~303,51), actividades con la entrada de primaria para 14-15 años
+  (`ageMin ?? 0` en `searchDb.ts`), precios por hora/grupo × personas, total de
+  actividades del PDF inflado, individual de profesores sin mirar fechas.
+- Datos que tiene que corregir Oravia (8 hoteles con temporadas sin fechas,
+  Canada Palace, edades y calendario A-D de actividades) y 4 decisiones.
+Plan: 1) lo de la rama (~5 h), 2) precios de producción (~10 h, con P21: fechas que venían en sus documentos y leímos mal —Canada Palace, Cesar Augustus, Camping Platja, Jaca—), 3) textos (~3 h). Correo a Ruth y Javier con datos y decisiones: `correo-ruth-javier-20-10-datos.md`.
+Esperando su OK para empezar.
+- **Criterio de Anthony (20/10): si el archivo de tarifas lo trae, se registra, se
+  ve y se aplica; no se le pregunta al cliente.** Comprobado en los documentos:
+  el Excel de hoteles (41 columnas) trae los periodos con todas sus fechas
+  (Planas, Viella, L'Orri, Canada Palace…), suplementos y gratuidades; el de
+  actividades trae edad, unidad, grupo y gratuidades; el PDF de PortAventura
+  trae el calendario de periodos (en colores). El de hoteles se lee con IA y
+  pierde datos: hace falta un lector de plantilla como el de actividades (P22).
+  Solo se pregunta: Terra Àurea desde junio, calendario del hotel Roulette (A–F)
+  y las 43 condiciones (`correo-ruth-javier-20-10-datos.md`, rehecho).
+
+## 20/10/2026 (tarde) · Correcciones de la revisión, en `ruth-19-10` (17 commits, SIN SUBIR)
+
+Paquete 1 aparte, listo para subir con su OK: rama `ruth-seguro` (7 commits sobre
+`main`: nombre del grupo, cambiar nombre, tramos 4R, Publicados con suplementos,
+lupa, aviso falso). Copia de trabajo en el scratchpad (`wt`), con `node_modules`
+enlazado al del proyecto: NO correr `prisma generate` allí.
+
+En `ruth-19-10`, hecho (30 de 49 puntos de la pestaña «Revisión de tarifas»):
+- `src/domain/fechasDeTarifa.ts`: las fechas de cada tarifa con lo que trae el
+  nombre (tramos, días sueltos, meses, Semana Santa, día de la semana) y su año.
+  Lo usan la estancia y el buscador.
+- Estancia reescrita: habitación de alumnos = la de su tarifa; pensión por
+  código; avisos agrupados por noche; coste por noche.
+- Migración nueva `20261020120000_coste_por_tramo` (`costsJson` en la opción):
+  Servicios Contratados con el coste de cada tramo.
+- Encaje rehecho en pantalla con la estancia (`encajeConLaEstancia.ts`), podio
+  por incumple/confirmar/precio, «Sin tarifa para estas fechas».
+- PDF/página/correo para el colegio (`desgloseParaElCliente.ts`), chófer,
+  total de actividades bien sumado.
+- `stayJson` guarda ahora {composicion, canal, descuentos, preciosFijados,
+  lineas}: «Rehacer» lo recupera. El borrador guarda las entradas.
+
+Falta: actividades (edad, unidad, gratuidades, avisos de grupo/edad, precio de
+muestra, Comparar, ✓ verdes, orden en Calella), suplementos de sábado/estancia
+corta, calendario PortAventura (colores del PDF), y lo gordo: **P22/P23**, el
+lector propio del Excel de hoteles y publicar todos los campos leídos (unitName,
+rateUnit, plazas, IVA, comisión, rawText…). En producción la revisión está
+guardada: se puede rellenar lo publicado desde ella sin volver a revisar.

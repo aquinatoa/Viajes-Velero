@@ -51,6 +51,8 @@ export interface TarifaDeHotel {
   id?: string | null;
   boardType?: string | null;
   occupancyLabel?: string | null;
+  /** «Oasis o Premium 5 pax», «Escolares · Desayuno básico», «-14 años»: el tipo de unidad. */
+  unitName?: string | null;
   /** «Sin campo (acompañante)», «Campo natural»…: otro eje del precio. */
   includedService?: string | null;
   /** El nombre de la temporada: muchas veces trae las fechas (ver `fechasDeTarifa.ts`). */
@@ -69,9 +71,39 @@ export interface SuplementoDeHabitacion {
   valor: number;
 }
 
+/**
+ * Un suplemento que depende de la noche o de la duración, de los que trae el
+ * documento: «Sábado / víspera de festivo +25 % (estancias de 1-2 noches)»,
+ * «Noches de sábado, festivo o víspera +15 %», «Estancia de 1-2 noches +10 %
+ * (excepto 12/06–25/06)», «Corta estancia 1 noche +6 € pax/noche», «Suplemento
+ * fin de semana (1-2 noches) +4 €». Hasta el 20/10/2026 se publicaban y no se
+ * aplicaban: el 4R cobraba 38,12 € el sábado 05/06 en vez de 47,65 €.
+ */
+export interface ReglaPorNoche {
+  concepto: string;
+  tipo: "PCT" | "EUR";
+  valor: number;
+  /** El importe fijo es por noche o por toda la estancia (se reparte). */
+  porEstancia: boolean;
+  /** Días de la semana (0 domingo … 6 sábado) en que empieza la noche; null = todas. */
+  dias: number[] | null;
+  /** Solo si la estancia dura entre estas noches. */
+  nochesMin: number | null;
+  nochesMax: number | null;
+  /** Solo para noches dentro de este tramo (MM-DD). */
+  desde: string | null;
+  hasta: string | null;
+  /** Solo fuera de este tramo. */
+  exceptoDesde: string | null;
+  exceptoHasta: string | null;
+  /** «festivo o víspera»: no se sabe el calendario de festivos, se avisa. */
+  conFestivos: boolean;
+}
+
 export interface SuplementosDeHabitacion {
   individual?: SuplementoDeHabitacion | null;
   doble?: SuplementoDeHabitacion | null;
+  porNoche?: ReglaPorNoche[];
 }
 
 const redondear = (n: number) => Math.round(n * 100) / 100;
@@ -101,21 +133,114 @@ export function ocupacionDe(etiqueta: string | null | undefined): Habitacion {
  * porcentaje». Uno de «estudiantes en doble» no es de los profesores: se deja.
  */
 export function suplementosDeHabitacion(
-  ajustes: Array<{ concept?: string | null; amountType?: string | null; amount?: number | string | null }>,
+  ajustes: Array<{
+    concept?: string | null;
+    amountType?: string | null;
+    amount?: number | string | null;
+    conditionText?: string | null;
+    appliesPer?: string | null;
+    adjustmentType?: string | null;
+  }>,
 ): SuplementosDeHabitacion {
   const resultado: SuplementosDeHabitacion = {};
+  const reglas: ReglaPorNoche[] = [];
   for (const a of ajustes) {
     const concepto = normal(a.concept);
     const valor = Number(a.amount);
     if (!Number.isFinite(valor) || valor <= 0) continue;
     const tipoTexto = normal(a.amountType);
     const tipo: "PCT" | "EUR" = /porc|percent|%|pct/.test(tipoTexto) ? "PCT" : "EUR";
-    if (/individual|single/.test(concepto) && !resultado.individual) resultado.individual = { tipo, valor };
-    else if (/doble|double/.test(concepto) && !/estudiant|alumn/.test(concepto) && !resultado.doble) {
-      resultado.doble = { tipo, valor };
+    const tipoAjuste = normal(a.adjustmentType);
+    // Descuentos, tasas, fianzas y servicios opcionales no son suplementos de la noche.
+    if (/desc|discount|tax|tasa|fianza|dep[oó]sito|deposit|gratu|free|markup|commission|note|nota|policy|condici|cancel/.test(tipoAjuste)) continue;
+    if (/individual|single/.test(concepto) && !resultado.individual) {
+      resultado.individual = { tipo, valor };
+      continue;
     }
+    if (/doble|double/.test(concepto) && !/estudiant|alumn/.test(concepto) && !resultado.doble) {
+      resultado.doble = { tipo, valor };
+      continue;
+    }
+    const regla = reglaPorNoche(a.concept ?? "", a.conditionText ?? "", a.appliesPer ?? "", tipo, valor);
+    if (regla) reglas.push(regla);
   }
+  if (reglas.length) resultado.porNoche = reglas;
   return resultado;
+}
+
+/** «12/06–25/06», «12/06/2027–25/06/2027» → ["06-12", "06-25"]. */
+function tramoMesDia(texto: string): [string, string] | null {
+  const m = /(\d{1,2})\/(\d{1,2})(?:\/\d{2,4})?\s*[–-]\s*(\d{1,2})\/(\d{1,2})(?:\/\d{2,4})?/.exec(texto);
+  if (!m) return null;
+  const md = (d: string, mes: string) => `${mes.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  return [md(m[1], m[2]), md(m[3], m[4])];
+}
+
+/** La regla de un suplemento de sábado, fin de semana o estancia corta; null si no es de esos. */
+function reglaPorNoche(concept: string, conditionText: string, appliesPer: string, tipo: "PCT" | "EUR", valor: number): ReglaPorNoche | null {
+  const todo = normal(`${concept} ${conditionText}`);
+  const esSabado = /sabado|sábado/.test(todo);
+  const esFinde = /fin de semana|viernes/.test(todo);
+  const esCorta = /corta estancia|estancia corta|estancias? (de|corta)|noches? o menos|menos de \d noches|\b1-2 noches|solo 1 noche|1 noche|2 noches/.test(todo);
+  if (!esSabado && !esFinde && !esCorta) return null;
+  // Lo que ya es suplemento de habitación o de servicio no entra aquí.
+  if (/sabanas|toalla|comida|merienda|cena|desayuno|picnic|alquiler|cama|tasa|parking|mascota/.test(todo)) return null;
+
+  let nochesMin: number | null = null;
+  let nochesMax: number | null = null;
+  const rango = /(\d)\s*(?:-|–|a|o)\s*(\d)\s*noches/.exec(todo);
+  const oMenos = /(\d)\s*noches? o menos/.exec(todo);
+  const menosDe = /menos de\s*(\d)\s*noches/.exec(todo);
+  const exacto = /(?:^|\s|\()(\d)\s*(?:sola\s*)?noches?(?!\s*(?:o mas|o más|-|–))/.exec(todo);
+  if (rango) {
+    nochesMin = Number(rango[1]);
+    nochesMax = Number(rango[2]);
+  } else if (oMenos) nochesMax = Number(oMenos[1]);
+  else if (menosDe) nochesMax = Number(menosDe[1]) - 1;
+  else if (exacto && esCorta) {
+    nochesMin = Number(exacto[1]);
+    nochesMax = Number(exacto[1]);
+  }
+
+  const dias = esSabado && !esFinde ? [6] : esFinde ? [5, 6] : null;
+  const conFestivos = /festivo|vispera|víspera/.test(todo);
+  const excepto = /except[oa]\s*([^.;]*)/.exec(normal(conditionText));
+  const exc = excepto ? tramoMesDia(excepto[1]) : null;
+  const dentro = !excepto ? tramoMesDia(conditionText) ?? tramoMesDia(concept) : null;
+  const porEstancia = tipo === "EUR" && !/noche/.test(normal(appliesPer)) && !/por noche/.test(todo);
+  return {
+    concepto: concept.trim(),
+    tipo,
+    valor,
+    porEstancia,
+    dias,
+    nochesMin,
+    nochesMax,
+    desde: dentro?.[0] ?? null,
+    hasta: dentro?.[1] ?? null,
+    exceptoDesde: exc?.[0] ?? null,
+    exceptoHasta: exc?.[1] ?? null,
+    conFestivos,
+  };
+}
+
+/** Si la regla toca esa noche de esa estancia. */
+export function reglaAplica(r: ReglaPorNoche, fechaISO: string, nochesTotales: number): boolean {
+  if (r.nochesMin !== null && nochesTotales < r.nochesMin) return false;
+  if (r.nochesMax !== null && nochesTotales > r.nochesMax) return false;
+  const md = fechaISO.slice(5, 10);
+  if (r.desde && r.hasta && (md < r.desde || md > r.hasta)) return false;
+  if (r.exceptoDesde && r.exceptoHasta && md >= r.exceptoDesde && md <= r.exceptoHasta) return false;
+  if (r.dias) {
+    const dia = new Date(`${fechaISO.slice(0, 10)}T12:00:00Z`).getUTCDay();
+    if (!r.dias.includes(dia)) return false;
+  }
+  return true;
+}
+
+/** «+25 %», «+4,00 €». */
+export function textoDeLaRegla(r: ReglaPorNoche): string {
+  return r.tipo === "PCT" ? `+${String(r.valor).replace(".", ",")} %` : `+${r.valor.toFixed(2).replace(".", ",")} €`;
 }
 
 const dia = (iso: string) => iso.slice(0, 10);
@@ -145,7 +270,7 @@ export function codigoDePension(texto: string | null | undefined): string {
 
 /** «Adultos», «+14 años»: una tarifa que no es para los alumnos. */
 function esDeAdultos(t: TarifaDeHotel): boolean {
-  const s = normal(`${t.occupancyLabel ?? ""} ${t.seasonName ?? ""} ${t.includedService ?? ""}`);
+  const s = normal(`${t.occupancyLabel ?? ""} ${t.unitName ?? ""} ${t.seasonName ?? ""} ${t.includedService ?? ""}`);
   return /\badult/.test(s) && !/escolar|estudiant|junior|infantil/.test(s);
 }
 
@@ -155,7 +280,7 @@ function esDeAdultos(t: TarifaDeHotel): boolean {
  */
 function encajaConLaEdad(t: TarifaDeHotel, edad: { min: number | null; max: number | null } | null | undefined): boolean {
   if (!edad || (edad.min === null && edad.max === null)) return true;
-  const s = normal(`${t.occupancyLabel ?? ""} ${t.seasonName ?? ""} ${t.includedService ?? ""}`);
+  const s = normal(`${t.occupancyLabel ?? ""} ${t.unitName ?? ""} ${t.seasonName ?? ""} ${t.includedService ?? ""}`);
   const hasta = /(?:-|menores de|hasta|<)\s*(\d{1,2})\s*an/.exec(s);
   if (hasta && edad.max !== null && edad.max >= Number(hasta[1])) return false;
   const hastaIncl = /(?:≤|<=)\s*(\d{1,2})\s*an/.exec(s);
@@ -165,8 +290,9 @@ function encajaConLaEdad(t: TarifaDeHotel, edad: { min: number | null; max: numb
   return true;
 }
 
-/** La clave de una ocupación tal como la escribe el documento: «Doble», «1 PAX X HAB»… */
-const claveDeOcupacion = (s: string | null | undefined) => normal(s).replace(/\s+/g, " ").trim();
+/** La clave de una ocupación tal como la escribe el documento: «Doble», «1 PAX X HAB»… y su tipo de unidad. */
+const claveDeOcupacion = (t: Pick<TarifaDeHotel, "occupancyLabel" | "unitName">) =>
+  `${normal(t.occupancyLabel).replace(/\s+/g, " ").trim()}|${normal(t.unitName).replace(/\s+/g, " ").trim()}`;
 /**
  * El servicio incluido como eje de la tarifa («Sin campo», «Campo natural»).
  * Si lo que hay ahí es la temporada (Viella: «Junio · Septiembre 2027»), no
@@ -215,6 +341,8 @@ export interface NocheDeLaEstancia {
   chofer: PrecioDePersona | null;
   /** No hay tarifa del hotel para esa fecha: se ha puesto otra y se avisa. */
   sinTarifa?: boolean;
+  /** Los suplementos del hotel aplicados a esa noche: «Sábado / víspera de festivo +25 %». */
+  suplementos?: string[];
 }
 
 /** Noches seguidas con los mismos precios: así se escribe y se lee el desglose. */
@@ -224,6 +352,8 @@ export interface TramoDeLaEstancia {
   alumno: PrecioDePersona;
   profesor: PrecioDePersona;
   chofer: PrecioDePersona | null;
+  /** Los suplementos de la noche, para decirlos en el desglose. */
+  suplementos?: string[];
 }
 
 export interface ResultadoDeLaEstancia {
@@ -285,7 +415,7 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
   const todas = [e.elegida, ...e.otras.filter((t) => !t.id || t.id !== e.elegida.id)];
   const cobertura = new Map<TarifaDeHotel, CoberturaDeTarifa>(todas.map((t) => [t, coberturaDeTarifa(t)]));
   const pensionBase = codigoDePension(e.elegida.boardType);
-  const ocupacionAlumnos = claveDeOcupacion(e.elegida.occupancyLabel);
+  const ocupacionAlumnos = claveDeOcupacion(e.elegida);
   const claseAlumnos = ocupacionDe(e.elegida.occupancyLabel);
   const servicioAlumnos = claveDeServicio(e.elegida.includedService);
   const avisos = new Avisos();
@@ -336,7 +466,7 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
     const deSuEdad = dePension.filter((t) => encajaConLaEdad(t, e.edadGrupo));
     if (deSuEdad.length) dePension = deSuEdad;
     const exactas = dePension.filter(
-      (t) => claveDeOcupacion(t.occupancyLabel) === ocupacionAlumnos && claveDeServicio(t.includedService) === servicioAlumnos,
+      (t) => claveDeOcupacion(t) === ocupacionAlumnos && claveDeServicio(t.includedService) === servicioAlumnos,
     );
     const misma = dePension.filter(
       (t) => ocupacionDe(t.occupancyLabel) === claseAlumnos && claveDeServicio(t.includedService) === servicioAlumnos,
@@ -498,7 +628,32 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
       }
       chofer = conRespaldo(chofer);
     }
-    noches.push({ fecha, regimen: pension, alumno: alumnoPrecio, profesor: conRespaldo(profesor), chofer, sinTarifa });
+    // Los suplementos de sábado, fin de semana o estancia corta que trae el
+    // documento, sobre el precio de cada persona esa noche.
+    const noche: NocheDeLaEstancia = { fecha, regimen: pension, alumno: alumnoPrecio, profesor: conRespaldo(profesor), chofer, sinTarifa };
+    const aplicadas = (e.suplementos.porNoche ?? []).filter((r) => reglaAplica(r, fecha, nochesTotales));
+    if (aplicadas.length) {
+      const aplicar = (p: PrecioDePersona): PrecioDePersona => {
+        let precio = p.precio;
+        let coste = p.coste ?? null;
+        for (const r of aplicadas) {
+          const cuanto = r.tipo === "PCT" ? precio * (r.valor / 100) : r.porEstancia ? r.valor / Math.max(nochesTotales, 1) : r.valor;
+          precio = redondear(precio + cuanto);
+          if (coste !== null) coste = redondear(coste + (r.tipo === "PCT" ? coste * (r.valor / 100) : cuanto));
+        }
+        return { ...p, precio, coste };
+      };
+      noche.alumno = aplicar(noche.alumno);
+      noche.profesor = aplicar(noche.profesor);
+      if (noche.chofer) noche.chofer = aplicar(noche.chofer);
+      noche.suplementos = aplicadas.map((r) => `${r.concepto} ${textoDeLaRegla(r)}`);
+      for (const r of aplicadas) {
+        avisos.porNoche(`sup-${r.concepto}`, fecha, (cuando) =>
+          `Suplemento del hotel aplicado a ${cuando}: ${r.concepto} ${textoDeLaRegla(r)}${r.conFestivos ? " (los festivos y vísperas no se comprueban: si alguna noche lo es, añádelo)" : ""}.`,
+        );
+      }
+    }
+    noches.push(noche);
   }
 
   // Lo que el documento no deja leer («excepto San Juan y puentes»).
@@ -521,9 +676,10 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
       ultimo.profesor.como === n.profesor.como &&
       ultimo.profesor.regimen === n.profesor.regimen &&
       (ultimo.chofer?.precio ?? null) === (n.chofer?.precio ?? null) &&
-      (ultimo.chofer?.regimen ?? null) === (n.chofer?.regimen ?? null);
+      (ultimo.chofer?.regimen ?? null) === (n.chofer?.regimen ?? null) &&
+      (ultimo.suplementos ?? []).join("|") === (n.suplementos ?? []).join("|");
     if (igual) ultimo.noches += 1;
-    else tramos.push({ regimen: n.regimen, noches: 1, alumno: n.alumno, profesor: n.profesor, chofer: n.chofer });
+    else tramos.push({ regimen: n.regimen, noches: 1, alumno: n.alumno, profesor: n.profesor, chofer: n.chofer, suplementos: n.suplementos });
   }
 
   const porAlumno = redondear(noches.reduce((s, n) => s + n.alumno.precio, 0));
@@ -555,7 +711,7 @@ const euros = (n: number) =>
  */
 export function textoDelDesglose(r: ResultadoDeLaEstancia, alumnos: number, profesores: number, chofer: number): string {
   const tramo = (t: TramoDeLaEstancia, conRegimen: boolean) => {
-    const partes = [`${euros(t.alumno.precio)} x ${alumnos} alumnos`];
+    const partes = [`${euros(t.alumno.precio)} x ${alumnos} alumnos${t.suplementos?.length ? ` (${t.suplementos.join(", ").replace(/[()]/g, "")})` : ""}`];
     if (profesores > 0) {
       partes.push(
         `${euros(t.profesor.precio)} x ${profesores} profesores (${comoProfesor(t.profesor)}${t.profesor.regimen !== t.regimen ? `, ${t.profesor.regimen}` : ""})`,

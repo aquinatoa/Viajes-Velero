@@ -170,6 +170,15 @@ model AccommodationRate {
   // hotel, régimen y campo valen 73 € en doble y 92 € en individual. Sin este
   // dato las dos tarifas son indistinguibles y el cotizador elige a ciegas.
   occupancyLabel  String?
+  /// El tipo de unidad («Oasis o Premium 5 pax», «Estudiantes ≤16 años · PRECIO
+  /// FINAL habitación Doble», «Escolares · Desayuno básico»): lo que distingue
+  /// dos tarifas que parecían iguales a distinto precio. Se leía en la
+  /// revisión y no llegaba aquí (20/10/2026).
+  unitName        String?
+  /// Plazas mínimas de la tarifa, si el documento lo dice.
+  minPax          Int?
+  /// La fila del documento, tal cual: la cita de origen.
+  rawText         String?
 
   sourceFile       String?
   sourceSheet      String?

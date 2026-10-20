@@ -3983,8 +3983,13 @@ function DetalleAlojamiento({
   };
 
   const alternativas = item.alternativas ?? [];
+  // «3 noches · 20 pax»: el mínimo de noches y, si el documento lo dice, de plazas.
+  const minimoDe = (r: AccommodationRate) =>
+    [r.minNights ? `${r.minNights} ${r.minNights === 1 ? "noche" : "noches"}` : null, r.minPax ? `${r.minPax} pax` : null]
+      .filter(Boolean)
+      .join(" · ") || "—";
   const nombreTarifa = (r: AccommodationRate) =>
-    [etiquetaDeRegimen(r.boardType), r.occupancyLabel, r.includedService].filter(Boolean).join(" · ") ||
+    [etiquetaDeRegimen(r.boardType), r.occupancyLabel, r.unitName, r.includedService].filter(Boolean).join(" · ") ||
     "sin describir";
   // Las alternativas, ordenadas como se leen: por régimen y, dentro, por precio.
   const alternativasOrdenadas = [...alternativas].sort(
@@ -4196,7 +4201,7 @@ function DetalleAlojamiento({
               </thead>
               <tbody>
                 <tr className={etiquetaAlumnos(item.rate) ? "cv__detsel" : undefined}>
-                  <td>
+                  <td title={item.rate.rawText || undefined}>
                     {nombreTarifa(item.rate)}
                     {etiquetaAlumnos(item.rate) ? (
                       <>
@@ -4206,7 +4211,7 @@ function DetalleAlojamiento({
                     ) : null}
                   </td>
                   <td>{temporadaDe(item.rate)}</td>
-                  <td>{item.rate.minNights || "—"}</td>
+                  <td>{minimoDe(item.rate)}</td>
                   <td className="cv__num">{euros(precioDeTarifa(item.rate))}</td>
                 </tr>
                 {alternativasOrdenadas.map((r) => (
@@ -4216,7 +4221,7 @@ function DetalleAlojamiento({
                       etiquetasDeProfesoresYChofer(r).length || etiquetaAlumnos(r) ? "cv__detsel" : undefined
                     }
                   >
-                    <td>
+                    <td title={r.rawText || undefined}>
                       {nombreTarifa(r)}
                       {etiquetaAlumnos(r) ? (
                         <>
@@ -4232,7 +4237,7 @@ function DetalleAlojamiento({
                       ))}
                     </td>
                     <td>{temporadaDe(r)}</td>
-                    <td>{r.minNights || "—"}</td>
+                    <td>{minimoDe(r)}</td>
                     <td className="cv__num">{euros(precioDeTarifa(r))}</td>
                   </tr>
                 ))}

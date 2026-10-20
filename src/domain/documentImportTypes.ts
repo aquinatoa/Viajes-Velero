@@ -492,6 +492,8 @@ export interface AiCandidatePolicy {
    * actividades; con esto, la cancelación de Saltapark solo va a Saltapark.
    */
   activityName?: string | null;
+  /** Alojamiento al que pertenece la condición, cuando el documento trae varios (plantilla de hoteles). */
+  accommodationName?: string | null;
 }
 
 export interface AiCandidateBlackoutDate {

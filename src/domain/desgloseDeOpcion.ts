@@ -63,7 +63,7 @@ function habitacionDe(texto: string): "INDIVIDUAL" | "DOBLE" | "MULTIPLE" {
 
 function leerTramo(segmento: string): TramoDelDesglose | null {
   const regimen = /^([A-Z+]{2,12}):\s/.exec(segmento);
-  const alumnos = /([\d.]+,\d{2}) € x (\d+) alumnos/.exec(segmento);
+  const alumnos = /([\d.]+,\d{2}) € x (\d+) alumnos(?: \(([^)]*)\))?/.exec(segmento);
   const noches = /por noche x (\d+) noche/.exec(segmento);
   if (!alumnos || !noches) return null;
   const profesores = /([\d.]+,\d{2}) € x (\d+) profesores \(([^)]*)\)/.exec(segmento);

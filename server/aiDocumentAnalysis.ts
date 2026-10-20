@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { completarCitasDesdeFilas, tieneFilas } from "./citaDeFila";
 import { leerPlantillaDeActividades } from "./plantillaDeActividades";
+import { leerPlantillaDeHoteles } from "./plantillaDeHoteles";
 import { mensajeDeErrorDelProveedor, type MensajeDeError } from "./erroresIa";
 import fs from "node:fs/promises";
 import type {
@@ -171,6 +172,9 @@ export async function analyzeDocumentText(
     input.context.controlYear ?? null,
   );
   if (plantilla) return plantilla;
+  // Y la de hoteles («TARIFES REVISADES HOTELS»), con sus 41 columnas (20/10/2026).
+  const hoteles = leerPlantillaDeHoteles(input.attachmentPath, input.context.controlName, input.context.controlYear ?? null);
+  if (hoteles) return hoteles;
 
   const config = getAiProviderConfig();
 

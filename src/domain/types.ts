@@ -206,6 +206,10 @@ export interface AccommodationRate {
   pvpAmount: number;
   netSaleAmount: number;
   netAzulmarinoAmount: number;
+  /** El tipo de unidad: distingue dos tarifas que parecían iguales. */
+  unitName?: string | null;
+  minPax?: number | null;
+  rawText?: string | null;
   /** Canal al que pertenece este precio. Vacío = vale para cualquier cliente. */
   clientSegment: string;
   /** Qué va incluido además del alojamiento (campo artificial, natural...). */

@@ -522,7 +522,9 @@ export async function searchAccommodationsDb(
       rates: true,
       // Los suplementos de habitación («Individual +75 %», «Doble profes
       // +10 %»): la estancia los aplica a profesores y chófer (19/10/2026).
-      adjustments: { select: { concept: true, amountType: true, amount: true } },
+      adjustments: {
+        select: { concept: true, amountType: true, amount: true, conditionText: true, appliesPer: true, adjustmentType: true },
+      },
     }
   });
   const suplementosPorHotel = new Map(
@@ -653,6 +655,9 @@ export async function searchAccommodationsDb(
             clientSegment: rate.clientSegment ?? "",
             includedService: rate.includedService ?? "",
             occupancyLabel: rate.occupancyLabel ?? "",
+            unitName: rate.unitName ?? null,
+            minPax: rate.minPax ?? null,
+            rawText: rate.rawText ?? null,
             sourceFile: rate.sourceFile ?? "",
             sourceSheet: rate.sourceSheet ?? ""
           },

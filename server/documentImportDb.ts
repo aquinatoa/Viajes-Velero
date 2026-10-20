@@ -865,6 +865,15 @@ export async function createInventoryDocumentStaging(
     adjustmentsByAccommodation[index < 0 ? 0 : index]?.push(adjustment);
   }
 
+  // Las condiciones con hotel (plantilla de hoteles) van al suyo; las que no
+  // lo dicen, al primero, como hasta ahora.
+  const politicasConHotel = condicionesGenerales.some((p) => p.accommodationName);
+  const policiesByAccommodation = accommodationsToCreate.map(() => [] as typeof policyData);
+  condicionesGenerales.forEach((policy, i) => {
+    const index = policy.accommodationName ? indexFor(policy.accommodationName) : 0;
+    policiesByAccommodation[index < 0 ? 0 : index]?.push(policyData[i]);
+  });
+
   if (orphanRates.length > 0) {
     const unique = [...new Set(orphanRates)];
     warnings.push(
@@ -874,7 +883,7 @@ export async function createInventoryDocumentStaging(
     );
   }
 
-  if (accommodationsToCreate.length > 1 && (policyData.length > 0 || blackoutData.length > 0)) {
+  if (accommodationsToCreate.length > 1 && !politicasConHotel && (policyData.length > 0 || blackoutData.length > 0)) {
     warnings.push(
       `Las condiciones y fechas bloqueadas del documento se han asociado a "${accommodationsToCreate[0]?.accommodationName}". Si valen para todos los alojamientos, cópialas.`,
     );
@@ -908,7 +917,13 @@ export async function createInventoryDocumentStaging(
           reviewStatus: "PENDING",
           rates: rates.length > 0 ? { create: rates } : undefined,
           adjustments: adjustments.length > 0 ? { create: adjustments } : undefined,
-          policies: isFirst && policyData.length > 0 ? { create: policyData } : undefined,
+          policies: politicasConHotel
+            ? policiesByAccommodation[index].length > 0
+              ? { create: policiesByAccommodation[index] }
+              : undefined
+            : isFirst && policyData.length > 0
+              ? { create: policyData }
+              : undefined,
           blackoutDates: isFirst && blackoutData.length > 0 ? { create: blackoutData } : undefined,
         },
       });
@@ -1658,6 +1673,9 @@ async function buildPublishPlan(sourceDocumentId: string, context: PublishApprov
         clientSegment: context.clientSegment ?? null,
         includedService: rate.includedService ?? null,
         occupancyLabel: rate.occupancyLabel ?? null,
+        unitName: rate.unitName ?? null,
+        minPax: rate.minPax ?? null,
+        rawText: rate.rawText ?? null,
         pvpAmount: salePrice,
         // El coste resuelto, no el campo crudo donde cayó la cifra. En un
         // documento de venta queda a null salvo que el papel traiga su columna

@@ -68,7 +68,10 @@ const estancia = (noches: number, comp: ComposicionDeLaEstancia, elegida = R4[0]
   });
 
 prueba("los suplementos de habitación se leen del documento", () => {
-  assert.deepEqual(SUPLEMENTOS_4R, { individual: { tipo: "PCT", valor: 75 }, doble: { tipo: "PCT", valor: 10 } });
+  assert.deepEqual(SUPLEMENTOS_4R.individual, { tipo: "PCT", valor: 75 });
+  assert.deepEqual(SUPLEMENTOS_4R.doble, { tipo: "PCT", valor: 10 });
+  // El de sábado / víspera es una regla por noche (20/10/2026).
+  assert.equal(SUPLEMENTOS_4R.porNoche?.length, 1);
   assert.deepEqual(
     suplementosDeHabitacion([{ concept: "Estudiantes en doble", amountType: "porcentaje", amount: 25 }]),
     {},
@@ -206,6 +209,54 @@ prueba("«Múltiple (doble/triple/cuádruple)» es la de los alumnos, no la dobl
   const d = desgloseDeLaOpcion(texto, null)!;
   assert.equal(d.tramos[0].profesores?.habitacion, "MULTIPLE");
   assert.equal(d.tramos[0].profesores?.individual, false);
+});
+
+prueba("los suplementos de sábado y de estancia corta del documento se aplican a su noche", () => {
+  // 4R: «Sábado / víspera de festivo +25 %, aplicable a estancias de 1-2 noches». 05/06/2027 es sábado.
+  const sup4R = suplementosDeHabitacion([
+    { adjustmentType: "suplemento", concept: "Sábado / víspera de festivo", amountType: "porcentaje", amount: 25, conditionText: "Aplicable a estancias de 1-2 noches", appliesPer: "estancia" },
+    { adjustmentType: "suplemento", concept: "Habitación individual", amountType: "porcentaje", amount: 75, conditionText: "Sobre precio de habitación múltiple" },
+    { adjustmentType: "depósito", concept: "Fianza/depósito reembolsable", amountType: "importe", amount: 20, conditionText: "Devuelto en check-out" },
+  ]);
+  assert.equal(sup4R.porNoche?.length, 1);
+  const junio = { dateFrom: "2027-05-29", dateTo: "2027-06-06", occupancyLabel: "Múltiple" };
+  const tarifas: TarifaDeHotel[] = [{ ...junio, boardType: "PC", minNights: 1, precio: 41.47 }, { ...junio, boardType: "PC", minNights: 3, precio: 38.12 }];
+  const dos = precioDeLaEstancia({ fechaEntrada: "2027-06-05", noches: 2, alumnos: 25, profesores: 2, composicion: composicion({}), elegida: tarifas[0], otras: tarifas.slice(1), suplementos: sup4R });
+  // Sábado 05/06: 41,47 × 1,25 = 51,84. Domingo 06/06: 41,47.
+  assert.deepEqual(dos.noches.map((n) => n.alumno.precio), [51.84, 41.47]);
+  assert.deepEqual(dos.noches[0].suplementos, ["Sábado / víspera de festivo +25 %"]);
+  // El profesor en individual: 41,47 × 1,75 = 72,57 y después +25 % = 90,71.
+  assert.equal(dos.noches[0].profesor.precio, 90.71);
+  assert.ok(dos.avisos.some((x) => x.includes("Suplemento del hotel aplicado a la noche del 05/06")));
+  assert.match(textoDelDesglose(dos, 25, 2, 0), /51,84 € x 25 alumnos \(Sábado \/ víspera de festivo \+25 %\)/);
+  // Con 5 noches no es «estancia de 1-2 noches»: no se aplica.
+  const cinco = precioDeLaEstancia({ fechaEntrada: "2027-06-05", noches: 5, alumnos: 25, profesores: 2, composicion: composicion({}), elegida: tarifas[1], otras: tarifas, suplementos: sup4R });
+  assert.equal(cinco.noches[0].alumno.precio, 38.12);
+  assert.equal(cinco.noches[0].suplementos, undefined);
+});
+
+prueba("sábados siempre (Santa Mónica +15 %), ≤2 noches +20 % (Eurosalou), fin de semana +4 € (Canada Palace), 1 noche +6 € (Calypso)", () => {
+  const todo = { dateFrom: "2027-06-01", dateTo: "2027-06-30", occupancyLabel: "Múltiple", boardType: "PC", minNights: 1 };
+  const una: TarifaDeHotel[] = [{ ...todo, precio: 100 }];
+  const estancia = (sup: ReturnType<typeof suplementosDeHabitacion>, noches: number) =>
+    precioDeLaEstancia({ fechaEntrada: "2027-06-04", noches, alumnos: 10, profesores: 0, composicion: composicion({}), elegida: una[0], otras: [], suplementos: sup });
+  // Viernes 04/06, sábado 05/06, domingo 06/06.
+  const sabados = estancia(suplementosDeHabitacion([{ adjustmentType: "supplement", concept: "Noches de sábado, festivo o víspera", amountType: "percentage", amount: 15, conditionText: "Noches de sábado, festivo o víspera", appliesPer: "noche" }]), 3);
+  assert.deepEqual(sabados.noches.map((n) => n.alumno.precio), [100, 115, 100]);
+  assert.ok(sabados.avisos.some((x) => x.includes("festivos y vísperas no se comprueban")));
+  const corta = suplementosDeHabitacion([{ adjustmentType: "suplemento", concept: "Estancias de 2 noches o menos", amountType: "porcentaje", amount: 20, conditionText: "Estancias de 2 noches o menos: +20%", appliesPer: "estancia" }]);
+  assert.deepEqual(estancia(corta, 2).noches.map((n) => n.alumno.precio), [120, 120]);
+  assert.deepEqual(estancia(corta, 3).noches.map((n) => n.alumno.precio), [100, 100, 100]);
+  const finde = suplementosDeHabitacion([{ adjustmentType: "supplement", concept: "Suplemento fin de semana (1-2 noches)", amountType: "fixed", amount: 4, conditionText: "Estancias de fin de semana de 1-2 noches", appliesPer: "pax/noche" }]);
+  assert.deepEqual(estancia(finde, 2).noches.map((n) => n.alumno.precio), [104, 104]);
+  const unaNoche = suplementosDeHabitacion([{ adjustmentType: "supplement", concept: "Corta estancia 1 noche", amountType: "fixed", amount: 6, conditionText: "Estancias de 1 noche", appliesPer: "pax" }]);
+  assert.deepEqual(estancia(unaNoche, 1).noches.map((n) => n.alumno.precio), [106]);
+  assert.deepEqual(estancia(unaNoche, 2).noches.map((n) => n.alumno.precio), [100, 100]);
+  // California: +10 % 1-2 noches en todos los periodos excepto 12/06–25/06.
+  const california = suplementosDeHabitacion([{ adjustmentType: "supplement", concept: "Estancia de 1-2 noches", amountType: "percentage", amount: 10, conditionText: "En todos los períodos, excepto 12/06–25/06", appliesPer: "estancia" }]);
+  assert.deepEqual(estancia(california, 2).noches.map((n) => n.alumno.precio), [110, 110]);
+  const dentroDeLaExcepcion = precioDeLaEstancia({ fechaEntrada: "2027-06-14", noches: 2, alumnos: 10, profesores: 0, composicion: composicion({}), elegida: una[0], otras: [], suplementos: california });
+  assert.deepEqual(dentroDeLaExcepcion.noches.map((n) => n.alumno.precio), [100, 100]);
 });
 
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);

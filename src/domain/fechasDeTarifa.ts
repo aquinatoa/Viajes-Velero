@@ -195,6 +195,13 @@ export function leerNombreDeTemporada(nombre: string | null | undefined): Lectur
       r.diasSemana.add(k);
       if (k === b) break;
     }
+  } else {
+    // «Noche de viernes o sábado», «viernes y sábado», «sábados»: días sueltos.
+    const sueltos = /\b(?:noches? de\s+)?((?:domingo|lunes|martes|miercoles|jueves|viernes|sabado)s?(?:\s*(?:,|o|y)\s*(?:domingo|lunes|martes|miercoles|jueves|viernes|sabado)s?)*)\b/.exec(t);
+    if (sueltos && !/semana santa/.test(sueltos[0])) {
+      const dias = [...sueltos[1].matchAll(/domingo|lunes|martes|miercoles|jueves|viernes|sabado/g)].map((m) => DIAS_SEMANA.indexOf(m[0]));
+      if (dias.length) r.diasSemana = new Set(dias);
+    }
   }
   return r;
 }

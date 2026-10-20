@@ -22,6 +22,7 @@ function comoTarifa(t: AccommodationRate): TarifaDeHotel {
     id: t.id,
     boardType: t.boardType,
     occupancyLabel: t.occupancyLabel,
+    unitName: t.unitName || null,
     includedService: t.includedService || null,
     seasonName: t.seasonName || null,
     dateFrom: t.dateFrom || null,
