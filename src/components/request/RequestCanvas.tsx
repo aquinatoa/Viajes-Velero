@@ -3698,7 +3698,11 @@ function DetalleAlojamiento({
   // pension a 28,75 EUR y a 51,75 EUR para las mismas fechas, y en el catalogo
   // no hay nada -ni habitacion, ni servicio, ni hoja de origen- que diga en que
   // se diferencian. Callarlo seria dejar elegir a ciegas.
-  const descripciones = [item.rate, ...alternativas].map(nombreTarifa);
+  // Misma temporada y mismo tramo por noches: dos precios de T. Baja y T.
+  // Media, o de «desde 1» y «desde 3» noches, no son indistinguibles (20/10/2026).
+  const descripciones = [item.rate, ...alternativas].map(
+    (r) => `${nombreTarifa(r)}|${temporadaDe(r)}|${r.minNights || 1}`,
+  );
   const hayIndistinguibles = descripciones.some((d, i) => descripciones.indexOf(d) !== i);
 
   return (
