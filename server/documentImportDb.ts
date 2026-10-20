@@ -2391,10 +2391,18 @@ function catalogPeriod(rate: {
  * actividades (incluidas filas heredadas de Excel sin documento), con sus
  * tarifas y el nombre del documento de origen resuelto. Solo lectura.
  */
+/** «75» + «porcentaje» → «+75 %»; «9» + «importe» → «+9,00 €». */
+function importeDelSuplemento(cantidad: number | null, tipo: string | null): string | null {
+  if (cantidad === null || !Number.isFinite(cantidad)) return null;
+  const t = (tipo ?? "").toLowerCase();
+  if (/porc|percent|%|pct/.test(t)) return `+${String(cantidad).replace(".", ",")} %`;
+  return `+${cantidad.toFixed(2).replace(".", ",")} €`;
+}
+
 export async function getPublishedInventoryCatalog(): Promise<PublishedInventoryCatalog> {
   const [accommodations, activities] = await Promise.all([
     prisma.accommodation.findMany({
-      include: { rates: { orderBy: [{ year: "asc" }] } },
+      include: { rates: { orderBy: [{ year: "asc" }] }, adjustments: true },
       orderBy: [{ locality: "asc" }, { accommodationName: "asc" }],
     }),
     prisma.activity.findMany({
@@ -2432,6 +2440,11 @@ export async function getPublishedInventoryCatalog(): Promise<PublishedInventory
     conditionsText: accommodation.conditionsText,
     observations: accommodation.observations,
     freePolicy: accommodation.freePolicy,
+    suplementos: accommodation.adjustments.map((s) => ({
+      concepto: s.concept,
+      importe: importeDelSuplemento(s.amount === null ? null : Number(s.amount), s.amountType),
+      condicion: s.conditionText,
+    })),
     sourceDocumentId: accommodation.sourceDocumentId,
     sourceDocumentName: accommodation.sourceDocumentId
       ? documentNames.get(accommodation.sourceDocumentId) ?? null

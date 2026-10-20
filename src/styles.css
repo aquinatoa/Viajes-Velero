@@ -1467,6 +1467,45 @@ select.doc-search {
   color: #5a6a72;
 }
 
+/* Los suplementos del hotel publicado (19/10/2026). */
+.sup-pub {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(216, 231, 238, 0.9);
+  border-radius: 8px;
+  background: rgba(216, 231, 238, 0.25);
+}
+.sup-pub__t {
+  margin: 0 0 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #28404d;
+}
+.sup-pub ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+.sup-pub li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  font-size: 0.85rem;
+  color: #28404d;
+}
+.sup-pub li small {
+  flex-basis: 100%;
+  color: #5a6a72;
+}
+.sup-pub__nada {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  color: #8a8f95;
+}
+
 .published-item__count {
   font-size: 0.8rem;
   font-weight: 700;
