@@ -260,7 +260,9 @@ export function FichaPropuesta({ delivery, onClose }: FichaPropuestaProps) {
             onClick={async () => {
               try {
                 const r = await rehacerPropuestaApi(delivery.id);
-                window.location.assign(`/solicitudes/nueva?borrador=${encodeURIComponent(r.borradorId)}`);
+                // Lo que no se pudo recuperar viaja con la dirección: el lienzo lo enseña al abrir.
+                const avisos = r.avisos.length ? `&avisos=${encodeURIComponent(r.avisos.join(" "))}` : "";
+                window.location.assign(`/solicitudes/nueva?borrador=${encodeURIComponent(r.borradorId)}${avisos}`);
               } catch (e: unknown) {
                 setAvisoNombre(e instanceof Error ? e.message : "No se pudo preparar la propuesta para rehacerla.");
               }

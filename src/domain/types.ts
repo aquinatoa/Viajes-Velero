@@ -379,6 +379,15 @@ export interface ProposalBuilderState {
   selectedActivityIds: string[];
   /** Pensión por noche y habitación de profesores y chófer (19/10/2026). */
   composicion?: import("./estancia").ComposicionDeLaEstancia;
+  /**
+   * Lo que «Rehacer la propuesta» necesita y no está en las opciones: para qué
+   * cliente se cotizó, los descuentos, los precios puestos a mano y las
+   * entradas sin el descuento aplicado (20/10/2026).
+   */
+  canal?: string | null;
+  descuentos?: Record<string, import("./descuentoDeActividad").DescuentoDeActividad>;
+  preciosFijados?: Record<string, number>;
+  lineasSinDescuento?: Record<string, LineaDeActividad[]>;
 }
 
 export interface ProposalAccommodationOption {

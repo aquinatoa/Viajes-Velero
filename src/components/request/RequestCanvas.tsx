@@ -641,6 +641,7 @@ export function RequestCanvas({
       setExcepciones(estado.excepciones ?? {});
       setPreciosFijados(estado.preciosFijados ?? {});
       setDescuentos(estado.descuentos ?? {});
+      setLineas(estado.lineas ?? {});
       setComposicion(estado.composicion ?? COMPOSICION_POR_DEFECTO);
       setHotelesAdHoc(estado.hotelesAdHoc ?? []);
       setActividadesAdHoc(estado.actividadesAdHoc ?? []);
@@ -664,11 +665,17 @@ export function RequestCanvas({
 
   // «Rehacer la propuesta» llega con ?borrador=… en la dirección: se abre ese.
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get("borrador");
+    const parametros = new URLSearchParams(window.location.search);
+    const id = parametros.get("borrador");
     if (!id) return;
+    const loQueFalta = parametros.get("avisos") ?? "";
     window.history.replaceState({}, "", window.location.pathname);
     void continuarBorrador(id).then(() =>
-      setAviso("Propuesta enviada abierta para rehacerla: cambia lo que haga falta y envíala; saldrá como versión nueva."),
+      setAviso(
+        `Propuesta enviada abierta para rehacerla: cambia lo que haga falta y envíala; saldrá como versión nueva.${
+          loQueFalta ? ` ${loQueFalta}` : ""
+        }`,
+      ),
     );
     // Solo al entrar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -742,6 +749,7 @@ export function RequestCanvas({
         excepciones,
         preciosFijados,
         descuentos,
+        lineas,
         composicion,
         hotelesAdHoc,
         actividadesAdHoc,
@@ -772,7 +780,7 @@ export function RequestCanvas({
     return () => {
       if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
     };
-  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, descuentos, composicion, hotelesAdHoc, actividadesAdHoc, solicitudId, canal, enviada]);
+  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, descuentos, lineas, composicion, hotelesAdHoc, actividadesAdHoc, solicitudId, canal, enviada]);
 
   /** Recupera el borrador y vuelve a buscar hoteles: las tarifas pueden haber cambiado. */
   function recuperar() {
@@ -793,6 +801,7 @@ export function RequestCanvas({
     setExcepciones(recuperable.excepciones);
     setPreciosFijados(recuperable.preciosFijados ?? {});
     setDescuentos(recuperable.descuentos ?? {});
+    setLineas(recuperable.lineas ?? {});
     setComposicion(recuperable.composicion ?? COMPOSICION_POR_DEFECTO);
     setHotelesAdHoc(recuperable.hotelesAdHoc ?? []);
     setActividadesAdHoc(recuperable.actividadesAdHoc ?? []);
@@ -1642,6 +1651,10 @@ export function RequestCanvas({
           ),
           selectedActivityIds: programaBase,
           composicion,
+          canal,
+          descuentos,
+          preciosFijados,
+          lineasSinDescuento: lineas,
         },
       });
       setPropuesta(nueva);

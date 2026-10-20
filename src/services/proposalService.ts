@@ -181,7 +181,15 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
     versionNumber: 1,
     proposalStatus: "READY_FOR_APPROVAL",
     summaryText,
-    stayJson: input.builderState.composicion ? JSON.stringify(input.builderState.composicion) : null,
+    // El estado del lienzo que no está en las opciones: lo lee «Rehacer la
+    // propuesta» para que la versión nueva salga igual que la enviada.
+    stayJson: JSON.stringify({
+      composicion: input.builderState.composicion ?? null,
+      canal: input.builderState.canal ?? null,
+      descuentos: input.builderState.descuentos ?? {},
+      preciosFijados: input.builderState.preciosFijados ?? {},
+      lineas: input.builderState.lineasSinDescuento ?? {},
+    }),
     accommodationOptions,
     activityOptions
   });

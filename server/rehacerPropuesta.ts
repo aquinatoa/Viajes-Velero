@@ -104,13 +104,52 @@ export async function borradorParaRehacer(
     avisos.push("Las opciones tenían programas distintos: se ha cargado el de la opción 1. Revisa el programa de cada opción.");
   }
 
+  // El estado del lienzo guardado con la propuesta: la estancia, para qué
+  // cliente, descuentos, precios puestos a mano y entradas. Sin esto la versión
+  // nueva cambiaba el precio de las actividades sin decirlo (20/10/2026).
   let composicion: ComposicionDeLaEstancia = COMPOSICION_POR_DEFECTO;
+  let canal = "GENERIC";
+  let descuentos: Record<string, unknown> = {};
+  let preciosFijados: Record<string, number> = {};
+  let lineas: Record<string, unknown[]> = {};
+  let conEstadoGuardado = false;
   if (propuesta.stayJson) {
     try {
-      composicion = { ...COMPOSICION_POR_DEFECTO, ...(JSON.parse(propuesta.stayJson) as ComposicionDeLaEstancia) };
+      const guardado = JSON.parse(propuesta.stayJson) as Record<string, unknown>;
+      if (guardado && "composicion" in guardado) {
+        conEstadoGuardado = true;
+        if (guardado.composicion) composicion = { ...COMPOSICION_POR_DEFECTO, ...(guardado.composicion as ComposicionDeLaEstancia) };
+        if (typeof guardado.canal === "string" && guardado.canal) canal = guardado.canal;
+        descuentos = (guardado.descuentos as Record<string, unknown>) ?? {};
+        preciosFijados = (guardado.preciosFijados as Record<string, number>) ?? {};
+        lineas = (guardado.lineas as Record<string, unknown[]>) ?? {};
+      } else {
+        composicion = { ...COMPOSICION_POR_DEFECTO, ...(guardado as unknown as ComposicionDeLaEstancia) };
+      }
     } catch {
       avisos.push("No se pudo leer la composición de la estancia: revisa la pensión por noche y las habitaciones.");
     }
+  }
+  if (!conEstadoGuardado) {
+    // Propuestas de antes: las entradas sí están en cada actividad (con el
+    // descuento ya aplicado); el cliente y los descuentos, no.
+    for (const a of primeraOpcion) {
+      if (!a.activityId) continue;
+      // El precio con el que salió: si era una de las que el catálogo no
+      // tarifa («Arbitraje»), el lienzo lo usa; si no, lo ignora.
+      const salio = importeDesdeTexto(a.pvpSnapshot);
+      if (salio && !a.linesJson) preciosFijados[a.activityId] = salio;
+      if (!a.linesJson) continue;
+      try {
+        const ls = JSON.parse(a.linesJson);
+        if (Array.isArray(ls) && ls.length) lineas[a.activityId] = ls;
+      } catch {
+        // Sin entradas legibles: se rehacen al abrir.
+      }
+    }
+    avisos.push(
+      "Esta propuesta es de antes del 20/10/2026: no guardó para qué cliente se cotizó ni los descuentos. Revisa «Cotizamos para» y los descuentos de las actividades antes de enviar.",
+    );
   }
 
   const cliente = solicitud.client;
@@ -118,7 +157,7 @@ export async function borradorParaRehacer(
   const payload = {
     guardadoEn: new Date().toISOString(),
     solicitudId: solicitud.id,
-    canal: "GENERIC",
+    canal,
     mensajes: solicitud.originalMessage ? [solicitud.originalMessage] : [],
     redaccion: "",
     form: {
@@ -153,8 +192,9 @@ export async function borradorParaRehacer(
     elegidos,
     programaBase,
     excepciones: {},
-    preciosFijados: {},
-    descuentos: {},
+    preciosFijados,
+    descuentos,
+    lineas,
     composicion,
     hotelesAdHoc,
     actividadesAdHoc,

@@ -1,6 +1,7 @@
 import type { ActividadAdHoc, HotelAdHoc } from "../../domain/adHoc";
 import type { ClientSegment } from "../../domain/documentImportTypes";
 import type { DescuentoDeActividad } from "../../domain/descuentoDeActividad";
+import type { LineaDeActividad } from "../../domain/lineasDeActividad";
 import type { ComposicionDeLaEstancia } from "../../domain/estancia";
 import type { NormalizedRequestDraft, ParseTripRequestInput } from "../../domain/types";
 
@@ -69,6 +70,12 @@ export interface BorradorSolicitud {
   preciosFijados?: Record<string, number>;
   /** El descuento elegido en cada actividad (19/10/2026). */
   descuentos?: Record<string, DescuentoDeActividad>;
+  /**
+   * Las entradas de cada actividad (tarifa × cantidad). Sin ellas, al retomar
+   * el borrador el Caribe volvía a la tarifa más barata («Pax con
+   * Discapacidad», 12 €) y los profesores dejaban de cobrarse (20/10/2026).
+   */
+  lineas?: Record<string, LineaDeActividad[]>;
   /** Pensión por noche y habitación de profesores y chófer (19/10/2026). */
   composicion?: ComposicionDeLaEstancia;
   /** Hoteles y actividades fuera del catálogo, con el precio del proveedor. */
