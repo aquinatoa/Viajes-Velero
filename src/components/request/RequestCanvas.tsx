@@ -3682,6 +3682,25 @@ function DetalleAlojamiento({
     ? item.estancia.noches.reduce((s, n) => s + (n.chofer?.precio ?? 0), 0) * item.estancia.chofer
     : 0;
   const total = totalAlumnos + totalProfesores + totalChofer;
+  // Con temporadas o pensiones distintas, cada noche tiene su precio: «38,12 €
+  // × 25 × 5 noches» con un total que no es esa cuenta despista. Se enseñan
+  // las noches de cada precio (20/10/2026).
+  const porPrecio = (precios: number[], personas: number): string | null => {
+    const grupos: Array<{ precio: number; noches: number }> = [];
+    for (const p of precios) {
+      const ultimo = grupos[grupos.length - 1];
+      if (ultimo && ultimo.precio === p) ultimo.noches += 1;
+      else grupos.push({ precio: p, noches: 1 });
+    }
+    if (grupos.length < 2) return null;
+    return `(${grupos.map((g) => `${g.noches} ${g.noches === 1 ? "noche" : "noches"} a ${euros(g.precio)}`).join(" + ")}) × ${personas}`;
+  };
+  const tramosAlumno = item.estancia ? porPrecio(item.estancia.noches.map((n) => n.alumno.precio), alumnos) : null;
+  const tramosProfesor = item.estancia ? porPrecio(item.estancia.noches.map((n) => n.profesor.precio), profesores) : null;
+  const tramosChofer = item.estancia
+    ? porPrecio(item.estancia.noches.map((n) => n.chofer?.precio ?? 0), item.estancia.chofer)
+    : null;
+  const variasPensiones = item.estancia ? new Set(item.estancia.noches.map((n) => n.regimen)).size > 1 : false;
 
   const alternativas = item.alternativas ?? [];
   const nombreTarifa = (r: AccommodationRate) =>
@@ -3760,7 +3779,7 @@ function DetalleAlojamiento({
             <tr>
               <th scope="row">Alumnos</th>
               <td>
-                {euros(nAlumno)} × {alumnos} × {dias} {dias === 1 ? "noche" : "noches"}
+                {tramosAlumno ?? `${euros(nAlumno)} × ${alumnos} × ${dias} ${dias === 1 ? "noche" : "noches"}`}
               </td>
               <td className="cv__num">{euros(totalAlumnos)}</td>
             </tr>
@@ -3768,7 +3787,7 @@ function DetalleAlojamiento({
               <tr>
                 <th scope="row">Profesores</th>
                 <td>
-                  {euros(nProfesor)} × {profesores} × {dias} {dias === 1 ? "noche" : "noches"}
+                  {tramosProfesor ?? `${euros(nProfesor)} × ${profesores} × ${dias} ${dias === 1 ? "noche" : "noches"}`}
                   {/* Sin tarifa individual los profesores se cotizan al precio de
                       los alumnos. Callarlo es prometer una habitacion individual
                       que nadie ha tarifado. */}
@@ -3785,13 +3804,14 @@ function DetalleAlojamiento({
               <tr>
                 <th scope="row">Chófer</th>
                 <td>
-                  {euros(item.estancia.noches[0]?.chofer?.precio ?? 0)} × {item.estancia.chofer} × {dias}{" "}
-                  {dias === 1 ? "noche" : "noches"} · {item.estancia.noches[0]?.chofer?.como}
+                  {tramosChofer ??
+                    `${euros(item.estancia.noches[0]?.chofer?.precio ?? 0)} × ${item.estancia.chofer} × ${dias} ${dias === 1 ? "noche" : "noches"}`}{" "}
+                  · {item.estancia.noches[0]?.chofer?.como}
                 </td>
                 <td className="cv__num">{euros(totalChofer)}</td>
               </tr>
             ) : null}
-            {item.estancia && item.estancia.tramos.length > 1 ? (
+            {item.estancia && variasPensiones ? (
               <tr>
                 <th scope="row">Pensión</th>
                 <td colSpan={2}>
