@@ -2134,7 +2134,7 @@ export async function getPublishedInventoryByDocument(
 ): Promise<PublishedInventorySummary> {
   const accommodations = await prisma.accommodation.findMany({
     where: { sourceDocumentId },
-    include: { rates: true },
+    include: { rates: true, adjustments: true },
     orderBy: { createdAt: "desc" },
   });
   const activities = await prisma.activity.findMany({
@@ -2150,6 +2150,11 @@ export async function getPublishedInventoryByDocument(
     categoryType: accommodation.categoryType,
     accommodationType: accommodation.accommodationType,
     sourceStagingId: accommodation.sourceStagingId,
+    suplementos: accommodation.adjustments.map((s) => ({
+      concepto: s.concept,
+      importe: importeDelSuplemento(s.amount === null ? null : Number(s.amount), s.amountType),
+      condicion: s.conditionText,
+    })),
     rates: accommodation.rates.map((rate) => ({
       id: rate.id,
       year: rate.year,
@@ -2157,6 +2162,8 @@ export async function getPublishedInventoryByDocument(
       dateFrom: rate.dateFrom ? rate.dateFrom.toISOString() : null,
       dateTo: rate.dateTo ? rate.dateTo.toISOString() : null,
       boardType: rate.boardType,
+      occupancyLabel: rate.occupancyLabel,
+      minNights: rate.minNights,
       currency: rate.currency,
       pvpAmount: decimalToNumber(rate.pvpAmount),
       netSaleAmount: decimalToNumber(rate.netSaleAmount),
