@@ -821,6 +821,12 @@ export interface CatalogAccommodation {
   conditionsText?: string | null;
   observations?: string | null;
   freePolicy?: string | null;
+  /**
+   * Los suplementos publicados («Habitación individual · 75 %»). Ruth, 19/10:
+   * en «Publicados» solo veía el precio de la múltiple, no los suplementos
+   * que subió con el documento.
+   */
+  suplementos?: Array<{ concepto: string; importe: string | null; condicion: string | null }>;
   rates: CatalogRate[];
 }
 

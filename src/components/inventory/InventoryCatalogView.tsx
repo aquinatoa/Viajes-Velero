@@ -155,6 +155,24 @@ export function InventoryCatalogView() {
                           <p className="rate-table__empty">Sin tarifas publicadas.</p>
                         );
                       })()}
+                      {/* Los suplementos que subió con el documento: individual,
+                          doble de profesores, sábados… (Ruth, 19/10/2026). */}
+                      {accommodation.suplementos && accommodation.suplementos.length > 0 ? (
+                        <div className="sup-pub">
+                          <p className="sup-pub__t">Suplementos ({accommodation.suplementos.length})</p>
+                          <ul>
+                            {accommodation.suplementos.map((s, i) => (
+                              <li key={i}>
+                                <span>{s.concepto}</span>
+                                {s.importe ? <b>{s.importe}</b> : null}
+                                {s.condicion ? <small>{s.condicion}</small> : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : (
+                        <p className="sup-pub__nada">Sin suplementos publicados.</p>
+                      )}
                     </details>
                   </li>
                 ))}
