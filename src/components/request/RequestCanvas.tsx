@@ -329,6 +329,18 @@ function coincideActividad(item: ActivitySearchMatch, texto: string): boolean {
   return campos.some((c) => (c ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes(q));
 }
 
+/**
+ * ¿Este alojamiento encaja con lo escrito en el buscador? Por nombre, localidad
+ * o categoría, sin tildes ni mayúsculas. Con 16 hoteles en Salou había que
+ * buscar el 4R a ojo (Anthony, 20/10/2026).
+ */
+function coincideHotel(item: AccommodationSearchMatch, texto: string): boolean {
+  const q = texto.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  if (!q) return true;
+  const campos = [item.accommodation.accommodationName, item.accommodation.locality, item.accommodation.categoryType];
+  return campos.some((c) => (c ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().includes(q));
+}
+
 /** Convierte cualquier error (incluidos los de validación) en una frase legible. */
 function mensajeDeError(error: unknown, porDefecto: string): string {
   if (error && typeof error === "object" && "issues" in error) {
@@ -419,6 +431,10 @@ export function RequestCanvas({
   // despliegue el buscador»). Cerrado no ocupa nada; abierto es una píldora.
   const [buscadorAbierto, setBuscadorAbierto] = useState(false);
   const campoBusqueda = useRef<HTMLInputElement>(null);
+  // El mismo buscador, en Alojamientos.
+  const [busquedaHoteles, setBusquedaHoteles] = useState("");
+  const [buscadorHotelesAbierto, setBuscadorHotelesAbierto] = useState(false);
+  const campoBusquedaHoteles = useRef<HTMLInputElement>(null);
   // Las líneas de cada actividad: tarifa × cantidad. «No todos son adultos,
   // no todos son discapacitados» (Anthony, 08/10/2026). Al marcar una
   // actividad se hace un esbozo por la edad del grupo; en la ventana se corrige.
@@ -2026,6 +2042,51 @@ export function RequestCanvas({
                   >
                     + Fuera del catálogo
                   </button>
+                  {vista === "lista" ? (
+                    <div className={buscadorHotelesAbierto ? "cv__buscar is-open" : "cv__buscar"}>
+                      <span className="cv__buscar-pill">
+                        <input
+                          ref={campoBusquedaHoteles}
+                          type="search"
+                          value={busquedaHoteles}
+                          onChange={(e) => setBusquedaHoteles(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                              setBusquedaHoteles("");
+                              setBuscadorHotelesAbierto(false);
+                            }
+                          }}
+                          placeholder="Buscar alojamiento…"
+                          aria-label="Buscar alojamiento"
+                          autoComplete="off"
+                          tabIndex={buscadorHotelesAbierto ? 0 : -1}
+                        />
+                        {busquedaHoteles.trim() ? (
+                          <span className="cv__buscar-n">
+                            {hoteles.matches.filter((m) => coincideHotel(m, busquedaHoteles)).length} de{" "}
+                            {hoteles.matches.length}
+                          </span>
+                        ) : null}
+                      </span>
+                      <button
+                        type="button"
+                        className="cv__lupa"
+                        aria-label={buscadorHotelesAbierto ? "Cerrar el buscador" : "Buscar alojamiento"}
+                        aria-expanded={buscadorHotelesAbierto}
+                        onClick={() => {
+                          const abrir = !buscadorHotelesAbierto;
+                          setBuscadorHotelesAbierto(abrir);
+                          if (abrir) window.setTimeout(() => campoBusquedaHoteles.current?.focus(), 30);
+                          else setBusquedaHoteles("");
+                        }}
+                      >
+                        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                          <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" strokeWidth="2.4" />
+                          <line x1="15.5" y1="15.5" x2="21" y2="21" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+                        </svg>
+                      </button>
+                    </div>
+                  ) : null}
                   <div className="cv__seg" role="tablist" aria-label="Vista">
                     <button type="button" className={vista === "lista" ? "is-on" : ""} onClick={() => setVista("lista")}>
                       Lista
@@ -2155,9 +2216,12 @@ export function RequestCanvas({
                 ? porQueNoHayHoteles(entendido, hoteles)
                 : "No hay hoteles con tarifa para esas fechas."}
             </div>
+          ) : vista === "lista" && busquedaHoteles.trim() &&
+            !hoteles.matches.some((m) => coincideHotel(m, busquedaHoteles)) ? (
+            <div className="cv__slot">Ningún alojamiento coincide con «{busquedaHoteles.trim()}».</div>
           ) : vista === "lista" ? (
             <ListaOpciones
-              hoteles={hoteles.matches}
+              hoteles={hoteles.matches.filter((m) => coincideHotel(m, busquedaHoteles))}
               elegidos={elegidos}
               noches={noches}
               tope={tope}
