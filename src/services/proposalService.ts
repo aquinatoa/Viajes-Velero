@@ -95,8 +95,23 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
       // El coste de la tarifa elegida: lo que el CRM necesita para saber el
       // margen. Antes se buscaba después en el catálogo por el precio; un
       // alojamiento ad hoc no está en el catálogo y se quedaba sin coste.
-      studentCostAmount: costeDe(rate),
-      teacherCostAmount: selected.singleRate ? costeDe(selected.singleRate) : costeDe(rate),
+      // Con la estancia, el de su primer tramo (lo que había hasta ahora) y,
+      // aparte, el de cada tramo: con dos temporadas o pensiones no es uno.
+      studentCostAmount: estancia ? estancia.tramos[0]?.alumno.coste ?? null : costeDe(rate),
+      teacherCostAmount: estancia
+        ? estancia.tramos[0]?.profesor.coste ?? null
+        : selected.singleRate
+          ? costeDe(selected.singleRate)
+          : costeDe(rate),
+      costsJson: estancia
+        ? JSON.stringify(
+            estancia.tramos.map((t) => ({
+              alumno: t.alumno.coste ?? null,
+              profesor: t.profesor.coste ?? null,
+              chofer: t.chofer?.coste ?? null,
+            })),
+          )
+        : null,
       supplierQuoteId: selected.cotizacionId ?? null,
       isSelected: false
     };

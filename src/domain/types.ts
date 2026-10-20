@@ -407,6 +407,8 @@ export interface ProposalAccommodationOption {
   /** Lo que nos cobra el proveedor por alumno y por profesor y noche, si se sabe. */
   studentCostAmount?: number | null;
   teacherCostAmount?: number | null;
+  /** El coste de cada tramo de la estancia, en JSON (ver el esquema). */
+  costsJson?: string | null;
   /** Ad hoc: la cotización del proveedor que justifica el precio. */
   supplierQuoteId?: string | null;
   isSelected: boolean;

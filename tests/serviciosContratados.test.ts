@@ -285,5 +285,41 @@ prueba("cada fila sabe si es de alumnos o de profesores", () => {
   assert.deepEqual(r.filas.map((f) => f.quien), ["alumnos", "profesores"]);
 });
 
+prueba("con dos temporadas, cada fila lleva el coste de su tramo (4R del 5 al 10/06)", () => {
+  const cuatroR = {
+    accommodationNameSnapshot: "4R Hotels 3* – Salou & Calafell",
+    boardType: "PC",
+    dateFrom: "2027-06-05",
+    dateTo: "2027-06-10",
+    priceBreakdownText:
+      "PC: 38,12 € x 25 alumnos + 66,71 € x 2 profesores (uso individual, suplemento +75 %), por noche x 2 noches · PC: 45,04 € x 25 alumnos + 78,82 € x 2 profesores (uso individual, suplemento +75 %), por noche x 3 noches",
+    totalPvpText: "6.023,76 €",
+    studentCostAmount: 35.3,
+    teacherCostAmount: 61.78,
+    costsJson: JSON.stringify([
+      { alumno: 35.3, profesor: 61.78, chofer: null },
+      { alumno: 41.7, profesor: 72.98, chofer: null },
+    ]),
+  };
+  const r = filasDeLaOpcion(cuatroR)!;
+  const costes = r.filas.map((f) => costeDeLaFila(f, cuatroR, []));
+  assert.deepEqual(costes, [35.3, 61.78, 41.7, 72.98]);
+});
+
+prueba("propuestas de antes con varios tramos: el coste único no se reparte a ciegas", () => {
+  const vieja = {
+    accommodationNameSnapshot: "4R Hotels 3*",
+    boardType: "MP + PC",
+    dateFrom: "2027-06-05",
+    dateTo: "2027-06-08",
+    priceBreakdownText: "MP: 33,80 € x 25 alumnos, por noche x 2 noches · PC: 38,12 € x 25 alumnos, por noche x 1 noche",
+    totalPvpText: "2.643,00 €",
+    studentCostAmount: 28,
+  };
+  const r = filasDeLaOpcion(vieja)!;
+  // Sin catálogo, ninguna: mejor sin validar que con el coste de MP en la PC.
+  assert.deepEqual(r.filas.map((f) => costeDeLaFila(f, vieja, [])), [null, null]);
+});
+
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);
 if (fallidas > 0) process.exit(1);

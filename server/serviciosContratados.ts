@@ -174,6 +174,9 @@ export function planDelSubformulario(
 /** Una fila del subformulario, todavía con nombres en vez de ids. */
 export interface FilaContratada {
   quien: "alumnos" | "profesores" | "chofer";
+  /** El tramo de la estancia (0 si es uno solo) y si hay más de uno. */
+  tramo?: number;
+  variosTramos?: boolean;
   comentario: string;
   pax: number;
   precio: number;
@@ -195,6 +198,24 @@ export interface OpcionParaContratar {
   /** El coste guardado al cotizar (desde el 15/10/2026). Decimal de Prisma o número. */
   studentCostAmount?: unknown;
   teacherCostAmount?: unknown;
+  /** El coste de cada tramo (desde el 20/10/2026). */
+  costsJson?: string | null;
+}
+
+interface CosteDeTramo {
+  alumno: number | null;
+  profesor: number | null;
+  chofer: number | null;
+}
+
+function costesDeTramos(json: string | null | undefined): CosteDeTramo[] | null {
+  if (!json) return null;
+  try {
+    const lista = JSON.parse(json) as CosteDeTramo[];
+    return Array.isArray(lista) ? lista : null;
+  } catch {
+    return null;
+  }
 }
 
 function numeroONulo(valor: unknown): number | null {
@@ -209,14 +230,24 @@ function numeroONulo(valor: unknown): number | null {
  * precio. Un alojamiento ad hoc solo tiene el guardado.
  */
 export function costeDeLaFila(
-  fila: Pick<FilaContratada, "quien" | "precio">,
-  opcion: Pick<OpcionParaContratar, "studentCostAmount" | "teacherCostAmount">,
+  fila: Pick<FilaContratada, "quien" | "precio" | "tramo" | "variosTramos">,
+  opcion: Pick<OpcionParaContratar, "studentCostAmount" | "teacherCostAmount" | "costsJson">,
   tarifas: Array<{ pvp: number | null; neto: number | null }>,
 ): number | null {
-  // Del chófer no se guarda coste: se deduce del catálogo, como antes.
-  const guardado = numeroONulo(
-    fila.quien === "profesores" ? opcion.teacherCostAmount : fila.quien === "alumnos" ? opcion.studentCostAmount : null,
-  );
+  // El de su tramo, si la propuesta lo guardó (desde el 20/10/2026).
+  const tramos = costesDeTramos(opcion.costsJson);
+  if (tramos) {
+    const t = tramos[fila.tramo ?? 0];
+    const delTramo = numeroONulo(fila.quien === "profesores" ? t?.profesor : fila.quien === "chofer" ? t?.chofer : t?.alumno);
+    return delTramo ?? costeDelPrecio(fila.precio, tarifas);
+  }
+  // Propuestas de antes: el coste guardado era el de UNA tarifa. Solo vale si
+  // la estancia es de un solo tramo; si no, se deduce del catálogo por el
+  // precio (y si no sale, la fila queda sin validar).
+  const unSoloTramo = !fila.variosTramos;
+  const guardado = unSoloTramo
+    ? numeroONulo(fila.quien === "profesores" ? opcion.teacherCostAmount : fila.quien === "alumnos" ? opcion.studentCostAmount : null)
+    : null;
   return guardado ?? costeDelPrecio(fila.precio, tarifas);
 }
 
@@ -248,7 +279,7 @@ export function filasDeLaOpcion(opcion: OpcionParaContratar): { filas: FilaContr
   // mezcladas»). Con un solo tramo, las filas de siempre.
   const filas: FilaContratada[] = [];
   let desplazamiento = 0;
-  for (const tramo of d.tramos) {
+  for (const [numeroDeTramo, tramo] of d.tramos.entries()) {
     const regimenGrupo = tramo.regimen ?? opcion.boardType;
     const entrada = sumarDias(opcion.dateFrom, desplazamiento);
     const salida = d.tramos.length > 1 ? sumarDias(opcion.dateFrom, desplazamiento + tramo.noches) : fecha(opcion.dateTo);
@@ -267,6 +298,8 @@ export function filasDeLaOpcion(opcion: OpcionParaContratar): { filas: FilaContr
       const tipo = NOMBRE[habitacion];
       return {
         quien,
+        tramo: numeroDeTramo,
+        variosTramos: d.tramos.length > 1,
         comentario: `${etiqueta} EN ${tipo.toUpperCase()}${sufijo}`,
         pax,
         precio,
@@ -321,8 +354,13 @@ async function tarifasDelHotel(
     ...(nombre ? [{ accommodationName: nombre }] : []),
   ];
   if (donde.length === 0) return [];
+  // «MP + PC» son dos pensiones; y «PC (PRECIO FINAL…)» empieza por PC.
+  const pensiones = (opcion.boardType ?? "").split("+").map((p) => p.trim()).filter(Boolean);
   const rates = await prisma.accommodationRate.findMany({
-    where: { accommodation: { OR: donde }, ...(opcion.boardType ? { boardType: opcion.boardType } : {}) },
+    where: {
+      accommodation: { OR: donde },
+      ...(pensiones.length ? { OR: pensiones.map((p) => ({ boardType: { startsWith: p } })) } : {}),
+    },
     select: { pvpAmount: true, netSaleAmount: true },
   });
   return rates.map((r) => ({

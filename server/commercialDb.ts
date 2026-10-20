@@ -325,6 +325,7 @@ export interface SaveTripProposalInput {
     observationsText?: string | null;
     studentCostAmount?: number | null;
     teacherCostAmount?: number | null;
+    costsJson?: string | null;
     supplierQuoteId?: string | null;
     isSelected?: boolean;
   }[];
@@ -434,6 +435,7 @@ export async function saveTripProposalDb(input: SaveTripProposalInput): Promise<
         observationsText: option.observationsText ?? null,
         studentCostAmount: option.studentCostAmount ?? null,
         teacherCostAmount: option.teacherCostAmount ?? null,
+        costsJson: option.costsJson ?? null,
         supplierQuoteId: option.supplierQuoteId ?? null,
         isSelected: option.isSelected ?? false,
       })),

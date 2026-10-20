@@ -304,6 +304,10 @@ model ProposalAccommodationOption {
   /// el catálogo, y en un alojamiento ad hoc es el único sitio donde está.
   studentCostAmount         Decimal?
   teacherCostAmount         Decimal?
+  /// El coste de cada tramo de la estancia (temporada, pensión), por alumno,
+  /// profesor y chófer: `[{ "alumno": 35.3, "profesor": 61.78, "chofer": null }]`,
+  /// en el orden del desglose. Con dos temporadas el coste no es uno (20/10/2026).
+  costsJson                 String?
   /// El justificante del precio cuando es ad hoc (CotizacionProveedor). Solo Oravia.
   supplierQuoteId           String?
   isSelected                Boolean        @default(false)
