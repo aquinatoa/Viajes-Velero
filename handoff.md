@@ -2612,3 +2612,23 @@ subir (no está versionado).
   podemos contar con ello?» del 20/10 a las 12:17): enviar SOLO cuando esté en
   producción y republicado. Reunión «Revisión viajes velero» jueves 22/10,
   13:00, con Cristian.
+
+## 21/10/2026 · EN PRODUCCIÓN `4926dc3` y el Excel de hoteles republicado
+
+- Anthony dio la orden en el mismo mensaje y el push pasó:
+  `8ca51c4..4926dc3  ruth-19-10 -> main`. Desplegado a las 01:12 (hora del
+  servidor); las tres migraciones aplicadas.
+- La base de producción no se alcanza desde aquí (`DATABASE_URL_PROD` apunta a
+  `127.0.0.1:5432`: necesita túnel). Foto por la API: `foto-api.ts`
+  (`/api/inventory/catalog`; no devuelve suplementos).
+- Republicado por la API de producción con `ensayo-republicar.ts … publicar
+  https://presupuesto.oraviatravel.com .env.produccion`: documento
+  `cmvhaw7fl0006fhq6ddfjkdus` «Hoteles Oravia 2027 · revisado 21/10»; 29
+  hoteles, 737 tarifas, 132 suplementos, 184 condiciones, 0 omitidos;
+  sustituye los 29 de «Hoteles Oravia 2027» (ese documento sigue como
+  PUBLISHED pero ya sin hoteles).
+- Comparación antes/después en producción: 646 → 737 tarifas, **0 hoteles con
+  precios distintos** (al euro, por régimen). Las de más son tramos partidos.
+- Falta: enviar el correo a Ruth (ya es verdad todo lo que dice), que Oravia
+  lo pruebe, y la reunión del jueves. Los scripts de `scripts/_tmp_act/`
+  siguen sin versionar.
