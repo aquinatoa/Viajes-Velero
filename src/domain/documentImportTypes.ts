@@ -620,6 +620,9 @@ export interface PublishedAccommodationRate {
   dateFrom?: string | null;
   dateTo?: string | null;
   boardType?: string | null;
+  /** «Múltiple», «Individual»… y el tramo «desde N noches» (Ruth, 19/10/2026). */
+  occupancyLabel?: string | null;
+  minNights?: number | null;
   currency?: string | null;
   pvpAmount?: number | null;
   netSaleAmount?: number | null;
@@ -635,6 +638,8 @@ export interface PublishedAccommodation {
   accommodationType?: string | null;
   sourceStagingId?: string | null;
   rates: PublishedAccommodationRate[];
+  /** Los suplementos publicados: Ruth no los encontraba en «Publicados» (19/10/2026). */
+  suplementos?: Array<{ concepto: string; importe: string | null; condicion: string | null }>;
 }
 
 export interface PublishedActivityRate {

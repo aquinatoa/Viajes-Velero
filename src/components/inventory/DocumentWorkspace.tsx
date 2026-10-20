@@ -2783,9 +2783,31 @@ export function DocumentWorkspace({
                               </button>
                             </div>
                             <ul className="detail-list">
-                              {accommodation.rates.map((rate) => (
+                              {/* Ruth, 19/10/2026: aquí solo veía «2027 · PC ·
+                                  40,61 €» veinte veces. Cada tarifa dice ahora su
+                                  habitación, sus fechas y desde cuántas noches. */}
+                              {[...accommodation.rates]
+                                .sort(
+                                  (a, b) =>
+                                    String(a.dateFrom ?? "").localeCompare(String(b.dateFrom ?? "")) ||
+                                    String(a.boardType ?? "").localeCompare(String(b.boardType ?? "")) ||
+                                    String(a.occupancyLabel ?? "").localeCompare(String(b.occupancyLabel ?? "")) ||
+                                    (a.minNights ?? 1) - (b.minNights ?? 1),
+                                )
+                                .map((rate) => (
                                 <li key={rate.id}>
-                                  {rate.year} · {rate.boardType ?? "—"} ·{" "}
+                                  {[
+                                    String(rate.year),
+                                    rate.boardType ?? "—",
+                                    rate.occupancyLabel,
+                                    rate.dateFrom && rate.dateTo
+                                      ? `${rate.dateFrom.slice(8, 10)}/${rate.dateFrom.slice(5, 7)}–${rate.dateTo.slice(8, 10)}/${rate.dateTo.slice(5, 7)}`
+                                      : rate.seasonName,
+                                    rate.minNights && rate.minNights > 1 ? `desde ${rate.minNights} noches` : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ")}{" "}
+                                  ·{" "}
                                   {rate.pvpAmount != null
                                     ? formatAmount(rate.pvpAmount, rate.currency)
                                     : "sin precio"}
@@ -2806,6 +2828,22 @@ export function DocumentWorkspace({
                                 </li>
                               ))}
                             </ul>
+                            {accommodation.suplementos && accommodation.suplementos.length > 0 ? (
+                              <div className="sup-pub">
+                                <p className="sup-pub__t">Suplementos ({accommodation.suplementos.length})</p>
+                                <ul>
+                                  {accommodation.suplementos.map((s, i) => (
+                                    <li key={i}>
+                                      <span>{s.concepto}</span>
+                                      {s.importe ? <b>{s.importe}</b> : null}
+                                      {s.condicion ? <small>{s.condicion}</small> : null}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : (
+                              <p className="sup-pub__nada">Sin suplementos publicados.</p>
+                            )}
                           </details>
                         </li>
                       ))}
