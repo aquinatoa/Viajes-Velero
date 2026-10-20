@@ -545,7 +545,9 @@ function volcarHoja(
         occupancyLabel: habitacion,
         // La edad de la fila (Albergue de Jaca: «-14 años (tarifa escolar)» / «+14
         // años») distingue tarifas: va con el tipo de unidad, que es de la tarifa.
-        unitName: [tipo, celda("edad"), capacidad ? `Capacidad ${capacidad}` : null].filter(Boolean).join(" · ") || null,
+        // Si «Tipo de alojamiento» repite «Habitación» (Camping Platja: «Oasis o
+        // Premium 5 pax.» en las dos), no se dice dos veces.
+        unitName: [tipo && tipo !== habitacion ? tipo : null, celda("edad"), capacidad ? `Capacidad ${capacidad}` : null].filter(Boolean).join(" · ") || null,
         rateUnit: celda("unidad"),
         minNights: minNoches,
         // «Mínimo plazas a pagar»: 25 en los campings de Salou.

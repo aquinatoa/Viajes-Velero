@@ -2528,3 +2528,67 @@ corta, calendario PortAventura (colores del PDF), y lo gordo: **P22/P23**, el
 lector propio del Excel de hoteles y publicar todos los campos leídos (unitName,
 rateUnit, plazas, IVA, comisión, rawText…). En producción la revisión está
 guardada: se puede rellenar lo publicado desde ella sin volver a revisar.
+
+## 20/10/2026 (noche) · Actividades, suplementos, P22/P23 y el Excel republicado en local
+
+Todo en `ruth-19-10` (sigue SIN SUBIR; 20 commits sobre `main`, el último
+`d32bc99` + el de esta sección). Paquete 1 (`ruth-seguro`, c3ccf01) sigue
+pendiente de que Anthony haga `git push origin ruth-seguro:main` (el clasificador
+me bloquea el push a `main`).
+
+Hecho hoy (45 de 49 puntos de la pestaña «Revisión de tarifas» del informe
+tienen «hecho»; faltan F6, F16, C4 y la decisión P20):
+- Actividades: edad (P8), unidad/plazas (P9, migración
+  `20261020130000_unidad_y_plazas_de_actividad`), gratuidades y condiciones del
+  proveedor (P10), entradas que se rehacen (P16), calendario PortAventura por
+  colores del PDF (P17, `calendarioPortAventura.ts`), avisos de grupo/edad (P19),
+  Comparar (F8), precio de muestra (F9), ámbar (F10), orden en Calella (C3).
+- Suplementos por noche (P18): `ReglaPorNoche` en `estancia.ts`; 4R, Santa
+  Mónica, Eurosalou, Canada Palace, Calypso y California probados en tests.
+- **P23**: `AccommodationRate` guarda `unitName`, `minPax` y `rawText`
+  (migración `20261020140000_campos_de_tarifa_publicada`; rellena desde la
+  revisión por `sourceStagingId` y por nombre/temporada/régimen/precio). En
+  local la revisión estaba vacía (0 filas), así que los 737 vienen de la
+  republicación. `rateUnit` ya existía como `tariffUnit`. El detalle del hotel
+  enseña «Mín.» con noches y pax, y la fila original al pasar el ratón.
+- **P22**: `server/plantillaDeHoteles.ts` (41 columnas, 39 reconocidas: VI/EM
+  vienen vacías). Conectado en `aiDocumentAnalysis.ts` detrás del de
+  actividades. Ensayado por el flujo real de la API local
+  (`scripts/_tmp_act/ensayo-republicar.ts`: crear documento → subir → analyze →
+  create-staging → aprobar en bloque → confirm-assignment → dry-run → publicar):
+  29 hoteles, 737 tarifas, 132 suplementos, 184 condiciones, 0 avisos.
+  `loQueSustituye` reemplaza los 29 de «Hoteles Oravia 2027» (mismo nombre,
+  mismo canal). Comparado con la foto de producción: **mismos precios por
+  régimen en los 29** (solo el céntimo: Excel redondea 30,885 → 30,89; antes
+  30,88); las tarifas de más son tramos partidos (Canada 36→81, Planas 30→54,
+  Terra Àurea 12→24, Áncora/La Siesta 6→9, Joan 4→6, Voralmar 2→4).
+  Suplementos revisados celda a celda (`tests/plantillaDeHoteles.test.ts`, 11
+  casos reales): etiqueta compartida («Corta estancia: 1 noche · 2 noches»),
+  unidad pegada al importe, «13 €(esc)/16 €(ad)», descuentos («Dto.», «−8€»),
+  la celda con «////» de Camping Platja, notas sin importe como condición.
+  Régimen normalizado («ALOJAMIENTO CON MP (menores ≤16)» → MP + servicio
+  incluido). «Mínimo plazas a pagar» → `minPax` (24 tarifas).
+- Lo publicado en local AHORA es el Excel republicado (documento «Hoteles
+  Oravia 2027 · revisado 20/10»); hay tres documentos de ensayo en local (los
+  dos primeros sin hoteles ya: los sustituyó el último).
+
+Dato dudoso para Ruth (en el informe, RV_DATOS): el Miniestadi pone
+«pax/actividad» en el Excel y 672 € parece la hora del grupo.
+
+Para pasar a producción (con su OK):
+1. `git push origin ruth-19-10:main` (migraciones: coste por tramo, unidad de
+   actividad, campos de tarifa; se aplican solas en el deploy).
+2. Comprobar `/api/health` y una solicitud de prueba.
+3. Republicar el Excel de hoteles en producción: por la app (Inventario →
+   nuevo documento «Hoteles Oravia 2027 · revisado», venta general, sin
+   departamento → subir `TARIFES REVISADES HOTELS` → leer → aprobar todo →
+   publicar) o con `ensayo-republicar.ts` apuntando a producción (lee
+   ADMIN_EMAIL/ADMIN_PASSWORD del .env: usar `.env.produccion`). Antes, foto
+   con `foto.ts` contra producción y después `comparar-fotos.ts`.
+4. Las propuestas enviadas no cambian (guardan su foto); las nuevas usan los
+   tramos nuevos.
+
+Pendiente: F6 (destino sin hoteles), F16 (suplementos sin unidad en el PDF),
+C4 (viaje que cruza el fin de un periodo de actividad), P20 (decisión de
+Oravia); provincia/país/proveedor en P23; borrar `scripts/_tmp_act/` antes de
+subir (no está versionado).
