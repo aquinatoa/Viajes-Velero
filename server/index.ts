@@ -1,5 +1,7 @@
 import { marcarOpcionElegida } from "./proposalDelivery";
 import { tituloDelViaje } from "../src/domain/tituloDelViaje";
+import { desgloseParaElCliente, pensionesParaElCliente } from "../src/domain/desgloseParaElCliente";
+import { textoParaElCliente } from "./proposalPdf";
 import { arrancarLaRecogida } from "./correoEntrante";
 import "./loadEnv";
 import express from "express";
@@ -2535,11 +2537,14 @@ app.get("/api/public/proposals/:token", async (request, response) => {
       options: delivery.proposal.accommodationOptions.map((option) => ({
         optionNumber: option.optionNumber,
         accommodationName: option.accommodationNameSnapshot,
-        boardType: option.boardType,
+        // Lo mismo que lee el colegio en el PDF: pensiones con nombre, el
+        // desglose sin abreviaturas ni frases internas y las condiciones
+        // limpias (revisión del 20/10/2026).
+        boardType: pensionesParaElCliente(option.boardType) || option.boardType,
         nights: option.nights,
         totalPvpText: option.totalPvpText,
-        priceBreakdownText: option.priceBreakdownText,
-        conditionsText: option.conditionsText,
+        priceBreakdownText: desgloseParaElCliente(option.priceBreakdownText) || option.priceBreakdownText,
+        conditionsText: option.conditionsText ? textoParaElCliente(option.conditionsText) : option.conditionsText,
       })),
     });
   } catch (error) {

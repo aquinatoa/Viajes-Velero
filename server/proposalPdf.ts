@@ -11,6 +11,7 @@
  */
 
 import { desgloseDeLaOpcion, precioPorEstancia } from "../src/domain/desgloseDeOpcion";
+import { desgloseParaElCliente, estanciaParaElCliente, pensionesParaElCliente } from "../src/domain/desgloseParaElCliente";
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
@@ -329,7 +330,7 @@ function conSitio(doc: PDFKit.PDFDocument, y: number, alto: number): number {
 }
 
 /** Una opción por bloque, numerada como la ve el cliente. */
-function drawOption(doc: PDFKit.PDFDocument, option: PdfOption, top: number): number {
+function drawOption(doc: PDFKit.PDFDocument, option: PdfOption, top: number, fechaEntrada?: Date | null): number {
   const boxTop = top;
   doc.roundedRect(50, boxTop, 495, 22, 4).fill(NAVY);
   doc.font("Helvetica-Bold").fontSize(10).fillColor("#FFFFFF");
@@ -344,11 +345,16 @@ function drawOption(doc: PDFKit.PDFDocument, option: PdfOption, top: number): nu
   doc.text(option.accommodationName, 50, y, { width: 495 });
   y = doc.y + 4;
 
+  // El chófer, si lo hay, sale del desglose: se cobra y tiene que decirse
+  // (revisión del 20/10/2026: el total lo incluía y no aparecía en ningún sitio).
+  const desglose = desgloseDeLaOpcion(option.priceBreakdownText, option.totalPvpText);
+  const chofer = desglose?.tramos[0]?.chofer?.pax ?? 0;
   const details = [
-    option.boardType,
+    pensionesParaElCliente(option.boardType) || option.boardType,
     option.nights ? `${option.nights} ${option.nights === 1 ? "noche" : "noches"}` : null,
-    option.participants ? `${option.participants} participantes` : null,
-    option.teachers ? `${option.teachers} profesores` : null,
+    option.participants ? `${option.participants} ${option.participants === 1 ? "alumno" : "alumnos"}` : null,
+    option.teachers ? `${option.teachers} ${option.teachers === 1 ? "profesor" : "profesores"}` : null,
+    chofer ? `${chofer} ${chofer === 1 ? "chófer" : "chóferes"}` : null,
   ].filter(Boolean);
 
   if (details.length) {
@@ -360,26 +366,31 @@ function drawOption(doc: PDFKit.PDFDocument, option: PdfOption, top: number): nu
   // Lo que paga cada persona por TODA la estancia, en grande. Javier, 29/09/2026:
   // «muchos clientes nos piden el precio por estancia por persona», y lo que
   // había salía «en pequeñito» dentro del desglose.
-  const desglose = desgloseDeLaOpcion(option.priceBreakdownText, option.totalPvpText);
   if (desglose) {
     const porEstancia = precioPorEstancia(desglose);
+    const porChofer = desglose.tramos.reduce((s, tr) => s + (tr.chofer?.precio ?? 0) * tr.noches, 0);
     y = conSitio(doc, y, 36);
     doc.font("Helvetica-Bold").fontSize(14).fillColor(NAVY);
     doc.text(`${formatMoney(porEstancia.alumno)} por alumno`, 50, y, { width: 300 });
-    if (porEstancia.profesor !== null && porEstancia.profesor !== porEstancia.alumno) {
+    const otros = [
+      porEstancia.profesor !== null && porEstancia.profesor !== porEstancia.alumno
+        ? `${formatMoney(porEstancia.profesor)} por profesor`
+        : null,
+      porChofer > 0 ? `${formatMoney(Math.round(porChofer * 100) / 100)} por chófer` : null,
+    ].filter(Boolean);
+    if (otros.length) {
       doc.font("Helvetica-Bold").fontSize(11).fillColor(NAVY);
-      doc.text(`${formatMoney(porEstancia.profesor)} por profesor`, 350, y + 3, { width: 195, align: "right" });
+      doc.text(otros.join("  ·  "), 300, y + 3, { width: 245, align: "right" });
     }
     y = doc.y + 3;
     doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
-    // Con pensiones mezcladas, cada tramo con su precio (Ruth, 19/10/2026).
-    const plural = (n: number) => `${n} ${n === 1 ? "noche" : "noches"}`;
+    // Qué es cada cifra: la grande es el alojamiento del alumno; el total de
+    // la opción suma además profesores y chófer (revisión del 20/10/2026).
+    // Con tramos, cada uno con su pensión, su precio y sus fechas.
     doc.text(
-      desglose.tramos.length > 1
-        ? `Toda la estancia: ${desglose.tramos
-            .map((t) => `${plural(t.noches)} en ${t.regimen ?? ""} a ${formatMoney(t.alumnos.precio)}`)
-            .join(" y ")} por alumno y noche`
-        : `Toda la estancia: ${plural(desglose.noches)} a ${formatMoney(desglose.alumnos.precio)} por alumno y noche`,
+      `Alojamiento de cada alumno para toda la estancia. ${
+        estanciaParaElCliente(option.priceBreakdownText, option.totalPvpText, fechaEntrada, formatMoney) ?? ""
+      }`,
       50,
       y,
       { width: 495 },
@@ -392,7 +403,7 @@ function drawOption(doc: PDFKit.PDFDocument, option: PdfOption, top: number): nu
     doc.font("Helvetica-Bold").fontSize(7.5).fillColor(MUTED);
     doc.text("DESGLOSE", 50, y, { characterSpacing: 0.6 });
     doc.font("Helvetica").fontSize(9.5).fillColor(INK);
-    doc.text(option.priceBreakdownText, 50, doc.y + 2, { width: 495 });
+    doc.text(desgloseParaElCliente(option.priceBreakdownText), 50, doc.y + 2, { width: 495 });
     y = doc.y + 8;
   }
 
@@ -502,13 +513,19 @@ function drawActividades(doc: PDFKit.PDFDocument, input: PdfInput, top: number):
   );
   y = doc.y + 12;
 
-  let porPersona = 0;
+  // Lo que cuesta cada actividad AL GRUPO: con entradas por tarifa, su total;
+  // si no, el precio por persona × el grupo. Antes se sumaba el «por alumno»
+  // (que con entradas ya es el total del grupo repartido entre los alumnos) y
+  // se multiplicaba por todas las personas: 839,16 € donde eran 805,80 €.
+  let delGrupo = 0;
 
   for (const { actividad, opciones } of itinerario) {
     // Un salto de página a media actividad separa el nombre de su precio.
     y = conSitio(doc, y, 46);
 
-    porPersona += actividad.amount ?? 0;
+    delGrupo += actividad.groupAmount != null && actividad.groupAmount > 0
+      ? actividad.groupAmount
+      : (actividad.amount ?? 0) * personas;
 
     doc.font("Helvetica-Bold").fontSize(10.5).fillColor(INK);
     doc.text(textoParaElCliente(actividad.name), 50, y, { width: 340 });
@@ -571,18 +588,29 @@ function drawActividades(doc: PDFKit.PDFDocument, input: PdfInput, top: number):
   doc.moveTo(50, y).lineTo(545, y).lineWidth(1).strokeColor(HAIRLINE).stroke();
   y += 8;
 
+  const alumnosDelGrupo = input.participants ?? 0;
+  const profesoresDelGrupo = input.teachers ?? 0;
   doc.font("Helvetica-Bold").fontSize(10).fillColor(INK);
   doc.text("Total de las actividades", 50, y, { width: 240 });
   doc.font("Helvetica-Bold").fontSize(10).fillColor(NAVY);
-  doc.text(`${formatMoney(porPersona)} por persona`, 300, y, { width: 245, align: "right" });
+  doc.text(
+    `${formatMoney(Math.round(delGrupo * 100) / 100)} para el grupo`,
+    300,
+    y,
+    { width: 245, align: "right" },
+  );
   y = doc.y + 2;
 
-  if (personas > 0) {
+  if (alumnosDelGrupo > 0) {
     doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
-    doc.text(`${formatMoney(porPersona * personas)} para las ${personas} personas del grupo`, 300, y, {
-      width: 245,
-      align: "right",
-    });
+    doc.text(
+      `${alumnosDelGrupo} alumnos${profesoresDelGrupo ? ` y ${profesoresDelGrupo} profesores` : ""} · ${formatMoney(
+        Math.round((delGrupo / alumnosDelGrupo) * 100) / 100,
+      )} por alumno`,
+      300,
+      y,
+      { width: 245, align: "right" },
+    );
     y = doc.y;
   }
 
@@ -614,6 +642,11 @@ function drawResumen(doc: PDFKit.PDFDocument, input: PdfInput, top: number): num
   const alumnos = input.participants || deLasOpciones("participants");
   const profesores = input.teachers || deLasOpciones("teachers");
   const personas = alumnos + profesores;
+  // El chófer, de la primera opción que lo lleve.
+  const chofer = Math.max(
+    0,
+    ...input.options.map((o) => desgloseDeLaOpcion(o.priceBreakdownText, o.totalPvpText)?.tramos[0]?.chofer?.pax ?? 0),
+  );
 
   let y = top;
 
@@ -635,11 +668,14 @@ function drawResumen(doc: PDFKit.PDFDocument, input: PdfInput, top: number): num
     const alojamiento = option.totalAmount ?? 0;
     // Una actividad se cobra por persona, así que su importe se multiplica por
     // el grupo entero: alumnos y profesores van a la misma excursión.
-    const actividadesPorPersona = (option.activities ?? []).reduce(
-      (suma, actividad) => suma + (actividad.amount ?? 0),
-      0,
-    );
-    const actividades = actividadesPorPersona * personas;
+    const actividades = Math.round(
+      (option.activities ?? []).reduce(
+        (suma, actividad) =>
+          suma +
+          (actividad.groupAmount != null && actividad.groupAmount > 0 ? actividad.groupAmount : (actividad.amount ?? 0) * personas),
+        0,
+      ) * 100,
+    ) / 100;
     const total = alojamiento + actividades;
 
     doc.font("Helvetica-Bold").fontSize(9.5).fillColor(INK);
@@ -674,8 +710,9 @@ function drawResumen(doc: PDFKit.PDFDocument, input: PdfInput, top: number): num
   doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
   doc.text(
     `Cada total incluye el alojamiento y las actividades de esa opción, para ${alumnos} alumnos` +
-      (profesores > 0 ? ` y ${profesores} profesores` : "") +
-      ".",
+      (profesores > 0 ? `, ${profesores} profesores` : "") +
+      (chofer > 0 ? ` y ${chofer} ${chofer === 1 ? "chófer" : "chóferes"}` : "") +
+      ". El precio por alumno reparte entre los alumnos todo lo de la opción, también lo de profesores y chófer.",
     50,
     y,
     { width: 495 },
@@ -760,7 +797,7 @@ export async function buildProposalPdf(input: PdfInput): Promise<string> {
       doc.addPage();
       y = 60;
     }
-    y = drawOption(doc, option, y);
+    y = drawOption(doc, option, y, input.dateFrom ?? null);
   }
 
   // Las actividades, una sola vez, entre los alojamientos y el resumen.

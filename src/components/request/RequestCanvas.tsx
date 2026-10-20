@@ -2691,10 +2691,14 @@ export function RequestCanvas({
                         <dd>
                           {entendido?.participants ?? 0} alumnos
                           {entendido?.teachers ? ` · ${entendido.teachers} profesores` : ""}
+                          {composicion.chofer.cantidad > 0
+                            ? ` · ${composicion.chofer.cantidad} ${composicion.chofer.cantidad === 1 ? "chófer" : "chóferes"}`
+                            : ""}
                         </dd>
                       </div>
                       <div>
-                        <dt>Régimen</dt>
+                        {/* Lo que pidió el centro; lo que se envía va en cada opción. */}
+                        <dt>Régimen pedido</dt>
                         <dd>{entendido?.regimeRequested || "sin especificar"}</dd>
                       </div>
                       <div>
@@ -2756,6 +2760,29 @@ export function RequestCanvas({
                               </span>
                             </div>
                             <p className="rv__optt">{hotel?.accommodation.accommodationName ?? "Alojamiento"}</p>
+                            {hotel ? (
+                              <p className="rv__sub">
+                                {/* Lo que se envía: la pensión que se cobra y el total de la
+                                    opción, con lo que sale por alumno repartiendo también
+                                    profesores y chófer, como el resumen del documento. */}
+                                {pensionQueSeCobra(hotel)}
+                                {(() => {
+                                  const alumnosGrupo = entendido?.participants ?? 0;
+                                  const personas = alumnosGrupo + (entendido?.teachers ?? 0);
+                                  const alojamiento = hotel.estancia?.total ?? null;
+                                  if (alojamiento === null || alumnosGrupo === 0) return null;
+                                  const actividadesGrupo = enOpcion.reduce(
+                                    (s, a) =>
+                                      s + (a.lineas?.length ? a.rate.salePvpAmount * alumnosGrupo : a.rate.salePvpAmount * personas),
+                                    0,
+                                  );
+                                  const total = alojamiento + actividadesGrupo;
+                                  return ` · total de la opción ${euros(total)} (${euros(total / alumnosGrupo)} por alumno contando profesores${
+                                    composicion.chofer.cantidad > 0 ? " y chófer" : ""
+                                  })`;
+                                })()}
+                              </p>
+                            ) : null}
                             {tope && hotel && precioPorAlumno(hotel, enOpcion, noches) > tope ? (
                               <p className="rv__warnline">
                                 Se pasa {euros(precioPorAlumno(hotel, enOpcion, noches) - tope)} del tope que

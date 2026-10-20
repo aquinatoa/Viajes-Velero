@@ -88,7 +88,9 @@ function composeMessage(input: {
   const lineas = [
     saludo,
     "",
-    `Os adjuntamos la propuesta para ${input.tripTitle}${fechas}, con ${input.optionCount} opciones para que elijáis la que mejor os encaje.`,
+    input.optionCount === 1
+      ? `Os adjuntamos la propuesta para ${input.tripTitle}${fechas}, con una opción de alojamiento.`
+      : `Os adjuntamos la propuesta para ${input.tripTitle}${fechas}, con ${input.optionCount} opciones para que elijáis la que mejor os encaje.`,
     "",
     input.publicUrl
       ? `Podéis verlas y aceptar la que prefiráis aquí: ${input.publicUrl}`

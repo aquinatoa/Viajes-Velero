@@ -252,8 +252,9 @@ prueba("el itinerario sale una sola vez, no bajo cada hotel", () => {
 prueba("se dice lo que cuestan TODAS las actividades juntas", () => {
   // 52 + 23 = 75 € por persona; 48 alumnos + 4 profesores = 52 personas.
   assert.match(textoDos, /Total de las actividades/);
-  assert.match(textoDos, /75,00 € por persona/);
-  assert.match(textoDos, /3\.900,00 € para las 52 personas/);
+  // Sin entradas por tarifa, el precio por persona × el grupo; y lo que sale por alumno.
+  assert.match(textoDos, /3\.900,00 € para el grupo/);
+  assert.match(textoDos, /48 alumnos y 4 profesores · 81,25 € por alumno/);
 });
 
 prueba("las condiciones del alojamiento se leen, sin corchetes en mayúsculas", () => {
