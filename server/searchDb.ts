@@ -26,14 +26,19 @@ import { periodoDeLaTarifa, periodosDelViaje } from "../src/domain/calendarioPor
  * dice en ningún sitio qué días vale.
  */
 export function nochesCubiertas(
-  tarifa: { seasonName?: string | null; dateFrom?: Date | string | null; dateTo?: Date | string | null },
+  tarifa: { seasonName?: string | null; includedService?: string | null; dateFrom?: Date | string | null; dateTo?: Date | string | null },
   desde: string | null | undefined,
   hasta: string | null | undefined,
 ): { cubiertas: number; total: number; sinSaber: boolean } {
   if (!desde || !hasta) return { cubiertas: 0, total: 0, sinSaber: true };
   const iso = (d: Date | string | null | undefined) =>
     d ? (d instanceof Date ? d.toISOString() : String(d)).slice(0, 10) : null;
-  const c = coberturaDeTarifa({ seasonName: tarifa.seasonName, dateFrom: iso(tarifa.dateFrom), dateTo: iso(tarifa.dateTo) });
+  const c = coberturaDeTarifa({
+    seasonName: tarifa.seasonName,
+    includedService: tarifa.includedService,
+    dateFrom: iso(tarifa.dateFrom),
+    dateTo: iso(tarifa.dateTo),
+  });
   const inicio = new Date(`${String(desde).slice(0, 10)}T12:00:00Z`);
   const fin = new Date(`${String(hasta).slice(0, 10)}T12:00:00Z`);
   const total = Math.max(1, Math.round((fin.getTime() - inicio.getTime()) / 86400000));
@@ -407,6 +412,7 @@ function scoreActivityMatch(
 ) {
   const reasons: string[] = [];
   let score = 0;
+  let enDestino = false;
   const ageRange = parseAgeRange(filters);
 
   // Ubicación: exacta (+50) o misma zona turística (+18). Sin coincidencia no
@@ -416,6 +422,7 @@ function scoreActivityMatch(
   const locA = normalizeText(donde ?? "");
   if (locA && coincideLocalidad(donde, filters.destinationText)) {
     score += 50;
+    enDestino = true;
     // Se nombra el SITIO, no el pueblo: es lo que le interesa a quien cotiza.
     reasons.push(`Ubicación coincidente: ${activity.locationMain ?? donde}.`);
   } else {
@@ -425,6 +432,7 @@ function scoreActivityMatch(
       zonaDeCualquiera(donde) || (esNombreDeZona(activity.locality) ? normalizeText(activity.locality ?? "") : "");
     if (locA && zona && zona === zoneOf(filters.destinationText)) {
       score += 18;
+      enDestino = true;
       reasons.push(`En la misma zona: ${activity.locationMain ?? donde}.`);
     }
   }
@@ -460,7 +468,7 @@ function scoreActivityMatch(
     }
   }
 
-  return { score, reasons };
+  return { score, reasons, enDestino };
 }
 
 /**
@@ -675,13 +683,18 @@ export async function searchAccommodationsDb(
     ...individuales.filter((item) => !conTarifaCompartida.has(item.accommodation.id)),
   ];
 
+  // En Turismo Deportivo, la de los jugadores lleva campo: la de «sin campo
+  // (acompañante)» es más barata y ganaba el empate (verificación del 20/10/2026).
+  const esDeAcompanante = (item: AccommodationSearchMatch) =>
+    /sin campo|acompa/i.test(item.rate.includedService ?? "");
   const bestByAccommodation = new Map<string, AccommodationSearchMatch>();
   for (const item of candidatas) {
     const current = bestByAccommodation.get(item.accommodation.id);
+    const ajuste = (i: AccommodationSearchMatch) => i.score - (filters.department === "SPORTS" && esDeAcompanante(i) ? 1 : 0);
     if (
       !current ||
-      item.score > current.score ||
-      (item.score === current.score &&
+      ajuste(item) > ajuste(current) ||
+      (ajuste(item) === ajuste(current) &&
         (item.rate.pvpAmount || item.rate.netSaleAmount) <
           (current.rate.pvpAmount || current.rate.netSaleAmount))
     ) {
@@ -710,7 +723,7 @@ export async function searchAccommodationsDb(
    * temporada legible no se descarta: no se puede afirmar que no valga.
    */
   const valeParaEstasFechas = (
-    tarifa: { seasonName?: string | null; dateFrom?: Date | string | null; dateTo?: Date | string | null },
+    tarifa: { seasonName?: string | null; includedService?: string | null; dateFrom?: Date | string | null; dateTo?: Date | string | null },
     f: SearchFilters,
   ): boolean => {
     if (!f.dateFrom || !f.dateTo) return true;
@@ -764,7 +777,11 @@ export async function searchAccommodationsDb(
       const porNoche = deriveSalePrice(item.rate.netSaleAmount, item.rate.pvpAmount) ?? 0;
       return {
         ...item,
-        singleRate: tarifaIndividualHermana(item, individuales),
+        // De las fechas del viaje: Eurosalou cogía la de octubre para junio.
+        singleRate: tarifaIndividualHermana(
+          item,
+          individuales.filter((i) => valeParaEstasFechas(i.rate, filters)),
+        ),
         // Lo que pidio el centro, comprobado contra ESTE alojamiento.
         encaje: [
           ...comprobar(
@@ -958,7 +975,9 @@ export async function searchActivitiesDb(
             dateTo: rate.dateTo ? rate.dateTo.toISOString().slice(0, 10) : null
           },
           score: scored.score,
-          matchReasons: scored.reasons
+          matchReasons: scored.reasons,
+          // Por el sitio, no por los puntos: con la edad sumando 40, todo era «del destino».
+          enDestino: scored.enDestino,
         };
       });
     });
@@ -969,7 +988,7 @@ export async function searchActivitiesDb(
   // destino ni en su zona van marcadas y después de las que sí; el buscador
   // de la pantalla hace el resto. Hasta hoy un umbral (+15) las escondía, y
   // «las actividades no me salen» fue el bloqueo de la semana.
-  const enDestino = (item: ActivitySearchMatch) => item.score >= 15;
+  const enDestino = (item: ActivitySearchMatch & { enDestino?: boolean }) => Boolean(item.enDestino);
   const perRateMatches: ActivitySearchMatch[] = perRateMatchesTodos.map((item) =>
     enDestino(item)
       ? item

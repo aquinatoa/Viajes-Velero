@@ -186,6 +186,8 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
     stayJson: JSON.stringify({
       composicion: input.builderState.composicion ?? null,
       canal: input.builderState.canal ?? null,
+      tope: input.builderState.tope ?? null,
+      requisitos: input.builderState.requisitos ?? [],
       descuentos: input.builderState.descuentos ?? {},
       preciosFijados: input.builderState.preciosFijados ?? {},
       lineas: input.builderState.lineasSinDescuento ?? {},

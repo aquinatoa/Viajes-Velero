@@ -59,7 +59,7 @@ export function regimenEnCrm(boardType: string | null | undefined): string | nul
   const b = (boardType ?? "").trim().toLowerCase();
   if (!b) return null;
   if (b === "pc" || b.includes("completa")) return "Pensión Completa";
-  if (b === "mp" || b.includes("media")) return "Media Pensión";
+  if (b === "mp" || b.includes("media") || b.startsWith("mp+")) return "Media Pensión";
   if (b === "ad" || b.includes("desayuno")) return "Alojamiento y Desayuno";
   if (b === "sa" || b.includes("solo")) return "Solo Alojamiento";
   return null;

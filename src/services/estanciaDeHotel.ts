@@ -40,7 +40,7 @@ export interface EstanciaDeHotel extends ResultadoDeLaEstancia {
 export function estanciaDeHotel(
   hotel: AccommodationSearchMatch,
   composicion: ComposicionDeLaEstancia,
-  viaje: { fechaEntrada: string; noches: number; alumnos: number; profesores: number },
+  viaje: { fechaEntrada: string; noches: number; alumnos: number; profesores: number; edad?: { min: number | null; max: number | null } | null },
 ): EstanciaDeHotel | null {
   if (!viaje.fechaEntrada || viaje.noches <= 0) return null;
   const otras = [
@@ -53,6 +53,7 @@ export function estanciaDeHotel(
     alumnos: viaje.alumnos,
     profesores: viaje.profesores,
     composicion,
+    edadGrupo: viaje.edad ?? null,
     elegida: comoTarifa(hotel.rate),
     otras,
     suplementos: hotel.suplementosHabitacion ?? {},

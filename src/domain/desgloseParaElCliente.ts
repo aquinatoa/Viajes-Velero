@@ -16,6 +16,7 @@ const PENSION: Record<string, string> = {
   MP: "Media pensión",
   AD: "Alojamiento y desayuno",
   SA: "Solo alojamiento",
+  "MP+PICNIC": "Media pensión con pícnic",
 };
 
 const pension = (codigo: string) => PENSION[codigo.toUpperCase()] ?? codigo;
@@ -24,10 +25,10 @@ const pension = (codigo: string) => PENSION[codigo.toUpperCase()] ?? codigo;
 export function pensionesParaElCliente(boardType: string | null | undefined): string {
   // Solo se parte por « + » entre códigos: «PC (PRECIO FINAL: alojamiento + régimen)» es una.
   const partes = (boardType ?? "")
-    .split(/\s\+\s(?=(?:PC|MP|AD|SA))/i)
+    .split(/\s\+\s(?=(?:PC|MP|AD|SA)\b)/i)
     .map((p) => p.trim())
     .filter(Boolean)
-    .map((p) => pension(/^(PC|MP|AD|SA)\b/i.exec(p)?.[1] ?? p));
+    .map((p) => pension(/^(MP\+PICNIC|PC|MP|AD|SA)\b/i.exec(p)?.[1]?.toUpperCase() ?? p));
   if (partes.length <= 1) return partes[0] ?? "";
   return `${partes.slice(0, -1).join(", ")} y ${partes[partes.length - 1].toLowerCase()}`;
 }
@@ -58,7 +59,7 @@ export function desgloseParaElCliente(texto: string | null | undefined): string 
     .split(" · ")
     .map((tramo) =>
       tramo
-        .replace(/^(PC|MP|AD|SA):\s/, (_, c: string) => `${pension(c)}: `)
+        .replace(/^(MP\+PICNIC|PC|MP|AD|SA):\s/, (_, c: string) => `${pension(c)}: `)
         .replace(/ x (\d+) (profesores|chófer) \(([^)]*)\)/g, (_, n: string, quien: string, dentro: string) => {
           const uno = Number(n) === 1;
           const nombre = quien === "profesores" ? (uno ? "profesor" : "profesores") : uno ? "chófer" : "chóferes";

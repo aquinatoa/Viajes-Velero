@@ -392,6 +392,8 @@ export interface ProposalBuilderState {
    * entradas sin el descuento aplicado (20/10/2026).
    */
   canal?: string | null;
+  tope?: number | null;
+  requisitos?: string[];
   descuentos?: Record<string, import("./descuentoDeActividad").DescuentoDeActividad>;
   preciosFijados?: Record<string, number>;
   lineasSinDescuento?: Record<string, LineaDeActividad[]>;

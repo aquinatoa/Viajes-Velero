@@ -21,7 +21,7 @@
  * Contratados lo lee del desglose.
  */
 
-import { coberturaDeTarifa, type CoberturaDeTarifa } from "./fechasDeTarifa";
+import { coberturaDeTarifa, leerNombreDeTemporada, type CoberturaDeTarifa } from "./fechasDeTarifa";
 
 export type Habitacion = "MULTIPLE" | "DOBLE" | "INDIVIDUAL";
 
@@ -143,9 +143,40 @@ export function codigoDePension(texto: string | null | undefined): string {
   return t.toUpperCase();
 }
 
+/** «Adultos», «+14 años»: una tarifa que no es para los alumnos. */
+function esDeAdultos(t: TarifaDeHotel): boolean {
+  const s = normal(`${t.occupancyLabel ?? ""} ${t.seasonName ?? ""} ${t.includedService ?? ""}`);
+  return /\badult/.test(s) && !/escolar|estudiant|junior|infantil/.test(s);
+}
+
+/**
+ * Si la tarifa vale para la edad del grupo: «-14 años» (hasta 13), «+14 años»
+ * (desde 14), «≤16 años», «menores de 18». Sin edad en la tarifa, vale.
+ */
+function encajaConLaEdad(t: TarifaDeHotel, edad: { min: number | null; max: number | null } | null | undefined): boolean {
+  if (!edad || (edad.min === null && edad.max === null)) return true;
+  const s = normal(`${t.occupancyLabel ?? ""} ${t.seasonName ?? ""} ${t.includedService ?? ""}`);
+  const hasta = /(?:-|menores de|hasta|<)\s*(\d{1,2})\s*an/.exec(s);
+  if (hasta && edad.max !== null && edad.max >= Number(hasta[1])) return false;
+  const hastaIncl = /(?:≤|<=)\s*(\d{1,2})\s*an/.exec(s);
+  if (hastaIncl && edad.max !== null && edad.max > Number(hastaIncl[1])) return false;
+  const desde = /(?:\+|desde|a partir de|mayores de|>=?)\s*(\d{1,2})\s*an/.exec(s);
+  if (desde && edad.min !== null && edad.min < Number(desde[1])) return false;
+  return true;
+}
+
 /** La clave de una ocupación tal como la escribe el documento: «Doble», «1 PAX X HAB»… */
 const claveDeOcupacion = (s: string | null | undefined) => normal(s).replace(/\s+/g, " ").trim();
-const claveDeServicio = (s: string | null | undefined) => normal(s).replace(/\s+/g, " ").trim();
+/**
+ * El servicio incluido como eje de la tarifa («Sin campo», «Campo natural»).
+ * Si lo que hay ahí es la temporada (Viella: «Junio · Septiembre 2027»), no
+ * es un servicio y no separa tarifas.
+ */
+const claveDeServicio = (s: string | null | undefined) => {
+  const n = leerNombreDeTemporada(s);
+  if (n.tramos.length || n.sueltos.size || n.meses.size || n.semanaSanta || n.diasSemana) return "";
+  return normal(s).replace(/\s+/g, " ").trim();
+};
 
 function aplicarSuplemento(base: number, s: SuplementoDeHabitacion): number {
   return redondear(s.tipo === "PCT" ? base * (1 + s.valor / 100) : base + s.valor);
@@ -212,6 +243,8 @@ export interface EntradaDeLaEstancia {
   alumnos: number;
   profesores: number;
   composicion: ComposicionDeLaEstancia;
+  /** La edad del grupo: Jaca cobra distinto a «-14 años (tarifa escolar)» y «+14 años». */
+  edadGrupo?: { min: number | null; max: number | null } | null;
   /** La tarifa que eligió la búsqueda: marca la habitación y el servicio de los alumnos. */
   elegida: TarifaDeHotel;
   /** Las demás del hotel (otras pensiones, habitaciones, temporadas). */
@@ -264,8 +297,9 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
    * si ninguna lo dice, las que no tienen fechas en ningún sitio. Dentro, el
    * tramo por noches que toca y, a igualdad, la más barata.
    */
-  const laQueVale = (candidatas: TarifaDeHotel[], fecha: string): TarifaDeHotel | null => {
+  const laQueVale = (candidatas: TarifaDeHotel[], fecha: string, soloConFechas = false): TarifaDeHotel | null => {
     const conFechas = candidatas.filter((t) => cobertura.get(t)!.vale(fecha) === true);
+    if (soloConFechas && conFechas.length === 0) return null;
     let grupo: TarifaDeHotel[];
     if (conFechas.length > 0) {
       const minimo = Math.min(...conFechas.map((t) => cobertura.get(t)!.dias));
@@ -289,22 +323,44 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
     return conTramo.filter((t) => (t.minNights ?? 1) === tramo).sort((a, b) => a.precio - b.precio)[0] ?? null;
   };
 
-  /** Las tarifas de los alumnos: su misma habitación y servicio; si no hay, su misma clase. */
-  const deAlumnos = (pension: string): TarifaDeHotel[] => {
-    const dePension = todas.filter((t) => codigoDePension(t.boardType) === pension);
+  /**
+   * Las tarifas de los alumnos, por niveles: su misma habitación y servicio;
+   * su misma clase y servicio; su misma clase. Se prueba cada nivel con la
+   * fecha: Canada Palace tiene la T. Alta con «Agua en las comidas» y las
+   * demás sin, y con un solo nivel las noches de Semana Santa quedaban «sin
+   * tarifa» (verificación del 20/10/2026). Y las de la edad del grupo: el
+   * Albergue de Jaca cobra distinto «-14 años» y «+14 años».
+   */
+  const nivelesDeAlumnos = (pension: string): TarifaDeHotel[][] => {
+    let dePension = todas.filter((t) => codigoDePension(t.boardType) === pension && !esDeAdultos(t));
+    const deSuEdad = dePension.filter((t) => encajaConLaEdad(t, e.edadGrupo));
+    if (deSuEdad.length) dePension = deSuEdad;
     const exactas = dePension.filter(
       (t) => claveDeOcupacion(t.occupancyLabel) === ocupacionAlumnos && claveDeServicio(t.includedService) === servicioAlumnos,
     );
-    if (exactas.length) return exactas;
     const misma = dePension.filter(
       (t) => ocupacionDe(t.occupancyLabel) === claseAlumnos && claveDeServicio(t.includedService) === servicioAlumnos,
     );
-    if (misma.length) return misma;
-    return dePension.filter((t) => ocupacionDe(t.occupancyLabel) === claseAlumnos);
+    const clase = dePension.filter((t) => ocupacionDe(t.occupancyLabel) === claseAlumnos);
+    return [exactas, misma, clase].filter((l) => l.length > 0);
+  };
+
+  /** De varios niveles, la primera con fechas que cubra la noche; si ninguna, la primera sin fechas. */
+  const laQueValePorNiveles = (niveles: TarifaDeHotel[][], fecha: string): TarifaDeHotel | null => {
+    for (const nivel of niveles) {
+      const r = laQueVale(nivel, fecha, true);
+      if (r) return r;
+    }
+    for (const nivel of niveles) {
+      const r = laQueVale(nivel, fecha);
+      if (r) return r;
+    }
+    return null;
   };
 
   /** El precio de los alumnos esa noche con esa pensión, o null si el hotel no la tiene ese día. */
-  const precioAlumno = (pension: string, fecha: string): TarifaDeHotel | null => laQueVale(deAlumnos(pension), fecha);
+  const precioAlumno = (pension: string, fecha: string): TarifaDeHotel | null =>
+    laQueValePorNiveles(nivelesDeAlumnos(pension), fecha);
 
   const persona = (
     habitacion: Habitacion,
@@ -313,17 +369,33 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
     quien: "los profesores" | "el chófer",
   ): PrecioDePersona => {
     // La tarifa de los alumnos con esa pensión esa noche; si no la hay, la de la noche del grupo.
-    const base = precioAlumno(pension, fecha);
+    const baseAlumnos = precioAlumno(pension, fecha);
+    // Si el hotel distingue a los adultos (Jaca), el suplemento de individual
+    // va sobre su precio, no sobre el de los escolares.
+    const deAdultosMismaClase = todas.filter(
+      (t) => codigoDePension(t.boardType) === pension && ocupacionDe(t.occupancyLabel) === claseAlumnos && esDeAdultos(t),
+    );
+    const baseAdultos = deAdultosMismaClase.length ? laQueValePorNiveles([deAdultosMismaClase], fecha) : null;
+    const base = baseAdultos ?? baseAlumnos;
     const pensionCobrada = base ? pension : null;
+    // Jaca cobra a los adultos distinto que a los escolares, en la misma
+    // habitación: para profesores y chófer manda la tarifa de adultos.
+    const deAdultosEn = (clase: Habitacion) =>
+      todas.filter((t) => codigoDePension(t.boardType) === pension && ocupacionDe(t.occupancyLabel) === clase && esDeAdultos(t));
     if (habitacion === claseAlumnos || habitacion === "MULTIPLE") {
+      const adultos = laQueValePorNiveles([deAdultosEn(claseAlumnos)], fecha);
+      if (adultos) {
+        return { precio: adultos.precio, como: `${NOMBRE_HABITACION[claseAlumnos]} (tarifa de adultos)`, regimen: pension, tarifaId: adultos.id ?? null, coste: adultos.coste ?? null };
+      }
       if (base) return { precio: base.precio, como: NOMBRE_HABITACION[claseAlumnos], regimen: pension, tarifaId: base.id ?? null, coste: base.coste ?? null };
     } else {
-      // Su propia tarifa de esa habitación, si el hotel la tiene (mismo servicio, si puede).
+      // Su propia tarifa de esa habitación, si el hotel la tiene (de adultos si
+      // las distingue; con el mismo servicio, si puede), probando cada nivel con la fecha.
       const deHabitacion = todas.filter(
         (t) => codigoDePension(t.boardType) === pension && ocupacionDe(t.occupancyLabel) === habitacion,
       );
       const mismoServicio = deHabitacion.filter((t) => claveDeServicio(t.includedService) === servicioAlumnos);
-      const propia = laQueVale(mismoServicio.length ? mismoServicio : deHabitacion, fecha);
+      const propia = laQueValePorNiveles([deAdultosEn(habitacion), mismoServicio, deHabitacion].filter((l) => l.length), fecha);
       if (propia) return { precio: propia.precio, como: NOMBRE_HABITACION[habitacion], regimen: pension, tarifaId: propia.id ?? null, coste: propia.coste ?? null };
       const sup = habitacion === "INDIVIDUAL" ? e.suplementos.individual : e.suplementos.doble;
       if (sup && base) {

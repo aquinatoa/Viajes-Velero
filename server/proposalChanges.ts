@@ -20,6 +20,8 @@
 import { importeDe } from "../src/domain/importe";
 import { PrismaClient } from "@prisma/client";
 import { searchAccommodationsDb } from "./searchDb";
+import { estanciaDeHotel } from "../src/services/estanciaDeHotel";
+import { COMPOSICION_POR_DEFECTO, textoDelDesglose, type ComposicionDeLaEstancia } from "../src/domain/estancia";
 
 const prisma = new PrismaClient();
 
@@ -39,6 +41,35 @@ export interface OpcionRecalculada {
   totalAntes: number | null;
   totalAhora: number | null;
   aviso: string | null;
+  /** Lo recalculado con la estancia, para la versión nueva (20/10/2026). */
+  desgloseAhora?: string | null;
+  regimenesAhora?: string | null;
+  costsJsonAhora?: string | null;
+  costeAlumnoAhora?: number | null;
+  costeProfesorAhora?: number | null;
+}
+
+/** Para qué cliente se cotizó, si la propuesta lo guardó. */
+function canalGuardado(stayJson: string | null | undefined): string | undefined {
+  if (!stayJson) return undefined;
+  try {
+    const g = JSON.parse(stayJson) as Record<string, unknown>;
+    return typeof g.canal === "string" && g.canal && g.canal !== "GENERIC" ? g.canal : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** La composición de la estancia con la que se cotizó, de `stayJson` (viejo o nuevo). */
+function composicionGuardada(stayJson: string | null | undefined): ComposicionDeLaEstancia {
+  if (!stayJson) return COMPOSICION_POR_DEFECTO;
+  try {
+    const g = JSON.parse(stayJson) as Record<string, unknown>;
+    const c = (g && "composicion" in g ? g.composicion : g) as Partial<ComposicionDeLaEstancia> | null;
+    return c ? { ...COMPOSICION_POR_DEFECTO, ...c } : COMPOSICION_POR_DEFECTO;
+  } catch {
+    return COMPOSICION_POR_DEFECTO;
+  }
 }
 
 export interface VistaPreviaCambio {
@@ -145,7 +176,12 @@ export async function previewChange(
       dateFrom: nuevaDesde ? fechaCorta(nuevaDesde) : undefined,
       dateTo: nuevaHasta ? fechaCorta(nuevaHasta) : undefined,
       participants: nuevoParticipantes,
+      teachers: nuevoTeachers,
       boardType: nuevoRegimen ?? undefined,
+      // El mismo departamento y cliente con los que se cotizó: sin ellos
+      // salían las tarifas de los dos departamentos y del cliente general.
+      department: solicitud.department ?? undefined,
+      clientSegment: canalGuardado(proposal.stayJson),
     });
 
     const nochesNuevas = noches(nuevaDesde, nuevaHasta);
@@ -174,11 +210,23 @@ export async function previewChange(
         continue;
       }
 
+      // La estancia entera (temporadas, pensión por noche, profesores, chófer),
+      // como al cotizar. Antes era una tarifa × noches × alumnos: sin profesores
+      // ni tramos, y el desglose de la versión nueva no cuadraba con su total.
+      const composicion = composicionGuardada(proposal.stayJson);
+      const estancia = estanciaDeHotel(encontrado, composicion, {
+        fechaEntrada: nuevaDesde ? fechaCorta(nuevaDesde) : "",
+        noches: Math.max(nochesNuevas, 1),
+        alumnos: nuevoParticipantes ?? 0,
+        profesores: nuevoTeachers ?? 0,
+      });
       const unidad = encontrado.rate.pvpAmount || encontrado.rate.netSaleAmount || 0;
-      const precioAhora = Math.round(unidad * Math.max(nochesNuevas, 1) * 100) / 100;
-      const totalAhora = nuevoParticipantes
-        ? Math.round(precioAhora * nuevoParticipantes * 100) / 100
-        : null;
+      const precioAhora = estancia ? estancia.porAlumno : Math.round(unidad * Math.max(nochesNuevas, 1) * 100) / 100;
+      const totalAhora = estancia
+        ? estancia.total
+        : nuevoParticipantes
+          ? Math.round(precioAhora * nuevoParticipantes * 100) / 100
+          : null;
 
       opciones.push({
         optionNumber: opcion.optionNumber,
@@ -187,7 +235,14 @@ export async function previewChange(
         precioAhora,
         totalAntes,
         totalAhora,
-        aviso: null,
+        aviso: estancia?.avisos.length ? estancia.avisos.join(" ") : null,
+        desgloseAhora: estancia ? textoDelDesglose(estancia, nuevoParticipantes ?? 0, nuevoTeachers ?? 0, estancia.chofer) : null,
+        regimenesAhora: estancia?.regimenes ?? null,
+        costsJsonAhora: estancia
+          ? JSON.stringify(estancia.tramos.map((t) => ({ alumno: t.alumno.coste ?? null, profesor: t.profesor.coste ?? null, chofer: t.chofer?.coste ?? null })))
+          : null,
+        costeAlumnoAhora: estancia?.tramos[0]?.alumno.coste ?? null,
+        costeProfesorAhora: estancia?.tramos[0]?.profesor.coste ?? null,
       });
     }
   }
@@ -258,6 +313,8 @@ export async function applyChange(
       versionNumber,
       proposalStatus: "READY_FOR_APPROVAL",
       summaryText: `Versión ${versionNumber} tras el cambio del cliente.`,
+      // La estancia y el estado del lienzo viajan a la versión nueva: «Rehacer» los lee.
+      stayJson: proposal.stayJson,
       accommodationOptions: {
         create: proposal.accommodationOptions.map((opcion) => {
           const recalculada = vista.opciones.find((o) => o.optionNumber === opcion.optionNumber);
@@ -265,7 +322,7 @@ export async function applyChange(
             accommodationId: opcion.accommodationId,
             optionNumber: opcion.optionNumber,
             accommodationNameSnapshot: opcion.accommodationNameSnapshot,
-            boardType: opcion.boardType,
+            boardType: recalculada?.regimenesAhora ?? opcion.boardType,
             dateFrom: (datos.dateFrom as Date) ?? opcion.dateFrom,
             dateTo: (datos.dateTo as Date) ?? opcion.dateTo,
             nights: noches((datos.dateFrom as Date) ?? opcion.dateFrom, (datos.dateTo as Date) ?? opcion.dateTo),
@@ -273,11 +330,16 @@ export async function applyChange(
             teachers: Number(cambio.teachers) || opcion.teachers,
             totalPvpText:
               recalculada?.totalAhora != null
-                ? `${recalculada.totalAhora.toLocaleString("es-ES")} €`
+                ? `${new Intl.NumberFormat("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(recalculada.totalAhora)} €`
                 : opcion.totalPvpText,
-            priceBreakdownText: opcion.priceBreakdownText,
+            priceBreakdownText: recalculada?.desgloseAhora ?? opcion.priceBreakdownText,
             conditionsText: opcion.conditionsText,
             observationsText: opcion.observationsText,
+            freePolicyText: opcion.freePolicyText,
+            studentCostAmount: recalculada?.costeAlumnoAhora ?? opcion.studentCostAmount,
+            teacherCostAmount: recalculada?.costeProfesorAhora ?? opcion.teacherCostAmount,
+            costsJson: recalculada?.costsJsonAhora ?? opcion.costsJson,
+            supplierQuoteId: opcion.supplierQuoteId,
             isSelected: opcion.isSelected,
           };
         }),

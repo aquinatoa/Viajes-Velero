@@ -857,12 +857,13 @@ export function RequestCanvas({
       noches,
       alumnos: entendido?.participants ?? 0,
       profesores: entendido?.teachers ?? 0,
+      edad: tramoDelGrupo(entendido?.ageRangeText, entendido?.averageAgeText),
     };
     return {
       ...hoteles,
       matches: hoteles.matches.map((m) => ({ ...m, estancia: estanciaDeHotel(m, composicion, viaje) })),
     };
-  }, [hoteles, composicion, entendido?.dateFrom, entendido?.participants, entendido?.teachers, noches]);
+  }, [hoteles, composicion, entendido?.dateFrom, entendido?.participants, entendido?.teachers, entendido?.ageRangeText, entendido?.averageAgeText, noches]);
 
   // La petición tal y como está ahora mismo, con lo que no cabe en el borrador
   // normalizado: el tope y los requisitos. Es lo que mira el chat para decidir
@@ -1702,6 +1703,8 @@ export function RequestCanvas({
           selectedActivityIds: programaBase,
           composicion,
           canal,
+          tope,
+          requisitos,
           descuentos,
           preciosFijados,
           lineasSinDescuento: lineas,

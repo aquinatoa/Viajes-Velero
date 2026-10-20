@@ -20,8 +20,15 @@
 
 export interface TarifaConFechas {
   seasonName?: string | null;
+  /** A veces el documento dejó la temporada aquí (Viella: «Junio · Septiembre 2027»). */
+  includedService?: string | null;
   dateFrom?: string | null;
   dateTo?: string | null;
+}
+
+/** Todo lo que dice la tarifa de cuándo vale, junto. */
+function nombreCompleto(t: TarifaConFechas): string {
+  return [t.seasonName, t.includedService].filter(Boolean).join(" · ");
 }
 
 export interface CoberturaDeTarifa {
@@ -195,7 +202,7 @@ export function leerNombreDeTemporada(nombre: string | null | undefined): Lectur
 /** Los años de la tarifa: los de sus fechas guardadas o los que diga el nombre. */
 function aniosDeLaTarifa(t: TarifaConFechas): { desde: number; hasta: number } | null {
   if (t.dateFrom && t.dateTo) return { desde: Number(dia(t.dateFrom).slice(0, 4)), hasta: Number(dia(t.dateTo).slice(0, 4)) };
-  const nombre = t.seasonName ?? "";
+  const nombre = nombreCompleto(t);
   const rango = /(20\d{2})\s*[–-]\s*(\d{2,4})\b/.exec(nombre);
   if (rango) {
     const desde = Number(rango[1]);
@@ -209,7 +216,7 @@ function aniosDeLaTarifa(t: TarifaConFechas): { desde: number; hasta: number } |
 
 /** Qué días vale la tarifa: fechas guardadas + lo que dice el nombre. */
 export function coberturaDeTarifa(t: TarifaConFechas): CoberturaDeTarifa {
-  const nombre = leerNombreDeTemporada(t.seasonName);
+  const nombre = leerNombreDeTemporada(nombreCompleto(t));
   const tieneFechas = Boolean(t.dateFrom && t.dateTo);
   const delNombre =
     nombre.tramos.length > 0 || nombre.sueltos.size > 0 || nombre.meses.size > 0 || nombre.semanaSanta;

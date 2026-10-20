@@ -17,6 +17,7 @@ const NOMBRE: Record<string, string> = {
   MP: "Media pensión",
   AD: "Alojamiento y desayuno",
   SA: "Solo alojamiento",
+  "MP+PICNIC": "Media pensión con pícnic",
 };
 
 const nombre = (codigo: string) => NOMBRE[codigo] ?? codigo;
@@ -48,9 +49,26 @@ export function encajeConLaEstancia(
 
   const precio = Math.round((estancia.porAlumno + (peticion.extraPorAlumno ?? 0)) * 100) / 100;
 
-  return encaje.map((c): ComprobacionDeEncaje => {
+  // Lo que el cálculo no pudo comprobar no entra en el podio como «cumple»:
+  // noches sin tarifa (no cumple) o temporadas sin fechas (por confirmar).
+  const sinTarifa = estancia.noches.filter((n) => n.sinTarifa).length;
+  const sinFechas = estancia.avisos.some((a) => /no tienen fechas|excepciones que no se pueden leer/.test(a));
+  const fechas: ComprobacionDeEncaje | null = sinTarifa
+    ? {
+        clave: "fechas",
+        que: `Sin tarifa para ${sinTarifa === 1 ? "una noche" : `${sinTarifa} noches`}`,
+        estado: "no_cumple",
+        detalle: "Se ha puesto otra tarifa: pide precio al hotel",
+      }
+    : sinFechas
+      ? { clave: "fechas", que: "Temporada sin fechas en el catálogo", estado: "no_consta", detalle: "Precio sin confirmar" }
+      : null;
+  const base = fechas ? [...encaje.filter((c) => c.clave !== "fechas"), fechas] : encaje;
+
+  return base.map((c): ComprobacionDeEncaje => {
     if (c.clave === "regimen" && pedida) {
-      if (pensiones.length === 1 && pensiones[0] === pedida) return { clave: "regimen", que: nombre(pedida), estado: "cumple" };
+      // «MP+PICNIC» es media pensión con el almuerzo de pícnic: cumple MP.
+      if (pensiones.length === 1 && pensiones[0].startsWith(pedida)) return { clave: "regimen", que: nombre(pensiones[0]), estado: "cumple" };
       if (pensiones.length === 1) {
         return { clave: "regimen", que: nombre(pensiones[0]), estado: "no_cumple", detalle: `Pedían ${nombre(pedida).toLowerCase()}` };
       }

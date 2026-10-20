@@ -112,6 +112,8 @@ export async function borradorParaRehacer(
   let descuentos: Record<string, unknown> = {};
   let preciosFijados: Record<string, number> = {};
   let lineas: Record<string, unknown[]> = {};
+  let tope: number | null = null;
+  let requisitos: string[] = [];
   let conEstadoGuardado = false;
   if (propuesta.stayJson) {
     try {
@@ -123,6 +125,8 @@ export async function borradorParaRehacer(
         descuentos = (guardado.descuentos as Record<string, unknown>) ?? {};
         preciosFijados = (guardado.preciosFijados as Record<string, number>) ?? {};
         lineas = (guardado.lineas as Record<string, unknown[]>) ?? {};
+        tope = typeof guardado.tope === "number" ? guardado.tope : null;
+        requisitos = Array.isArray(guardado.requisitos) ? (guardado.requisitos as string[]) : [];
       } else {
         composicion = { ...COMPOSICION_POR_DEFECTO, ...(guardado as unknown as ComposicionDeLaEstancia) };
       }
@@ -184,8 +188,8 @@ export async function borradorParaRehacer(
       categoryRequested: solicitud.categoryRequested ?? "",
       requirementsText: solicitud.requirementsText ?? "",
     },
-    tope: null,
-    requisitos: [],
+    tope,
+    requisitos,
     departamento: solicitud.department ?? entrega.department ?? "",
     conversacion: [],
     preguntadas: [],
