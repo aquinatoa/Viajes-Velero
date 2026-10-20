@@ -225,7 +225,8 @@ function diaDespues(isoDia: string): string {
 
 // ── Suplementos: del texto de la columna, uno por trozo con importe ──
 
-interface SuplementoLeido {
+export interface SuplementoLeido {
+  tipo: "suplemento" | "descuento";
   concept: string;
   amountType: string;
   amount: number;
@@ -233,52 +234,191 @@ interface SuplementoLeido {
   appliesPer: string | null;
 }
 
+export interface SuplementosLeidos {
+  suplementos: SuplementoLeido[];
+  /** Frases de la celda sin importe («Sábanas INCLUIDAS, toallas NO incluidas»): son condiciones, no se pierden. */
+  notas: string[];
+}
+
+const IMPORTE = /([+-]?\d+(?:[.,]\d+)?)\s*(%|€)/g;
+const TIENE_IMPORTE = /\d+(?:[.,]\d+)?\s*(?:%|€)/;
+const MESES = /\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b/i;
+/** Lo que va pegado al importe y dice a qué se aplica: «/pax/noche», «por noche y persona», «/juego», «pax i estada». */
+const UNIDAD =
+  /^\s*(?:(?:\/|por|y|i|x)?\s*(?:pax|personas?|alumnos?|estudiantes?|ni[ñn][oa]s?|hab(?:itaci[oó]n)?\.?|noches?|d[ií]as?|estada|estancia|servicio|comida|apartamento|bungalow|cama|juego|grupo|merienda|unidad)\b\s*)+/i;
+
+const limpiar = (s: string) => s.replace(/\s+/g, " ").replace(/^[\s,.;:·–-]+|[\s,.;:·–-]+$/g, "").trim();
+const sinParentesis = (s: string) => {
+  const m = /^\((.*)\)$/.exec(s.trim());
+  return m ? m[1].trim() : s.trim();
+};
+const sinSupl = (s: string) => s.replace(/^supl(?:emento|\.)?\s*/i, "").trim();
+const valor = (n: string) => Math.abs(Number(n.replace(",", ".")));
+const tipoDe = (signo: string) => (signo === "%" ? "porcentaje" : "importe");
+
+/** «/pax/noche» → pax/noche; «por noche y habitación» → habitación/noche; «/juego» → juego. Sin unidad, null: no se inventa. */
+function aplicaA(unidad: string, concepto: string): string | null {
+  const u = normalizarTexto(unidad);
+  const noche = /noche|\bdia/.test(u);
+  const hab = /\bhab/.test(u);
+  const persona = /pax|persona|alumno|estudiante|nin/.test(u);
+  if (hab && noche) return "habitación/noche";
+  if (persona && noche) return "pax/noche";
+  if (/servicio|comida|merienda/.test(u)) return "pax/servicio";
+  if (/estancia|estada/.test(u)) return "estancia";
+  if (persona) return "pax";
+  if (noche) return "noche";
+  const otra = /apartamento|bungalow|cama|juego|grupo|unidad|hab/.exec(u);
+  if (otra) return otra[0] === "hab" ? "habitación" : otra[0];
+  const c = normalizarTexto(concepto);
+  if (/\(por pax\)|por persona/.test(c)) return /por comida|servicio/.test(c) ? "pax/servicio" : "pax";
+  return null;
+}
+
+/**
+ * Un trozo con importe: «Individual +75% s/múltiple», «2 noches +5€/pax/noche».
+ * `prefijo` es la etiqueta de la frase («Corta estancia: 1 noche +7€ · 2 noches +5€»).
+ */
+function leerTrozo(trozo: string, prefijo: string | null): SuplementoLeido[] {
+  // El signo menos de «−8€» es dato (descuento): no se limpia por delante.
+  const t = trozo.replace(/−/g, "-").replace(/\s+/g, " ").replace(/^[\s,.;:·–]+|^-\s+/, "").replace(/[\s,.;:·–-]+$/, "").trim();
+  const importes = [...t.matchAll(IMPORTE)];
+  if (importes.length === 0) return [];
+  const primero = importes[0];
+  const antes = sinSupl(limpiar(t.slice(0, primero.index)));
+  const concept = prefijo ? (antes ? `${prefijo}: ${antes}` : prefijo) : antes || "Suplemento";
+  let resto = t.slice((primero.index ?? 0) + primero[0].length);
+  const unidad = UNIDAD.exec(resto);
+  resto = limpiar(unidad ? resto.slice(unidad[0].length) : resto);
+  const tipo: "suplemento" | "descuento" = primero[1].startsWith("-") || /^(dto|descuento)/i.test(concept) ? "descuento" : "suplemento";
+  const base = { tipo, concept, amountType: tipoDe(primero[2]), amount: valor(primero[1]), appliesPer: aplicaA(unidad?.[0] ?? "", concept) };
+
+  // «+10% en todos los períodos, excepto 12/06–25/06 +15%» → el general y el del periodo.
+  const excepto = /^(.*?)\bexcepto\s+([^,;]+?)\s*([+-]?\d+(?:[.,]\d+)?)\s*(%|€)$/i.exec(resto);
+  if (excepto) {
+    return [
+      { ...base, conditionText: limpiar(`${excepto[1]} excepto ${excepto[2]}`) },
+      { ...base, concept: `${concept} en ${excepto[2].trim()}`, amountType: tipoDe(excepto[4]), amount: valor(excepto[3]), conditionText: `Periodo ${excepto[2].trim()}` },
+    ];
+  }
+  // «13 €(esc)/16 €(ad)» → uno para escolares y otro para adultos.
+  const dosPublicos = /^\(([^)]+)\)\s*\/\s*(\d+(?:[.,]\d+)?)\s*(€|%)\s*\(([^)]+)\)$/.exec(resto);
+  if (dosPublicos) {
+    return [
+      { ...base, concept: `${concept} (${dosPublicos[1]})`, conditionText: null },
+      { ...base, concept: `${concept} (${dosPublicos[4]})`, amountType: tipoDe(dosPublicos[3]), amount: valor(dosPublicos[2]), conditionText: null },
+    ];
+  }
+  // «desayuno: adultos 8 €, niños 4 €» → el segundo público con su importe.
+  const segundo = /^([^\d€%]{2,30}?)\s*(\d+(?:[.,]\d+)?)\s*(€|%)$/.exec(resto);
+  if (segundo && prefijo) {
+    return [
+      { ...base, conditionText: null },
+      { ...base, concept: `${prefijo}: ${limpiar(segundo[1])}`, amountType: tipoDe(segundo[3]), amount: valor(segundo[2]), conditionText: null },
+    ];
+  }
+  return [{ ...base, conditionText: resto ? sinParentesis(resto) : null }];
+}
+
 /**
  * «Supl. individual +50% s/régimen · estudiantes en doble +25%. Estancia 1-2
  * noches: +10% en todos los períodos, excepto 12/06–25/06 +15%.» → cuatro
  * suplementos: individual 50 %, doble estudiantes 25 %, estancia 1-2 noches
  * 10 % (excepto 12/06–25/06) y estancia 1-2 noches en 12/06–25/06 15 %.
+ * Lo que no lleva importe («Tarifa ya incluye…», «Sábanas INCLUIDAS») sale
+ * como nota.
  */
-function leerSuplementos(txt: string | null): SuplementoLeido[] {
-  if (!txt) return [];
-  const trozos = txt
-    .split(/\s*·\s*|\.\s+(?=[A-ZÁÉÍÓÚ])|;\s*/)
-    .map((t) => t.trim().replace(/\.$/, ""))
-    .filter(Boolean);
-  const salida: SuplementoLeido[] = [];
-  const importe = /([+-]?\d+(?:[.,]\d+)?)\s*(%|€)/g;
-  for (const trozo of trozos) {
-    const importes = [...trozo.matchAll(importe)];
-    if (importes.length === 0) continue;
-    const primero = importes[0];
-    const concepto = trozo.slice(0, primero.index).replace(/[:\s]+$/, "").replace(/^supl\.?\s*/i, "").trim() || trozo;
-    const resto = trozo.slice(primero.index + primero[0].length).replace(/^[\s,:;]+/, "").trim();
-    const tipo = primero[2] === "%" ? "porcentaje" : "importe";
-    const valor = Math.abs(Number(primero[1].replace(",", ".")));
-    const excepto = /^(.*?)\bexcepto\s+([^,;]+?)\s*([+-]?\d+(?:[.,]\d+)?)\s*(%|€)\s*$/i.exec(resto);
-    if (excepto && importes.length >= 2) {
-      salida.push({ concept: concepto, amountType: tipo, amount: valor, conditionText: `${excepto[1].trim()} excepto ${excepto[2].trim()}`.replace(/^excepto/, "excepto").trim(), appliesPer: aplicaA(trozo) });
-      salida.push({
-        concept: `${concepto} en ${excepto[2].trim()}`,
-        amountType: excepto[4] === "%" ? "porcentaje" : "importe",
-        amount: Math.abs(Number(excepto[3].replace(",", "."))),
-        conditionText: `Periodo ${excepto[2].trim()}`,
-        appliesPer: aplicaA(trozo),
-      });
+export function leerSuplementos(txt: string | null): SuplementosLeidos {
+  if (!txt) return { suplementos: [], notas: [] };
+  if (txt.includes("////")) return leerSuplementosConBarras(txt);
+  const suplementos: SuplementoLeido[] = [];
+  const notas: string[] = [];
+  const frases = txt.replace(/\s+/g, " ").split(/\.\s+(?=[A-ZÁÉÍÓÚ(·])/).map(limpiar).filter(Boolean);
+  for (const frase of frases) {
+    // Avisos, no suplementos: «Tarifa ya incluye…», «ACTUALIZADO…», «Desglose…».
+    if (/^(tarifa ya incluye|ya incluye|actualizado|desglose)/i.test(frase) || !TIENE_IMPORTE.test(frase)) {
+      notas.push(frase);
       continue;
     }
-    salida.push({ concept: concepto, amountType: tipo, amount: valor, conditionText: resto || null, appliesPer: aplicaA(trozo) });
+    const partes = frase.split(/\s*·\s*|;\s*/).map(limpiar).filter(Boolean);
+    // «Corta estancia: 1 noche +7€/pax · 2 noches +5€/pax/noche»: la etiqueta
+    // de la primera parte vale para las que empiezan por número.
+    let prefijo: string | null = null;
+    const etiqueta = /^([^:+€%]{3,60}?):\s*(.+)$/.exec(partes[0]);
+    if (etiqueta && !TIENE_IMPORTE.test(etiqueta[1])) {
+      prefijo = sinSupl(limpiar(etiqueta[1])) || null;
+      partes[0] = etiqueta[2];
+    }
+    partes.forEach((parte, k) => {
+      const suyo = k === 0 || /^\d/.test(parte) ? prefijo : null;
+      if (!TIENE_IMPORTE.test(parte)) {
+        notas.push(suyo ? `${suyo}: ${parte}` : parte);
+        return;
+      }
+      suplementos.push(...leerTrozo(parte, suyo));
+    });
   }
-  return salida;
+  return { suplementos, notas };
 }
 
-function aplicaA(txt: string): string | null {
-  const t = normalizarTexto(txt);
-  if (/pax\/noche|persona y noche|por noche|\/noche/.test(t)) return "pax/noche";
-  if (/estancia/.test(t)) return "estancia";
-  if (/hab(itacion)?\b/.test(t) && /noche/.test(t)) return "habitación/noche";
-  if (/pax|persona|alumno|estudiante/.test(t)) return "pax";
+/**
+ * Camping Platja: «Sábanas (opcional) (por pax) -- ABRIL / MAYO / OCTUBRE (…)
+ * -- 6€ //// JUNIO / SEPTIEMBRE (…) -- 6€ //// Toallas …». Cada importe lleva
+ * delante su periodo y, si cambia, su concepto.
+ */
+function leerSuplementosConBarras(txt: string): SuplementosLeidos {
+  const [cuerpo, ...notasExtra] = txt.replace(/\s+/g, " ").split(/\s*·\s*(?=ACTUALIZADO)/i);
+  const suplementos: SuplementoLeido[] = [];
+  let concepto = "";
+  for (const pieza of cuerpo.split(/\s*\/\/\/\/\s*/)) {
+    const re = /(.*?)(\d+(?:[.,]\d+)?)\s*€/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(pieza))) {
+      const texto = m[1].replace(/\s*--\s*/g, " -- ").trim();
+      const mes = MESES.exec(texto);
+      const antes = limpiar((mes ? texto.slice(0, mes.index) : texto).replace(/--/g, " "));
+      const periodo = mes ? limpiar(texto.slice(mes.index).replace(/--/g, " ")) : "";
+      if (antes) concepto = antes;
+      const unidad = /\((por [^)]*)\)/i.exec(concepto);
+      suplementos.push({
+        tipo: "suplemento",
+        concept: concepto.replace(/\s*\(por [^)]*\)/gi, "").trim(),
+        amountType: "importe",
+        amount: valor(m[2]),
+        conditionText: periodo || null,
+        appliesPer: aplicaA(unidad?.[1] ?? "", concepto),
+      });
+    }
+  }
+  return { suplementos, notas: notasExtra.map(limpiar).filter(Boolean) };
+}
+
+/**
+ * «SA (solo alojamiento)» → SA; «ALOJAMIENTO CON MP (menores ≤16)» → MP y
+ * «menores ≤16» como servicio incluido; «MP + Picnic» se queda como está.
+ */
+export function regimenYExtra(celdaRegimen: string | null): { codigo: string | null; extra: string | null } {
+  if (!celdaRegimen) return { codigo: null, extra: null };
+  const m = /^(?:alojamiento\s+(?:con|amb)\s+)?(PC|MP|AD|SA)\s*(?:\((.*)\))?$/i.exec(celdaRegimen.trim());
+  if (!m) return { codigo: celdaRegimen, extra: null };
+  const extra = (m[2] ?? "").trim();
+  const expansion = /^(solo alojamiento|media pensi[oó]n|pensi[oó]n completa|alojamiento y desayuno)$/i.test(extra);
+  return { codigo: m[1].toUpperCase(), extra: extra && !expansion ? extra : null };
+}
+
+/** «Fianza de 75 € por apartamento» → apartamento; «Depósito 20€/pax» → pax. */
+function fianzaPor(texto: string | null): string | null {
+  const n = normalizarTexto(texto ?? "");
+  if (/apartament|bungalow/.test(n)) return "apartamento";
+  if (/grupo/.test(n)) return "grupo";
+  if (/pax|alumno|persona/.test(n)) return "pax";
   return null;
+}
+
+/** «Tasa turística 0,88 €/adulto, no incluida» → 0.88. */
+function importeEnTexto(texto: string | null): number | null {
+  const m = /(\d+(?:[.,]\d+)?)\s*€/.exec(texto ?? "");
+  return m ? valor(m[1]) : null;
 }
 
 /** «Hotel Planas 3* (Salou)» → Salou; «Hotel Cesar Augustus 3* (Salou/Cambrils)» → Salou/Cambrils. */
@@ -374,7 +514,7 @@ function volcarHoja(
     const temporada = celda("temporada") ?? "";
     const dias = celda("dias");
     const bod = celda("bod");
-    const regimen = celda("regimen");
+    const { codigo: regimen, extra: servicioIncluido } = regimenYExtra(celda("regimen"));
     const habitacion = celda("habitacion");
     const tipo = celda("tipoAlojamiento");
     const capacidad = celda("capacidad");
@@ -401,12 +541,15 @@ function volcarHoja(
         dateFrom: tramo.desde,
         dateTo: tramo.hasta,
         boardType: regimen,
+        includedService: servicioIncluido,
         occupancyLabel: habitacion,
         // La edad de la fila (Albergue de Jaca: «-14 años (tarifa escolar)» / «+14
         // años») distingue tarifas: va con el tipo de unidad, que es de la tarifa.
         unitName: [tipo, celda("edad"), capacidad ? `Capacidad ${capacidad}` : null].filter(Boolean).join(" · ") || null,
         rateUnit: celda("unidad"),
         minNights: minNoches,
+        // «Mínimo plazas a pagar»: 25 en los campings de Salou.
+        minPax: num("minimoPlazas"),
         currency: "EUR",
         pvpAmount: null,
         netAmount: neto === null ? null : redondear(neto),
@@ -417,7 +560,7 @@ function volcarHoja(
           periodo,
           diasTexto,
           bod,
-          regimen,
+          celda("regimen"),
           habitacion,
           tipo,
           capacidad ? `cap. ${capacidad}` : null,
@@ -439,20 +582,25 @@ function volcarHoja(
       suplementosVistos.add(clave);
       suplementos.push({ accommodationName: hotel, sourceRow: i + 1, ...s });
     };
-    for (const s of leerSuplementos(celda("suplementos"))) {
-      poner({ adjustmentType: "suplemento", concept: s.concept, amountType: s.amountType, amount: s.amount, appliesPer: s.appliesPer, conditionText: s.conditionText, rawText: celda("suplementos") });
+    const leidos = leerSuplementos(celda("suplementos"));
+    for (const s of leidos.suplementos) {
+      poner({ adjustmentType: s.tipo, concept: s.concept, amountType: s.amountType, amount: s.amount, appliesPer: s.appliesPer, conditionText: s.conditionText, rawText: celda("suplementos") });
     }
-    const tasa = num("tasa");
+    // Si la columna del importe está vacía pero el texto lo dice («0,88 €/adulto»), se lee del texto.
+    const tasa = num("tasa") ?? importeEnTexto(celda("tasaCondiciones"));
     if (tasa !== null || celda("tasaCondiciones")) {
       poner({ adjustmentType: "tasa", concept: "Tasa turística", amountType: tasa !== null ? "importe" : null, amount: tasa, appliesPer: "pax/noche", conditionText: celda("tasaCondiciones"), rawText: celda("tasaCondiciones") });
     }
     const fianza = num("fianza");
     if (fianza !== null) {
-      poner({ adjustmentType: "fianza", concept: "Fianza/depósito", amountType: "importe", amount: fianza, appliesPer: "pax", conditionText: celda("depositos"), rawText: celda("depositos") });
+      poner({ adjustmentType: "fianza", concept: "Fianza/depósito", amountType: "importe", amount: fianza, appliesPer: fianzaPor(celda("depositos")), conditionText: celda("depositos"), rawText: celda("depositos") });
     }
 
     // ── Las condiciones del hotel, cada una con su tipo (una vez por hotel) ──
-    const condicion = (tipoCond: string, etiqueta: string, valor: string | null) => {
+    const condicion = (tipoCond: string, etiqueta: string, valorCrudo: string | null) => {
+      if (!valorCrudo) return;
+      // «Gratuidades: Gratuidades: 1 cada 25» → una sola vez.
+      const valor = valorCrudo.replace(new RegExp(`^${etiqueta}\\s*:\\s*`, "i"), "").trim();
       if (!valor) return;
       const policyText = `${etiqueta}: ${valor}`;
       const clave = `${hotel}||${policyText}`;
@@ -468,9 +616,11 @@ function volcarHoja(
     ].filter(Boolean);
     condicion("PAYMENT", "Pago", pagos.length ? pagos.join(" · ") : null);
     condicion("PAYMENT", "Depósito", celda("depositos"));
+    const canc30 = celda("cancelacion30");
     const cancelaciones = [
       celda("cancelacion4530") ? `de 45 a 30 días: ${celda("cancelacion4530")} %` : null,
-      celda("cancelacion30"),
+      // La columna es «Cancelación <30 (%)»: un número solo es ese porcentaje.
+      canc30 && /^\d+(?:[.,]\d+)?$/.test(canc30) ? `menos de 30 días: ${canc30} %` : canc30,
     ].filter(Boolean);
     condicion("CANCELLATION", "Cancelación", cancelaciones.length ? cancelaciones.join(" · ") : null);
     condicion("CANCELLATION", "Modificaciones", celda("modificaciones"));
@@ -488,6 +638,7 @@ function volcarHoja(
     ].filter(Boolean).join(" · ") || null);
     condicion("CONTACT", "Contacto", celda("contacto"));
     condicion("SPECIAL_NOTES", "Condiciones", celda("observaciones"));
+    for (const nota of leidos.notas) condicion("SPECIAL_NOTES", "Suplementos", nota);
     columnasLeidas = Math.max(columnasLeidas, Object.keys(cabecera.columnas).length);
   }
 

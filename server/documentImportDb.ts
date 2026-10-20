@@ -661,6 +661,7 @@ export async function createInventoryDocumentStaging(
       occupancyLabel: rate.occupancyLabel ?? null,
       includedService: rate.includedService ?? null,
       minNights: rate.minNights ?? null,
+      minPax: rate.minPax ?? null,
       currency: rate.currency ?? "EUR",
       pvpAmount: rate.pvpAmount ?? null,
       netAmount: rate.netAmount ?? null,

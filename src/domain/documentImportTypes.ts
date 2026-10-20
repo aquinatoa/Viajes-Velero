@@ -414,6 +414,8 @@ export interface AiCandidateRate {
   occupancyLabel?: string | null;
   /** Qué va incluido además del alojamiento (campo artificial, natural...). */
   includedService?: string | null;
+  /** Plazas mínimas que cobra el hotel («Mínimo plazas a pagar»). */
+  minPax?: number | null;
   minNights?: number | null;
   currency?: string | null;
   pvpAmount?: number | null;

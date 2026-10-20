@@ -153,7 +153,7 @@ export function suplementosDeHabitacion(
     const tipoAjuste = normal(a.adjustmentType);
     // Descuentos, tasas, fianzas y servicios opcionales no son suplementos de la noche.
     if (/desc|discount|tax|tasa|fianza|dep[oó]sito|deposit|gratu|free|markup|commission|note|nota|policy|condici|cancel/.test(tipoAjuste)) continue;
-    if (/individual|single/.test(concepto) && !resultado.individual) {
+    if (/individual|single|\bdui\b/.test(concepto) && !resultado.individual) {
       resultado.individual = { tipo, valor };
       continue;
     }
