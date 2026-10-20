@@ -1,12 +1,20 @@
 import {
+  avisosDeLaTarifa,
+  esLineaDeGratuidad,
+  esPorUnidad,
+  idDeGratuidad,
   lineasPorDefecto,
   porAlumno,
   resumenDeLineas,
+  textoDeLaUnidad,
   totalDeLineas,
   tramoDelGrupo,
+  type ContextoDelEsbozo,
   type LineaDeActividad,
   type TramoDeEdad,
 } from "../../domain/lineasDeActividad";
+import { gratuidadDeProfesores, textoDeLaGratuidad } from "../../domain/gratuidadDeActividad";
+import { periodosDelViaje, periodosPorDia } from "../../domain/calendarioPortAventura";
 import {
   descuentoValido,
   lineasConDescuento,
@@ -1521,6 +1529,52 @@ export function RequestCanvas({
     setAviso("");
   }
 
+  /** Lo que el esbozo necesita del viaje y del proveedor (periodos de PortAventura, gratuidades). */
+  function contextoDelEsbozo(item: ActivitySearchMatch): ContextoDelEsbozo {
+    return {
+      periodos: periodosDelViaje(entendido?.dateFrom, entendido?.dateTo),
+      gratuidad: gratuidadDeProfesores(item.activity.policies),
+    };
+  }
+  function esbozoDe(item: ActivitySearchMatch): LineaDeActividad[] {
+    return lineasPorDefecto(
+      [item.rate, ...(item.alternativas ?? [])],
+      entendido?.participants ?? 0,
+      entendido?.teachers ?? 0,
+      tramoDelGrupo(entendido?.ageRangeText, entendido?.averageAgeText),
+      contextoDelEsbozo(item),
+    );
+  }
+
+  // Si cambian los alumnos o los profesores, las entradas que nadie tocó a
+  // mano se rehacen. Antes seguían «25 × 17 €» con 30 alumnos y el precio por
+  // alumno salía repartido entre 30 (revisión del 20/10/2026).
+  const esbozosRef = useRef<Record<string, string>>({});
+  useEffect(() => {
+    if (!actividadesElegibles.length) return;
+    setLineas((actuales) => {
+      let cambio = false;
+      const siguiente = { ...actuales };
+      for (const id of programaBase) {
+        const item = actividadesElegibles.find((m) => m.activity.id === id);
+        if (!item || item.precioAFijar) continue;
+        const nuevo = esbozoDe(item);
+        const firma = JSON.stringify(nuevo);
+        const actual = JSON.stringify(actuales[id] ?? []);
+        // Solo si lo que hay es el esbozo anterior (no lo tocaron a mano).
+        if (actual === firma) continue;
+        if (esbozosRef.current[id] === actual || !actuales[id]) {
+          siguiente[id] = nuevo;
+          cambio = true;
+        }
+        esbozosRef.current[id] = firma;
+      }
+      return cambio ? siguiente : actuales;
+    });
+    // Solo cuando cambia el grupo o las fechas.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entendido?.participants, entendido?.teachers, entendido?.ageRangeText, entendido?.dateFrom, entendido?.dateTo, actividadesElegibles]);
+
   function alternarBase(id: string) {
     const yaEstaba = programaBase.includes(id);
     setProgramaBase((actuales) =>
@@ -1529,12 +1583,8 @@ export function RequestCanvas({
     if (!yaEstaba && !lineas[id]) {
       const item = actividadesElegibles.find((m) => m.activity.id === id);
       if (item && !item.precioAFijar) {
-        const esbozo = lineasPorDefecto(
-          [item.rate, ...(item.alternativas ?? [])],
-          entendido?.participants ?? 0,
-          entendido?.teachers ?? 0,
-          tramoDelGrupo(entendido?.ageRangeText, entendido?.averageAgeText),
-        );
+        const esbozo = esbozoDe(item);
+        esbozosRef.current[id] = JSON.stringify(esbozo);
         if (esbozo.length) setLineas((actuales) => ({ ...actuales, [id]: esbozo }));
       }
     }
@@ -2350,7 +2400,7 @@ export function RequestCanvas({
             <MatrizPrograma
               elegidos={elegidos}
               matchHotel={matchHotel}
-              actividadesDisponibles={actividades?.matches ?? []}
+              actividadesDisponibles={actividadesElegibles.map((a) => matchActividad(a.activity.id) ?? a)}
               programaBase={programaBase}
               actividadesDe={actividadesDe}
               noches={noches}
@@ -2371,6 +2421,8 @@ export function RequestCanvas({
                         profesores={entendido?.teachers ?? 0}
                         edadGrupo={tramoDelGrupo(entendido?.ageRangeText, entendido?.averageAgeText)}
                         lineas={lineas[item.activity.id] ?? []}
+                        contexto={contextoDelEsbozo(item)}
+                        fechas={{ desde: entendido?.dateFrom ?? "", hasta: entendido?.dateTo ?? "" }}
                         onCambiar={(nuevas) => {
                           setLineas((actuales) => ({ ...actuales, [item.activity.id]: nuevas }));
                           // Con líneas puestas, la actividad entra en el programa.
@@ -2444,19 +2496,41 @@ export function RequestCanvas({
                           <span className="cv__acts2 cv__acttar">
                             {(lineas[item.activity.id] ?? []).some((l) => l.cantidad > 0)
                               ? resumenDeLineas(lineas[item.activity.id] ?? [])
-                              : `${item.rate.ageLabel ? `Tarifa: ${item.rate.ageLabel}` : "Tarifa única"} · por persona${
-                                  (item.alternativas?.length ?? 0) > 0 ? ` · ${item.alternativas!.length + 1} tarifas` : ""
-                                }`}
+                              : (() => {
+                                  // La tarifa que usaría el esbozo (la de la edad del grupo y el
+                                  // periodo del viaje), no la más barata del catálogo.
+                                  const muestra = esbozoDe(item)[0];
+                                  const tarifaMuestra = muestra
+                                    ? [item.rate, ...(item.alternativas ?? [])].find((r) => r.id === muestra.rateId) ?? item.rate
+                                    : item.rate;
+                                  return `${tarifaMuestra.ageLabel ? `Tarifa: ${tarifaMuestra.ageLabel}` : "Tarifa única"} · ${textoDeLaUnidad(tarifaMuestra)}${
+                                    (item.alternativas?.length ?? 0) > 0 ? ` · ${item.alternativas!.length + 1} tarifas` : ""
+                                  }`;
+                                })()}
                           </span>
                         </span>
                         {(() => {
                           const conLineas = matchActividad(item.activity.id);
                           const activas = conLineas?.lineas ?? [];
-                          const importe = conLineas?.rate.salePvpAmount ?? item.rate.salePvpAmount;
+                          // Sin elegir: lo que saldría por alumno con el esbozo (edad, periodo,
+                          // gratuidad, unidad), que es lo que se va a sumar. Antes se enseñaba
+                          // la tarifa más barata (12 € de discapacidad) y al elegir saltaba.
+                          const alumnosGrupo = entendido?.participants ?? 0;
+                          const esbozo = activas.length || item.precioAFijar ? [] : esbozoDe(item);
+                          const importe = activas.length
+                            ? conLineas?.rate.salePvpAmount ?? 0
+                            : esbozo.length && alumnosGrupo > 0
+                              ? porAlumno(esbozo, alumnosGrupo)
+                              : conLineas?.rate.salePvpAmount ?? item.rate.salePvpAmount;
+                          const porUnidad = esbozo.length === 1 && esPorUnidad(
+                            [item.rate, ...(item.alternativas ?? [])].find((r) => r.id === esbozo[0].rateId)?.rateUnit,
+                          );
                           return (
                             <span className={importe ? "cv__actp" : "cv__actp cv__actp--none"}>
                               {importe ? euros(importe) : "a consultar"}
-                              {activas.length ? <small> por alumno</small> : null}
+                              {activas.length || (esbozo.length && alumnosGrupo > 0) ? (
+                                <small>{porUnidad ? " por alumno (repartido)" : " por alumno"}</small>
+                              ) : null}
                             </span>
                           );
                         })()}
@@ -4312,6 +4386,8 @@ function VentanaDeActividad({
   profesores,
   edadGrupo,
   lineas,
+  contexto,
+  fechas,
   onCambiar,
   onCerrar,
 }: {
@@ -4320,6 +4396,8 @@ function VentanaDeActividad({
   profesores: number;
   edadGrupo: TramoDeEdad | null;
   lineas: LineaDeActividad[];
+  contexto: ContextoDelEsbozo;
+  fechas: { desde: string; hasta: string };
   onCambiar: (lineas: LineaDeActividad[]) => void;
   onCerrar: () => void;
 }) {
@@ -4332,6 +4410,13 @@ function VentanaDeActividad({
   }, [onCerrar]);
 
   const todas = [item.rate, ...(item.alternativas ?? [])];
+  // Lo que no encaja entre el grupo y las tarifas que se usan, y el periodo de
+  // PortAventura si el viaje cruza varios (20/10/2026).
+  const usadas = todas.filter((r) => lineas.some((l) => l.cantidad > 0 && (l.rateId === r.id || l.rateId === idDeGratuidad(r.id))));
+  const avisosGrupo = [...new Set((usadas.length ? usadas : [item.rate]).flatMap((r) => avisosDeLaTarifa(r, alumnos, profesores, edadGrupo)))];
+  const porDia = /per[ií]odo/i.test(todas.map((r) => r.ageLabel).join(" ")) ? periodosPorDia(fechas.desde, fechas.hasta) : [];
+  const periodosDistintos = [...new Set(porDia.map((d) => d.periodo).filter(Boolean))];
+  const gratuidad = contexto.gratuidad ?? null;
   const rejilla = rejillaDeActividad(
     todas.map((r) => ({
       id: r.id,
@@ -4364,7 +4449,7 @@ function VentanaDeActividad({
   const total = totalDeLineas(activas);
   const personasPuestas = activas.reduce((n, l) => n + l.cantidad, 0);
   const grupo = alumnos + profesores;
-  const rehacerEsbozo = () => onCambiar(lineasPorDefecto(todas, alumnos, profesores, edadGrupo));
+  const rehacerEsbozo = () => onCambiar(lineasPorDefecto(todas, alumnos, profesores, edadGrupo, contexto));
 
   return (
     <div
@@ -4413,7 +4498,10 @@ function VentanaDeActividad({
                           const cantidad = cantidadDe(r.id);
                           return (
                             <tr key={r.id} className={cantidad > 0 ? "is-on" : undefined}>
-                              <td>{r.ageLabel || "Tarifa única"}</td>
+                              <td>
+                                {r.ageLabel || "Tarifa única"}
+                                {esPorUnidad(r.rateUnit) ? <small> · {textoDeLaUnidad(r)}</small> : null}
+                              </td>
                               <td className="cv__lineas-n">{euros(r.salePvpAmount)}</td>
                               <td>
                                 <input
@@ -4431,6 +4519,31 @@ function VentanaDeActividad({
                           );
                         })}
                     </tbody>
+                    {lineas
+                      .filter((l) => esLineaDeGratuidad(l) && l.cantidad > 0)
+                      .map((l) => (
+                        <tbody key={l.rateId}>
+                          <tr className="is-on">
+                            <td>{l.etiqueta}</td>
+                            <td className="cv__lineas-n">{euros(0)}</td>
+                            <td>
+                              <input
+                                type="number"
+                                min={0}
+                                step={1}
+                                value={l.cantidad}
+                                onChange={(e) => {
+                                  const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                                  const resto = lineas.filter((x) => x.rateId !== l.rateId);
+                                  onCambiar(n > 0 ? [...resto, { ...l, cantidad: n }] : resto);
+                                }}
+                                aria-label={`Cuántos con ${l.etiqueta}`}
+                              />
+                            </td>
+                            <td className="cv__lineas-n">{euros(0)}</td>
+                          </tr>
+                        </tbody>
+                      ))}
                     <tfoot>
                       <tr>
                         <td colSpan={2}>Total del grupo</td>
@@ -4449,12 +4562,28 @@ function VentanaDeActividad({
                     <button type="button" className="cv__link" onClick={rehacerEsbozo}>
                       Rehacer el esbozo por edad ({alumnos} alumnos, {profesores} profesores)
                     </button>
-                    {personasPuestas > 0 && grupo > 0 && personasPuestas !== grupo ? (
+                    {personasPuestas > 0 && grupo > 0 && personasPuestas !== grupo && !usadas.some((r) => esPorUnidad(r.rateUnit)) ? (
                       <span className="cv__lineas-aviso">
                         Hay {personasPuestas} personas con entrada y el grupo son {grupo}.
                       </span>
                     ) : null}
                   </div>
+                  {gratuidad ? <p className="cv__detnota">{textoDeLaGratuidad(gratuidad, alumnos, profesores)}</p> : null}
+                  {avisosGrupo.length || periodosDistintos.length > 1 ? (
+                    <ul className="cv__detavisos">
+                      {avisosGrupo.map((a) => (
+                        <li key={a}>{a}</li>
+                      ))}
+                      {periodosDistintos.length > 1 ? (
+                        <li>
+                          PortAventura cobra según el día: {porDia
+                            .filter((d) => d.periodo)
+                            .map((d) => `${d.fecha.slice(8, 10)}/${d.fecha.slice(5, 7)} ${d.periodo === "CERRADO" ? "cerrado" : `periodo ${d.periodo}`}`)
+                            .join(" · ")}. El esbozo usa el periodo más frecuente: elige la tarifa del día de la visita.
+                        </li>
+                      ) : null}
+                    </ul>
+                  ) : null}
                   <p className="cv__detnota">
                     Lo que se suma al precio por alumno de cada opción es el total del grupo repartido entre los alumnos.
                   </p>
@@ -4464,12 +4593,31 @@ function VentanaDeActividad({
 
             {item.matchReasons.length > 0 ? (
               <div className="cv__detbloq">
-                <p className="cv__deth">Por qué esta tarifa</p>
+                <p className="cv__deth">Cómo encaja con la petición</p>
                 <ul className="cv__detenc">
-                  {item.matchReasons.map((razon, i) => (
-                    <li key={i} className="cv__detenc--cumple">
-                      <b>✓</b>
-                      <span>{razon}</span>
+                  {item.matchReasons.map((razon, i) => {
+                    // «Fuera del destino», «Fuera de temporada», «Edad sin especificar» y
+                    // «no encaja» son avisos, no cosas cumplidas (revisión del 20/10/2026).
+                    const aviso = /^fuera|sin especificar|no encaja/i.test(razon);
+                    return (
+                      <li key={i} className={aviso ? "cv__detenc--no_consta" : "cv__detenc--cumple"}>
+                        <b>{aviso ? "—" : "✓"}</b>
+                        <span>{razon}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : null}
+
+            {item.activity.policies.length > 0 ? (
+              <div className="cv__detbloq">
+                <p className="cv__deth">Condiciones del proveedor</p>
+                <ul className="cv__detenc">
+                  {item.activity.policies.map((p) => (
+                    <li key={p.id} className="cv__detenc--no_consta">
+                      <b>·</b>
+                      <span>{p.policyText}</span>
                     </li>
                   ))}
                 </ul>

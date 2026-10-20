@@ -16,6 +16,8 @@ import { precioParaElCliente } from "../src/domain/precioClienteEspecial";
 import { listarClientesEspeciales } from "./clientesEspeciales";
 import { suplementosDeHabitacion } from "../src/domain/estancia";
 import { coberturaDeTarifa } from "../src/domain/fechasDeTarifa";
+import { edadDeEtiqueta } from "../src/domain/lineasDeActividad";
+import { periodoDeLaTarifa, periodosDelViaje } from "../src/domain/calendarioPortAventura";
 
 /**
  * Cuántas noches del viaje cubre una tarifa, con las fechas guardadas y las que
@@ -442,8 +444,20 @@ function scoreActivityMatch(
       reasons.push("Tarifa válida para adulto.");
     }
   } else if (rate.ageMin === null && rate.ageMax === null) {
-    score += 8;
-    reasons.push("Edad sin especificar (confirmar con el proveedor).");
+    // Sin números, la etiqueta: «Joven/Secundaria (12-17)», «Primaria», «Adulto», «Desde 15 años».
+    const tramo = edadDeEtiqueta(rate.ageLabel);
+    if (ageRange && tramo) {
+      const min = tramo.min ?? 0, max = tramo.max ?? 120;
+      if (ageRange.max >= min && ageRange.min <= max) {
+        score += 40;
+        reasons.push(`Compatible con el tramo ${rate.ageLabel}.`);
+      } else {
+        reasons.push(`Es para ${rate.ageLabel}: no encaja con un grupo de ${ageRange.min}-${ageRange.max} años.`);
+      }
+    } else {
+      score += 8;
+      reasons.push("Edad sin especificar (confirmar con el proveedor).");
+    }
   }
 
   return { score, reasons };
@@ -925,8 +939,14 @@ export async function searchActivitiesDb(
             activityId: rate.activityId,
             year: rate.year,
             ageLabel: rate.ageLabel ?? "",
-            ageMin: rate.ageMin ?? 0,
-            ageMax: rate.ageMax ?? 0,
+            // Sin edad es sin edad: con «0» el esbozo creía que la tarifa era
+            // de 0 años y no leía la edad de la etiqueta (20/10/2026).
+            ageMin: rate.ageMin ?? null,
+            ageMax: rate.ageMax ?? null,
+            rateUnit: rate.rateUnit ?? null,
+            minPax: rate.minPax ?? null,
+            maxPax: rate.maxPax ?? null,
+            seasonName: rate.seasonName ?? null,
             salePvpAmount: especial.precio,
             costNetAmount: Number(rate.costNetAmount ?? 0),
             clientSegment: rate.clientSegment ?? "",
@@ -968,8 +988,13 @@ export async function searchActivitiesDb(
   // aplicación al año»). Si una actividad tiene alguna tarifa que vale en las
   // fechas del viaje, solo cuentan esas. Si no tiene ninguna, se enseña igual,
   // marcada «fuera de temporada» con sus periodos: Javier quiere verlas todas.
-  const enTemporada = (item: ActivitySearchMatch) =>
-    valeParaElViaje(item.rate, filters.dateFrom, filters.dateTo);
+  const periodosViaje = periodosDelViaje(filters.dateFrom, filters.dateTo);
+  const enTemporada = (item: ActivitySearchMatch) => {
+    // Las entradas de PortAventura van por periodo del calendario, no por fechas.
+    const periodo = periodoDeLaTarifa(item.rate.ageLabel) ?? periodoDeLaTarifa(item.rate.seasonName);
+    if (periodo && !item.rate.dateFrom && periodosViaje.length) return periodosViaje.includes(periodo);
+    return valeParaElViaje(item.rate, filters.dateFrom, filters.dateTo);
+  };
   const conTemporada = new Set(perRateMatches.filter(enTemporada).map((item) => item.activity.id));
   const periodosDe = new Map<string, string[]>();
   for (const item of perRateMatches) {
@@ -1041,7 +1066,10 @@ export async function searchActivitiesDb(
       alternativas: (tarifasPorActividad.get(item.activity.id) ?? []).filter((r) => r.id !== item.rate.id),
     }))
     .sort(
+      // En Calella, lo de Calella primero: una destacada de Salou no va por
+      // delante de las del destino (revisión del 20/10/2026).
       (a, b) =>
+        Number(Boolean(a.fueraDelDestino)) - Number(Boolean(b.fueraDelDestino)) ||
         Number(b.destacada) - Number(a.destacada) ||
         Number(Boolean(a.fueraDeTemporada)) - Number(Boolean(b.fueraDeTemporada)) ||
         b.score - a.score ||

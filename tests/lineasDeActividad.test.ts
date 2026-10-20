@@ -7,7 +7,9 @@
  */
 import assert from "node:assert/strict";
 
+import { gratuidadDeProfesores } from "../src/domain/gratuidadDeActividad";
 import {
+  avisosDeLaTarifa,
   edadDeEtiqueta,
   lineasPorDefecto,
   porAlumno,
@@ -63,6 +65,67 @@ prueba("la edad del grupo se lee de lo que dijo el colegio", () => {
 });
 
 console.log("El esbozo por defecto");
+
+prueba("la edad también se lee en palabras: Júnior/Primaria, Joven/Secundaria, Adulto, «Desde 15 años»", () => {
+  assert.deepEqual(edadDeEtiqueta("Júnior/Primaria · Entrada · Periodo A"), { min: 4, max: 11 });
+  assert.deepEqual(edadDeEtiqueta("Joven/Secundaria/Uni · Entrada · Periodo A"), { min: 12, max: 17 });
+  assert.deepEqual(edadDeEtiqueta("Adulto · Entrada + Ticket Plus · Periodo D"), { min: 18, max: 59 });
+  assert.deepEqual(edadDeEtiqueta("Sénior · Entrada · Periodo A"), { min: 60, max: null });
+  assert.deepEqual(edadDeEtiqueta("Desde 15 años"), { min: 15, max: null });
+  assert.equal(edadDeEtiqueta("Pax con Discapacidad · Entrada · Periodo B"), null);
+});
+
+prueba("PortAventura Park sin paréntesis: 14-15 años va a Joven, no a Júnior ni a la PROMO", () => {
+  const park = [
+    t("jun-a", "Júnior/Primaria · Entrada · Periodo A", 19),
+    t("jov-a", "Joven/Secundaria/Uni · Entrada · Periodo A", 27),
+    t("adu-a", "Adulto · Entrada · Periodo A", 32),
+    t("promo-prim-a", "PROMO Early Bird Primaria · Entrada · Periodo A", 14),
+    t("disc-a", "Pax con Discapacidad · Entrada · Periodo A", 19),
+  ];
+  const lineas = lineasPorDefecto(park, 25, 2, { min: 14, max: 15 });
+  assert.deepEqual(lineas.map((l) => [l.rateId, l.cantidad]), [["jov-a", 25], ["adu-a", 2]]);
+});
+
+prueba("con el periodo del viaje, solo las tarifas de ese periodo", () => {
+  const park = [
+    t("jov-a", "Joven/Secundaria/Uni · Entrada · Periodo A", 27),
+    t("jov-c", "Joven/Secundaria/Uni · Entrada · Periodo C", 37),
+    t("adu-a", "Adulto · Entrada · Periodo A", 32),
+    t("adu-c", "Adulto · Entrada · Periodo C", 46),
+  ];
+  const lineas = lineasPorDefecto(park, 25, 2, { min: 14, max: 15 }, { periodos: ["C", "B"] });
+  assert.deepEqual(lineas.map((l) => [l.rateId, l.cantidad]), [["jov-c", 25], ["adu-c", 2]]);
+});
+
+prueba("una tarifa por grupo de 8 no se multiplica por persona: tantos grupos como hagan falta", () => {
+  const bubble = [{ ...t("g", "Grupos de 8 pax", 171), rateUnit: "PER_GROUP", minPax: 8, maxPax: 8 }];
+  const lineas = lineasPorDefecto(bubble, 25, 2, { min: 14, max: 15 });
+  assert.deepEqual(lineas.map((l) => [l.rateId, l.cantidad, l.precio]), [["g", 4, 171]]);
+  assert.equal(totalDeLineas(lineas), 684);
+  const hora = [{ ...t("h", "1 hora (60 min)", 672), rateUnit: "PER_HOUR" }];
+  assert.deepEqual(lineasPorDefecto(hora, 25, 2, null).map((l) => [l.rateId, l.cantidad]), [["h", 1]]);
+});
+
+prueba("la gratuidad del proveedor: los profesores gratis van en su línea a 0 €", () => {
+  const unica = [t("u", "", 40)];
+  const porCada = gratuidadDeProfesores([{ policyType: "SPECIAL_NOTES", policyText: "Gratuidades: 1 profesor gratis por cada 10 alumnos de pago." }]);
+  const lineas = lineasPorDefecto(unica, 25, 3, null, { gratuidad: porCada });
+  assert.deepEqual(lineas.map((l) => [l.rateId, l.cantidad, l.precio]), [["u", 26, 40], ["u#gratis", 2, 0]]);
+  assert.equal(totalDeLineas(lineas), 26 * 40);
+  const todos = gratuidadDeProfesores([{ policyType: "SPECIAL_NOTES", policyText: "Gratuidades: Profesores acompañantes gratis." }]);
+  assert.deepEqual(lineasPorDefecto(unica, 25, 3, null, { gratuidad: todos }).map((l) => [l.rateId, l.cantidad]), [["u", 25], ["u#gratis", 3]]);
+  assert.equal(gratuidadDeProfesores([{ policyType: "SPECIAL_NOTES", policyText: "Gratuidades: Consultar" }])?.tipo, "consultar");
+  assert.equal(gratuidadDeProfesores([{ policyType: "CANCELLATION", policyText: "Cancelación: 100 %" }]), null);
+});
+
+prueba("lo que no encaja entre la tarifa y el grupo se avisa", () => {
+  const diez = { ...t("k", "Hasta 10 pax", 30), minPax: null, maxPax: 10 };
+  assert.deepEqual(avisosDeLaTarifa(diez, 25, 2, { min: 14, max: 15 }), ["Tarifa para grupos de hasta 10: el grupo son 27."]);
+  const quince = { ...t("b", "Desde 15 años", 30) };
+  assert.deepEqual(avisosDeLaTarifa(quince, 25, 2, { min: 14, max: 15 }), ["Desde 15 años: en el grupo hay alumnos de 14."]);
+  assert.deepEqual(avisosDeLaTarifa(t("u", "", 40), 25, 2, { min: 14, max: 15 }), []);
+});
 
 prueba("3º de ESO (14-15): alumnos en Joven · Entrada · Periodo B, profesores en Adulto · Entrada · Periodo B", () => {
   const lineas = lineasPorDefecto(CARIBE, 25, 2, { min: 14, max: 15 });

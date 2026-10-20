@@ -14,6 +14,8 @@
  * Todo esto es cálculo puro: la pantalla lo pinta y la propuesta lo guarda.
  */
 
+import { profesoresGratis, type GratuidadDeProfesores } from "./gratuidadDeActividad";
+
 export interface LineaDeActividad {
   rateId: string;
   /** La tarifa como la ve quien cotiza: «Joven/Secundaria/Uni (12-17) · Entrada · Periodo C». */
@@ -28,7 +30,40 @@ export interface TarifaElegible {
   ageLabel: string | null;
   ageMin?: number | null;
   ageMax?: number | null;
+  /** PER_PAX, PER_GROUP, PER_HOUR…: cómo se cobra (del Excel, «Unidad de tarifa»). */
+  rateUnit?: string | null;
+  minPax?: number | null;
+  maxPax?: number | null;
   salePvpAmount: number;
+}
+
+/** Lo que el esbozo necesita saber del viaje además del grupo. */
+export interface ContextoDelEsbozo {
+  /** Los periodos de PortAventura de los días del viaje, del más frecuente al menos. */
+  periodos?: string[];
+  /** Lo que el proveedor da gratis a los profesores. */
+  gratuidad?: GratuidadDeProfesores | null;
+}
+
+/** Una tarifa que no es por persona: por grupo, por hora, por día, por servicio. */
+export function esPorUnidad(rateUnit: string | null | undefined): boolean {
+  return Boolean(rateUnit) && rateUnit !== "PER_PAX" && rateUnit !== "UNKNOWN";
+}
+
+/** «por persona», «por grupo de 8», «por hora»… */
+export function textoDeLaUnidad(t: Pick<TarifaElegible, "rateUnit" | "minPax" | "maxPax">): string {
+  switch (t.rateUnit) {
+    case "PER_GROUP":
+      return t.maxPax ? `por grupo de ${t.maxPax}` : "por grupo";
+    case "PER_HOUR":
+      return "por hora";
+    case "PER_DAY":
+      return "por día";
+    case "PER_SERVICE":
+      return "por servicio";
+    default:
+      return "por persona";
+  }
 }
 
 export interface TramoDeEdad {
@@ -37,8 +72,14 @@ export interface TramoDeEdad {
 }
 
 const redondear = (n: number) => Math.round(n * 100) / 100;
+const sinTildes = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
-/** «Joven/Secundaria/Uni (12-17)» → 12–17; «Sénior (desde 60)» → 60+; «Adulto (18-59)» → 18–59. */
+/**
+ * «Joven/Secundaria/Uni (12-17)» → 12–17; «Sénior (desde 60)» → 60+; «Adulto
+ * (18-59)» → 18–59. Y en palabras, como vienen en PortAventura Park sin
+ * paréntesis: Júnior/Primaria 4–11, Joven/Secundaria 12–17, Adulto 18–59,
+ * Sénior 60+ (lo dice el pie del PDF); «Desde 15 años», «Adultos».
+ */
 export function edadDeEtiqueta(etiqueta: string | null | undefined): TramoDeEdad | null {
   const t = etiqueta ?? "";
   const rango = /\((\d{1,2})\s*[-–]\s*(\d{1,2})\)/.exec(t);
@@ -47,7 +88,45 @@ export function edadDeEtiqueta(etiqueta: string | null | undefined): TramoDeEdad
   if (desde) return { min: Number(desde[1] ?? desde[2]), max: null };
   const hasta = /\((?:hasta|menores de)\s*(\d{1,2})\)/i.exec(t);
   if (hasta) return { min: null, max: Number(hasta[1]) };
+  const s = sinTildes(t);
+  const suelto = /(\d{1,2})\s*(?:a|-|–)\s*(\d{1,2})\s*anos/.exec(s);
+  if (suelto) return { min: Number(suelto[1]), max: Number(suelto[2]) };
+  const desdeAnos = /(?:desde|a partir de|mas de|\+)\s*(\d{1,2})\s*anos|(\d{1,2})\s*\+\s*anos/.exec(s);
+  if (desdeAnos) return { min: Number(desdeAnos[1] ?? desdeAnos[2]), max: null };
+  const hastaAnos = /(?:hasta|menores de)\s*(\d{1,2})\s*anos/.exec(s);
+  if (hastaAnos) return { min: null, max: Number(hastaAnos[1]) };
+  if (/junior|primaria|infantil/.test(s)) return { min: 4, max: 11 };
+  if (/joven|secundaria|\beso\b|bachiller/.test(s)) return { min: 12, max: 17 };
+  if (/senior/.test(s)) return { min: 60, max: null };
+  if (/adult/.test(s)) return { min: 18, max: 59 };
   return null;
+}
+
+/** Lo que no encaja entre la tarifa y el grupo: tamaño y edad mínima. Vacío = nada que avisar. */
+export function avisosDeLaTarifa(
+  t: Pick<TarifaElegible, "ageLabel" | "ageMin" | "ageMax" | "minPax" | "maxPax">,
+  alumnos: number,
+  profesores: number,
+  edadGrupo: TramoDeEdad | null,
+): string[] {
+  const avisos: string[] = [];
+  const personas = alumnos + profesores;
+  if (personas > 0) {
+    if (t.minPax && personas < t.minPax) avisos.push(`Tarifa para grupos de ${t.minPax} o más: el grupo son ${personas}.`);
+    if (t.maxPax && personas > t.maxPax && !(t.minPax && t.minPax === t.maxPax)) {
+      avisos.push(`Tarifa para grupos de hasta ${t.maxPax}: el grupo son ${personas}.`);
+    }
+  }
+  const tramo = tramoDeTarifa(t);
+  if (edadGrupo && tramo && !esDeAdulto(t.ageLabel)) {
+    if (tramo.min !== null && edadGrupo.min !== null && edadGrupo.min < tramo.min) {
+      avisos.push(`Desde ${tramo.min} años: en el grupo hay alumnos de ${edadGrupo.min}.`);
+    }
+    if (tramo.max !== null && edadGrupo.max !== null && edadGrupo.max > tramo.max) {
+      avisos.push(`Hasta ${tramo.max} años: en el grupo hay alumnos de ${edadGrupo.max}.`);
+    }
+  }
+  return avisos;
 }
 
 /** «14-15», «de 14 a 16 años», «15» → tramo. */
@@ -65,7 +144,7 @@ function solapa(a: TramoDeEdad, b: TramoDeEdad): boolean {
   return aMax >= bMin && aMin <= bMax;
 }
 
-function tramoDeTarifa(t: TarifaElegible): TramoDeEdad | null {
+function tramoDeTarifa(t: Pick<TarifaElegible, "ageLabel" | "ageMin" | "ageMax">): TramoDeEdad | null {
   if (t.ageMin != null || t.ageMax != null) return { min: t.ageMin ?? null, max: t.ageMax ?? null };
   return edadDeEtiqueta(t.ageLabel);
 }
@@ -107,9 +186,31 @@ export function lineasPorDefecto(
   alumnos: number,
   profesores: number,
   edadGrupo: TramoDeEdad | null,
+  contexto: ContextoDelEsbozo = {},
 ): LineaDeActividad[] {
-  const conPrecio = tarifas.filter((t) => t.salePvpAmount > 0);
+  let conPrecio = tarifas.filter((t) => t.salePvpAmount > 0);
   if (conPrecio.length === 0) return [];
+
+  // PortAventura cobra por periodo del calendario: solo las tarifas del
+  // periodo de los días del viaje (el más frecuente). Si ninguna lo lleva, todas.
+  const periodos = contexto.periodos ?? [];
+  if (periodos.length) {
+    const conPeriodo = conPrecio.filter((t) => periodoDeEtiqueta(t.ageLabel));
+    if (conPeriodo.length) {
+      const delViaje = periodos.map((p) => conPeriodo.filter((t) => periodoDeEtiqueta(t.ageLabel) === p)).find((l) => l.length);
+      if (delViaje) conPrecio = delViaje;
+    }
+  }
+
+  // Lo que no es por persona (por hora, por grupo, por día) no se multiplica
+  // por cada alumno: una unidad, o tantos grupos como hagan falta.
+  const unidad = conPrecio.find((t) => esPorUnidad(t.rateUnit));
+  if (unidad) {
+    const personas = alumnos + profesores;
+    const cantidad =
+      unidad.rateUnit === "PER_GROUP" && unidad.maxPax && personas > 0 ? Math.ceil(personas / unidad.maxPax) : 1;
+    return [{ rateId: unidad.id, etiqueta: unidad.ageLabel || textoDeLaUnidad(unidad), precio: unidad.salePvpAmount, cantidad }];
+  }
 
   const porPrecio = (a: TarifaElegible, b: TarifaElegible) => a.salePvpAmount - b.salePvpAmount;
   const preferir = (lista: TarifaElegible[]) => {
@@ -139,11 +240,31 @@ export function lineasPorDefecto(
     const v = variante(deAlumnos.ageLabel);
     const deAdulto = conPrecio.filter((t) => esDeAdulto(t.ageLabel) && variante(t.ageLabel) === v);
     const elegida = deAdulto.length ? preferir(deAdulto) : deAlumnos;
-    const existente = lineas.find((l) => l.rateId === elegida.id);
-    if (existente) existente.cantidad += profesores;
-    else lineas.push({ rateId: elegida.id, etiqueta: elegida.ageLabel || "Tarifa única", precio: elegida.salePvpAmount, cantidad: profesores });
+    // Los que el proveedor da gratis («1 profesor gratis por cada 15 alumnos»)
+    // van en su línea a 0 €, para que se vea y no se cobre.
+    const gratis = profesoresGratis(contexto.gratuidad, alumnos, profesores);
+    const dePago = profesores - gratis;
+    if (dePago > 0) {
+      const existente = lineas.find((l) => l.rateId === elegida.id);
+      if (existente) existente.cantidad += dePago;
+      else lineas.push({ rateId: elegida.id, etiqueta: elegida.ageLabel || "Tarifa única", precio: elegida.salePvpAmount, cantidad: dePago });
+    }
+    if (gratis > 0) {
+      lineas.push({ rateId: idDeGratuidad(elegida.id), etiqueta: `${elegida.ageLabel || "Profesor"} · gratuidad`, precio: 0, cantidad: gratis });
+    }
   }
   return lineas;
+}
+
+/** La línea de los profesores gratis lleva el id de su tarifa con esta marca. */
+export const MARCA_GRATUIDAD = "#gratis";
+export const idDeGratuidad = (rateId: string) => `${rateId}${MARCA_GRATUIDAD}`;
+export const esLineaDeGratuidad = (l: Pick<LineaDeActividad, "rateId">) => l.rateId.endsWith(MARCA_GRATUIDAD);
+
+/** «Periodo C» en la etiqueta → «C». */
+function periodoDeEtiqueta(etiqueta: string | null | undefined): string | null {
+  const m = /per[ií]odo\s+([a-f])\b/i.exec(etiqueta ?? "");
+  return m ? m[1].toUpperCase() : null;
 }
 
 export function totalDeLineas(lineas: LineaDeActividad[]): number {

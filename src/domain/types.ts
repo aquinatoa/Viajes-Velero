@@ -249,8 +249,15 @@ export interface ActivityRate {
   activityId: string;
   year: number;
   ageLabel: string;
-  ageMin: number;
-  ageMax: number;
+  /** Sin edad en la tarifa: null (la etiqueta puede decirla en palabras). */
+  ageMin: number | null;
+  ageMax: number | null;
+  /** PER_PAX, PER_GROUP, PER_HOUR, PER_DAY, PER_SERVICE: cómo se cobra. */
+  rateUnit?: string | null;
+  /** Tamaño de grupo al que vale la tarifa. */
+  minPax?: number | null;
+  maxPax?: number | null;
+  seasonName?: string | null;
   salePvpAmount: number;
   costNetAmount: number;
   commissionPercent: number;

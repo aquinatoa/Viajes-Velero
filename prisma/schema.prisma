@@ -237,6 +237,13 @@ model ActivityRate {
   ageLabel          String?
   ageMin            Int?
   ageMax            Int?
+  /// Por persona, por grupo, por hora… (columna «Unidad de tarifa» del Excel).
+  /// Se leía en la revisión y no llegaba aquí: el Miniestadi (672 €/hora) se
+  /// multiplicaba por cada alumno (20/10/2026).
+  rateUnit          String?
+  /// Tamaño de grupo al que vale («De 10 a 25-30 pax»): para avisar.
+  minPax            Int?
+  maxPax            Int?
   currency          String?
   salePvpAmount     Decimal?
   costNetAmount     Decimal?
