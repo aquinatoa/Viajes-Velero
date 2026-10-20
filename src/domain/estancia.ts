@@ -45,6 +45,8 @@ export const COMPOSICION_POR_DEFECTO: ComposicionDeLaEstancia = {
 
 /** Lo mínimo de una tarifa que hace falta para la cuenta. */
 export interface TarifaDeHotel {
+  /** Para saber qué tarifa se usó cada noche (el detalle del hotel la marca). */
+  id?: string | null;
   boardType?: string | null;
   occupancyLabel?: string | null;
   dateFrom?: string | null;
@@ -163,6 +165,8 @@ export interface PrecioDePersona {
   /** «individual», «doble (suplemento +10 %)», «múltiple: sin individual»… */
   como: string;
   regimen: string;
+  /** La tarifa de la que sale el precio (con suplemento, la múltiple). */
+  tarifaId?: string | null;
 }
 
 export interface NocheDeLaEstancia {
@@ -213,32 +217,37 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
   const avisos = new Set<string>();
   const cantidadChofer = Math.max(e.composicion.chofer?.cantidad ?? 0, 0);
 
-  /** El precio de la múltiple para esa pensión y noche. */
-  const multiple = (regimen: string, fecha: string): number => {
+  /** La múltiple para esa pensión y noche: su precio y de qué tarifa sale. */
+  const multiple = (regimen: string, fecha: string): { precio: number; id: string | null } => {
     const t = tarifaPara(tarifas, regimen, "MULTIPLE", fecha, nochesTotales);
-    if (t) return t.precio;
+    if (t) return { precio: t.precio, id: t.id ?? null };
     if (regimen !== regimenBase) {
       avisos.add(
         `No hay tarifa de ${NOMBRE_REGIMEN[regimen] ?? regimen} para la noche del ${fechaCorta(fecha)}: se cobra la de ${NOMBRE_REGIMEN[regimenBase] ?? regimenBase}.`,
       );
     }
-    return e.elegida.precio;
+    return { precio: e.elegida.precio, id: e.elegida.id ?? null };
   };
 
   const persona = (habitacion: Habitacion, regimen: string, fecha: string, quien: string): PrecioDePersona => {
     const base = multiple(regimen, fecha);
-    if (habitacion === "MULTIPLE") return { precio: base, como: "múltiple", regimen };
+    if (habitacion === "MULTIPLE") return { precio: base.precio, como: "múltiple", regimen, tarifaId: base.id };
     const propia = tarifaPara(tarifas, regimen, habitacion, fecha, nochesTotales);
-    if (propia) return { precio: propia.precio, como: NOMBRE_HABITACION[habitacion], regimen };
+    if (propia) return { precio: propia.precio, como: NOMBRE_HABITACION[habitacion], regimen, tarifaId: propia.id ?? null };
     const sup = habitacion === "INDIVIDUAL" ? e.suplementos.individual : e.suplementos.doble;
     if (sup) {
       const cuanto = sup.tipo === "PCT" ? `+${String(sup.valor).replace(".", ",")} %` : `+${String(sup.valor).replace(".", ",")} €`;
-      return { precio: aplicarSuplemento(base, sup), como: `${NOMBRE_HABITACION[habitacion]} (suplemento ${cuanto})`, regimen };
+      return {
+        precio: aplicarSuplemento(base.precio, sup),
+        como: `${NOMBRE_HABITACION[habitacion]} (suplemento ${cuanto})`,
+        regimen,
+        tarifaId: base.id,
+      };
     }
     avisos.add(
       `El hotel no tiene tarifa ni suplemento de habitación ${NOMBRE_HABITACION[habitacion]}: ${quien} se cobra${quien.endsWith("es") ? "n" : ""} a precio de múltiple.`,
     );
-    return { precio: base, como: `${NOMBRE_HABITACION[habitacion]}: sin tarifa, precio de múltiple`, regimen };
+    return { precio: base.precio, como: `${NOMBRE_HABITACION[habitacion]}: sin tarifa, precio de múltiple`, regimen, tarifaId: base.id };
   };
 
   const noches: NocheDeLaEstancia[] = [];
@@ -250,7 +259,10 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
     noches.push({
       fecha,
       regimen,
-      alumno: { precio: multiple(regimen, fecha), como: "múltiple", regimen },
+      alumno: (() => {
+        const m = multiple(regimen, fecha);
+        return { precio: m.precio, como: "múltiple", regimen, tarifaId: m.id };
+      })(),
       profesor: persona(e.composicion.profesores.habitacion, regProf, fecha, "los profesores"),
       chofer: cantidadChofer > 0 ? persona(e.composicion.chofer.habitacion, regChof, fecha, "el chófer") : null,
     });

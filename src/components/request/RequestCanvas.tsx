@@ -3766,6 +3766,34 @@ function DetalleAlojamiento({
     : null;
   const variasPensiones = item.estancia ? new Set(item.estancia.noches.map((n) => n.regimen)).size > 1 : false;
 
+  // Las tarifas que usa la estancia, con cuántas noches cada una. Con el 4R
+  // del 5 al 10/06 son dos: T. Baja (2 noches) y T. Media (3). Antes solo se
+  // marcaba la primera y la cabecera decía una sola temporada.
+  const todasLasTarifas = [item.rate, ...(item.alternativas ?? [])];
+  const nochesPorTarifa = new Map<string, number>();
+  for (const n of item.estancia?.noches ?? []) {
+    if (n.alumno.tarifaId) nochesPorTarifa.set(n.alumno.tarifaId, (nochesPorTarifa.get(n.alumno.tarifaId) ?? 0) + 1);
+  }
+  const usadasEnOrden = [...nochesPorTarifa.keys()]
+    .map((id) => todasLasTarifas.find((r) => r.id === id))
+    .filter((r): r is AccommodationRate => Boolean(r));
+  const usaVarias = usadasEnOrden.length > 1;
+  const temporadasDeLaEstancia = usaVarias
+    ? [...new Set(usadasEnOrden.map((r) => temporadaDe(r)))].map((tmp) => {
+        const n = usadasEnOrden
+          .filter((r) => temporadaDe(r) === tmp)
+          .reduce((s, r) => s + (nochesPorTarifa.get(r.id) ?? 0), 0);
+        return `${tmp} (${n} ${n === 1 ? "noche" : "noches"})`;
+      })
+    : null;
+  const tramosDistintos = new Set(todasLasTarifas.map((r) => r.minNights || 1)).size > 1;
+  const etiquetaAlumnos = (r: AccommodationRate): string | null => {
+    if (!item.estancia) return r.id === item.rate.id ? "alumnos" : null;
+    const n = nochesPorTarifa.get(r.id);
+    if (!n) return null;
+    return usaVarias ? `alumnos · ${n} ${n === 1 ? "noche" : "noches"}` : "alumnos";
+  };
+
   const alternativas = item.alternativas ?? [];
   const nombreTarifa = (r: AccommodationRate) =>
     [etiquetaDeRegimen(r.boardType), r.occupancyLabel, r.includedService].filter(Boolean).join(" · ") ||
@@ -3780,7 +3808,11 @@ function DetalleAlojamiento({
   // pension a 28,75 EUR y a 51,75 EUR para las mismas fechas, y en el catalogo
   // no hay nada -ni habitacion, ni servicio, ni hoja de origen- que diga en que
   // se diferencian. Callarlo seria dejar elegir a ciegas.
-  const descripciones = [item.rate, ...alternativas].map(nombreTarifa);
+  // Misma temporada y mismo tramo por noches: dos precios de T. Baja y T.
+  // Media, o de «desde 1» y «desde 3» noches, no son indistinguibles (20/10/2026).
+  const descripciones = [item.rate, ...alternativas].map(
+    (r) => `${nombreTarifa(r)}|${temporadaDe(r)}|${r.minNights || 1}`,
+  );
   const hayIndistinguibles = descripciones.some((d, i) => descripciones.indexOf(d) !== i);
 
   return (
@@ -3823,13 +3855,21 @@ function DetalleAlojamiento({
             </div>
           ) : null}
           <div>
-            <dt>Temporada</dt>
-            <dd>{temporadaDe(item.rate)}</dd>
+            <dt>{temporadasDeLaEstancia && temporadasDeLaEstancia.length > 1 ? "Temporadas" : "Temporada"}</dt>
+            <dd>
+              {temporadasDeLaEstancia && temporadasDeLaEstancia.length > 1
+                ? temporadasDeLaEstancia.join(" · ")
+                : temporadaDe(item.rate)}
+            </dd>
           </div>
           {item.rate.minNights ? (
             <div>
-              <dt>Estancia mínima</dt>
-              <dd>{item.rate.minNights} noches</dd>
+              {/* El 4R cobra distinto con 1-2, 3 o 4 noches: no es una estancia
+                  mínima, es el tramo que toca por las noches del viaje. */}
+              <dt>{tramosDistintos ? "Tramo por noches" : "Estancia mínima"}</dt>
+              <dd>
+                {tramosDistintos ? `desde ${item.rate.minNights} noches` : `${item.rate.minNights} noches`}
+              </dd>
             </div>
           ) : null}
           <div>
@@ -3943,18 +3983,35 @@ function DetalleAlojamiento({
                 </tr>
               </thead>
               <tbody>
-                <tr className="cv__detsel">
+                <tr className={etiquetaAlumnos(item.rate) ? "cv__detsel" : undefined}>
                   <td>
-                    {nombreTarifa(item.rate)} <span className="cv__detchip">alumnos</span>
+                    {nombreTarifa(item.rate)}
+                    {etiquetaAlumnos(item.rate) ? (
+                      <>
+                        {" "}
+                        <span className="cv__detchip">{etiquetaAlumnos(item.rate)}</span>
+                      </>
+                    ) : null}
                   </td>
                   <td>{temporadaDe(item.rate)}</td>
                   <td>{item.rate.minNights || "—"}</td>
-                  <td className="cv__num">{euros(nAlumno)}</td>
+                  <td className="cv__num">{euros(precioDeTarifa(item.rate))}</td>
                 </tr>
                 {alternativasOrdenadas.map((r) => (
-                  <tr key={r.id} className={item.singleRate && r.id === item.singleRate.id ? "cv__detsel" : undefined}>
+                  <tr
+                    key={r.id}
+                    className={
+                      (item.singleRate && r.id === item.singleRate.id) || etiquetaAlumnos(r) ? "cv__detsel" : undefined
+                    }
+                  >
                     <td>
                       {nombreTarifa(r)}
+                      {etiquetaAlumnos(r) ? (
+                        <>
+                          {" "}
+                          <span className="cv__detchip">{etiquetaAlumnos(r)}</span>
+                        </>
+                      ) : null}
                       {item.singleRate && r.id === item.singleRate.id ? (
                         <>
                           {" "}

@@ -19,6 +19,7 @@ function precioDe(t: Pick<AccommodationRate, "pvpAmount" | "netSaleAmount">): nu
 
 function comoTarifa(t: AccommodationRate): TarifaDeHotel {
   return {
+    id: t.id,
     boardType: t.boardType,
     occupancyLabel: t.occupancyLabel,
     dateFrom: t.dateFrom || null,
