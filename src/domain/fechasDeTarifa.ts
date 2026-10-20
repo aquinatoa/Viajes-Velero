@@ -192,6 +192,21 @@ export function leerNombreDeTemporada(nombre: string | null | undefined): Lectur
   return r;
 }
 
+/** Los años de la tarifa: los de sus fechas guardadas o los que diga el nombre. */
+function aniosDeLaTarifa(t: TarifaConFechas): { desde: number; hasta: number } | null {
+  if (t.dateFrom && t.dateTo) return { desde: Number(dia(t.dateFrom).slice(0, 4)), hasta: Number(dia(t.dateTo).slice(0, 4)) };
+  const nombre = t.seasonName ?? "";
+  const rango = /(20\d{2})\s*[–-]\s*(\d{2,4})\b/.exec(nombre);
+  if (rango) {
+    const desde = Number(rango[1]);
+    const hasta = rango[2].length === 2 ? Number(rango[1].slice(0, 2) + rango[2]) : Number(rango[2]);
+    if (hasta >= desde) return { desde, hasta };
+  }
+  const sueltos = [...nombre.matchAll(/\b(20\d{2})\b/g)].map((m) => Number(m[1]));
+  if (sueltos.length) return { desde: Math.min(...sueltos), hasta: Math.max(...sueltos) };
+  return null;
+}
+
 /** Qué días vale la tarifa: fechas guardadas + lo que dice el nombre. */
 export function coberturaDeTarifa(t: TarifaConFechas): CoberturaDeTarifa {
   const nombre = leerNombreDeTemporada(t.seasonName);
@@ -219,6 +234,16 @@ export function coberturaDeTarifa(t: TarifaConFechas): CoberturaDeTarifa {
   const enSemana = (fecha: string) =>
     !nombre.diasSemana || nombre.diasSemana.has(new Date(`${dia(fecha)}T12:00:00Z`).getUTCDay());
 
+  // El año: «12/03-24/03» en el nombre no vale para cualquier año, sino para el
+  // de la tarifa (sus fechas guardadas, o el que diga el nombre: «2027»,
+  // «(2026–27)»). Sin esto un viaje de noviembre de 2026 casaba con 2027.
+  const anios = aniosDeLaTarifa(t);
+  const enSuAnio = (fecha: string) => {
+    if (!anios) return true;
+    const a = Number(fecha.slice(0, 4));
+    return anios.desde <= a && a <= anios.hasta;
+  };
+
   let dias = Infinity;
   if (delNombre) {
     dias =
@@ -234,6 +259,7 @@ export function coberturaDeTarifa(t: TarifaConFechas): CoberturaDeTarifa {
   return {
     vale: (fecha: string) => {
       if (!enSemana(fecha)) return false;
+      if (!enSuAnio(fecha)) return false;
       if (delNombre) return enNombre(fecha) || enFechasGuardadas(fecha);
       if (tieneFechas) return enFechasGuardadas(fecha);
       // Sin fechas en ningún sitio: solo el día de la semana, si lo dice.

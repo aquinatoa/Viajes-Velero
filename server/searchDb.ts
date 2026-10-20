@@ -706,6 +706,31 @@ export async function searchAccommodationsDb(
     return n.cubiertas > 0 || n.sinSaber;
   };
 
+  const sinTarifaParaLasFechas = (
+    alojamientoId: string,
+    elegida: { seasonName?: string | null; dateFrom?: Date | string | null; dateTo?: Date | string | null },
+  ) => {
+    if (!filters.dateFrom || !filters.dateTo) return [];
+    const todas = porAlojamiento.get(alojamientoId) ?? [];
+    const alguna = todas.some((o) => {
+      const n = nochesCubiertas(o.rate, filters.dateFrom, filters.dateTo);
+      return n.cubiertas > 0 || n.sinSaber;
+    });
+    if (alguna) return [];
+    const iso = (d: Date | string | null | undefined) =>
+      d ? (d instanceof Date ? d.toISOString() : String(d)).slice(0, 10).split("-").reverse().slice(0, 2).join("/") : "";
+    return [
+      {
+        clave: "fechas" as const,
+        que: "Sin tarifa para estas fechas",
+        estado: "no_cumple" as const,
+        detalle: `Su tarifa es de ${elegida.seasonName ?? "otra temporada"}${
+          elegida.dateFrom && elegida.dateTo ? ` (${iso(elegida.dateFrom)}–${iso(elegida.dateTo)})` : ""
+        }: pide precio al hotel`,
+      },
+    ];
+  };
+
   const noches =
     filters.dateFrom && filters.dateTo
       ? Math.max(
@@ -727,7 +752,8 @@ export async function searchAccommodationsDb(
         ...item,
         singleRate: tarifaIndividualHermana(item, individuales),
         // Lo que pidio el centro, comprobado contra ESTE alojamiento.
-        encaje: comprobar(
+        encaje: [
+          ...comprobar(
           {
             categoryRequested: filters.categoryRequested,
             boardType: filters.boardType,
@@ -759,7 +785,12 @@ export async function searchAccommodationsDb(
             noches,
             participantes: filters.participants ?? null,
           },
-        ),
+          ),
+          // Ninguna tarifa del hotel vale para estas fechas: sale con el precio
+          // de otra temporada. Que no entre en el podio con «Cumple…» (Canada
+          // Palace, Terra Àurea; revisión del 20/10/2026).
+          ...sinTarifaParaLasFechas(item.accommodation.id, item.rate),
+        ],
         suplementosHabitacion: suplementosPorHotel.get(item.accommodation.id) ?? {},
         alternativas: (porAlojamiento.get(item.accommodation.id) ?? [])
           .filter((otra) => otra.rate.id !== item.rate.id)

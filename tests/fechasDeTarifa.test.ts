@@ -113,5 +113,21 @@ prueba("Semana Santa es más específica que la temporada larga", () => {
   assert.ok(santa.dias < baja.dias);
 });
 
+prueba("las fechas del nombre valen para el año de la tarifa, no para cualquiera", () => {
+  const c = coberturaDeTarifa({
+    seasonName: "T. Media (T2: 12/03-24/03 · 05/06-18/06 · 06/09-25/09)",
+    dateFrom: "2027-03-12",
+    dateTo: "2027-03-24",
+  });
+  assert.equal(c.vale("2027-06-07"), true);
+  assert.equal(c.vale("2026-06-07"), false);
+  const viella = coberturaDeTarifa({ seasonName: "Junio · Septiembre 2027" });
+  assert.equal(viella.vale("2027-06-10"), true);
+  assert.equal(viella.vale("2026-06-10"), false);
+  const jaca = coberturaDeTarifa({ seasonName: "Única (2026–27) · Domingo a Jueves" });
+  assert.equal(jaca.vale("2026-11-12"), true);
+  assert.equal(jaca.vale("2028-03-14"), false);
+});
+
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);
 if (fallidas > 0) process.exit(1);

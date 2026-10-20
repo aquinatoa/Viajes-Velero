@@ -33,7 +33,8 @@ export type ClaveDeComprobacion =
   | "plazas"
   | "requisito"
   | "disponibilidad"
-  | "destino";
+  | "destino"
+  | "fechas";
 
 export interface Comprobacion {
   /** De qué es: la pantalla rehace «regimen» y «tope» con la estancia (20/10/2026). */

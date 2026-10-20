@@ -171,7 +171,7 @@ export interface SearchFilters {
 /** Una comprobación del alojamiento contra lo que pidió el centro. */
 export interface ComprobacionDeEncaje {
   /** De qué es: «regimen» y «tope» se rehacen en pantalla con la estancia. */
-  clave?: "categoria" | "regimen" | "tope" | "noches" | "plazas" | "requisito" | "disponibilidad" | "destino";
+  clave?: "categoria" | "regimen" | "tope" | "noches" | "plazas" | "requisito" | "disponibilidad" | "destino" | "fechas";
   que: string;
   estado: "cumple" | "no_cumple" | "no_consta";
   detalle?: string;
