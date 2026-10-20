@@ -2592,3 +2592,23 @@ Pendiente: F6 (destino sin hoteles), F16 (suplementos sin unidad en el PDF),
 C4 (viaje que cruza el fin de un periodo de actividad), P20 (decisión de
 Oravia); provincia/país/proveedor en P23; borrar `scripts/_tmp_act/` antes de
 subir (no está versionado).
+
+## 21/10/2026 · «Procede»: paquete 1 fusionado en el 2; el push a `main` lo hace Anthony
+
+- Anthony: «procede y dame correo para Ruth». `ruth-seguro` (paquete 1) NO era
+  ancestro de `ruth-19-10` (cherry-picks): lo fusioné en `ruth-19-10`
+  (`1278055`), 8 ficheros en conflicto resueltos quedándose con la rama de
+  trabajo (ya contenía lo del paquete 1 y más). `tsc` limpio, 40 suites en
+  verde; un solo «Cambiar nombre», una sola lupa.
+- El clasificador me bloquea `git push origin ruth-19-10:main` (Production
+  Deploy) también con orden expresa, e incluso `git push -u origin ruth-19-10`
+  (solo la rama, sin desplegar). **Anthony ejecuta:** `git push origin ruth-19-10:main`.
+- Después (yo, cuando me lo diga): comprobar `/api/health` (revisión
+  `1278055` o posterior), foto de producción con `foto.ts` (DATABASE_URL de
+  producción, solo lectura), republicar el Excel con
+  `ensayo-republicar.ts <excel> publicar https://presupuesto.oraviatravel.com .env.produccion`,
+  foto después y `comparar-fotos.ts`.
+- Correo para Ruth listo en `correo-ruth-21-10.md` (responde a su «¿cuándo
+  podemos contar con ello?» del 20/10 a las 12:17): enviar SOLO cuando esté en
+  producción y republicado. Reunión «Revisión viajes velero» jueves 22/10,
+  13:00, con Cristian.
