@@ -11,6 +11,9 @@ import { gratuidadDeProfesores } from "../src/domain/gratuidadDeActividad";
 import {
   avisosDeLaTarifa,
   edadDeEtiqueta,
+  esPorUnidad,
+  textoDeLaUnidad,
+  unidadDeTarifa,
   lineasPorDefecto,
   porAlumno,
   resumenDeLineas,
@@ -105,6 +108,47 @@ prueba("una tarifa por grupo de 8 no se multiplica por persona: tantos grupos co
   assert.equal(totalDeLineas(lineas), 684);
   const hora = [{ ...t("h", "1 hora (60 min)", 672), rateUnit: "PER_HOUR" }];
   assert.deepEqual(lineasPorDefecto(hora, 25, 2, null).map((l) => [l.rateId, l.cantidad]), [["h", 1]]);
+});
+
+prueba("la unidad escrita como venga en la revisión: «por persona» y «per_person» son por persona", () => {
+  // Producción, 21/10/2026: PortAventura («per_person») y Caribe («por persona»)
+  // salían como UNA entrada para todo el grupo.
+  for (const u of ["por persona", "per_person", "PER_PAX", "per pax", "per pax / day", "pax/actividad", "Por Persona"]) {
+    assert.equal(unidadDeTarifa(u), "PER_PAX", u);
+    assert.equal(esPorUnidad(u), false, u);
+  }
+  const caribe = [{ ...t("c", "Joven/Secundaria/Uni (12-17)", 17), rateUnit: "por persona" }];
+  assert.deepEqual(lineasPorDefecto(caribe, 25, 2, { min: 14, max: 15 }).map((l) => [l.rateId, l.cantidad]), [["c", 27]]);
+  const pa = [{ ...t("p", "Joven/Secundaria (12-17) · Entrada", 36), rateUnit: "per_person" }];
+  assert.equal(totalDeLineas(lineasPorDefecto(pa, 25, 2, { min: 14, max: 15 })), 27 * 36);
+  // Lo que no se entiende, por persona: nunca de menos.
+  assert.equal(unidadDeTarifa("xyz"), null);
+  assert.equal(esPorUnidad("xyz"), false);
+  assert.equal(esPorUnidad(null), false);
+  assert.equal(esPorUnidad("UNKNOWN"), false);
+});
+
+prueba("Miniestadi y compañía: «por equipo» es del grupo (Ricard, 21/10: «precio para la hora por el grupo»)", () => {
+  assert.equal(unidadDeTarifa("por equipo"), "PER_GROUP");
+  const mini = [{ ...t("m", "1 hora (60 min)", 672), rateUnit: "por equipo" }];
+  const lineas = lineasPorDefecto(mini, 25, 2, null);
+  assert.deepEqual(lineas.map((l) => [l.rateId, l.cantidad, l.precio]), [["m", 1, 672]]);
+  assert.equal(textoDeLaUnidad({ rateUnit: "por equipo" }), "por grupo");
+  for (const [u, codigo, texto] of [
+    ["por partido", "PER_SERVICE", "por partido"],
+    ["per match", "PER_SERVICE", "por servicio"],
+    ["servicio", "PER_SERVICE", "por servicio"],
+    ["per rental", "PER_SERVICE", "por servicio"],
+    ["per hour", "PER_HOUR", "por hora"],
+    ["per team", "PER_GROUP", "por grupo"],
+    ["por unidad", "PER_UNIT", "por unidad"],
+    ["per ball", "PER_UNIT", "por unidad"],
+    ["PER_GROUP", "PER_GROUP", "por grupo"],
+  ] as const) {
+    assert.equal(unidadDeTarifa(u), codigo, u);
+    assert.equal(esPorUnidad(u), true, u);
+    assert.equal(textoDeLaUnidad({ rateUnit: u }), texto, u);
+  }
 });
 
 prueba("la gratuidad del proveedor: los profesores gratis van en su línea a 0 €", () => {

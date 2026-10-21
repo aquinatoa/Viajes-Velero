@@ -45,22 +45,61 @@ export interface ContextoDelEsbozo {
   gratuidad?: GratuidadDeProfesores | null;
 }
 
-/** Una tarifa que no es por persona: por grupo, por hora, por día, por servicio. */
-export function esPorUnidad(rateUnit: string | null | undefined): boolean {
-  return Boolean(rateUnit) && rateUnit !== "PER_PAX" && rateUnit !== "UNKNOWN";
+export type UnidadDeTarifa = "PER_PAX" | "PER_GROUP" | "PER_HOUR" | "PER_DAY" | "PER_SERVICE" | "PER_UNIT";
+
+/**
+ * La unidad de la tarifa como código, se haya guardado como se haya guardado.
+ *
+ * La revisión de cada documento la escribe a su manera: «por persona»,
+ * «per_person», «per pax / day», «por equipo», «per match»… Al publicar la
+ * unidad (20/10/2026) llegaron tal cual, y «por persona» no era «PER_PAX»: las
+ * 386 entradas de PortAventura y Caribe se esbozaban como UNA entrada para
+ * todo el grupo. Lo que no se reconoce cuenta como por persona, que es lo que
+ * se hacía antes de tener la unidad: nunca se cobra de menos por no entenderla.
+ */
+export function unidadDeTarifa(rateUnit: string | null | undefined): UnidadDeTarifa | null {
+  const u = String(rateUnit ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[_/]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!u || u === "unknown") return null;
+  if (["per pax", "per group", "per hour", "per day", "per service", "per unit"].includes(u)) {
+    return `PER_${u.slice(4).toUpperCase()}` as UnidadDeTarifa;
+  }
+  if (/\b(persona|personas|person|pax|alumno|alumnos|jugador|jugadores|participante|participantes|player)\b/.test(u)) return "PER_PAX";
+  if (/\b(equipo|team|grupo|group)\b/.test(u)) return "PER_GROUP";
+  if (/\b(hora|horas|hour|hours|h)\b/.test(u)) return "PER_HOUR";
+  if (/\b(dia|dias|day|days|jornada)\b/.test(u)) return "PER_DAY";
+  if (/\b(servicio|service|sesion|session|partido|match|alquiler|rental|actividad|activity)\b/.test(u)) return "PER_SERVICE";
+  if (/\b(unidad|unit|bolsa|bag|balon|ball|botella|bottle|ticket|pack|bici|bike|semana|week)\b/.test(u)) return "PER_UNIT";
+  return null;
 }
 
-/** «por persona», «por grupo de 8», «por hora»… */
+/** Una tarifa que no es por persona: por grupo, por hora, por día, por servicio, por unidad. */
+export function esPorUnidad(rateUnit: string | null | undefined): boolean {
+  const u = unidadDeTarifa(rateUnit);
+  return u !== null && u !== "PER_PAX";
+}
+
+/** «por persona», «por grupo de 8», «por hora», «por partido»… */
 export function textoDeLaUnidad(t: Pick<TarifaElegible, "rateUnit" | "minPax" | "maxPax">): string {
-  switch (t.rateUnit) {
+  const unidad = unidadDeTarifa(t.rateUnit);
+  // Si el documento ya lo dice en castellano («por partido»), se respeta.
+  const propio = /^por\s+\S/i.test(String(t.rateUnit ?? "").trim()) ? String(t.rateUnit).trim().toLowerCase() : null;
+  switch (unidad) {
     case "PER_GROUP":
       return t.maxPax ? `por grupo de ${t.maxPax}` : "por grupo";
     case "PER_HOUR":
       return "por hora";
     case "PER_DAY":
-      return "por día";
+      return propio ?? "por día";
     case "PER_SERVICE":
-      return "por servicio";
+      return propio ?? "por servicio";
+    case "PER_UNIT":
+      return propio ?? "por unidad";
     default:
       return "por persona";
   }
@@ -208,7 +247,7 @@ export function lineasPorDefecto(
   if (unidad) {
     const personas = alumnos + profesores;
     const cantidad =
-      unidad.rateUnit === "PER_GROUP" && unidad.maxPax && personas > 0 ? Math.ceil(personas / unidad.maxPax) : 1;
+      unidadDeTarifa(unidad.rateUnit) === "PER_GROUP" && unidad.maxPax && personas > 0 ? Math.ceil(personas / unidad.maxPax) : 1;
     return [{ rateId: unidad.id, etiqueta: unidad.ageLabel || textoDeLaUnidad(unidad), precio: unidad.salePvpAmount, cantidad }];
   }
 
