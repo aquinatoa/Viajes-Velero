@@ -2654,8 +2654,10 @@ la subida).
   hora, día, servicio/partido/alquiler, unidad/balón/bolsa… Lo desconocido,
   por persona (nunca de menos). Miniestadi («por equipo») → 1 × 672 € por
   grupo, que es lo que dijo Ricard.
-- **Pendiente: push** (`git push origin ruth-19-10:main`) — lo tiene que
-  escribir Anthony.
+- **Subido**: producción en `e0d5d37` (21/10, 11:23). Comprobado con las
+  tarifas de producción y el código desplegado (`scripts/_tmp_act/esbozo-prod.ts`):
+  PortAventura 25 × 45 + 2 × 54 = 1.233 €; Caribe 25 × 17 + 2 × 23 = 471 €;
+  Miniestadi 1 × 672 € por grupo; Bubble 4 × 171 €; Partido amistoso 1 × 179 €.
 - Lección: el ensayo local no lo cazó porque la revisión local de actividades
   estaba vacía (la migración no rellenó nada). Antes de subir una migración que
   copia datos de la revisión, mirar qué valores tiene la revisión de PRODUCCIÓN
