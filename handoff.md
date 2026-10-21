@@ -2632,3 +2632,31 @@ subir (no está versionado).
 - Falta: enviar el correo a Ruth (ya es verdad todo lo que dice), que Oravia
   lo pruebe, y la reunión del jueves. Los scripts de `scripts/_tmp_act/`
   siguen sin versionar.
+
+## 21/10/2026 (mañana) · Respuestas de Oravia y un fallo en producción
+
+Correo enviado a Ruth a las 08:00. Respuestas:
+- Javier (08:19): pone en copia a Ricard García (rgarcia@oraviatravel.com)
+  para el Miniestadi. (08:20): «El jueves a las 13.00 perfecto».
+- Ricard (09:02): **Miniestadi = precio de la hora para el grupo.**
+- Sin respuesta aún: Terra Àurea desde junio, calendario del Roulette, las 43
+  condiciones de actividades.
+
+**Fallo en producción desde el despliegue de las 01:12:** la migración de la
+unidad de actividad copió la unidad de la revisión tal cual: «por persona»
+(246), «per_person» (140), «por equipo», «per match»… y el cálculo solo
+entendía `PER_PAX` como por persona. PortAventura y Caribe se esbozaban como
+UNA entrada para todo el grupo. Comprobado por la búsqueda de producción.
+Ninguna propuesta afectada (última del 19/10; ningún borrador tocado desde
+la subida).
+- Arreglo: `unidadDeTarifa()` en `lineasDeActividad.ts` (commit `968e4e0`):
+  todo lo que diga persona/pax/jugador → por persona; equipo/grupo → grupo;
+  hora, día, servicio/partido/alquiler, unidad/balón/bolsa… Lo desconocido,
+  por persona (nunca de menos). Miniestadi («por equipo») → 1 × 672 € por
+  grupo, que es lo que dijo Ricard.
+- **Pendiente: push** (`git push origin ruth-19-10:main`) — lo tiene que
+  escribir Anthony.
+- Lección: el ensayo local no lo cazó porque la revisión local de actividades
+  estaba vacía (la migración no rellenó nada). Antes de subir una migración que
+  copia datos de la revisión, mirar qué valores tiene la revisión de PRODUCCIÓN
+  (por la API: `scripts/_tmp_act/unidades-prod.ts`).
