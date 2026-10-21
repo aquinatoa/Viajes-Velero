@@ -2658,6 +2658,17 @@ la subida).
   tarifas de producción y el código desplegado (`scripts/_tmp_act/esbozo-prod.ts`):
   PortAventura 25 × 45 + 2 × 54 = 1.233 €; Caribe 25 × 17 + 2 × 23 = 471 €;
   Miniestadi 1 × 672 € por grupo; Bubble 4 × 171 €; Partido amistoso 1 × 179 €.
+- Informe (`INFORME-revision-local-2026-10-15.html`) al día el 21/10: título
+  «Pendientes y solicitudes de Oravia», R8–R13 en producción, revisión de
+  tarifas con P24, propuesta de horas hasta el 21/10 (40:30 h) y pestaña nueva
+  **«Tiempo empleado»**: día a día, lo registrado en Projects (con la fecha en
+  que se registró) frente al rastro de trabajo (sesiones en la carpeta/repo de
+  Oravia, commits, correos, reuniones), con «¿Imputar?» por día (localStorage)
+  y CSV. Datos en `INFORME-tiempo-empleado-datos.js`; se rehace con
+  `scripts/_tmp_act/tiempo-dia-a-dia.py <repo> <partes.json> <salida.json>`
+  (partes leídos con `CRM Studio/scratchpad/neointec-projects.mjs`,
+  `ZohoProjects_get_time_logs_by_portal`, módulo task, filtro por proyecto
+  183354000026035025). Anthony: **no imputar**; decide él con esta vista.
 - Lección: el ensayo local no lo cazó porque la revisión local de actividades
   estaba vacía (la migración no rellenó nada). Antes de subir una migración que
   copia datos de la revisión, mirar qué valores tiene la revisión de PRODUCCIÓN
