@@ -2704,3 +2704,15 @@ Adjunto de Ruth descargado (solo lectura) con `scratchpad/bajar-adjunto.py`.
 Para producción: push de `reunion-22-10` (lo hace Anthony) y luego republicar
 el PDF de PortAventura con `ensayo-republicar.ts` (OBJETIVO=ACTIVITY,
 NOMBRE_DOC, LOCALIDAD_DOC="Vila-seca / Salou") contra producción.
+
+### 22/10/2026 · Subido: producción en `8edd1ba` y PortAventura con condiciones
+
+- Push con la orden literal de Anthony: `e0d5d37..8edd1ba`. Desplegado 11:32.
+- PortAventura cargado en producción con el lector nuevo: documento
+  `cmvjceiru0006fhgpkm4peqid` «PortAventura · Entradas grupos parques 2027 ·
+  con condiciones». Sustituye las 8 actividades del documento de septiembre.
+  Antes/después: 386 → 386, 0 precios distintos; 13 condiciones por
+  actividad. Esbozo de Salou (25 escolares + 2 profesores): profesores a 0 €.
+- Pendiente para la reunión: las 80 condiciones de actividades (14
+  gratuidades a aprobar; pago y «condiciones generales» según Ruth) y pedir el
+  calendario A–F de hoteles PortAventura.
