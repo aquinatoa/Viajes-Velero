@@ -2673,3 +2673,34 @@ la subida).
   estaba vacía (la migración no rellenó nada). Antes de subir una migración que
   copia datos de la revisión, mirar qué valores tiene la revisión de PRODUCCIÓN
   (por la API: `scripts/_tmp_act/unidades-prod.ts`).
+
+## 22/10/2026 · Preparación de la reunión de las 13:00 (rama `reunion-22-10`, SIN SUBIR)
+
+Correo de Ruth del 21/10 (17:10). Todo en `reunion-22-10` (desde `e0d5d37`),
+pruebas en verde; pestaña «Reunión 22/10» del informe con el guion.
+
+1. **Profesores y chófer en varias habitaciones** (petición nueva, extra):
+   `ComposicionDeLaEstancia.profesoresOtros/choferOtros`; desglose con una
+   entrada por habitación; lector del desglose con `profesoresGrupos/
+   choferGrupos`; Servicios Contratados una fila por habitación con su coste
+   (`costsJson.profesores/choferes`, `costesDelTramo`). Panel «+ Otra
+   habitación». Commit `1b7caf3`.
+2. **«No se cargaban todas las modalidades»**: las 386 tarifas estaban (cruce
+   celda a celda con su PDF). Faltaban TODAS las condiciones → lector propio
+   `server/tarifasPortAventura.ts` (tabla por posición con pdfjs + 13
+   condiciones) y ventana de la actividad agrupada por modalidad. Ensayado en
+   LOCAL (documento «PortAventura · Entradas grupos parques 2027 · con
+   condiciones»): mismas 386, 2 profesores gratis con 25 escolares. Commit
+   `bd7f392`. Su PDF = el original + bloque «Reservas».
+3. **Roulette A–F**: su PDF no lo trae (es el de parques, A–D). Pedirle el
+   calendario de hoteles PortAventura 2027.
+4. **Condiciones de actividades**: 80 pendientes (no 43), 7 textos: 14
+   gratuidades (Jumpland, Balfegó) → aprobar; 34 pago 30/70 (C.N. Salou) y 9
+   pago 50/50 (Jumpland) → su criterio; 23 «condiciones generales de Oravia»
+   (C.N. Cambrils, Jumpland) → preguntar (aprobó en Beach Sea Venture,
+   rechazó en Bosc Aventura). Datos: `scripts/_tmp_act/condiciones-pendientes.ts`.
+
+Adjunto de Ruth descargado (solo lectura) con `scratchpad/bajar-adjunto.py`.
+Para producción: push de `reunion-22-10` (lo hace Anthony) y luego republicar
+el PDF de PortAventura con `ensayo-republicar.ts` (OBJETIVO=ACTIVITY,
+NOMBRE_DOC, LOCALIDAD_DOC="Vila-seca / Salou") contra producción.
