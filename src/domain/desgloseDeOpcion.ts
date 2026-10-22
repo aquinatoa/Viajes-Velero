@@ -20,15 +20,23 @@ export interface ParteDelDesglose {
   precio: number;
 }
 
+export type ParteDeAcompanantes = ParteDelDesglose & {
+  individual: boolean;
+  habitacion: "INDIVIDUAL" | "DOBLE" | "MULTIPLE";
+  regimen?: string | null;
+};
+
 export interface TramoDelDesglose {
   /** «MP», «PC»… cuando la estancia mezcla pensiones; null si es una sola. */
   regimen: string | null;
   noches: number;
   alumnos: ParteDelDesglose;
-  profesores:
-    | (ParteDelDesglose & { individual: boolean; habitacion: "INDIVIDUAL" | "DOBLE" | "MULTIPLE"; regimen?: string | null })
-    | null;
+  /** El primer grupo de profesores (con un solo tipo de habitación, todos). */
+  profesores: ParteDeAcompanantes | null;
   chofer: (ParteDelDesglose & { habitacion: "INDIVIDUAL" | "DOBLE" | "MULTIPLE"; regimen?: string | null }) | null;
+  /** Todos los grupos: profesores o chóferes repartidos en varias habitaciones (21/10/2026). */
+  profesoresGrupos?: ParteDeAcompanantes[];
+  choferGrupos?: ParteDeAcompanantes[];
 }
 
 /** «uso individual, PC» → «PC»: la pensión propia, si la lleva. */
@@ -66,29 +74,24 @@ function leerTramo(segmento: string): TramoDelDesglose | null {
   const alumnos = /([\d.]+,\d{2}) € x (\d+) alumnos(?: \(([^)]*)\))?/.exec(segmento);
   const noches = /por noche x (\d+) noche/.exec(segmento);
   if (!alumnos || !noches) return null;
-  const profesores = /([\d.]+,\d{2}) € x (\d+) profesores \(([^)]*)\)/.exec(segmento);
-  const chofer = /([\d.]+,\d{2}) € x (\d+) chófer \(([^)]*)\)/.exec(segmento);
+  const grupos = (quien: "profesores" | "chófer"): ParteDeAcompanantes[] =>
+    [...segmento.matchAll(new RegExp(`([\\d.]+,\\d{2}) € x (\\d+) ${quien} \\(([^)]*)\\)`, "g"))].map((m) => ({
+      pax: Number(m[2]),
+      precio: importeDesdeTexto(m[1]) ?? 0,
+      individual: quien === "profesores" ? /uso individual/i.test(m[3]) : /individual/i.test(m[3]),
+      habitacion: habitacionDe(m[3]),
+      regimen: regimenPropio(m[3]),
+    }));
+  const profesores = grupos("profesores");
+  const chofer = grupos("chófer");
   return {
     regimen: regimen ? regimen[1] : null,
     noches: Number(noches[1]),
     alumnos: { pax: Number(alumnos[2]), precio: importeDesdeTexto(alumnos[1]) ?? 0 },
-    profesores: profesores
-      ? {
-          pax: Number(profesores[2]),
-          precio: importeDesdeTexto(profesores[1]) ?? 0,
-          individual: /uso individual/i.test(profesores[3]),
-          habitacion: habitacionDe(profesores[3]),
-          regimen: regimenPropio(profesores[3]),
-        }
-      : null,
-    chofer: chofer
-      ? {
-          pax: Number(chofer[2]),
-          precio: importeDesdeTexto(chofer[1]) ?? 0,
-          habitacion: habitacionDe(chofer[3]),
-          regimen: regimenPropio(chofer[3]),
-        }
-      : null,
+    profesores: profesores[0] ?? null,
+    chofer: chofer[0] ? { pax: chofer[0].pax, precio: chofer[0].precio, habitacion: chofer[0].habitacion, regimen: chofer[0].regimen } : null,
+    ...(profesores.length > 1 ? { profesoresGrupos: profesores } : {}),
+    ...(chofer.length > 1 ? { choferGrupos: chofer } : {}),
   };
 }
 

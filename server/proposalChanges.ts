@@ -21,7 +21,7 @@ import { importeDe } from "../src/domain/importe";
 import { PrismaClient } from "@prisma/client";
 import { searchAccommodationsDb } from "./searchDb";
 import { estanciaDeHotel } from "../src/services/estanciaDeHotel";
-import { COMPOSICION_POR_DEFECTO, textoDelDesglose, type ComposicionDeLaEstancia } from "../src/domain/estancia";
+import { COMPOSICION_POR_DEFECTO, costesDelTramo, textoDelDesglose, type ComposicionDeLaEstancia } from "../src/domain/estancia";
 
 const prisma = new PrismaClient();
 
@@ -239,7 +239,7 @@ export async function previewChange(
         desgloseAhora: estancia ? textoDelDesglose(estancia, nuevoParticipantes ?? 0, nuevoTeachers ?? 0, estancia.chofer) : null,
         regimenesAhora: estancia?.regimenes ?? null,
         costsJsonAhora: estancia
-          ? JSON.stringify(estancia.tramos.map((t) => ({ alumno: t.alumno.coste ?? null, profesor: t.profesor.coste ?? null, chofer: t.chofer?.coste ?? null })))
+          ? JSON.stringify(estancia.tramos.map((t) => costesDelTramo(t, nuevoParticipantes ?? 0, nuevoTeachers ?? 0, estancia.chofer)))
           : null,
         costeAlumnoAhora: estancia?.tramos[0]?.alumno.coste ?? null,
         costeProfesorAhora: estancia?.tramos[0]?.profesor.coste ?? null,

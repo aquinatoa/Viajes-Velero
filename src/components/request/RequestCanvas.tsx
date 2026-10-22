@@ -3900,11 +3900,19 @@ function DetalleAlojamiento({
   const totalAlumnos = item.estancia
     ? item.estancia.noches.reduce((s, n) => s + n.alumno.precio, 0) * alumnos
     : nAlumno * alumnos * dias;
+  // Profesores y chóferes repartidos en varias habitaciones (21/10/2026): los
+  // de la habitación principal y, aparte, cada grupo con su precio.
+  const profesoresOtros = item.estancia?.noches[0]?.profesoresOtros ?? [];
+  const choferOtros = item.estancia?.noches[0]?.choferOtros ?? [];
+  const profesoresAqui = Math.max(profesores - profesoresOtros.reduce((s, g) => s + g.cantidad, 0), 0);
+  const choferAqui = Math.max((item.estancia?.chofer ?? 0) - choferOtros.reduce((s, g) => s + g.cantidad, 0), 0);
+  const totalDeGrupos = (clave: "profesoresOtros" | "choferOtros") =>
+    (item.estancia?.noches ?? []).reduce((s, n) => s + (n[clave] ?? []).reduce((a, g) => a + g.precio * g.cantidad, 0), 0);
   const totalProfesores = item.estancia
-    ? item.estancia.noches.reduce((s, n) => s + n.profesor.precio, 0) * profesores
+    ? item.estancia.noches.reduce((s, n) => s + n.profesor.precio, 0) * profesoresAqui + totalDeGrupos("profesoresOtros")
     : nProfesor * profesores * dias;
   const totalChofer = item.estancia
-    ? item.estancia.noches.reduce((s, n) => s + (n.chofer?.precio ?? 0), 0) * item.estancia.chofer
+    ? item.estancia.noches.reduce((s, n) => s + (n.chofer?.precio ?? 0), 0) * choferAqui + totalDeGrupos("choferOtros")
     : 0;
   const total = totalAlumnos + totalProfesores + totalChofer;
   // Con temporadas o pensiones distintas, cada noche tiene su precio: «38,12 €
@@ -3921,9 +3929,9 @@ function DetalleAlojamiento({
     return `(${grupos.map((g) => `${g.noches} ${g.noches === 1 ? "noche" : "noches"} a ${euros(g.precio)}`).join(" + ")}) × ${personas}`;
   };
   const tramosAlumno = item.estancia ? porPrecio(item.estancia.noches.map((n) => n.alumno.precio), alumnos) : null;
-  const tramosProfesor = item.estancia ? porPrecio(item.estancia.noches.map((n) => n.profesor.precio), profesores) : null;
+  const tramosProfesor = item.estancia ? porPrecio(item.estancia.noches.map((n) => n.profesor.precio), profesoresAqui) : null;
   const tramosChofer = item.estancia
-    ? porPrecio(item.estancia.noches.map((n) => n.chofer?.precio ?? 0), item.estancia.chofer)
+    ? porPrecio(item.estancia.noches.map((n) => n.chofer?.precio ?? 0), choferAqui)
     : null;
   const variasPensiones = item.estancia ? new Set(item.estancia.noches.map((n) => n.regimen)).size > 1 : false;
 
@@ -3953,8 +3961,10 @@ function DetalleAlojamiento({
   const nochesPorTarifaDe = (quien: "profesor" | "chofer") => {
     const m = new Map<string, number>();
     for (const n of item.estancia?.noches ?? []) {
-      const p = quien === "profesor" ? n.profesor : n.chofer;
-      if (p?.tarifaId && p.tarifaId !== n.alumno.tarifaId) m.set(p.tarifaId, (m.get(p.tarifaId) ?? 0) + 1);
+      const principal = quien === "profesor" ? (profesoresAqui > 0 ? n.profesor : null) : choferAqui > 0 ? n.chofer : null;
+      const grupos = quien === "profesor" ? (n.profesoresOtros ?? []) : (n.choferOtros ?? []);
+      const ids = new Set([principal, ...grupos].map((p) => p?.tarifaId).filter((id): id is string => Boolean(id) && id !== n.alumno.tarifaId));
+      for (const id of ids) m.set(id, (m.get(id) ?? 0) + 1);
     }
     return m;
   };
@@ -4048,9 +4058,23 @@ function DetalleAlojamiento({
               {item.estancia && item.estancia.noches[0]
                 ? [
                     `alumnos en ${item.rate.occupancyLabel || "la de la tarifa"}`,
-                    profesores > 0 ? `profesores en ${item.estancia.noches[0].profesor.como}` : "",
-                    item.estancia.chofer > 0 && item.estancia.noches[0].chofer
-                      ? `${item.estancia.chofer === 1 ? "chófer" : "chóferes"} en ${item.estancia.noches[0].chofer.como}`
+                    profesores > 0
+                      ? profesoresOtros.length
+                        ? `profesores: ${[
+                            ...(profesoresAqui > 0 ? [`${profesoresAqui} en ${item.estancia.noches[0].profesor.como}`] : []),
+                            ...profesoresOtros.map((g) => `${g.cantidad} en ${g.como}`),
+                          ].join(" y ")}`
+                        : `profesores en ${item.estancia.noches[0].profesor.como}`
+                      : "",
+                    item.estancia.chofer > 0
+                      ? choferOtros.length
+                        ? `chóferes: ${[
+                            ...(choferAqui > 0 && item.estancia.noches[0].chofer ? [`${choferAqui} en ${item.estancia.noches[0].chofer.como}`] : []),
+                            ...choferOtros.map((g) => `${g.cantidad} en ${g.como}`),
+                          ].join(" y ")}`
+                        : item.estancia.noches[0].chofer
+                          ? `${item.estancia.chofer === 1 ? "chófer" : "chóferes"} en ${item.estancia.noches[0].chofer.como}`
+                          : ""
                       : "",
                   ]
                     .filter(Boolean)
@@ -4097,11 +4121,11 @@ function DetalleAlojamiento({
               </td>
               <td className="cv__num">{euros(totalAlumnos)}</td>
             </tr>
-            {profesores > 0 ? (
+            {profesores > 0 && (profesoresAqui > 0 || !item.estancia) ? (
               <tr>
                 <th scope="row">Profesores</th>
                 <td>
-                  {tramosProfesor ?? `${euros(nProfesor)} × ${profesores} × ${dias} ${dias === 1 ? "noche" : "noches"}`}
+                  {tramosProfesor ?? `${euros(nProfesor)} × ${item.estancia ? profesoresAqui : profesores} × ${dias} ${dias === 1 ? "noche" : "noches"}`}
                   {/* Sin tarifa individual los profesores se cotizan al precio de
                       los alumnos. Callarlo es prometer una habitacion individual
                       que nadie ha tarifado. */}
@@ -4115,23 +4139,63 @@ function DetalleAlojamiento({
                       ? " · uso individual"
                       : " · sin tarifa individual: mismo precio"}
                 </td>
-                <td className="cv__num">{euros(totalProfesores)}</td>
+                <td className="cv__num">
+                  {euros(
+                    profesoresOtros.length && item.estancia
+                      ? item.estancia.noches.reduce((s, n) => s + n.profesor.precio, 0) * profesoresAqui
+                      : totalProfesores,
+                  )}
+                </td>
               </tr>
             ) : null}
-            {item.estancia && item.estancia.chofer > 0 ? (
+            {item.estancia
+              ? profesoresOtros.map((g, i) => {
+                  const precios = item.estancia!.noches.map((n) => n.profesoresOtros?.[i]?.precio ?? 0);
+                  return (
+                    <tr key={`prof-${i}`}>
+                      <th scope="row">Profesores</th>
+                      <td>
+                        {porPrecio(precios, g.cantidad) ?? `${euros(precios[0] ?? 0)} × ${g.cantidad} × ${dias} ${dias === 1 ? "noche" : "noches"}`}
+                        {` · ${g.como}`}
+                        {g.regimen !== item.estancia!.noches[0]?.regimen ? `, ${etiquetaDeRegimen(g.regimen).toLowerCase()}` : ""}
+                      </td>
+                      <td className="cv__num">{euros(precios.reduce((s, p) => s + p, 0) * g.cantidad)}</td>
+                    </tr>
+                  );
+                })
+              : null}
+            {item.estancia && choferAqui > 0 ? (
               <tr>
                 <th scope="row">Chófer</th>
                 <td>
                   {tramosChofer ??
-                    `${euros(item.estancia.noches[0]?.chofer?.precio ?? 0)} × ${item.estancia.chofer} × ${dias} ${dias === 1 ? "noche" : "noches"}`}{" "}
+                    `${euros(item.estancia.noches[0]?.chofer?.precio ?? 0)} × ${choferAqui} × ${dias} ${dias === 1 ? "noche" : "noches"}`}{" "}
                   · {item.estancia.noches[0]?.chofer?.como}
                   {item.estancia.noches.some((n) => n.chofer && n.chofer.regimen !== n.regimen)
                     ? `, ${etiquetaDeRegimen(item.estancia.noches[0]?.chofer?.regimen ?? "").toLowerCase()}`
                     : ""}
                 </td>
-                <td className="cv__num">{euros(totalChofer)}</td>
+                <td className="cv__num">
+                  {euros(item.estancia.noches.reduce((s, n) => s + (n.chofer?.precio ?? 0), 0) * choferAqui)}
+                </td>
               </tr>
             ) : null}
+            {item.estancia
+              ? choferOtros.map((g, i) => {
+                  const precios = item.estancia!.noches.map((n) => n.choferOtros?.[i]?.precio ?? 0);
+                  return (
+                    <tr key={`chof-${i}`}>
+                      <th scope="row">Chófer</th>
+                      <td>
+                        {porPrecio(precios, g.cantidad) ?? `${euros(precios[0] ?? 0)} × ${g.cantidad} × ${dias} ${dias === 1 ? "noche" : "noches"}`}
+                        {` · ${g.como}`}
+                        {g.regimen !== item.estancia!.noches[0]?.regimen ? `, ${etiquetaDeRegimen(g.regimen).toLowerCase()}` : ""}
+                      </td>
+                      <td className="cv__num">{euros(precios.reduce((s, p) => s + p, 0) * g.cantidad)}</td>
+                    </tr>
+                  );
+                })
+              : null}
             {item.estancia && variasPensiones ? (
               <tr>
                 <th scope="row">Pensión</th>

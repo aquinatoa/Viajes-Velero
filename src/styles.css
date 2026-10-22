@@ -12502,6 +12502,30 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 .es input {
   width: 56px;
 }
+.es__otra {
+  padding-left: 18px;
+  border-left: 2px solid var(--border);
+}
+.es__anadir,
+.es__quitar {
+  justify-self: start;
+  border: 1px dashed var(--border-strong);
+  border-radius: 7px;
+  padding: 4px 10px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.es__quitar {
+  border-style: solid;
+}
+.es__anadir:hover,
+.es__quitar:hover {
+  border-color: var(--ink-2);
+  color: var(--ink);
+}
 .es__nota {
   margin: 0;
   font-size: 12px;

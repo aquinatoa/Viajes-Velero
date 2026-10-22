@@ -176,6 +176,8 @@ export interface FilaContratada {
   quien: "alumnos" | "profesores" | "chofer";
   /** El tramo de la estancia (0 si es uno solo) y si hay más de uno. */
   tramo?: number;
+  /** El grupo de profesores o chóferes, si van en varias habitaciones (0 = el primero). */
+  grupo?: number;
   variosTramos?: boolean;
   comentario: string;
   pax: number;
@@ -206,6 +208,9 @@ interface CosteDeTramo {
   alumno: number | null;
   profesor: number | null;
   chofer: number | null;
+  /** Con grupos en varias habitaciones: el coste de cada uno, en el orden del desglose. */
+  profesores?: Array<number | null>;
+  choferes?: Array<number | null>;
 }
 
 function costesDeTramos(json: string | null | undefined): CosteDeTramo[] | null {
@@ -230,7 +235,7 @@ function numeroONulo(valor: unknown): number | null {
  * precio. Un alojamiento ad hoc solo tiene el guardado.
  */
 export function costeDeLaFila(
-  fila: Pick<FilaContratada, "quien" | "precio" | "tramo" | "variosTramos">,
+  fila: Pick<FilaContratada, "quien" | "precio" | "tramo" | "variosTramos" | "grupo">,
   opcion: Pick<OpcionParaContratar, "studentCostAmount" | "teacherCostAmount" | "costsJson">,
   tarifas: Array<{ pvp: number | null; neto: number | null }>,
 ): number | null {
@@ -238,7 +243,14 @@ export function costeDeLaFila(
   const tramos = costesDeTramos(opcion.costsJson);
   if (tramos) {
     const t = tramos[fila.tramo ?? 0];
-    const delTramo = numeroONulo(fila.quien === "profesores" ? t?.profesor : fila.quien === "chofer" ? t?.chofer : t?.alumno);
+    const g = fila.grupo ?? 0;
+    const delTramo = numeroONulo(
+      fila.quien === "profesores"
+        ? (t?.profesores?.[g] ?? (g === 0 ? t?.profesor : null))
+        : fila.quien === "chofer"
+          ? (t?.choferes?.[g] ?? (g === 0 ? t?.chofer : null))
+          : t?.alumno,
+    );
     return delTramo ?? costeDelPrecio(fila.precio, tarifas);
   }
   // Propuestas de antes: el coste guardado era el de UNA tarifa. Solo vale si
@@ -291,6 +303,7 @@ export function filasDeLaOpcion(opcion: OpcionParaContratar): { filas: FilaContr
       pax: number,
       precio: number,
       regimenPropio: string | null | undefined,
+      grupo = 0,
     ): FilaContratada => {
       const regimen = regimenPropio || regimenGrupo;
       const corto = regimenCorto(regimen);
@@ -299,6 +312,7 @@ export function filasDeLaOpcion(opcion: OpcionParaContratar): { filas: FilaContr
       return {
         quien,
         tramo: numeroDeTramo,
+        ...(grupo > 0 ? { grupo } : {}),
         variosTramos: d.tramos.length > 1,
         comentario: `${etiqueta} EN ${tipo.toUpperCase()}${sufijo}`,
         pax,
@@ -312,14 +326,15 @@ export function filasDeLaOpcion(opcion: OpcionParaContratar): { filas: FilaContr
       };
     };
     filas.push(fila("alumnos", "ALUMNOS", "MULTIPLE", tramo.alumnos.pax, tramo.alumnos.precio, null));
-    if (tramo.profesores && tramo.profesores.pax > 0) {
-      filas.push(
-        fila("profesores", "PROFESORES", tramo.profesores.habitacion, tramo.profesores.pax, tramo.profesores.precio, tramo.profesores.regimen),
-      );
-    }
-    if (tramo.chofer && tramo.chofer.pax > 0) {
-      filas.push(fila("chofer", "CHÓFER", tramo.chofer.habitacion, tramo.chofer.pax, tramo.chofer.precio, tramo.chofer.regimen));
-    }
+    // Profesores y chóferes: una fila por habitación (Ruth, 21/10/2026).
+    const profesores = tramo.profesoresGrupos ?? (tramo.profesores ? [tramo.profesores] : []);
+    profesores.forEach((p, g) => {
+      if (p.pax > 0) filas.push(fila("profesores", "PROFESORES", p.habitacion, p.pax, p.precio, p.regimen, g));
+    });
+    const choferes = tramo.choferGrupos ?? (tramo.chofer ? [tramo.chofer] : []);
+    choferes.forEach((c, g) => {
+      if (c.pax > 0) filas.push(fila("chofer", "CHÓFER", c.habitacion, c.pax, c.precio, c.regimen, g));
+    });
   }
   return { filas, total: d.total };
 }

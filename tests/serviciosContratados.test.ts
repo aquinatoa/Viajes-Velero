@@ -321,5 +321,27 @@ prueba("propuestas de antes con varios tramos: el coste único no se reparte a c
   assert.deepEqual(r.filas.map((f) => costeDeLaFila(f, vieja, [])), [null, null]);
 });
 
+prueba("profesores y chóferes en varias habitaciones: una fila por habitación, con su coste", () => {
+  const texto =
+    "36,29 € x 50 alumnos + 63,51 € x 1 profesores (uso individual, suplemento +75 %) + 44,67 € x 2 profesores (en doble, suplemento +10 %, PC) + 63,51 € x 1 chófer (individual, suplemento +75 %) + 36,29 € x 1 chófer (en múltiple), por noche x 2 noches";
+  const r = filasDeLaOpcion(opcion(texto, "4.134,30 €", "MP"))!;
+  assert.deepEqual(
+    r.filas.map((f) => [f.quien, f.grupo ?? 0, f.comentario, f.pax, f.precio]),
+    [
+      ["alumnos", 0, "ALUMNOS EN MÚLTIPLE - MP", 50, 36.29],
+      ["profesores", 0, "PROFESORES EN INDIVIDUAL - MP", 1, 63.51],
+      ["profesores", 1, "PROFESORES EN DOBLE - PC", 2, 44.67],
+      ["chofer", 0, "CHÓFER EN INDIVIDUAL - MP", 1, 63.51],
+      ["chofer", 1, "CHÓFER EN MÚLTIPLE - MP", 1, 36.29],
+    ],
+  );
+  const suma = r.filas.reduce((n, f) => n + f.pax * f.precio * f.noches, 0);
+  assert.equal(Math.round(suma * 100) / 100, 4134.3);
+  // El coste de cada grupo sale de su sitio en costsJson.
+  const costsJson = JSON.stringify([{ alumno: 33.6, profesor: 58.8, chofer: 58.8, profesores: [58.8, 41.36], choferes: [58.8, 33.6] }]);
+  const cuesta = (i: number) => costeDeLaFila(r.filas[i], { costsJson }, []);
+  assert.deepEqual([0, 1, 2, 3, 4].map(cuesta), [33.6, 58.8, 41.36, 58.8, 33.6]);
+});
+
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);
 if (fallidas > 0) process.exit(1);

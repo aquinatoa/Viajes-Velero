@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 
 import {
   COMPOSICION_POR_DEFECTO,
+  costesDelTramo,
   precioDeLaEstancia,
   suplementosDeHabitacion,
   textoDelDesglose,
@@ -257,6 +258,59 @@ prueba("sábados siempre (Santa Mónica +15 %), ≤2 noches +20 % (Eurosalou), f
   assert.deepEqual(estancia(california, 2).noches.map((n) => n.alumno.precio), [110, 110]);
   const dentroDeLaExcepcion = precioDeLaEstancia({ fechaEntrada: "2027-06-14", noches: 2, alumnos: 10, profesores: 0, composicion: composicion({}), elegida: una[0], otras: [], suplementos: california });
   assert.deepEqual(dentroDeLaExcepcion.noches.map((n) => n.alumno.precio), [100, 100]);
+});
+
+prueba("profesores y chófer repartidos en varias habitaciones, cada una con su pensión (Ruth, 21/10)", () => {
+  // 4R, 23/03, 2 noches en MP (1-2 noches: 36,29 €). 3 profesores: 1 en individual
+  // (la principal) y 2 en doble con PC. 2 chóferes: 1 en individual y 1 en múltiple.
+  const comp = composicion({
+    profesores: { habitacion: "INDIVIDUAL", regimen: "" },
+    profesoresOtros: [{ cantidad: 2, habitacion: "DOBLE", regimen: "PC" }],
+    chofer: { cantidad: 2, habitacion: "INDIVIDUAL", regimen: "" },
+    choferOtros: [{ cantidad: 1, habitacion: "MULTIPLE", regimen: "" }],
+  });
+  const r = estancia(2, comp);
+  const n = r.noches[0];
+  assert.equal(n.profesor.precio, 63.51); // 36,29 × 1,75
+  assert.equal(n.profesoresOtros?.length, 1);
+  assert.equal(n.profesoresOtros?.[0].cantidad, 2);
+  assert.equal(n.profesoresOtros?.[0].regimen, "PC");
+  assert.equal(n.profesoresOtros?.[0].precio, 44.67); // PC 40,61 × 1,10
+  assert.equal(n.chofer?.precio, 63.51);
+  assert.equal(n.choferOtros?.[0].precio, 36.29);
+  // Total: 50 × 36,29 + 1 × 63,51 + 2 × 44,67 + 1 × 63,51 + 1 × 36,29, por 2 noches.
+  const esperado = Math.round((50 * 36.29 + 63.51 + 2 * 44.67 + 63.51 + 36.29) * 2 * 100) / 100;
+  assert.equal(r.total, esperado);
+  // El desglose: una entrada por habitación, y se lee igual.
+  const texto = textoDelDesglose(r, 50, 3, 2);
+  assert.match(texto, /63,51 € x 1 profesores \(uso individual, suplemento \+75 %\)/);
+  assert.match(texto, /44,67 € x 2 profesores \(en doble, suplemento \+10 %, PC\)/);
+  assert.match(texto, /63,51 € x 1 chófer/);
+  assert.match(texto, /36,29 € x 1 chófer \(en múltiple\)/);
+  const d = desgloseDeLaOpcion(texto, null)!;
+  assert.equal(d.tramos[0].profesoresGrupos?.length, 2);
+  assert.deepEqual(d.tramos[0].profesoresGrupos?.map((g) => [g.pax, g.precio, g.habitacion, g.regimen]), [
+    [1, 63.51, "INDIVIDUAL", null],
+    [2, 44.67, "DOBLE", "PC"],
+  ]);
+  assert.deepEqual(d.tramos[0].choferGrupos?.map((g) => [g.pax, g.habitacion]), [[1, "INDIVIDUAL"], [1, "MULTIPLE"]]);
+  // El coste de cada grupo, en el mismo orden.
+  const c = costesDelTramo(r.tramos[0], 50, 3, 2);
+  assert.equal(c.profesores?.length, 2);
+  assert.equal(c.choferes?.length, 2);
+});
+
+prueba("si todos los profesores van a otra habitación, la principal no sale; y no se pasa del total", () => {
+  const r = estancia(1, composicion({ profesoresOtros: [{ cantidad: 3, habitacion: "DOBLE", regimen: "" }, { cantidad: 2, habitacion: "MULTIPLE", regimen: "" }] }));
+  // Solo 3 profesores: los 3 en doble, el segundo grupo no cabe.
+  assert.deepEqual(r.noches[0].profesoresOtros?.map((g) => g.cantidad), [3]);
+  const texto = textoDelDesglose(r, 50, 3, 0);
+  assert.doesNotMatch(texto, /uso individual/);
+  assert.match(texto, /x 3 profesores \(en doble/);
+  // Sin reparto, el desglose de siempre.
+  const sin = estancia(1, composicion({}));
+  assert.equal(sin.noches[0].profesoresOtros, undefined);
+  assert.match(textoDelDesglose(sin, 50, 3, 0), /x 3 profesores \(uso individual/);
 });
 
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);

@@ -31,11 +31,25 @@ export interface Acompanantes {
   regimen: string;
 }
 
+/** Unos cuantos profesores (o chóferes) en otra habitación y con su pensión. */
+export interface GrupoDeAcompanantes extends Acompanantes {
+  cantidad: number;
+}
+
 export interface ComposicionDeLaEstancia {
   /** Una por noche, en orden. Vacío = todas con la pensión de la tarifa elegida. */
   regimenPorNoche: string[];
+  /** Los profesores que no van en otra habitación (los de `profesoresOtros`). */
   profesores: Acompanantes;
   chofer: Acompanantes & { cantidad: number };
+  /**
+   * Profesores en otras habitaciones (Ruth, 21/10/2026: «en algunos casos los
+   * profesores también pueden tener variedad de tipo de habitación»): 2 en
+   * doble con PC y 1 en individual con MP. Los demás van como `profesores`.
+   */
+  profesoresOtros?: GrupoDeAcompanantes[];
+  /** Lo mismo para los chóferes, si hay más de uno. */
+  choferOtros?: GrupoDeAcompanantes[];
 }
 
 export const COMPOSICION_POR_DEFECTO: ComposicionDeLaEstancia = {
@@ -333,12 +347,18 @@ export interface PrecioDePersona {
   coste?: number | null;
 }
 
+/** El precio de un grupo de profesores o chóferes en otra habitación. */
+export type PrecioDeGrupo = PrecioDePersona & { cantidad: number };
+
 export interface NocheDeLaEstancia {
   fecha: string;
   regimen: string;
   alumno: PrecioDePersona;
   profesor: PrecioDePersona;
   chofer: PrecioDePersona | null;
+  /** Los profesores y chóferes en otras habitaciones (ver `ComposicionDeLaEstancia`). */
+  profesoresOtros?: PrecioDeGrupo[];
+  choferOtros?: PrecioDeGrupo[];
   /** No hay tarifa del hotel para esa fecha: se ha puesto otra y se avisa. */
   sinTarifa?: boolean;
   /** Los suplementos del hotel aplicados a esa noche: «Sábado / víspera de festivo +25 %». */
@@ -352,6 +372,8 @@ export interface TramoDeLaEstancia {
   alumno: PrecioDePersona;
   profesor: PrecioDePersona;
   chofer: PrecioDePersona | null;
+  profesoresOtros?: PrecioDeGrupo[];
+  choferOtros?: PrecioDeGrupo[];
   /** Los suplementos de la noche, para decirlos en el desglose. */
   suplementos?: string[];
 }
@@ -420,6 +442,21 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
   const servicioAlumnos = claveDeServicio(e.elegida.includedService);
   const avisos = new Avisos();
   const cantidadChofer = Math.max(e.composicion.chofer?.cantidad ?? 0, 0);
+  // Los grupos en otras habitaciones, sin pasarse del total; los demás, en la principal.
+  const recortar = (grupos: GrupoDeAcompanantes[] | undefined, total: number): GrupoDeAcompanantes[] => {
+    const salida: GrupoDeAcompanantes[] = [];
+    let quedan = total;
+    for (const g of grupos ?? []) {
+      const n = Math.min(Math.max(Math.floor(g.cantidad || 0), 0), quedan);
+      if (n > 0) salida.push({ ...g, cantidad: n });
+      quedan -= n;
+    }
+    return salida;
+  };
+  const profesoresOtros = recortar(e.composicion.profesoresOtros, Math.max(e.profesores, 0));
+  const choferOtros = recortar(e.composicion.choferOtros, cantidadChofer);
+  const profesoresPrincipal = Math.max(e.profesores, 0) - profesoresOtros.reduce((s, g) => s + g.cantidad, 0);
+  const choferPrincipal = cantidadChofer - choferOtros.reduce((s, g) => s + g.cantidad, 0);
 
   /**
    * De unas tarifas candidatas, la que vale esa noche: primero las que dicen
@@ -608,17 +645,17 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
     const pensionChofer = codigoDePension(e.composicion.chofer?.regimen) || pension;
     // Sin profesores no se calcula ni se avisa nada de ellos.
     let profesor =
-      e.profesores > 0
+      profesoresPrincipal > 0
         ? persona(e.composicion.profesores.habitacion, pensionProfesores, fecha, "los profesores")
         : alumnoPrecio;
-    if (e.profesores > 0 && !Number.isFinite(profesor.precio) && pensionProfesores !== pension) {
+    if (profesoresPrincipal > 0 && !Number.isFinite(profesor.precio) && pensionProfesores !== pension) {
       avisos.porNoche(`sinpension-prof-${pensionProfesores}`, fecha, (cuando) =>
         `El hotel no tiene ${nombreDePension(pensionProfesores)} para ${cuando}: los profesores van en ${nombreDePension(pension)}.`,
       );
       profesor = persona(e.composicion.profesores.habitacion, pension, fecha, "los profesores");
     }
     let chofer: PrecioDePersona | null = null;
-    if (cantidadChofer > 0) {
+    if (choferPrincipal > 0) {
       chofer = persona(e.composicion.chofer.habitacion, pensionChofer, fecha, "el chófer");
       if (!Number.isFinite(chofer.precio) && pensionChofer !== pension) {
         avisos.porNoche(`sinpension-chofer-${pensionChofer}`, fecha, (cuando) =>
@@ -628,9 +665,23 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
       }
       chofer = conRespaldo(chofer);
     }
+    // Los grupos en otras habitaciones, con su pensión (y la del grupo si el hotel no la tiene).
+    const deGrupo = (g: GrupoDeAcompanantes, quien: "los profesores" | "el chófer"): PrecioDeGrupo => {
+      const suya = codigoDePension(g.regimen) || pension;
+      let p = persona(g.habitacion, suya, fecha, quien);
+      if (!Number.isFinite(p.precio) && suya !== pension) {
+        avisos.porNoche(`sinpension-${quien}-${suya}`, fecha, (cuando) =>
+          `El hotel no tiene ${nombreDePension(suya)} para ${cuando}: ${quien === "el chófer" ? "el chófer va" : "los profesores van"} en ${nombreDePension(pension)}.`,
+        );
+        p = persona(g.habitacion, pension, fecha, quien);
+      }
+      return { ...conRespaldo(p), cantidad: g.cantidad };
+    };
     // Los suplementos de sábado, fin de semana o estancia corta que trae el
     // documento, sobre el precio de cada persona esa noche.
     const noche: NocheDeLaEstancia = { fecha, regimen: pension, alumno: alumnoPrecio, profesor: conRespaldo(profesor), chofer, sinTarifa };
+    if (profesoresOtros.length) noche.profesoresOtros = profesoresOtros.map((g) => deGrupo(g, "los profesores"));
+    if (choferOtros.length) noche.choferOtros = choferOtros.map((g) => deGrupo(g, "el chófer"));
     const aplicadas = (e.suplementos.porNoche ?? []).filter((r) => reglaAplica(r, fecha, nochesTotales));
     if (aplicadas.length) {
       const aplicar = (p: PrecioDePersona): PrecioDePersona => {
@@ -646,6 +697,8 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
       noche.alumno = aplicar(noche.alumno);
       noche.profesor = aplicar(noche.profesor);
       if (noche.chofer) noche.chofer = aplicar(noche.chofer);
+      if (noche.profesoresOtros) noche.profesoresOtros = noche.profesoresOtros.map((g) => ({ ...aplicar(g), cantidad: g.cantidad }));
+      if (noche.choferOtros) noche.choferOtros = noche.choferOtros.map((g) => ({ ...aplicar(g), cantidad: g.cantidad }));
       noche.suplementos = aplicadas.map((r) => `${r.concepto} ${textoDeLaRegla(r)}`);
       for (const r of aplicadas) {
         avisos.porNoche(`sup-${r.concepto}`, fecha, (cuando) =>
@@ -677,21 +730,68 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
       ultimo.profesor.regimen === n.profesor.regimen &&
       (ultimo.chofer?.precio ?? null) === (n.chofer?.precio ?? null) &&
       (ultimo.chofer?.regimen ?? null) === (n.chofer?.regimen ?? null) &&
-      (ultimo.suplementos ?? []).join("|") === (n.suplementos ?? []).join("|");
+      (ultimo.suplementos ?? []).join("|") === (n.suplementos ?? []).join("|") &&
+      firmaDeGrupos(ultimo.profesoresOtros) === firmaDeGrupos(n.profesoresOtros) &&
+      firmaDeGrupos(ultimo.choferOtros) === firmaDeGrupos(n.choferOtros);
     if (igual) ultimo.noches += 1;
-    else tramos.push({ regimen: n.regimen, noches: 1, alumno: n.alumno, profesor: n.profesor, chofer: n.chofer, suplementos: n.suplementos });
+    else
+      tramos.push({
+        regimen: n.regimen,
+        noches: 1,
+        alumno: n.alumno,
+        profesor: n.profesor,
+        chofer: n.chofer,
+        suplementos: n.suplementos,
+        ...(n.profesoresOtros ? { profesoresOtros: n.profesoresOtros } : {}),
+        ...(n.choferOtros ? { choferOtros: n.choferOtros } : {}),
+      });
   }
 
   const porAlumno = redondear(noches.reduce((s, n) => s + n.alumno.precio, 0));
+  const deGrupos = (g: PrecioDeGrupo[] | undefined) => (g ?? []).reduce((s, x) => s + x.precio * x.cantidad, 0);
   const total = redondear(
     noches.reduce(
       (s, n) =>
-        s + n.alumno.precio * e.alumnos + n.profesor.precio * e.profesores + (n.chofer ? n.chofer.precio * cantidadChofer : 0),
+        s +
+        n.alumno.precio * e.alumnos +
+        n.profesor.precio * profesoresPrincipal +
+        (n.chofer ? n.chofer.precio * choferPrincipal : 0) +
+        deGrupos(n.profesoresOtros) +
+        deGrupos(n.choferOtros),
       0,
     ),
   );
   const regimenes = [...new Set(noches.map((n) => n.regimen).filter(Boolean))].join(" + ") || pensionBase;
   return { noches, tramos, porAlumno, total, avisos: avisos.lista(), regimenes };
+}
+
+/**
+ * El coste de un tramo como lo guarda la propuesta (`costsJson`): el de los
+ * alumnos y, por cada grupo de profesores o chóferes que sale en el desglose,
+ * el suyo, en el mismo orden.
+ */
+export function costesDelTramo(t: TramoDeLaEstancia, _alumnos: number, profesores: number, chofer: number) {
+  const enOtras = (g: PrecioDeGrupo[] | undefined) => (g ?? []).reduce((s, x) => s + x.cantidad, 0);
+  const profesoresCostes = [
+    ...(profesores - enOtras(t.profesoresOtros) > 0 ? [t.profesor.coste ?? null] : []),
+    ...(t.profesoresOtros ?? []).map((g) => g.coste ?? null),
+  ];
+  const choferCostes = [
+    ...(chofer - enOtras(t.choferOtros) > 0 && t.chofer ? [t.chofer.coste ?? null] : []),
+    ...(t.choferOtros ?? []).map((g) => g.coste ?? null),
+  ];
+  return {
+    alumno: t.alumno.coste ?? null,
+    profesor: profesoresCostes[0] ?? null,
+    chofer: choferCostes[0] ?? null,
+    ...(profesoresCostes.length > 1 ? { profesores: profesoresCostes } : {}),
+    ...(choferCostes.length > 1 ? { choferes: choferCostes } : {}),
+  };
+}
+
+/** Para comparar dos noches: los mismos grupos al mismo precio. */
+function firmaDeGrupos(g: PrecioDeGrupo[] | undefined): string {
+  return (g ?? []).map((x) => `${x.cantidad}|${x.precio}|${x.como}|${x.regimen}`).join("#");
 }
 
 function fechaCorta(iso: string): string {
@@ -710,14 +810,18 @@ const euros = (n: number) =>
  * «por noche x N noches».
  */
 export function textoDelDesglose(r: ResultadoDeLaEstancia, alumnos: number, profesores: number, chofer: number): string {
+  const enOtras = (g: PrecioDeGrupo[] | undefined) => (g ?? []).reduce((s, x) => s + x.cantidad, 0);
   const tramo = (t: TramoDeLaEstancia, conRegimen: boolean) => {
     const partes = [`${euros(t.alumno.precio)} x ${alumnos} alumnos${t.suplementos?.length ? ` (${t.suplementos.join(", ").replace(/[()]/g, "")})` : ""}`];
-    if (profesores > 0) {
-      partes.push(
-        `${euros(t.profesor.precio)} x ${profesores} profesores (${comoProfesor(t.profesor)}${t.profesor.regimen !== t.regimen ? `, ${t.profesor.regimen}` : ""})`,
-      );
+    const pension = (p: PrecioDePersona) => (p.regimen !== t.regimen ? `, ${p.regimen}` : "");
+    const profesoresAqui = profesores - enOtras(t.profesoresOtros);
+    if (profesoresAqui > 0) {
+      partes.push(`${euros(t.profesor.precio)} x ${profesoresAqui} profesores (${comoProfesor(t.profesor)}${pension(t.profesor)})`);
     }
-    if (chofer > 0 && t.chofer) partes.push(`${euros(t.chofer.precio)} x ${chofer} chófer (${comoProfesor(t.chofer).replace("uso individual", "individual")}${t.chofer.regimen !== t.regimen ? `, ${t.chofer.regimen}` : ""})`);
+    for (const g of t.profesoresOtros ?? []) partes.push(`${euros(g.precio)} x ${g.cantidad} profesores (${comoProfesor(g)}${pension(g)})`);
+    const choferAqui = chofer - enOtras(t.choferOtros);
+    if (choferAqui > 0 && t.chofer) partes.push(`${euros(t.chofer.precio)} x ${choferAqui} chófer (${comoProfesor(t.chofer).replace("uso individual", "individual")}${pension(t.chofer)})`);
+    for (const g of t.choferOtros ?? []) partes.push(`${euros(g.precio)} x ${g.cantidad} chófer (${comoProfesor(g).replace("uso individual", "individual")}${pension(g)})`);
     const noches = `por noche x ${t.noches} ${t.noches === 1 ? "noche" : "noches"}`;
     return `${conRegimen ? `${t.regimen}: ` : ""}${partes.join(" + ")}, ${noches}`;
   };

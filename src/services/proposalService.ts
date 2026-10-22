@@ -1,6 +1,6 @@
 import { porAlumno, totalDeLineas } from "../domain/lineasDeActividad";
 import { textoDelDescuento } from "../domain/descuentoDeActividad";
-import { textoDelDesglose } from "../domain/estancia";
+import { costesDelTramo, textoDelDesglose } from "../domain/estancia";
 import type {
   ApproveProposalInput,
   BuildProposalInput,
@@ -105,11 +105,7 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
           : costeDe(rate),
       costsJson: estancia
         ? JSON.stringify(
-            estancia.tramos.map((t) => ({
-              alumno: t.alumno.coste ?? null,
-              profesor: t.profesor.coste ?? null,
-              chofer: t.chofer?.coste ?? null,
-            })),
+            estancia.tramos.map((t) => costesDelTramo(t, participants, teachers, estancia.chofer)),
           )
         : null,
       supplierQuoteId: selected.cotizacionId ?? null,
