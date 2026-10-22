@@ -216,5 +216,19 @@ prueba("el resumen dice cada línea y el total", () => {
   assert.equal(resumenDeLineas([{ rateId: "a", etiqueta: "x", precio: 5, cantidad: 0 }]), "");
 });
 
+prueba("PortAventura: «1 profesor gratis por cada 10 escolares de pago» (lo que escribe su lector)", () => {
+  const g = gratuidadDeProfesores([
+    { policyType: "GRATUITY", policyText: "Gratuidades: 1 profesor gratis por cada 10 escolares de pago. Gratuidad para el chófer del autobús en PortAventura Park." },
+  ]);
+  assert.deepEqual([g?.tipo, g && "cada" in g ? g.cada : null], ["porCada", 10]);
+  const pa = [
+    { ...t("j", "Joven/Secundaria/Uni (12-17) · Entrada · Periodo B", 35), ageMin: 12, ageMax: 17 },
+    { ...t("a", "Adulto (18-59) · Entrada · Periodo B", 44), ageMin: 18, ageMax: 59 },
+  ];
+  const lineas = lineasPorDefecto(pa, 25, 2, { min: 14, max: 15 }, { gratuidad: g });
+  // 25 escolares: 2 profesores gratis, no se cobra ninguno.
+  assert.equal(totalDeLineas(lineas), 25 * 35);
+});
+
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);
 if (fallidas > 0) process.exit(1);

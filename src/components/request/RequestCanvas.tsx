@@ -22,7 +22,7 @@ import {
   textoDelDescuento,
   type DescuentoDeActividad,
 } from "../../domain/descuentoDeActividad";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   buildProposal,
   logCrmSyncAttempt,
@@ -4452,6 +4452,52 @@ function VentanaDeDetalle({
  * que tiene para este canal, con la elegida marcada. Antes la fila enseñaba un
  * precio sin decir de qué tarifa era, y PortAventura Park tiene 81.
  */
+/** «Adulto · Entrada + Ticket Plus · Periodo B» → «Entrada + Ticket Plus». */
+const MODALIDADES_DE_ENTRADA = ["Entrada", "Entrada + Ticket Plus", "Entrada + Ticket Plus + Express 10"];
+function modalidadDe(etiqueta: string | null | undefined): string | null {
+  const partes = (etiqueta ?? "").split(" · ").map((p) => p.trim());
+  return partes.find((p) => MODALIDADES_DE_ENTRADA.includes(p)) ?? null;
+}
+const ORDEN_DE_CATEGORIA = ["júnior", "primaria", "joven", "secundaria", "adulto", "sénior", "discapacidad"];
+/**
+ * Las tarifas en el orden en que se leen: por modalidad (Entrada, + Ticket
+ * Plus, + Express) y, dentro, por categoría (PROMO aparte) y periodo. Si la
+ * actividad no tiene modalidades, tal cual.
+ */
+function ordenarPorModalidad<T extends { ageLabel: string | null }>(tarifas: T[]): Array<{ r: T; cabecera: string | null }> {
+  if (!tarifas.some((r) => modalidadDe(r.ageLabel))) return tarifas.map((r) => ({ r, cabecera: null }));
+  const categoria = (r: T) => {
+    const e = (r.ageLabel ?? "").toLowerCase();
+    const i = ORDEN_DE_CATEGORIA.findIndex((c) => e.includes(c));
+    return (e.startsWith("promo") ? 100 : 0) + (i < 0 ? 50 : i);
+  };
+  const periodo = (r: T) => /periodo\s+([a-f])/i.exec(r.ageLabel ?? "")?.[1]?.toUpperCase() ?? "";
+  const ordenadas = [...tarifas].sort(
+    (a, b) =>
+      MODALIDADES_DE_ENTRADA.indexOf(modalidadDe(a.ageLabel) ?? "") - MODALIDADES_DE_ENTRADA.indexOf(modalidadDe(b.ageLabel) ?? "") ||
+      categoria(a) - categoria(b) ||
+      periodo(a).localeCompare(periodo(b)),
+  );
+  return ordenadas.map((r, i) => {
+    const m = modalidadDe(r.ageLabel);
+    return { r, cabecera: i === 0 || modalidadDe(ordenadas[i - 1].ageLabel) !== m ? (m ?? "Otras") : null };
+  });
+}
+/** Lo que dicen las condiciones del proveedor de esa modalidad (PortAventura: cuándo vale el Express). */
+function notaDeModalidad(modalidad: string, condiciones: Array<{ policyText: string }>): string | null {
+  const de = (patron: RegExp) => condiciones.find((c) => patron.test(c.policyText))?.policyText ?? null;
+  if (modalidad.includes("Express")) {
+    const c = de(/Express 10: sujeto a disponibilidad|únicamente son válidos/i);
+    const cuando = c ? /lunes a viernes[^.]*/i.exec(c)?.[0] : null;
+    return cuando ? `solo ${cuando.replace(/,\s*$/, "")}` : null;
+  }
+  if (modalidad.includes("Ticket Plus")) {
+    const c = de(/Ticket Plus: los paquetes/i);
+    return c ? "con un menú y una bebida por día de visita" : null;
+  }
+  return null;
+}
+
 function VentanaDeActividad({
   item,
   alumnos,
@@ -4564,11 +4610,21 @@ function VentanaDeActividad({
                       </tr>
                     </thead>
                     <tbody>
-                      {todas
-                        .filter((r) => r.salePvpAmount > 0)
-                        .map((r) => {
+                      {ordenarPorModalidad(todas.filter((r) => r.salePvpAmount > 0)).flatMap(({ r, cabecera }) => {
                           const cantidad = cantidadDe(r.id);
-                          return (
+                          const filas: ReactNode[] = [];
+                          if (cabecera) {
+                            const nota = notaDeModalidad(cabecera, item.activity.policies);
+                            filas.push(
+                              <tr key={`mod-${cabecera}`} className="cv__lineas-mod">
+                                <td colSpan={4}>
+                                  <b>{cabecera}</b>
+                                  {nota ? <small> · {nota}</small> : null}
+                                </td>
+                              </tr>,
+                            );
+                          }
+                          filas.push(
                             <tr key={r.id} className={cantidad > 0 ? "is-on" : undefined}>
                               <td>
                                 {r.ageLabel || "Tarifa única"}
@@ -4587,8 +4643,9 @@ function VentanaDeActividad({
                                 />
                               </td>
                               <td className="cv__lineas-n">{cantidad > 0 ? euros(r.salePvpAmount * cantidad) : "—"}</td>
-                            </tr>
+                            </tr>,
                           );
+                          return filas;
                         })}
                     </tbody>
                     {lineas

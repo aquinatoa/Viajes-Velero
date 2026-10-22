@@ -12634,3 +12634,16 @@ button.hilo__adjunto:hover {
 .hilo__pie {
   flex-wrap: wrap;
 }
+
+/* La modalidad de entrada como cabecera dentro de la tabla de tarifas (22/10/2026). */
+.cv__lineas tr.cv__lineas-mod td {
+  padding-top: 10px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  border-bottom: 1px solid var(--border);
+}
+.cv__lineas tr.cv__lineas-mod small {
+  font-weight: 400;
+  color: var(--muted);
+}
