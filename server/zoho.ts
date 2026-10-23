@@ -1,4 +1,4 @@
-import { CAMPOS_QUE_SE_PIDEN } from "./camposDelTrato";
+﻿import { CAMPOS_QUE_SE_PIDEN } from "./camposDelTrato";
 import "./loadEnv";
 import { departamentoDesdeCrm, type DepartamentoDelTrato } from "./tratosPorDepartamento";
 // El embudo vive en `crmPipeline`, que a su vez importa de aquí dos funciones.
@@ -536,6 +536,36 @@ async function createAccount(name: string) {
   return result.data?.[0]?.details?.id ?? null;
 }
 
+/**
+ * Si la cuenta que la app tenía guardada sigue viva en el CRM.
+ *
+ * La app guarda el id de la cuenta en la ficha del cliente para no duplicarla,
+ * pero en Zoho una cuenta se puede borrar. Le pasó a Ruth el 23/10/2026: borró
+ * «AMA GUADALUPEKOA 2027» el 19/10 y al cerrar la siguiente cotización Zoho
+ * rechazó el trato entero con «INVALID_DATA … Account_Name.id». Un id que ya no
+ * existe se descarta y la cuenta se resuelve por el nombre del centro.
+ *
+ * Zoho contesta 204 sin cuerpo a un id borrado y INVALID_DATA a uno que nunca
+ * fue suyo; los dos significan «no está». Cualquier otro fallo se propaga: no
+ * poder comprobarlo no es lo mismo que saber que no existe.
+ */
+export async function cuentaSigueEnElCrm(id: string): Promise<boolean> {
+  // Los ids de Zoho son números largos. Uno que no lo es («ZOHO-ACCOUNT-015»,
+  // de la semilla de pruebas) no puede ser una cuenta suya.
+  if (!/^\d{6,}$/.test(id)) return false;
+  try {
+    const result = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
+      `${zohoConfig.accountsModule}/${encodeURIComponent(id)}?fields=Account_Name`,
+      { method: "GET" },
+    );
+    return (result.data?.length ?? 0) > 0;
+  } catch (error) {
+    const motivo = error instanceof Error ? error.message : String(error);
+    if (/INVALID_DATA|INVALID_URL_PATTERN|RECORD_NOT_FOUND|NOT_FOUND|URL trying to access/i.test(motivo)) return false;
+    throw error;
+  }
+}
+
 async function upsertAccount(name: string) {
   if (!name.trim()) return null;
 
@@ -772,7 +802,9 @@ export async function createZohoOpportunity(payload: PayloadDeOportunidad) {
   // sin cuenta, que se ve y se corrige, que otra cuenta basura con nombre de
   // persona, que no se ve hasta que alguien mira la lista.
   const nombreDeCuenta = payload.account.name?.trim() ?? "";
-  const accountId = payload.account.crm_account_id || (await upsertAccount(nombreDeCuenta));
+  const guardada = payload.account.crm_account_id?.trim() || null;
+  const accountId =
+    guardada && (await cuentaSigueEnElCrm(guardada)) ? guardada : await upsertAccount(nombreDeCuenta);
 
   const dealName =
     payload.opportunity.opportunity_name ||

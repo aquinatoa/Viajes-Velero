@@ -327,6 +327,10 @@ const euros = (n: number) =>
 export function resumenDeLineas(lineas: LineaDeActividad[]): string {
   const activas = lineas.filter((l) => l.cantidad > 0);
   if (activas.length === 0) return "";
-  const partes = activas.map((l) => `${l.cantidad} × ${euros(l.precio)} ${l.etiqueta}`);
-  return `${partes.join(" + ")} = ${euros(totalDeLineas(activas))}`;
+  // Una línea en negativo (el descuento) se resta: «− 35 × 4,00 € descuento por alumno».
+  const partes = activas.map((l, i) => {
+    const texto = `${l.cantidad} × ${euros(Math.abs(l.precio))} ${l.etiqueta}`;
+    return i === 0 ? (l.precio < 0 ? `− ${texto}` : texto) : `${l.precio < 0 ? "−" : "+"} ${texto}`;
+  });
+  return `${partes.join(" ")} = ${euros(totalDeLineas(activas))}`;
 }

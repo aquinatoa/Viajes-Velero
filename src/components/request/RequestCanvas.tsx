@@ -1009,7 +1009,7 @@ export function RequestCanvas({
       };
     }
     const alumnos = entendido?.participants ?? 0;
-    const conDescuento = lineasConDescuento(activas, descuento);
+    const conDescuento = lineasConDescuento(activas, descuento, alumnos);
     return {
       ...base,
       lineas: conDescuento,
@@ -1698,7 +1698,10 @@ export function RequestCanvas({
           selectedAccommodationIds: elegidos,
           activitiesByOption: actividadesPorOpcion,
           activityLines: Object.fromEntries(
-            Object.entries(lineas).map(([id, ls]) => [id, lineasConDescuento(ls, descuentos[id])]),
+            Object.entries(lineas).map(([id, ls]) => [
+              id,
+              lineasConDescuento(ls.filter((l) => l.cantidad > 0), descuentos[id], entendido?.participants ?? 0),
+            ]),
           ),
           selectedActivityIds: programaBase,
           composicion,
@@ -2498,7 +2501,8 @@ export function RequestCanvas({
                               solo se veía un precio, sin decir de cuál. */}
                           <span className="cv__acts2 cv__acttar">
                             {(lineas[item.activity.id] ?? []).some((l) => l.cantidad > 0)
-                              ? resumenDeLineas(lineas[item.activity.id] ?? [])
+                              ? // Con el descuento dentro: si no, decía «= 849,15 €» con 4 € menos puestos.
+                                resumenDeLineas(matchActividad(item.activity.id)?.lineas ?? lineas[item.activity.id] ?? [])
                               : (() => {
                                   // La tarifa que usaría el esbozo (la de la edad del grupo y el
                                   // periodo del viaje), no la más barata del catálogo.
@@ -2555,7 +2559,7 @@ export function RequestCanvas({
                               onChange={(e) => ponerDescuento(item.activity.id, e.target.value as "" | "EUR" | "PCT", null)}
                             >
                               <option value="">Sin descuento</option>
-                              <option value="EUR">€ por persona</option>
+                              <option value="EUR">€ por alumno</option>
                               <option value="PCT">%</option>
                             </select>
                           </label>

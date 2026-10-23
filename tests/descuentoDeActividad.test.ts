@@ -8,11 +8,12 @@ import assert from "node:assert/strict";
 
 import {
   descuentoValido,
+  esLineaDeDescuento,
   lineasConDescuento,
   precioConDescuento,
   textoDelDescuento,
 } from "../src/domain/descuentoDeActividad";
-import { porAlumno, totalDeLineas } from "../src/domain/lineasDeActividad";
+import { porAlumno, resumenDeLineas, totalDeLineas } from "../src/domain/lineasDeActividad";
 
 let pasadas = 0;
 let fallidas = 0;
@@ -50,22 +51,56 @@ prueba("sin descuento, o con uno que no vale, el precio no cambia", () => {
   assert.equal(descuentoValido({ tipo: "EUR", valor: Number.NaN }), false);
 });
 
-prueba("con líneas, el descuento va a cada persona y cuadra el total del grupo", () => {
+prueba("el caso de Ruth (23/10): 4 € por alumno bajan el precio por alumno 4 €, no 4,23 €", () => {
+  // Circuito de tirolinas: 35 alumnos + 2 profesores a 22,95 € = 849,15 €.
+  const lineas = [{ rateId: "t", etiqueta: "Desde 3 años", precio: 22.95, cantidad: 37 }];
+  assert.equal(porAlumno(lineas, 35), 24.26);
+  const con = lineasConDescuento(lineas, { tipo: "EUR", valor: 4 }, 35);
+  assert.equal(con.length, 2);
+  assert.ok(esLineaDeDescuento(con[1]));
+  assert.equal(totalDeLineas(con), 709.15); // 849,15 − 35 × 4
+  assert.equal(porAlumno(con, 35), 20.26);
+  assert.equal(
+    resumenDeLineas(con),
+    "37 × 22,95 € Desde 3 años − 35 × 4,00 € descuento por alumno = 709,15 €",
+  );
+  assert.equal(lineas.length, 1, "las líneas originales no se tocan");
+});
+
+prueba("en una tarifa por grupo, 4 € por alumno no son 4 € del grupo", () => {
+  const lineas = [{ rateId: "g", etiqueta: "Grupo de 8", precio: 190, cantidad: 4 }];
+  const con = lineasConDescuento(lineas, { tipo: "EUR", valor: 2 }, 30);
+  assert.equal(totalDeLineas(con), 700); // 760 − 30 × 2
+  assert.equal(porAlumno(con, 30), 23.33);
+});
+
+prueba("el descuento en euros no deja el total por debajo de cero", () => {
+  const lineas = [{ rateId: "a", etiqueta: "x", precio: 3, cantidad: 10 }];
+  const con = lineasConDescuento(lineas, { tipo: "EUR", valor: 5 }, 10);
+  assert.equal(totalDeLineas(con), 0);
+});
+
+prueba("sin alumnos no hay descuento en euros; volver a aplicarlo no lo duplica", () => {
+  const lineas = [{ rateId: "a", etiqueta: "x", precio: 10, cantidad: 5 }];
+  assert.deepEqual(lineasConDescuento(lineas, { tipo: "EUR", valor: 2 }, 0), lineas);
+  const una = lineasConDescuento(lineas, { tipo: "EUR", valor: 2 }, 5);
+  const dos = lineasConDescuento(una, { tipo: "EUR", valor: 2 }, 5);
+  assert.equal(totalDeLineas(dos), 40);
+  assert.equal(totalDeLineas(lineasConDescuento(una, null, 5)), 50, "quitarlo devuelve el precio");
+});
+
+prueba("el porcentaje va a cada línea", () => {
   const lineas = [
     { rateId: "a", etiqueta: "Joven (12-17)", precio: 14, cantidad: 40 },
     { rateId: "b", etiqueta: "Adulto (18-59)", precio: 20, cantidad: 4 },
   ];
-  const con = lineasConDescuento(lineas, { tipo: "EUR", valor: 2 });
-  assert.deepEqual(con.map((l) => l.precio), [12, 18]);
-  // 40 × 12 + 4 × 18 = 552, antes 640: 2 € × 44 personas = 88 € menos.
-  assert.equal(totalDeLineas(con), 552);
-  assert.equal(totalDeLineas(lineas) - totalDeLineas(con), 88);
-  assert.equal(porAlumno(con, 40), 13.8);
-  assert.equal(lineas[0].precio, 14, "las líneas originales no se tocan");
+  const con = lineasConDescuento(lineas, { tipo: "PCT", valor: 10 }, 40);
+  assert.deepEqual(con.map((l) => l.precio), [12.6, 18]);
+  assert.equal(totalDeLineas(con), 576);
 });
 
 prueba("cómo se dice en el documento", () => {
-  assert.equal(textoDelDescuento({ tipo: "EUR", valor: 2 }), "2,00 € menos por persona");
+  assert.equal(textoDelDescuento({ tipo: "EUR", valor: 2 }), "2,00 € menos por alumno");
   assert.equal(textoDelDescuento({ tipo: "PCT", valor: 7.5 }), "7,5 % menos");
   assert.equal(textoDelDescuento(null), "");
 });

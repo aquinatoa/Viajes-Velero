@@ -66,6 +66,13 @@ export async function findClientByEmailDb(email: string): Promise<Client | null>
   return row ? mapClient(row) : null;
 }
 
+/** Dos nombres de centro son el mismo si solo cambian tildes, mayúsculas o espacios. */
+export function mismoCentro(a: string, b: string): boolean {
+  const limpio = (s: string) =>
+    s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+  return limpio(a) === limpio(b);
+}
+
 /**
  * Crea o actualiza un cliente por email (clave única). Si ya existía, se marca
  * como cliente recurrente y se actualizan nombre/apellidos si vienen.
@@ -82,7 +89,16 @@ export async function upsertClientFromIntakeDb(input: UpsertClientInput): Promis
   // porque el siguiente correo del mismo colegio no lo mencione.
   const centreName = input.centreName?.trim() || existing?.centreName || null;
   const crmContactId = input.crmContactId ?? existing?.crmContactId ?? null;
-  const crmAccountId = input.crmAccountId ?? existing?.crmAccountId ?? null;
+  // La cuenta del CRM es la del CENTRO, no la de la persona. Si el mismo correo
+  // llega con otro centro, la cuenta guardada es la del centro anterior y no se
+  // puede reutilizar: el 23/10/2026 Ruth cotizó «TEST GRUPO JUNIO 2027» y la app
+  // intentó colgar el trato de «AMA GUADALUPEKOA 2027», que además ya había
+  // borrado. Con otro centro se olvida y se resuelve por el nombre nuevo.
+  const cambiaElCentro =
+    !!existing?.centreName && !!input.centreName?.trim() &&
+    mismoCentro(existing.centreName, input.centreName) === false;
+  const crmAccountId =
+    input.crmAccountId ?? (cambiaElCentro ? null : existing?.crmAccountId ?? null);
 
   const row = await prisma.client.upsert({
     where: { email },

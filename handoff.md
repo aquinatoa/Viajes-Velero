@@ -2716,3 +2716,28 @@ NOMBRE_DOC, LOCALIDAD_DOC="Vila-seca / Salou") contra producción.
 - Pendiente para la reunión: las 80 condiciones de actividades (14
   gratuidades a aprobar; pago y «condiciones generales» según Ruth) y pedir el
   calendario A–F de hoteles PortAventura.
+
+### 22/10/2026 · Reunión con Oravia (Javier, Ruth, Cristian, Anthony)
+
+Resumen y pendientes en `Oravia - 2026-10-22 - Reunion (resumen).md`.
+
+- Decidido: pago al cliente siempre 30/70 (Ruth aprobó en la reunión las 34 de
+  C.N. Salou y las 14 de C.N. Cambrils); Jumpland 50/50 «personalizado» →
+  aprobar; cancelación sin indicar → usar la de C.N. Salou («la más
+  restrictiva»). Quedan 32 PENDING en staging (Jumpland 9 gratuidades + 9 pago
+  + 9 cancelación; Balfegó 5 gratuidades). Nada de esto se ve hasta el
+  publish-approved del documento «PLANTILLA REVISAT COTIZADOR ACTIVITATS v2».
+  ESPERA el OK de Anthony (toca producción).
+- Ruth (correo 11:56, uid 37900) manda «Tarifas hoteles PAV 2027.pdf»
+  (descargado en `scratchpad/adjuntos-ruth/`): Roulette A–F por habitación,
+  Primaria/Secundaria y Bachillerato con precios distintos, calendario de
+  grupos escolares por colores, profesor y chófer gratis, tasa turística
+  aparte. Producción tiene 48 tarifas Roulette sin fechas ni nivel. Cuadran
+  TODAS: publicado = PDF × 0,9504 (≈5 % menos, ¿neto/comisión?); el precio
+  bajo es Primaria/Secundaria y el alto Bachillerato. Falta: rotular el nivel
+  y cargar el calendario A–F con fechas.
+- Ruth dice que «faltan tipologías de entrada»: las 386 del PDF están. Sin
+  precio solo «Express Max» y «Ticket Paseo Sénior» (consultar). Preguntarle.
+- Correo: Cristian estudia una función CRM que asocie por el asunto; Anthony,
+  bandeja por oportunidad en la app con cliente y proveedor.
+- Oravia aún no ha probado la aceptación desde el enlace.
