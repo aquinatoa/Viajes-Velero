@@ -11,7 +11,12 @@
  */
 
 import { desgloseDeLaOpcion, precioPorEstancia } from "../src/domain/desgloseDeOpcion";
-import { desgloseParaElCliente, estanciaParaElCliente, pensionesParaElCliente } from "../src/domain/desgloseParaElCliente";
+import {
+  desgloseEnLista,
+  desgloseParaElCliente,
+  estanciaParaElCliente,
+  pensionesParaElCliente,
+} from "../src/domain/desgloseParaElCliente";
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
@@ -43,6 +48,8 @@ export interface PdfActivity {
   description?: string | null;
   /** Las líneas con las que se cotizó: «25 × 17,00 € Joven … + 2 × 23,00 € Adulto … = 471,00 €». */
   linesText?: string | null;
+  /** Las mismas líneas, una por fila: es como se pintan. */
+  linesList?: string[] | null;
   /** El total del grupo, cuando viene de las líneas. */
   groupAmount?: number | null;
 }
@@ -270,9 +277,33 @@ const NOMBRE_DE_LA_CONDICION: Record<string, string> = {
   CONFIRMACION: "Confirmación",
   DESCUENTO: "Descuentos",
   CONTACTO: "Contacto",
+  // Los tipos del importador nuevo van en inglés (los de la base de datos). En
+  // el PDF de ESCOLA ULL (26/10/2026) salían tal cual: «Gratuity:», «Payment:»,
+  // «Special notes:», delante de un colegio.
+  GRATUITY: "Gratuidades",
+  PAYMENT: "Pago",
+  DEPOSIT: "Depósito",
+  CANCELLATION: "Cancelación",
+  MODIFICATION: "Modificaciones",
+  GROUP_SIZE: "Tamaño del grupo",
+  AGE: "Edades",
+  AGE_RESTRICTION: "Edades",
+  INCLUDED: "Incluye",
+  INCLUDES: "Incluye",
+  SUPPLEMENT: "Suplementos",
+  TAX: "Tasas",
+  TOURIST_TAX: "Tasa turística",
+  RESERVATION: "Reservas",
+  BOOKING: "Reservas",
+  SPECIAL_NOTES: "",
+  NOTES: "",
+  OTHER: "",
   UNKNOWN: "",
   OTROS: "",
 };
+
+/** Lo que ya dice su nombre delante: «Depósito: Fiança…», «Suplementos: Llits fets». */
+const YA_ETIQUETADO = /^([A-ZÁÉÍÓÚÑ][\wáéíóúñü ./()-]{1,30}):\s+(.+)$/s;
 
 /** Una condición ya lista para imprimir: su etiqueta y su texto. */
 interface Condicion {
@@ -287,7 +318,7 @@ interface Condicion {
  * corchetes. Aquí se deshace eso para que cada condición salga en su propia
  * línea con su nombre delante, que es como se lee una ficha de hotel.
  */
-function condicionesEnLista(texto?: string | null): Condicion[] {
+export function condicionesEnLista(texto?: string | null): Condicion[] {
   const limpio = textoParaElCliente(texto);
   if (!limpio) return [];
 
@@ -306,9 +337,23 @@ function condicionesEnLista(texto?: string | null): Condicion[] {
           ? conocida
           : clave.charAt(0) + clave.slice(1).toLowerCase().replace(/_/g, " ");
 
-      return { etiqueta, texto: conEtiqueta[2].trim() };
+      // Si el texto ya trae su nombre («Depósito: …», «Gratuidades: …»), manda
+      // ese: si no salía «Pago: Depósito: …» o «Gratuidades: Gratuidades: …».
+      const texto = conEtiqueta[2].trim();
+      const propio = YA_ETIQUETADO.exec(texto);
+      if (propio) return { etiqueta: propio[1].trim(), texto: propio[2].trim() };
+      // «Tasa turística: Tasa turística (0.99)»: si el texto ya empieza así, sobra.
+      if (etiqueta && texto.toLowerCase().startsWith(etiqueta.toLowerCase())) return { etiqueta: "", texto };
+      return { etiqueta, texto };
     })
-    .filter((condicion) => condicion.texto.length > 0);
+    .filter((condicion) => condicion.texto.length > 0)
+    // La misma condición dos veces (pasa con las gratuidades y el pago) se dice una.
+    .filter((c, i, todas) => todas.findIndex((o) => mismaCondicion(o, c)) === i);
+}
+
+function mismaCondicion(a: Condicion, b: Condicion): boolean {
+  const clave = (c: Condicion) => `${c.etiqueta}|${c.texto}`.toLowerCase().replace(/\s+/g, " ");
+  return clave(a) === clave(b);
 }
 
 /** Lo más abajo que se puede empezar a escribir sin invadir el pie. */
@@ -399,12 +444,35 @@ function drawOption(doc: PDFKit.PDFDocument, option: PdfOption, top: number, fec
   }
 
   if (option.priceBreakdownText) {
+    // En lista: un bloque por tramo y una línea por grupo. En párrafo eran ocho
+    // líneas seguidas que nadie leía (Ruth, 26/10/2026).
+    const tramos = desgloseEnLista(option.priceBreakdownText, fechaEntrada);
     y = conSitio(doc, y, 34);
     doc.font("Helvetica-Bold").fontSize(7.5).fillColor(MUTED);
     doc.text("DESGLOSE", 50, y, { characterSpacing: 0.6 });
-    doc.font("Helvetica").fontSize(9.5).fillColor(INK);
-    doc.text(desgloseParaElCliente(option.priceBreakdownText), 50, doc.y + 2, { width: 495 });
-    y = doc.y + 8;
+    y = doc.y + 3;
+    if (tramos.length === 0) {
+      doc.font("Helvetica").fontSize(9.5).fillColor(INK);
+      doc.text(desgloseParaElCliente(option.priceBreakdownText), 50, y, { width: 495 });
+      y = doc.y;
+    }
+    for (const tramo of tramos) {
+      if (tramo.titulo) {
+        y = conSitio(doc, y, 14 + tramo.lineas.length * 12);
+        doc.font("Helvetica-Bold").fontSize(9.5).fillColor(INK);
+        doc.text(tramo.titulo, 50, y, { width: 495 });
+        y = doc.y + 1;
+      }
+      for (const linea of tramo.lineas) {
+        y = conSitio(doc, y, doc.font("Helvetica").fontSize(9.5).heightOfString(linea, { width: 475 }));
+        doc.font("Helvetica").fontSize(9.5).fillColor(MUTED);
+        doc.text("·", 58, y, { width: 8 });
+        doc.fillColor(INK).text(linea, 68, y, { width: 477 });
+        y = doc.y + 1;
+      }
+      y += 4;
+    }
+    y += 4;
   }
 
   // Las gratuidades, en su propio recuadro y ANTES de las condiciones: es lo
@@ -422,8 +490,13 @@ function drawOption(doc: PDFKit.PDFDocument, option: PdfOption, top: number, fec
     y += alto + 8;
   }
 
+  // Las gratuidades ya van en su recuadro: no se repiten debajo.
+  const enElRecuadro = new Set(gratuidades.map((g) => g.texto.toLowerCase().replace(/\s+/g, " ")));
+  const condicionesSinGratuidades = condicionesEnLista(option.conditionsText).filter(
+    (c) => !enElRecuadro.has(c.texto.toLowerCase().replace(/\s+/g, " ")),
+  );
   for (const [titulo, condiciones] of [
-    ["Qué incluye y condiciones", condicionesEnLista(option.conditionsText)],
+    ["Qué incluye y condiciones", condicionesSinGratuidades],
     ["Observaciones", condicionesEnLista(option.observationsText)],
   ] as Array<[string, Condicion[]]>) {
     if (condiciones.length === 0) continue;
@@ -529,9 +602,15 @@ function drawActividades(doc: PDFKit.PDFDocument, input: PdfInput, top: number):
 
     doc.font("Helvetica-Bold").fontSize(10.5).fillColor(INK);
     doc.text(textoParaElCliente(actividad.name), 50, y, { width: 340 });
-    if (actividad.linesText) {
-      // Quién va con qué entrada. Sin esto el colegio ve «18,84 € por persona»
-      // y no sabe que son 25 jóvenes y 2 adultos a precios distintos.
+    if (actividad.linesList?.length) {
+      // Quién va con qué entrada, una por línea (Ruth, 26/10/2026: en texto
+      // seguido no se leía). Sin esto el colegio ve «18,84 € por persona» y no
+      // sabe que son 25 jóvenes y 2 adultos a precios distintos.
+      for (const linea of actividad.linesList) {
+        doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
+        doc.text(`·  ${textoParaElCliente(linea)}`, 50, doc.y + 1, { width: 340 });
+      }
+    } else if (actividad.linesText) {
       doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
       doc.text(actividad.linesText, 50, doc.y + 1, { width: 340 });
     }

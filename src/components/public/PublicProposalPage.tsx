@@ -21,6 +21,8 @@ interface PublicOption {
   nights: number | null;
   totalPvpText: string | null;
   priceBreakdownText: string | null;
+  /** El desglose por tramos, una línea por grupo. */
+  breakdownList?: Array<{ titulo: string; lineas: string[] }>;
   conditionsText: string | null;
 }
 
@@ -203,7 +205,21 @@ export function PublicProposalPage({ token }: { token: string }) {
                     .join("  ·  ")}
                 </p>
                 {option.totalPvpText ? <p className="pp__optprice">{option.totalPvpText}</p> : null}
-                {option.priceBreakdownText ? (
+                {option.breakdownList?.length ? (
+                  // En lista, como en el PDF (Ruth, 26/10/2026).
+                  <div className="pp__optdetail">
+                    {option.breakdownList.map((tramo, i) => (
+                      <div key={i}>
+                        {tramo.titulo ? <b>{tramo.titulo}</b> : null}
+                        <ul>
+                          {tramo.lineas.map((l, j) => (
+                            <li key={j}>{l}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                ) : option.priceBreakdownText ? (
                   <p className="pp__optdetail">{option.priceBreakdownText}</p>
                 ) : null}
                 {option.conditionsText ? (

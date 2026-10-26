@@ -401,6 +401,9 @@ export interface ProposalBuilderState {
   descuentos?: Record<string, import("./descuentoDeActividad").DescuentoDeActividad>;
   preciosFijados?: Record<string, number>;
   lineasSinDescuento?: Record<string, LineaDeActividad[]>;
+  /** El día de cada actividad y la entrada pedida (26/10/2026). */
+  fechasDeVisita?: Record<string, string>;
+  modalidades?: Record<string, string>;
 }
 
 export interface ProposalAccommodationOption {

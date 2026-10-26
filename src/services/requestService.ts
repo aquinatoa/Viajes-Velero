@@ -195,6 +195,25 @@ function extractAgeInfo(text: string) {
     return { ageRangeText: single[1], averageAgeText: `${single[1]} años` };
   }
 
+  // Sin años, el curso: «80 alumnos de secundaria» (ESCOLA ULL, 26/10/2026)
+  // se quedaba sin edad y PortAventura salía con la entrada de Primaria.
+  const tramos: Array<[RegExp, number, number]> = [
+    [/\b(?:educacion\s+)?infantil\b/, 3, 6],
+    [/\bprimaria\b/, 6, 12],
+    [/\bsecundaria\b/, 12, 16],
+    [/\bbachiller(?:ato)?\b|\bbatxillerat\b/, 16, 18],
+    [/\bciclos?\s+formativos?\b|\bformacion\s+profesional\b/, 16, 20],
+  ];
+  const cursos = tramos.filter(([re]) => re.test(lower));
+  // «ESO» y «FP» solo en mayúsculas: en minúsculas «eso» es «por eso».
+  if (/\bESO\b/.test(text)) cursos.push([/ESO/, 12, 16]);
+  if (/\bFP\b/.test(text)) cursos.push([/FP/, 16, 20]);
+  if (cursos.length) {
+    const min = Math.min(...cursos.map(([, a]) => a));
+    const max = Math.max(...cursos.map(([, , b]) => b));
+    return { ageRangeText: `${min}-${max}`, averageAgeText: "" };
+  }
+
   return { ageRangeText: "", averageAgeText: "" };
 }
 
@@ -848,9 +867,12 @@ export function payloadDeLaSolicitud(
   normalized: NormalizedRequestDraft,
   existingId?: string | null,
   department?: "GROUPS" | "SPORTS" | null,
+  rehaceEntrega?: string | null,
 ) {
   return {
     id: existingId ?? null,
+    // Rehacer una propuesta enviada sigue la misma solicitud (26/10/2026).
+    rehaceEntrega: rehaceEntrega ?? null,
     clientId,
     // De aquí salen el campo «Departamento» del trato y el buzón desde el que
     // se envía. Sin esto el servidor caía al del usuario, y un ADMIN no tiene:
@@ -871,9 +893,10 @@ export const saveNormalizedTripRequest = (
   normalized: NormalizedRequestDraft,
   existingId?: string | null,
   department?: "GROUPS" | "SPORTS" | null,
+  rehaceEntrega?: string | null,
 ): Promise<TripRequest> => {
   return saveTripRequestApi(
-    payloadDeLaSolicitud(clientId, source, parseResult, normalized, existingId, department),
+    payloadDeLaSolicitud(clientId, source, parseResult, normalized, existingId, department, rehaceEntrega),
   );
 };
 

@@ -81,6 +81,26 @@ export interface BorradorSolicitud {
   /** Hoteles y actividades fuera del catálogo, con el precio del proveedor. */
   hotelesAdHoc?: HotelAdHoc[];
   actividadesAdHoc?: ActividadAdHoc[];
+  /**
+   * El día de cada actividad, por su id (AAAA-MM-DD). De él sale el periodo de
+   * PortAventura: el 17/04/2027 es C aunque el viaje sea casi todo B (Ruth,
+   * 26/10/2026).
+   */
+  fechasDeVisita?: Record<string, string>;
+  /** La entrada pedida en cada actividad: «Ticket Plus», «Express»… */
+  modalidades?: Record<string, string>;
+  /**
+   * Lo pedido en el mensaje que ya se añadió solo. Si quien cotiza lo quita,
+   * no vuelve a aparecer en cuanto se recalcula algo.
+   */
+  pedidasHechas?: string[];
+  /**
+   * La propuesta que se está rehaciendo (su referencia). Con ella, al enviar se
+   * sigue el MISMO viaje: misma solicitud, mismo trato del CRM y la referencia
+   * con su versión («ORV-2026-0009-v2»). Sin ella, rehacer la 0009 creó la 0010
+   * y un segundo trato en el CRM de Oravia (26/10/2026).
+   */
+  rehaceEntrega?: string | null;
 }
 
 function almacen(): Storage | null {

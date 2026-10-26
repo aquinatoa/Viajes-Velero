@@ -1,6 +1,6 @@
 import { marcarOpcionElegida } from "./proposalDelivery";
 import { tituloDelViaje } from "../src/domain/tituloDelViaje";
-import { desgloseParaElCliente, pensionesParaElCliente } from "../src/domain/desgloseParaElCliente";
+import { desgloseEnLista, desgloseParaElCliente, pensionesParaElCliente } from "../src/domain/desgloseParaElCliente";
 import { textoParaElCliente } from "./proposalPdf";
 import { arrancarLaRecogida } from "./correoEntrante";
 import "./loadEnv";
@@ -2544,6 +2544,7 @@ app.get("/api/public/proposals/:token", async (request, response) => {
         nights: option.nights,
         totalPvpText: option.totalPvpText,
         priceBreakdownText: desgloseParaElCliente(option.priceBreakdownText) || option.priceBreakdownText,
+        breakdownList: desgloseEnLista(option.priceBreakdownText, request_.dateFrom),
         conditionsText: option.conditionsText ? textoParaElCliente(option.conditionsText) : option.conditionsText,
       })),
     });

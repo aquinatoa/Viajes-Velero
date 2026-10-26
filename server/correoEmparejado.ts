@@ -112,7 +112,9 @@ export function normalizarMessageId(valor?: string | null): string {
  * minúsculas porque alguien la escribirá a mano alguna vez.
  */
 export function referenciaEn(texto?: string | null): string | null {
-  const m = String(texto ?? "").match(/ORV-\d{4}-\d{3,}/i);
+  // Con su versión si la lleva («ORV-2026-0009-v2», desde el 26/10/2026): sin
+  // ella, la respuesta a la versión 2 se colgaba de la primera.
+  const m = String(texto ?? "").match(/ORV-\d{4}-\d{3,}(?:-v\d+)?/i);
   return m ? m[0].toUpperCase() : null;
 }
 

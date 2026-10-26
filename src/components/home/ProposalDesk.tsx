@@ -1,3 +1,4 @@
+import { ultimaDeCadaViaje } from "../../domain/versionesDelViaje";
 import { useEffect, useMemo, useState } from "react";
 import {
   listProposalDeliveriesApi,
@@ -196,7 +197,8 @@ export function ProposalDesk({
     setError("");
     try {
       const result = await listProposalDeliveriesApi();
-      setDeliveries(result.deliveries);
+      // Una fila por viaje: rehacer es la versión siguiente, no otro viaje (26/10/2026).
+      setDeliveries(ultimaDeCadaViaje(result.deliveries));
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudieron cargar las propuestas.");
     } finally {

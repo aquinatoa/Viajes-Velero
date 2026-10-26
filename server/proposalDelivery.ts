@@ -14,7 +14,7 @@
  * generado, para poder probar el circuito entero antes de que llegue la clave.
  */
 
-import { resumenDeLineas, type LineaDeActividad } from "../src/domain/lineasDeActividad";
+import { lineasEnLista, resumenDeLineas, type LineaDeActividad } from "../src/domain/lineasDeActividad";
 import { importeDe } from "../src/domain/importe";
 import crypto from "node:crypto";
 import { PrismaClient, type DeliveryStatus } from "@prisma/client";
@@ -47,8 +47,34 @@ async function nextReference(): Promise<string> {
     orderBy: { reference: "desc" },
     select: { reference: true },
   });
-  const lastNumber = last ? Number(last.reference.slice(prefix.length)) : 0;
+  // parseInt y no Number: una versión («ORV-2026-0010-v2») es la última en
+  // orden alfabético y Number("0010-v2") es NaN, que dejaba sin numerar.
+  const lastNumber = last ? parseInt(last.reference.slice(prefix.length), 10) || 0 : 0;
   return `${prefix}${String(lastNumber + 1).padStart(4, "0")}`;
+}
+
+/**
+ * La referencia de una propuesta: la siguiente del año o, si el viaje ya tenía
+ * otra, la misma con su versión («ORV-2026-0009-v2»).
+ *
+ * Ruth, 26/10/2026: al rehacer la 0009 de ESCOLA ULL salió la 0010 como si
+ * fuera otro viaje. Es el mismo viaje y el mismo trato: el colegio tiene que
+ * reconocerlo por su número.
+ */
+async function referenciaDeLaPropuesta(proposalId: string, tripRequestId: string): Promise<string> {
+  const delViaje = await prisma.proposalDelivery.findFirst({
+    where: { proposal: { tripRequestId }, proposalId: { not: proposalId } },
+    orderBy: { createdAt: "asc" },
+    select: { reference: true },
+  });
+  if (!delViaje) return nextReference();
+  const base = delViaje.reference.replace(/-v\d+$/i, "");
+  const todas = await prisma.proposalDelivery.findMany({
+    where: { reference: { startsWith: base } },
+    select: { reference: true },
+  });
+  const version = Math.max(1, ...todas.map((d) => Number(/-v(\d+)$/i.exec(d.reference)?.[1] ?? 1)));
+  return `${base}-v${version + 1}`;
 }
 
 /** Token del enlace público. Largo de verdad: es lo único que protege la página. */
@@ -165,7 +191,7 @@ export async function prepareDelivery(input: PrepareDeliveryInput): Promise<Deli
     orderBy: { createdAt: "asc" },
   });
 
-  const reference = previous?.reference ?? (await nextReference());
+  const reference = previous?.reference ?? (await referenciaDeLaPropuesta(proposal.id, proposal.tripRequestId));
   const publicToken = previous?.publicToken ?? newPublicToken();
   const publicUrl = settings.publicBaseUrl ? `${settings.publicBaseUrl}/p/${publicToken}` : null;
 
@@ -199,6 +225,7 @@ export async function prepareDelivery(input: PrepareDeliveryInput): Promise<Deli
         amount: importeDe(actividad.pvpSnapshot),
         description: actividad.descriptionSnapshot,
         linesText: resumenDeLineas(lineasGuardadas(actividad.linesJson)),
+        linesList: lineasEnLista(lineasGuardadas(actividad.linesJson)),
         groupAmount: actividad.amountTotal == null ? null : Number(actividad.amountTotal),
       })),
   }));

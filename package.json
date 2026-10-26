@@ -9,7 +9,7 @@
     "db:local:reset": "node scripts/dev-db.mjs --reset",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "npm run test:documental && npm run test:solicitud && npm run test:pdf && npm run test:crm && npm run test:visibilidad && npm run test:borrado && npm run test:crm-trato && npm run test:correo && npm run test:textos && npm run test:encaje && npm run test:podio && npm run test:preguntas && npm run test:fechas && npm run test:validacion && npm run test:respuestas && npm run test:avance && npm run test:colores && npm run test:siguiente && npm run test:importe && npm run test:aceptada && npm run test:lectura && npm run test:fallo-lectura && npm run test:rejilla && npm run test:viajes && npm run test:plantilla && npm run test:revision-proveedor && npm run test:desglose && npm run test:lineas && npm run test:rango && npm run test:contratado && npm run test:periodos && npm run test:adhoc && npm run test:cotizacion && npm run test:clientes && npm run test:descuento && npm run test:titulo && npm run test:estancia && npm run test:fechas-tarifa && npm run test:adjuntos && npm run test:especial && npm run test:hoteles",
+    "test": "npm run test:documental && npm run test:solicitud && npm run test:pdf && npm run test:crm && npm run test:visibilidad && npm run test:borrado && npm run test:crm-trato && npm run test:correo && npm run test:textos && npm run test:encaje && npm run test:podio && npm run test:preguntas && npm run test:fechas && npm run test:validacion && npm run test:respuestas && npm run test:avance && npm run test:colores && npm run test:siguiente && npm run test:importe && npm run test:aceptada && npm run test:lectura && npm run test:fallo-lectura && npm run test:rejilla && npm run test:viajes && npm run test:plantilla && npm run test:revision-proveedor && npm run test:desglose && npm run test:lineas && npm run test:rango && npm run test:contratado && npm run test:periodos && npm run test:adhoc && npm run test:cotizacion && npm run test:clientes && npm run test:descuento && npm run test:titulo && npm run test:estancia && npm run test:fechas-tarifa && npm run test:adjuntos && npm run test:especial && npm run test:hoteles && npm run test:pedidas && npm run test:documento",
     "test:documental": "node --import tsx tests/documentFlow.test.ts",
     "test:solicitud": "node --import tsx tests/tripRequest.test.ts",
     "test:pdf": "node --import tsx tests/proposalPdf.test.ts",
@@ -57,6 +57,8 @@
     "test:adjuntos": "node --import tsx tests/adjuntosDeCorreo.test.ts",
     "test:especial": "node --import tsx tests/precioClienteEspecial.test.ts",
     "test:hoteles": "node --import tsx tests/plantillaDeHoteles.test.ts",
+    "test:pedidas": "node --import tsx tests/actividadesPedidas.test.ts",
+    "test:documento": "node --import tsx tests/documentoYVersiones.test.ts",
     "lectura:referencia": "node scripts/lectura/exportar-referencia.mjs",
     "lectura:evaluar": "node --import tsx scripts/lectura/evaluar.ts"
   },

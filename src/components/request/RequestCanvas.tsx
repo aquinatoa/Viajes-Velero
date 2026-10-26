@@ -14,7 +14,8 @@ import {
   type TramoDeEdad,
 } from "../../domain/lineasDeActividad";
 import { gratuidadDeProfesores, textoDeLaGratuidad } from "../../domain/gratuidadDeActividad";
-import { periodosDelViaje, periodosPorDia } from "../../domain/calendarioPortAventura";
+import { periodoDePortAventura, periodosDelViaje, periodosPorDia } from "../../domain/calendarioPortAventura";
+import { actividadesPedidas, candidatasDe, type ActividadPedida } from "../../domain/actividadesPedidas";
 import {
   descuentoValido,
   lineasConDescuento,
@@ -501,6 +502,16 @@ export function RequestCanvas({
   const [hotelesAdHoc, setHotelesAdHoc] = useState<HotelAdHoc[]>([]);
   const [actividadesAdHoc, setActividadesAdHoc] = useState<ActividadAdHoc[]>([]);
   const [altaAdHoc, setAltaAdHoc] = useState<"hotel" | "actividad" | null>(null);
+  /**
+   * Lo que pide el mensaje en actividades (Ruth, 26/10/2026): el día de cada
+   * una —de él sale el periodo de PortAventura—, la entrada pedida, y qué se
+   * añadió ya solo para no volver a añadirlo si quien cotiza lo quita.
+   */
+  const [fechasDeVisita, setFechasDeVisita] = useState<Record<string, string>>({});
+  const [modalidades, setModalidades] = useState<Record<string, string>>({});
+  const [pedidasHechas, setPedidasHechas] = useState<string[]>([]);
+  /** La propuesta que se rehace: al enviar se sigue el mismo viaje y el mismo trato. */
+  const [rehaceEntrega, setRehaceEntrega] = useState<string | null>(null);
   // La búsqueda se lanza desde manejadores que aún no ven el estado nuevo
   // (recuperar un borrador): lee lo ad hoc de aquí.
   const adHocRef = useRef<{ hoteles: HotelAdHoc[]; actividades: ActividadAdHoc[] }>({ hoteles: [], actividades: [] });
@@ -654,6 +665,11 @@ export function RequestCanvas({
       setHotelesAdHoc(estado.hotelesAdHoc ?? []);
       setActividadesAdHoc(estado.actividadesAdHoc ?? []);
       adHocRef.current = { hoteles: estado.hotelesAdHoc ?? [], actividades: estado.actividadesAdHoc ?? [] };
+      setFechasDeVisita(estado.fechasDeVisita ?? {});
+      setModalidades(estado.modalidades ?? {});
+      // Un borrador con programa ya hecho no recibe más actividades solas.
+      setPedidasHechas(estado.pedidasHechas ?? ((estado.programaBase ?? []).length ? ["*"] : []));
+      setRehaceEntrega(estado.rehaceEntrega ?? null);
       setRecuperable(null);
 
       // Las tarifas pueden haber cambiado desde que se guardó: se vuelve a
@@ -761,6 +777,10 @@ export function RequestCanvas({
         composicion,
         hotelesAdHoc,
         actividadesAdHoc,
+        fechasDeVisita,
+        modalidades,
+        pedidasHechas,
+        rehaceEntrega,
       };
 
       // En el navegador, siempre: es la red que salva lo escrito si se cae la
@@ -788,7 +808,7 @@ export function RequestCanvas({
     return () => {
       if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
     };
-  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, descuentos, lineas, composicion, hotelesAdHoc, actividadesAdHoc, solicitudId, canal, enviada]);
+  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, descuentos, lineas, composicion, hotelesAdHoc, actividadesAdHoc, fechasDeVisita, modalidades, pedidasHechas, rehaceEntrega, solicitudId, canal, enviada]);
 
   /** Recupera el borrador y vuelve a buscar hoteles: las tarifas pueden haber cambiado. */
   function recuperar() {
@@ -814,6 +834,10 @@ export function RequestCanvas({
     setHotelesAdHoc(recuperable.hotelesAdHoc ?? []);
     setActividadesAdHoc(recuperable.actividadesAdHoc ?? []);
     adHocRef.current = { hoteles: recuperable.hotelesAdHoc ?? [], actividades: recuperable.actividadesAdHoc ?? [] };
+    setFechasDeVisita(recuperable.fechasDeVisita ?? {});
+    setModalidades(recuperable.modalidades ?? {});
+    setPedidasHechas(recuperable.pedidasHechas ?? (recuperable.programaBase.length ? ["*"] : []));
+    setRehaceEntrega(recuperable.rehaceEntrega ?? null);
     if (recuperable.entendido) {
       setParseResult({
         normalized: recuperable.entendido,
@@ -1532,9 +1556,14 @@ export function RequestCanvas({
 
   /** Lo que el esbozo necesita del viaje y del proveedor (periodos de PortAventura, gratuidades). */
   function contextoDelEsbozo(item: ActivitySearchMatch): ContextoDelEsbozo {
+    // Con el día de la actividad, su periodo y solo ese: el 17/04/2027 es C
+    // aunque el viaje sea casi todo B (Ruth, 26/10/2026, ESCOLA ULL).
+    const dia = fechasDeVisita[item.activity.id];
+    const periodo = dia ? periodoDePortAventura(dia) : null;
     return {
-      periodos: periodosDelViaje(entendido?.dateFrom, entendido?.dateTo),
+      periodos: periodo && periodo !== "CERRADO" ? [periodo] : periodosDelViaje(entendido?.dateFrom, entendido?.dateTo),
       gratuidad: gratuidadDeProfesores(item.activity.policies),
+      modalidad: modalidades[item.activity.id] ?? null,
     };
   }
   function esbozoDe(item: ActivitySearchMatch): LineaDeActividad[] {
@@ -1572,9 +1601,51 @@ export function RequestCanvas({
       }
       return cambio ? siguiente : actuales;
     });
-    // Solo cuando cambia el grupo o las fechas.
+    // Solo cuando cambia el grupo, las fechas, el día o la entrada de una actividad.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entendido?.participants, entendido?.teachers, entendido?.ageRangeText, entendido?.dateFrom, entendido?.dateTo, actividadesElegibles]);
+  }, [entendido?.participants, entendido?.teachers, entendido?.ageRangeText, entendido?.dateFrom, entendido?.dateTo, actividadesElegibles, fechasDeVisita, modalidades, programaBase]);
+
+  /**
+   * Lo que el mensaje pide en actividades («multiaventura en Cambrils»,
+   * «PortAventura con ticket plus el 17 de abril»). Ruth, 26/10/2026: «lo
+   * escribo en el inicio de la descripción y no aparece ni lo interpreta».
+   */
+  const pedidas = useMemo(
+    () =>
+      actividadesPedidas(
+        [...mensajes, entendido?.requirementsText ?? ""].join("\n"),
+        Number((entendido?.dateFrom ?? "").slice(0, 4)) || null,
+      ),
+    [mensajes, entendido?.requirementsText, entendido?.dateFrom],
+  );
+
+  // Lo pedido que tiene UNA actividad clara en el catálogo se añade solo, con
+  // su día y su entrada. Lo que tiene varias se enseña para elegir.
+  useEffect(() => {
+    if (!actividadesElegibles.length || !pedidas.length || pedidasHechas.includes("*")) return;
+    const catalogo = actividadesElegibles.map((m) => m.activity);
+    const hechas = [...pedidasHechas];
+    const anadir: string[] = [];
+    const fechas = { ...fechasDeVisita };
+    const mods = { ...modalidades };
+    for (const p of pedidas) {
+      if (hechas.includes(p.clave)) continue;
+      const candidatas = candidatasDe(p, catalogo);
+      if (candidatas.length !== 1) continue;
+      const id = candidatas[0].id;
+      hechas.push(p.clave);
+      if (p.fecha && !fechas[id]) fechas[id] = p.fecha;
+      if (p.modalidad && !mods[id]) mods[id] = p.modalidad;
+      if (!programaBase.includes(id) && !anadir.includes(id)) anadir.push(id);
+    }
+    if (hechas.length === pedidasHechas.length) return;
+    setPedidasHechas(hechas);
+    setFechasDeVisita(fechas);
+    setModalidades(mods);
+    if (anadir.length) setProgramaBase((actuales) => [...actuales, ...anadir.filter((id) => !actuales.includes(id))]);
+    // Solo cuando llega el catálogo o cambia lo pedido.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actividadesElegibles, pedidas]);
 
   function alternarBase(id: string) {
     const yaEstaba = programaBase.includes(id);
@@ -1676,6 +1747,7 @@ export function RequestCanvas({
         // tiene ninguno, y de este mismo dato salen el campo del CRM y el buzón
         // desde el que se envía.
         departamento || null,
+        rehaceEntrega,
       );
       setSolicitudId(guardada.id);
 
@@ -1711,6 +1783,8 @@ export function RequestCanvas({
           descuentos,
           preciosFijados,
           lineasSinDescuento: lineas,
+          fechasDeVisita,
+          modalidades,
         },
       });
       setPropuesta(nueva);
@@ -2429,6 +2503,15 @@ export function RequestCanvas({
                         lineas={lineas[item.activity.id] ?? []}
                         contexto={contextoDelEsbozo(item)}
                         fechas={{ desde: entendido?.dateFrom ?? "", hasta: entendido?.dateTo ?? "" }}
+                        diaVisita={fechasDeVisita[item.activity.id] ?? null}
+                        onDia={(dia) =>
+                          setFechasDeVisita((actuales) => {
+                            const siguiente = { ...actuales };
+                            if (dia) siguiente[item.activity.id] = dia;
+                            else delete siguiente[item.activity.id];
+                            return siguiente;
+                          })
+                        }
                         onCambiar={(nuevas) => {
                           setLineas((actuales) => ({ ...actuales, [item.activity.id]: nuevas }));
                           // Con líneas puestas, la actividad entra en el programa.
@@ -2452,6 +2535,15 @@ export function RequestCanvas({
                   Personalizar por opción
                 </button>
               </div>
+              <PedidasDelMensaje
+                pedidas={pedidas}
+                catalogo={actividadesElegibles.map((m) => m.activity)}
+                programa={programaBase}
+                onBuscar={(texto) => {
+                  setBusquedaActividades(texto);
+                  setBuscadorAbierto(true);
+                }}
+              />
               {actividades.matches.length === 0 ? (
                 <div className="cv__slot">{porQueNoHayActividades(entendido, actividades)}</div>
               ) : null}
@@ -2706,6 +2798,7 @@ export function RequestCanvas({
           tope={tope}
           setTope={setTope}
           requisitos={requisitos}
+          setRequisitos={setRequisitos}
           canal={canal}
           setCanal={setCanal}
           departamento={departamento}
@@ -3156,6 +3249,7 @@ function PanelEntendido({
   tope,
   setTope,
   requisitos,
+  setRequisitos,
   canal,
   setCanal,
   departamento,
@@ -3173,6 +3267,7 @@ function PanelEntendido({
   tope: number | null;
   setTope: (valor: number | null) => void;
   requisitos: string[];
+  setRequisitos: (valor: string[]) => void;
   canal: ClientSegment;
   setCanal: (valor: ClientSegment) => void;
   departamento: "GROUPS" | "SPORTS" | "";
@@ -3296,6 +3391,8 @@ function PanelEntendido({
               setForm={setForm}
               tope={tope}
               setTope={setTope}
+              requisitos={requisitos}
+              setRequisitos={setRequisitos}
               canal={canal}
               setCanal={setCanal}
               departamento={departamento}
@@ -3375,6 +3472,8 @@ function CamposEntendido({
   setForm,
   tope,
   setTope,
+  requisitos,
+  setRequisitos,
   canal,
   setCanal,
   departamento,
@@ -3387,6 +3486,8 @@ function CamposEntendido({
   setForm: (valor: ParseTripRequestInput) => void;
   tope: number | null;
   setTope: (valor: number | null) => void;
+  requisitos: string[];
+  setRequisitos: (valor: string[]) => void;
   canal: ClientSegment;
   setCanal: (valor: ClientSegment) => void;
   departamento: "GROUPS" | "SPORTS" | "";
@@ -3394,6 +3495,9 @@ function CamposEntendido({
   contactoCrm: ContactoDelCrm | null;
 }) {
   const clientesEspeciales = useClientesEspeciales();
+  // Se escribe como texto y se guarda como lista: así la coma que se acaba de
+  // teclear no desaparece antes de escribir el siguiente.
+  const [requisitosTexto, setRequisitosTexto] = useState(requisitos.join(", "));
   return (
     <>
       <section className="cv__ventbloq">
@@ -3484,6 +3588,31 @@ function CamposEntendido({
             ayuda="Solo marca en la lista lo que se pasa: no descarta nada."
           />
         </div>
+        {/* Ruth, 26/10/2026: «durante la edición de la información a tener en
+            cuenta no podemos corregir ni añadir información extra». Aquí no
+            había dónde: el texto de la petición y los requisitos solo se leían. */}
+        <label className="cv__field cv__field--ancho">
+          <span>Requisitos especiales</span>
+          <input
+            value={requisitosTexto}
+            onChange={(e) => {
+              setRequisitosTexto(e.target.value);
+              setRequisitos(e.target.value.split(",").map((r) => r.trim()).filter(Boolean));
+            }}
+            placeholder="Alergias / dietas especiales, habitaciones de profesores cercanas…"
+          />
+          <small>Separados por comas. Se comprueban con cada alojamiento.</small>
+        </label>
+        <label className="cv__field cv__field--ancho">
+          <span>Información a tener en cuenta</span>
+          <textarea
+            rows={5}
+            value={entendido.requirementsText}
+            onChange={(e) => setEntendido({ ...entendido, requirementsText: e.target.value })}
+            placeholder="Lo que pide el colegio y no cabe en los campos de arriba: actividades, horarios, el día del parque…"
+          />
+          <small>Corrígelo o añade lo que haga falta. Se guarda con la solicitud y en el trato del CRM.</small>
+        </label>
       </section>
 
       <section className="cv__ventbloq">
@@ -4502,6 +4631,72 @@ function notaDeModalidad(modalidad: string, condiciones: Array<{ policyText: str
   return null;
 }
 
+/**
+ * Lo que pide el mensaje en actividades, y qué ha pasado con cada una.
+ *
+ * Ruth, 26/10/2026: «no veo la manera de añadir las actividades adicionales,
+ * las tenemos que elegir del desplegable, ¿sería posible añadirlo de
+ * entrada?». Lo que tiene una actividad clara ya está en el programa; lo que
+ * tiene varias (multiaventura en Cambrils: nueve de Saltapark) abre el buscador
+ * con ellas; lo que no está en el catálogo se dice.
+ */
+function PedidasDelMensaje({
+  pedidas,
+  catalogo,
+  programa,
+  onBuscar,
+}: {
+  pedidas: ActividadPedida[];
+  catalogo: Array<{ id: string; activityName: string; locationMain?: string | null; supplierName?: string | null }>;
+  programa: string[];
+  onBuscar: (texto: string) => void;
+}) {
+  if (!pedidas.length) return null;
+  return (
+    <div className="cv__pedidas">
+      <p className="cv__pedidast">Lo que pide el mensaje</p>
+      <ul>
+        {pedidas.map((p) => {
+          const candidatas = candidatasDe(p, catalogo);
+          const puestas = candidatas.filter((c) => programa.includes(c.id));
+          const periodo = p.fecha ? periodoDePortAventura(p.fecha) : null;
+          const detalle = [
+            p.lugar ? `en ${p.lugar}` : null,
+            p.modalidad,
+            p.fecha ? `el ${diaCorto(p.fecha)}${periodo && periodo !== "CERRADO" ? ` · periodo ${periodo}` : ""}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          return (
+            <li key={p.clave} className={puestas.length ? "is-ok" : candidatas.length ? "is-elegir" : "is-no"}>
+              <b>{p.etiqueta}</b>
+              {detalle ? <span> · {detalle}</span> : null}
+              <span className="cv__pedidasq">
+                {puestas.length ? (
+                  <>En el programa: {puestas.map((c) => c.activityName).join(", ")}</>
+                ) : candidatas.length ? (
+                  <button type="button" className="cv__link" onClick={() => onBuscar(p.busqueda)}>
+                    Elegir entre {candidatas.length} {candidatas.length === 1 ? "actividad" : "actividades"}
+                  </button>
+                ) : (
+                  <>No está en el catálogo: añádela con «+ Fuera del catálogo»</>
+                )}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/** «jue 17/04». */
+function diaCorto(fechaISO: string): string {
+  const d = new Date(`${fechaISO.slice(0, 10)}T12:00:00Z`);
+  const semana = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"][d.getUTCDay()];
+  return `${semana} ${fechaISO.slice(8, 10)}/${fechaISO.slice(5, 7)}`;
+}
+
 function VentanaDeActividad({
   item,
   alumnos,
@@ -4510,6 +4705,8 @@ function VentanaDeActividad({
   lineas,
   contexto,
   fechas,
+  diaVisita,
+  onDia,
   onCambiar,
   onCerrar,
 }: {
@@ -4520,9 +4717,13 @@ function VentanaDeActividad({
   lineas: LineaDeActividad[];
   contexto: ContextoDelEsbozo;
   fechas: { desde: string; hasta: string };
+  /** El día de la actividad (AAAA-MM-DD), si se sabe. */
+  diaVisita: string | null;
+  onDia: (dia: string | null) => void;
   onCambiar: (lineas: LineaDeActividad[]) => void;
   onCerrar: () => void;
 }) {
+  const [todosLosPeriodos, setTodosLosPeriodos] = useState(false);
   useEffect(() => {
     const alPulsar = (evento: KeyboardEvent) => {
       if (evento.key === "Escape") onCerrar();
@@ -4538,6 +4739,26 @@ function VentanaDeActividad({
   const avisosGrupo = [...new Set((usadas.length ? usadas : [item.rate]).flatMap((r) => avisosDeLaTarifa(r, alumnos, profesores, edadGrupo)))];
   const porDia = /per[ií]odo/i.test(todas.map((r) => r.ageLabel).join(" ")) ? periodosPorDia(fechas.desde, fechas.hasta) : [];
   const periodosDistintos = [...new Set(porDia.map((d) => d.periodo).filter(Boolean))];
+  // El periodo del día de la visita: con él, solo sus tarifas. Ruth, 26/10/2026:
+  // «si no aparecen todas las opciones y te obliga a consultar el calendario».
+  const periodoDelDia = diaVisita ? periodoDePortAventura(diaVisita) : null;
+  const filtrarPorPeriodo = !!periodoDelDia && periodoDelDia !== "CERRADO" && !todosLosPeriodos;
+  const delPeriodo = (r: (typeof todas)[number]) => {
+    if (!filtrarPorPeriodo) return true;
+    const p = /per[ií]odo\s+([a-f])\b/i.exec(r.ageLabel ?? "")?.[1]?.toUpperCase();
+    return !p || p === periodoDelDia || cantidadDe(r.id) > 0;
+  };
+  const elegirDia = (dia: string | null) => {
+    onDia(dia);
+    const p = dia ? periodoDePortAventura(dia) : null;
+    // Cambiar el día rehace las entradas con su periodo: es justo para lo que se elige.
+    onCambiar(
+      lineasPorDefecto(todas, alumnos, profesores, edadGrupo, {
+        ...contexto,
+        periodos: p && p !== "CERRADO" ? [p] : periodosDelViaje(fechas.desde, fechas.hasta),
+      }),
+    );
+  };
   const gratuidad = contexto.gratuidad ?? null;
   const rejilla = rejillaDeActividad(
     todas.map((r) => ({
@@ -4604,6 +4825,27 @@ function VentanaDeActividad({
                 <p className="cv__detnota">Esta actividad no tiene precio en el catálogo: se pone en la lista, no aquí.</p>
               ) : (
                 <>
+                  {porDia.length ? (
+                    <div className="cv__dia">
+                      <label>
+                        <span>Día de la visita</span>
+                        <select value={diaVisita ?? ""} onChange={(e) => elegirDia(e.target.value || null)}>
+                          <option value="">Sin elegir · el periodo más frecuente del viaje</option>
+                          {porDia.map((d) => (
+                            <option key={d.fecha} value={d.fecha} disabled={!d.periodo || d.periodo === "CERRADO"}>
+                              {diaCorto(d.fecha)} ·{" "}
+                              {d.periodo === "CERRADO" ? "parque cerrado" : d.periodo ? `periodo ${d.periodo}` : "sin calendario"}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {filtrarPorPeriodo || todosLosPeriodos ? (
+                        <button type="button" className="cv__link" onClick={() => setTodosLosPeriodos((v) => !v)}>
+                          {todosLosPeriodos ? `Solo las del periodo ${periodoDelDia}` : "Ver todos los periodos"}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <table className="cv__lineas">
                     <thead>
                       <tr>
@@ -4614,7 +4856,7 @@ function VentanaDeActividad({
                       </tr>
                     </thead>
                     <tbody>
-                      {ordenarPorModalidad(todas.filter((r) => r.salePvpAmount > 0)).flatMap(({ r, cabecera }) => {
+                      {ordenarPorModalidad(todas.filter((r) => r.salePvpAmount > 0 && delPeriodo(r))).flatMap(({ r, cabecera }) => {
                           const cantidad = cantidadDe(r.id);
                           const filas: ReactNode[] = [];
                           if (cabecera) {
@@ -4702,17 +4944,17 @@ function VentanaDeActividad({
                     ) : null}
                   </div>
                   {gratuidad ? <p className="cv__detnota">{textoDeLaGratuidad(gratuidad, alumnos, profesores)}</p> : null}
-                  {avisosGrupo.length || periodosDistintos.length > 1 ? (
+                  {avisosGrupo.length || (periodosDistintos.length > 1 && !periodoDelDia) ? (
                     <ul className="cv__detavisos">
                       {avisosGrupo.map((a) => (
                         <li key={a}>{a}</li>
                       ))}
-                      {periodosDistintos.length > 1 ? (
+                      {periodosDistintos.length > 1 && !periodoDelDia ? (
                         <li>
                           PortAventura cobra según el día: {porDia
                             .filter((d) => d.periodo)
                             .map((d) => `${d.fecha.slice(8, 10)}/${d.fecha.slice(5, 7)} ${d.periodo === "CERRADO" ? "cerrado" : `periodo ${d.periodo}`}`)
-                            .join(" · ")}. El esbozo usa el periodo más frecuente: elige la tarifa del día de la visita.
+                            .join(" · ")}. El esbozo usa el periodo más frecuente: elige arriba el día de la visita.
                         </li>
                       ) : null}
                     </ul>

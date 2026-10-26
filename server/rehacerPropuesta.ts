@@ -114,6 +114,8 @@ export async function borradorParaRehacer(
   let lineas: Record<string, unknown[]> = {};
   let tope: number | null = null;
   let requisitos: string[] = [];
+  let fechasDeVisita: Record<string, string> = {};
+  let modalidades: Record<string, string> = {};
   let conEstadoGuardado = false;
   if (propuesta.stayJson) {
     try {
@@ -127,6 +129,8 @@ export async function borradorParaRehacer(
         lineas = (guardado.lineas as Record<string, unknown[]>) ?? {};
         tope = typeof guardado.tope === "number" ? guardado.tope : null;
         requisitos = Array.isArray(guardado.requisitos) ? (guardado.requisitos as string[]) : [];
+        fechasDeVisita = (guardado.fechasDeVisita as Record<string, string>) ?? {};
+        modalidades = (guardado.modalidades as Record<string, string>) ?? {};
       } else {
         composicion = { ...COMPOSICION_POR_DEFECTO, ...(guardado as unknown as ComposicionDeLaEstancia) };
       }
@@ -202,6 +206,12 @@ export async function borradorParaRehacer(
     composicion,
     hotelesAdHoc,
     actividadesAdHoc,
+    fechasDeVisita,
+    modalidades,
+    // Lo que se ha hecho ya no se vuelve a añadir solo desde el mensaje.
+    pedidasHechas: ["*"],
+    // Con esto, al enviar se sigue el MISMO viaje y el mismo trato del CRM. Antes
+    // el lienzo no lo leía, y rehacer la 0009 creó la 0010 y otro trato (26/10/2026).
     rehaceEntrega: entrega.reference,
   };
 

@@ -72,6 +72,66 @@ export function desgloseParaElCliente(texto: string | null | undefined): string 
     .join("; ");
 }
 
+/** Un tramo del desglose como bloque de lista: «Media pensión · 1 noche (el 16 de abril)» y sus líneas. */
+export interface TramoEnLista {
+  titulo: string;
+  lineas: string[];
+}
+
+/**
+ * El desglose en lista, un bloque por tramo y una línea por cada grupo.
+ *
+ * Ruth, 26/10/2026: «el redactado de la cotización es muy compacto y dificulta
+ * la lectura, ¿podría modificarse a modo lista, en lugar del texto continuo?».
+ * El desglose de tres tramos con alumnos, profesores en dos habitaciones y
+ * chófer era un párrafo de ocho líneas. Con la fecha de entrada, cada tramo
+ * dice qué noches son.
+ */
+export function desgloseEnLista(
+  texto: string | null | undefined,
+  fechaEntrada?: Date | string | null,
+): TramoEnLista[] {
+  const legible = desgloseParaElCliente(texto);
+  if (!legible) return [];
+  const entrada = fechaEntrada
+    ? new Date(`${String(fechaEntrada instanceof Date ? fechaEntrada.toISOString() : fechaEntrada).slice(0, 10)}T12:00:00Z`)
+    : null;
+  const conFecha = entrada && !Number.isNaN(entrada.getTime());
+  let desde = 0;
+  return legible.split("; ").map((tramo) => {
+    const dosPuntos = tramo.indexOf(": ");
+    const cabeza = dosPuntos > 0 && dosPuntos < 40 ? tramo.slice(0, dosPuntos) : "";
+    let cuerpo = dosPuntos > 0 && dosPuntos < 40 ? tramo.slice(dosPuntos + 2) : tramo;
+    const noches = /,?\s*por noche × (\d+) noches?$/.exec(cuerpo);
+    const n = noches ? Number(noches[1]) : 0;
+    if (noches) cuerpo = cuerpo.slice(0, noches.index);
+    let cuando = "";
+    if (conFecha && n > 0) {
+      const a = new Date(entrada!.getTime() + desde * 864e5);
+      const b = new Date(entrada!.getTime() + (desde + n - 1) * 864e5);
+      cuando =
+        n === 1
+          ? ` (el ${fechaLarga(a)})`
+          : a.getUTCMonth() === b.getUTCMonth()
+            ? ` (del ${a.getUTCDate()} al ${fechaLarga(b)})`
+            : ` (del ${fechaLarga(a)} al ${fechaLarga(b)})`;
+    }
+    desde += n;
+    const titulo = [cabeza, n ? `${n} ${n === 1 ? "noche" : "noches"}${cuando}` : ""].filter(Boolean).join(" · ");
+    // Cada grupo en su línea y empezando por quién: «80 alumnos: 44,73 € por noche».
+    const lineas = cuerpo
+      .split(/\s\+\s(?=\d)/)
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => {
+        const m = /^(\d[\d.,]*\s*€)\s*×\s*(\d+\s+.+)$/.exec(l);
+        if (!m) return n ? `${l} por noche` : l;
+        return `${m[2]}: ${m[1]}${n ? " por noche" : ""}`;
+      });
+    return { titulo, lineas };
+  });
+}
+
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 
 function fechaLarga(d: Date): string {

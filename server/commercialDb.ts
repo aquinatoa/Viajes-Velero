@@ -157,6 +157,8 @@ export interface SaveTripRequestInput {
   categoryRequested?: string | null;
   requirementsText?: string | null;
   requestStatus: string;
+  /** La propuesta que se rehace: deja reescribir su solicitud aunque ya saliera. */
+  rehaceEntrega?: string | null;
 }
 
 /**
@@ -164,12 +166,25 @@ export interface SaveTripRequestInput {
  * que mande el lienzo si es del mismo cliente y **nada suyo ha salido todavía**.
  * Una solicitud cuya propuesta ya viajó al colegio es historia: no se toca.
  */
-async function findEditableTripRequest(id: string, clientId: string) {
+async function findEditableTripRequest(id: string, clientId: string, rehaceEntrega?: string | null) {
   const row = await prisma.tripRequest.findUnique({
     where: { id },
     select: { id: true, clientId: true, ownerUserId: true, department: true },
   });
   if (!row || row.clientId !== clientId) return null;
+
+  // Rehacer una propuesta enviada es seguir el MISMO viaje: misma solicitud y,
+  // con ella, el mismo trato del CRM. Lo enviado no se toca porque cada
+  // propuesta guarda su foto (opciones, precios, PDF). Antes se creaba otra
+  // solicitud y, al cerrar, otro trato: la 0009 de ESCOLA ULL se rehízo como
+  // 0010 con un segundo trato en su CRM (26/10/2026). Solo si la referencia es
+  // de esta misma solicitud.
+  if (rehaceEntrega) {
+    const suya = await prisma.proposalDelivery.count({
+      where: { reference: rehaceEntrega, proposal: { tripRequestId: id } },
+    });
+    if (suya > 0) return row;
+  }
 
   const yaSalio = await prisma.proposalDelivery.count({
     where: {
@@ -190,7 +205,7 @@ async function findEditableTripRequest(id: string, clientId: string) {
  * fechas o el número de alumnos, y de esa fila salen el PDF y el trato.
  */
 export async function saveTripRequestDb(input: SaveTripRequestInput): Promise<TripRequest> {
-  const editable = input.id ? await findEditableTripRequest(input.id, input.clientId) : null;
+  const editable = input.id ? await findEditableTripRequest(input.id, input.clientId, input.rehaceEntrega) : null;
 
   const data = {
     clientId: input.clientId,

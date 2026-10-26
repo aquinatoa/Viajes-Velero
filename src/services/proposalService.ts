@@ -187,6 +187,8 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
       descuentos: input.builderState.descuentos ?? {},
       preciosFijados: input.builderState.preciosFijados ?? {},
       lineas: input.builderState.lineasSinDescuento ?? {},
+      fechasDeVisita: input.builderState.fechasDeVisita ?? {},
+      modalidades: input.builderState.modalidades ?? {},
     }),
     accommodationOptions,
     activityOptions

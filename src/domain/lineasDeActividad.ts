@@ -43,6 +43,8 @@ export interface ContextoDelEsbozo {
   periodos?: string[];
   /** Lo que el proveedor da gratis a los profesores. */
   gratuidad?: GratuidadDeProfesores | null;
+  /** La entrada que pidió el colegio: «Ticket Plus», «Express»… (26/10/2026). */
+  modalidad?: string | null;
 }
 
 export type UnidadDeTarifa = "PER_PAX" | "PER_GROUP" | "PER_HOUR" | "PER_DAY" | "PER_SERVICE" | "PER_UNIT";
@@ -252,7 +254,11 @@ export function lineasPorDefecto(
   }
 
   const porPrecio = (a: TarifaElegible, b: TarifaElegible) => a.salePvpAmount - b.salePvpAmount;
+  // Si el colegio pidió una modalidad («con ticket plus»), esa; si no, la básica.
+  const modalidad = sinTildes(contexto.modalidad ?? "").trim();
   const preferir = (lista: TarifaElegible[]) => {
+    const pedidas = modalidad ? lista.filter((t) => sinTildes(t.ageLabel ?? "").includes(modalidad)) : [];
+    if (pedidas.length) return [...pedidas].sort(porPrecio)[0];
     const basicas = lista.filter((t) => esBasica(t.ageLabel));
     return [...(basicas.length ? basicas : lista)].sort(porPrecio)[0];
   };
@@ -322,6 +328,18 @@ const euros = (n: number) =>
   new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", minimumFractionDigits: 2 })
     .format(n)
     .replace(/ /g, " ");
+
+/**
+ * Las líneas para el documento, una por fila: «80 × 52,00 € Joven… · Entrada
+ * + Ticket Plus · Periodo C». Partir el resumen por « + » no vale, porque las
+ * propias tarifas llevan «+» en el nombre (Ruth, 26/10/2026: el texto continuo
+ * no se leía).
+ */
+export function lineasEnLista(lineas: LineaDeActividad[]): string[] {
+  return lineas
+    .filter((l) => l.cantidad > 0)
+    .map((l) => `${l.precio < 0 ? "− " : ""}${l.cantidad} × ${euros(Math.abs(l.precio))} ${l.etiqueta}`);
+}
 
 /** «25 × 17,00 € Joven (12-17) · Entrada · Periodo B + 2 × 23,00 € Adulto (18-59) · Entrada · Periodo B = 471,00 €». */
 export function resumenDeLineas(lineas: LineaDeActividad[]): string {

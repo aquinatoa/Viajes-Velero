@@ -2741,3 +2741,55 @@ Resumen y pendientes en `Oravia - 2026-10-22 - Reunion (resumen).md`.
 - Correo: Cristian estudia una función CRM que asocie por el asunto; Anthony,
   bandeja por oportunidad en la app con cliente y proveedor.
 - Oravia aún no ha probado la aceptación desde el enlace.
+
+### 23-26/10/2026 · Correo de Ruth (23/10 13:03) → producción en `7329616`
+
+Push con la orden literal de Anthony (26/10): `8edd1ba..7329616`, desplegado
+26/10 09:40. Rama `ruth-23-10`.
+
+1. **«Zoho devolvió 400 · INVALID_DATA … Account_Name.id» al cerrar** la
+   solicitud «TEST GRUPO JUNIO 2027». La ficha del cliente
+   rpujol@oraviatravel.com guardaba la cuenta 734060000033705012 («AMA
+   GUADALUPEKOA 2027»), que Ruth borró en Zoho el 19/10. Ahora
+   `cuentaSigueEnElCrm` (server/zoho.ts) la comprueba antes de usarla y, si
+   no está, resuelve por el nombre del centro; y `upsertClientFromIntakeDb`
+   olvida la cuenta si el mismo correo llega con otro centro (`mismoCentro`).
+2. **Descuento «€ por persona»**: se restaba también a los profesores y se
+   repartía entre alumnos (4 € bajaban 4,23 por alumno; en tarifas por grupo
+   restaba 4 € al grupo). Ahora «€ por alumno»: línea `#descuento`
+   (−importe × alumnos), visible en el resumen y en el documento. El % sigue
+   por línea. Solo afectaba a borradores de prueba (TEST PEPE con 2 €).
+   PENDIENTE: confirmar con Ruth que esperaba 20,26 € y no 18,95 €.
+
+### 26/10/2026 · Correo de Ruth (12:15, uid 38121): ESCOLA ULL · rama `ruth-26-10`
+
+Probaron ESCOLA ULL (rflorio@, 80 alumnos de secundaria, Cambrils 16-20/04/2027).
+Seis cosas, todas en local y SIN subir:
+
+1. **Actividades del mensaje** (`src/domain/actividadesPedidas.ts`): lee
+   «multiaventura en Cambrils» y «PortAventura con ticket plus… el 17 de abril».
+   Lo que tiene UNA actividad clara entra solo en el programa (PortAventura →
+   «1 día PortAventura Park», Ticket Plus, periodo C del 17/04); lo que tiene
+   varias (Saltapark: 9) sale en la franja «Lo que pide el mensaje» con un botón
+   que abre el buscador. Estado nuevo del borrador: `fechasDeVisita`,
+   `modalidades`, `pedidasHechas`, `rehaceEntrega`.
+2. **Día de la visita** en la ventana de la actividad: selector con los días del
+   viaje y su periodo; con día, solo las tarifas de ese periodo («Ver todos»).
+3. **Edad por curso**: «secundaria» → 12-16 (ESO/FP solo en mayúsculas).
+   Por eso salía la entrada de Primaria.
+4. **Documento en lista**: desglose por tramos con fechas (`desgloseEnLista`),
+   entradas de actividades una por línea (`lineasEnLista`), condiciones en
+   castellano (GRATUITY/PAYMENT/SPECIAL_NOTES…), sin «Pago: Depósito:» ni la
+   gratuidad repetida. También la página pública.
+5. **«Modificar» la petición**: campos nuevos «Requisitos especiales» e
+   «Información a tener en cuenta» (requirementsText).
+6. **Rehacer = versión del mismo viaje**: la 0009 rehecha creó la 0010 y un
+   SEGUNDO trato en su CRM (734060000034094029; el bueno es 734060000034082167).
+   Ahora: misma solicitud (si `rehaceEntrega` es suya), mismo trato, referencia
+   «ORV-2026-0009-v2»; la mesa enseña una fila por viaje; el correo empareja
+   «-vN». También aplica a «Ha cambiado algo». Probado contra la BD local
+   (`scripts/_tmp_act/prueba-rehacer-local.ts`).
+
+PENDIENTE: que Anthony lo vea en local y dé la orden de push; borrar la 0010 de
+prueba desde la mesa (se lleva su trato duplicado a la papelera de Zoho);
+llamar a Ruth (lo pidió).
