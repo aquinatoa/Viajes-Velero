@@ -30,6 +30,7 @@ import { leerCotizacionDelProveedor, leerJustificante } from "./cotizacionDelPro
 import type { ContextoDeCotizacion } from "../src/domain/cotizacionDelProveedor";
 import { fichaDeLaPropuesta, renombrarViaje } from "./fichaPropuesta";
 import { borradorParaRehacer } from "./rehacerPropuesta";
+import { crearTratoAlEnviar, guardarDatosDelTrato } from "./tratoAlEnviar";
 import {
   borrarSolicitudDb,
   queSeVaABorrar,
@@ -2121,7 +2122,14 @@ app.get("/api/audit", requireAuth, requireRole("ADMIN"), async (request, respons
 
 app.post("/api/proposals/:id/prepare-delivery", requireAuth, async (request, response) => {
   try {
-    const body = request.body as { recipientEmail?: string; recipientName?: string };
+    const body = request.body as { recipientEmail?: string; recipientName?: string; crmPayload?: unknown };
+    // Los datos del trato se GUARDAN aquí y el trato se crea al enviar. Ruth,
+    // 26/10/2026: «aunque no se ha realizado el envío del segundo grupo también
+    // hemos recibido creación de oportunidad en el Zoho; debería crearse solo
+    // lo que se envíe».
+    if (body?.crmPayload) {
+      await guardarDatosDelTrato(String(request.params.id), body.crmPayload);
+    }
     const result = await prepareDelivery({
       proposalId: String(request.params.id),
       recipientEmail: body?.recipientEmail,
@@ -2145,7 +2153,16 @@ app.post("/api/proposals/:id/prepare-delivery", requireAuth, async (request, res
 
 app.post("/api/deliveries/:id/send", requireAuth, async (request, response) => {
   try {
-    const result = await sendDelivery(String(request.params.id));
+    const user = (request as AuthedRequest).user;
+    // El trato del CRM nace aquí, justo antes de que salga el correo: lo que no
+    // se envía no crea oportunidad (Ruth, 26/10/2026). Si Zoho lo rechaza, el
+    // correo no sale y se puede reintentar sin duplicar nada.
+    const result = await sendDelivery(String(request.params.id), async () => {
+      const creado = await crearTratoAlEnviar(String(request.params.id), user?.department ?? null);
+      if (creado) {
+        await writeAudit({ user, action: "CRM_OPPORTUNITY_CREATE", entity: "crm", detail: creado });
+      }
+    });
     await writeAudit({
       user: (request as AuthedRequest).user,
       action: result.simulated ? "PROPOSAL_DELIVERY_SIMULATED" : "PROPOSAL_DELIVERY_SENT",

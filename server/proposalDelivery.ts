@@ -151,6 +151,8 @@ export interface DeliveryResult {
   publicUrl: string | null;
   simulated: boolean;
   failureReason?: string | null;
+  /** El trato del CRM de la solicitud, si lo tiene. */
+  crmDealId?: string | null;
 }
 
 /**
@@ -299,7 +301,15 @@ export async function prepareDelivery(input: PrepareDeliveryInput): Promise<Deli
  * la marca como SIMULATED en vez de fallar: el circuito se puede probar entero
  * sin credenciales, y encenderlo consiste en rellenar el `.env`.
  */
-export async function sendDelivery(deliveryId: string): Promise<DeliveryResult> {
+export async function sendDelivery(
+  deliveryId: string,
+  /**
+   * Lo que tiene que pasar justo antes de que salga el correo: crear el trato
+   * del CRM (26/10/2026). Si falla, el correo NO sale y la entrega sigue como
+   * estaba, para reintentar. No corre si el envío es simulado.
+   */
+  antesDeEnviar?: () => Promise<void>,
+): Promise<DeliveryResult> {
   const delivery = await prisma.proposalDelivery.findUnique({ where: { id: deliveryId } });
   if (!delivery) throw new Error("La entrega no existe.");
   if (delivery.status === "SENT") throw new Error("Esta propuesta ya se envió.");
@@ -335,6 +345,8 @@ export async function sendDelivery(deliveryId: string): Promise<DeliveryResult> 
     await cerrarBorradorDe(solicitudId);
     return { ...base, status: updated.status, simulated: true };
   }
+
+  if (antesDeEnviar) await antesDeEnviar();
 
   const transporter = nodemailer.createTransport({
     host: box.host,
@@ -386,7 +398,7 @@ export async function sendDelivery(deliveryId: string): Promise<DeliveryResult> 
     `Propuesta ${delivery.reference} enviada a ${delivery.recipientEmail}.`,
   );
 
-  return { ...base, status: updated.status, simulated: false };
+  return { ...base, status: updated.status, simulated: false, crmDealId: await tratoDeLaEntrega(delivery.id) };
 }
 
 /**

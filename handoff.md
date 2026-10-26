@@ -2793,3 +2793,25 @@ Seis cosas, todas en local y SIN subir:
 PENDIENTE: que Anthony lo vea en local y dé la orden de push; borrar la 0010 de
 prueba desde la mesa (se lleva su trato duplicado a la papelera de Zoho);
 llamar a Ruth (lo pidió).
+
+### 26/10/2026 · Segundo correo de Ruth (12:34, uid 38123) · misma rama `ruth-26-10`
+
+1. **«No hemos recibido el presupuesto» (0009 → rflorio@)**: la app lo envió
+   (SENT 10:58 UTC, Message-ID <91d0c72c…@oraviatravel.com>, desde groups@) y
+   su servidor (servidor-correo.net) lo aceptó. Ningún rebote en la bandeja de
+   Grupos hasta las 11:43 UTC. La 0007 a rpujol@ sí llegó. Lo más probable: el
+   correo no deseado de Rubén (buzón recién creado; su servidor marca
+   «[CORREO BASURA]»). Sin cambio de código.
+2. **«Se crea oportunidad aunque no se envíe»**: cierto, el trato se creaba al
+   PREPARAR. Ahora se crea al ENVIAR (`server/tratoAlEnviar.ts`): preparar
+   guarda los datos en `TripProposal.crmPayloadJson`; `/send` crea el trato
+   (gancho `antesDeEnviar` de `sendDelivery`) justo antes del correo; si Zoho
+   falla, el correo no sale. Vale desde la revisión y desde la mesa. Un envío
+   simulado no crea trato. Probado en la BD local
+   (`scripts/_tmp_act/prueba-trato-al-enviar.ts`).
+
+OJO: en local el buzón TIENE clave y MAIL_TEST_RECIPIENT=aquinatoa@: un envío
+local sale de verdad a Anthony. En la primera pasada de la prueba salió uno
+(asunto «x», 11:57 UTC, solo a aquinatoa@) e intentó mover en Zoho un trato
+ficticio «YA-EXISTE» (Zoho lo rechazó). Las pruebas que envían, con las claves
+vaciadas en el proceso.

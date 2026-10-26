@@ -765,6 +765,8 @@ export interface ProposalDeliveryResult {
   publicUrl: string | null;
   simulated: boolean;
   failureReason?: string | null;
+  /** El trato del CRM, que se crea al enviar (26/10/2026). */
+  crmDealId?: string | null;
 }
 
 export interface ProposalDelivery {
@@ -1030,7 +1032,12 @@ export function borrarSolicitudApi(tripRequestId: string) {
 
 export function prepareProposalDeliveryApi(
   proposalId: string,
-  input?: { recipientEmail?: string; recipientName?: string },
+  input?: {
+    recipientEmail?: string;
+    recipientName?: string;
+    /** Los datos del trato del CRM, que se crea al ENVIAR (26/10/2026). */
+    crmPayload?: unknown;
+  },
 ) {
   return postJson<ProposalDeliveryResult>(
     `/api/proposals/${encodeURIComponent(proposalId)}/prepare-delivery`,

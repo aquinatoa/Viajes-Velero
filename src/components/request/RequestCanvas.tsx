@@ -39,14 +39,12 @@ import {
 import {
   abrirProposalPdf,
   buscarContactoCrmApi,
-  upsertClientApi,
   borrarBorradorApi,
   guardarBorradorApi,
   leerBorradorApi,
   listarBorradoresApi,
   tomarBorradorApi,
   type BorradorEnLista,
-  createZohoOpportunityApi,
   prepareProposalDeliveryApi,
   searchAccommodationsApi,
   searchActivitiesApi,
@@ -1795,45 +1793,20 @@ export function RequestCanvas({
         proposal: nueva,
         opportunityName: form.opportunityName,
       });
-      // `tripRequestId` es lo que impide que reintentar cree un segundo trato:
-      // el servidor lo mira en la BD, no en esta pantalla, que se pierde al
-      // recargar el navegador.
-      const trato = await createZohoOpportunityApi({
-        tripRequestId: guardada.id,
-        contact: payload.contact as { email: string; first_name: string; last_name: string; full_name: string },
-        account: payload.account as { crm_account_id?: string | null },
-        opportunity: payload.opportunity as Record<string, unknown>,
-        proposalOptions: payload.activities,
-      });
+      // El trato del CRM NO se crea aquí: se crea al enviar. Ruth, 26/10/2026:
+      // «debería crearse solo lo que se envíe; lo que no se envía, NO». Aquí
+      // solo se mandan sus datos, que el servidor guarda con la propuesta. El
+      // servidor también guarda en la ficha del cliente lo que Zoho resuelva.
       logCrmSyncAttempt(payload);
-      setDealId(trato.dealId);
-
-      // Se guarda la identidad que Zoho acaba de resolver. Estos dos campos
-      // existian desde el principio y no los escribia nadie: por eso cada
-      // solicitud volvia a buscar el contacto en Zoho desde cero, y cada
-      // busqueda era otra ocasion de no encontrarlo y crear un duplicado.
-      // A partir de aqui, el mismo colegio ya se reconoce por identificador.
-      if (trato.contactId || trato.accountId) {
-        try {
-          await upsertClientApi({
-            email: form.email,
-            firstName: form.firstName,
-            lastName: form.lastName,
-            clientType: form.clientType,
-            centreName: form.centreName ?? null,
-            crmContactId: trato.contactId ?? null,
-            crmAccountId: trato.accountId ?? null,
-          });
-        } catch {
-          // No se corta el cierre por esto: la propuesta ya existe y el trato
-          // tambien. Solo significa que la proxima vez habra que volver a
-          // buscar en Zoho.
-        }
-      }
-
       const preparada = await prepareProposalDeliveryApi(nueva.id, {
         recipientEmail: form.email,
         recipientName: [form.firstName, form.lastName].filter(Boolean).join(" "),
+        crmPayload: {
+          contact: payload.contact,
+          account: payload.account,
+          opportunity: payload.opportunity,
+          proposalOptions: payload.activities,
+        },
       });
       setEntrega(preparada);
       setAviso("");
@@ -1854,6 +1827,8 @@ export function RequestCanvas({
       const enviada = await sendProposalDeliveryApi(entrega.id);
       setEntrega(enviada);
       setEnviada(true);
+      // El trato nace al enviar: es aquí cuando se sabe.
+      setDealId(enviada.crmDealId ?? null);
 
       // La propuesta ya salió: esto deja de ser trabajo a medias. El servidor
       // cierra su borrador al enviar; aquí se quita de la pantalla y del
@@ -3000,7 +2975,7 @@ export function RequestCanvas({
                     <h3 className="rv__bt">Qué se queda registrado</h3>
                     <p className="rv__line">
                       <span>Trato en Zoho</span>
-                      <strong>{dealId ?? "se creará al preparar"}</strong>
+                      <strong>{dealId ?? "se creará al enviar"}</strong>
                     </p>
                     <p className="rv__line">
                       <span>Solicitud y propuesta</span>
@@ -3206,7 +3181,7 @@ function AvisoDelEnvio({
             <p className="cv__finsalvot">No se ha perdido nada</p>
             <ul>
               <li>La solicitud y la propuesta están guardadas.</li>
-              <li>El trato del CRM está creado.</li>
+              <li>El trato del CRM se crea al enviar: al reintentar se usa el mismo, nunca otro.</li>
               <li>El documento está generado.</li>
             </ul>
             <p className="cv__finsalvop">
