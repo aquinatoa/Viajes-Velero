@@ -33,7 +33,9 @@ const destinationCatalog = [
   { city: "Madrid", country: "España", aliases: ["madrid"] },
   { city: "Barcelona", country: "España", aliases: ["barcelona"] },
   { city: "Salou", country: "España", aliases: ["salou"] },
-  { city: "Cambrils", country: "España", aliases: ["cambrils"] },
+  // MSH (Mediterranean Sports Hub) es el complejo deportivo de Cambrils Park:
+  // «got a new request from FC Sins in MSH» se quedaba sin destino (27/10/2026).
+  { city: "Cambrils", country: "España", aliases: ["cambrils", "msh", "mediterranean sports hub", "cambrils park"] },
   { city: "La Pineda", country: "España", aliases: ["la pineda", "pineda"] },
   { city: "Tarragona", country: "España", aliases: ["tarragona"] },
   { city: "Costa Daurada", country: "España", aliases: ["costa daurada", "costa dorada"] }
@@ -63,7 +65,8 @@ function emptyDraft(): NormalizedRequestDraft {
 function detectLanguage(text: string) {
   const lower = text.toLowerCase();
   const spanishSignals = ["hola", "necesitamos", "grupo", "colegio", "profesores", "pensión"];
-  const englishSignals = ["hello", "school", "teachers", "students", "half board"];
+  // Lo que escriben los clubes y turoperadores de Deportivo (27/10/2026).
+  const englishSignals = ["hello", "school", "teachers", "students", "half board", "request", "players", "team", "coaches", "please", "full board", "we are"];
 
   if (spanishSignals.some((signal) => lower.includes(signal))) {
     return "Español";
@@ -78,9 +81,11 @@ function detectLanguage(text: string) {
 
 function findDestination(text: string) {
   const lower = text.toLowerCase();
-  const present = destinationCatalog.filter((candidate) =>
-    candidate.aliases.some((alias) => lower.includes(alias))
-  );
+  // Palabra entera: con «msh» entre los alias, un `includes` lo encontraría
+  // dentro de cualquier otra palabra.
+  const esta = (alias: string) =>
+    new RegExp(`(?<!\\p{L})${alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?!\\p{L})`, "u").test(lower);
+  const present = destinationCatalog.filter((candidate) => candidate.aliases.some(esta));
 
   if (present.length <= 1) {
     return present[0];
@@ -129,7 +134,9 @@ function extractParticipants(text: string) {
   const lower = stripAccents(text.toLowerCase());
   const match =
     lower.match(
-      /(\d{1,3})\s+(estudiantes|alumnos|alumnas|escolares|participantes|ninos|ninas|chicos|chicas|chavales|jovenes|students|pupils|pax)\b/
+      // Los de Deportivo escriben «21 players», «21 jugadores», «21 Spieler»
+      // (Oravia Sports, 27/10/2026).
+      /(\d{1,3})\s+(estudiantes|alumnos|alumnas|escolares|participantes|ninos|ninas|chicos|chicas|chavales|jovenes|jugadores|jugadoras|deportistas|students|pupils|players|athletes|kids|children|spieler|spielerinnen|joueurs|joueuses|pax)\b/
     ) ??
     lower.match(/\b(?:somos|seriamos|iriamos|vamos)\s+(\d{1,3})\b/) ??
     lower.match(/grupo\s+de\s+(\d{1,3})/) ??
@@ -147,8 +154,12 @@ function extractTeachers(text: string) {
   const lower = stripAccents(text.toLowerCase());
   const match =
     lower.match(
-      /(\d{1,2})\s+(profesores|profesoras|profes|docentes|maestros|maestras|tutores|monitores|monitoras|acompanantes|adultos|teachers|adults|staff|chaperones)\b/
-    ) ?? lower.match(/\b(?:van|vamos|iran|iriamos|mas)\s+(\d{1,2})\s+(?:profes|profesores|adultos)\b/);
+      // En un equipo, los acompañantes son entrenadores y delegados.
+      /(\d{1,2})\s+(profesores|profesoras|profes|docentes|maestros|maestras|tutores|monitores|monitoras|acompanantes|adultos|entrenadores|entrenadoras|delegados|teachers|adults|staff|chaperones|coaches|trainers|betreuer|trainer|accompagnateurs|entraineurs)\b/
+    ) ??
+    lower.match(/\b(?:van|vamos|iran|iriamos|mas)\s+(\d{1,2})\s+(?:profes|profesores|adultos)\b/) ??
+    // «profesores: 2», «coaches: 3», como lo escribió Ricard.
+    lower.match(/\b(?:profesores|profes|acompanantes|entrenadores|teachers|coaches|staff)\s*:\s*(\d{1,2})\b/);
 
   return match ? Number(match[1]) : null;
 }
@@ -282,6 +293,26 @@ const TIPOS_DE_CENTRO = [
   "Associació",
   "AMPA",
   "AFA",
+  // Clubes deportivos (Oravia Sports, 27/10/2026): «got a new request from
+  // FC Sins» se quedaba sin centro. Siglas habituales en España, Suiza,
+  // Alemania y el Reino Unido.
+  "FC",
+  "CF",
+  "CD",
+  "UD",
+  "SD",
+  "CE",
+  "UE",
+  "AD",
+  "SC",
+  "SV",
+  "TSV",
+  "VfB",
+  "VfL",
+  "Football Club",
+  "Futbol Club",
+  "Fútbol Club",
+  "Club Deportivo",
 ];
 
 /**

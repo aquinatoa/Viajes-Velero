@@ -2815,3 +2815,104 @@ local sale de verdad a Anthony. En la primera pasada de la prueba salió uno
 (asunto «x», 11:57 UTC, solo a aquinatoa@) e intentó mover en Zoho un trato
 ficticio «YA-EXISTE» (Zoho lo rechazó). Las pruebas que envían, con las claves
 vaciadas en el proceso.
+
+### 26/10/2026 · Subido: producción en `040ca5d` (13:03)
+
+Push con la orden literal de Anthony: `7329616..040ca5d` (rama `ruth-26-10`).
+Comprobado: la mesa responde y la página pública trae el desglose en lista.
+
+ERROR MÍO al comprobar: abrí la página pública de la 0009
+(`/api/public/proposals/<token>`) y eso CUENTA COMO VISITA DEL COLEGIO: la 0009
+quedó «Abierta 1 vez» (12:03:45 UTC) cuando Rubén no la ha abierto. La fase del
+trato 734060000034082167 («TEST 2 ESCOLA ULL 2027») sigue en «Preparando
+Presupuesto» (modificado por última vez 11:29 UTC, antes de la visita); las
+notas no se pudieron leer (Zoho rechaza esa consulta). Para limpiarlo hace
+falta la BD (Mateo): viewCount=0, firstViewedAt=null, lastViewedAt=null en
+ProposalDelivery ORV-2026-0009. NUNCA abrir enlaces públicos para comprobar.
+
+### 26-27/10/2026 · Zoho One cerrado, respuesta a Ruth y lo que queda (Neorbit)
+
+Asuntos: `asuntos/2026-10-26-correo-zoho-2912065-usuario-13-zoho-one-resuelto/` y
+`asuntos/2026-10-27-correo-ruth-26-10-respuesta-a-ruth-pruebas-escola-ull/`.
+
+Hecho:
+- **Zoho One · usuario 13 (Rubén): CERRADO.** Correo a Javier el 26/10 11:00 (Rubén de
+  alta, el fallo era de Zoho, los dos arreglos de Ruth del 23/10 subidos). Javier: «Ya
+  está todo creado» (11:28). Respuesta a Zoho en el ticket #2912065 (11:00); Zoho
+  contestó «Glad to know that the issue has been resolved» (14:36).
+- **Respuesta a Ruth** (sus correos del 26/10 12:15 y 12:34, uid 38121/38123): enviada
+  el 27/10 10:31 a Ruth, cc Ricard, Javier y Cristian. Contesta sus seis puntos con lo
+  subido en `040ca5d` y pide que lo vuelvan a probar con ESCOLA ULL. Ofrece la llamada
+  sin fecha. Ruth aún no ha contestado (27/10 11:40).
+- **Presupuesto a rflorio@ «no recibido»**: revisada el 27/10 la bandeja de Grupos por
+  la API de la app (200 mensajes, 23/10 → 27/10 11:16): ningún rebote tras el envío del
+  26/10 11:58. Se le dijo a Ruth que lo más probable es el correo no deseado.
+- **Visita falsa de la 0009**: pedido a Mateo por Cliq el 27/10 11:32 (viewCount=0,
+  firstViewedAt=null, lastViewedAt=null en ProposalDelivery ORV-2026-0009). Sin leer aún.
+- **Nota falsa en el CRM: no la hay.** La nota «El colegio abrió la propuesta…» solo se
+  escribe junto con el cambio de fase (`updateZohoDeal`, crmPipeline.ts 166-171); el
+  trato 734060000034082167 sigue en «Preparando Presupuesto», modificado por última vez
+  el 26/10 12:29 (antes de la visita). El token de la app no puede leer notas
+  (OAUTH_SCOPE_MISMATCH en Deals/{id}/Notes, v2 a v8).
+
+Decidido:
+- La **ORV-2026-0010** (duplicado del fallo de «Rehacer», trato 734060000034094029) NO la
+  borramos nosotros: son sus datos y puede querer compararla. Se le dice a Ruth en la
+  próxima respuesta que puede quitarla con «Borrar» (se lleva el trato a la papelera).
+
+Para la próxima respuesta a Ruth:
+- La 0010 la puede borrar ella (arriba).
+- Descuento del TEST PEPE: ¿esperaba 20,26 € o 18,95 € por alumno?
+- Solo si Anthony dice que no es cierta: corregir la frase del correo «lo que no venga en
+  el mensaje se sigue añadiendo desde el buscador, como hasta ahora» (deducción, no
+  comprobada en el código).
+
+Fallo mío a no repetir: di por enviado un correo que era un borrador (el script de
+correo busca en «Todos»). Antes de decir que algo salió: `in:sent`; si no, `in:drafts`.
+
+28/10 11:05 · Estado: Ruth no ha contestado; Mateo leyó el Cliq pero no ha confirmado.
+Entra correo de **Ricard (27/10 12:17, uid 38186, hilo «Consola Oravia · cómo vamos»)**
+sin contestar: 1) tarifas en «Pendiente de revisión» que esperan nuestra validación;
+2) Arbitraje sin precio (ofrecen enviar tarifas); 3) cotización de prueba que no cogió
+fechas, pax ni centro, y servicios extra que no aparecen. **Lo lleva Anthony por su cuenta.**
+
+### 28/10/2026 · Correo de Ricard (27/10 12:17, uid 38186) · revisado, sin tocar nada
+
+1. **«Pendiente de revisión»**: «TARIFA FINAL AUTOCARSENEDES 2027» (26 trayectos,
+   52 tarifas) y «Tarifa autocares Guti Bus 27» (13, 33). TODO aprobado; falta
+   solo «Revisar y publicar aprobados». Simulación: 0 omitidos, 0 avisos, no
+   sustituye nada. Guti Bus sin año (controlYear null). Ambos compra +12 %.
+   Lo pueden publicar ellos (inventario = ADMIN o DEPT_ADMIN) o nosotros con OK.
+2. **Arbitraje**: documento «Sin proveedor», tarifa «Según categoría» sin precio,
+   rechazada. Al cotizar ya se le puede poner precio a mano («Sin precio en el
+   catálogo»). Piden mandarnos sus tarifas por categoría para cargarlas.
+3. **Cotización FC Sins (Deportivo, borrador cmvp8jhrp000afh01da4u1e1y)**: del
+   mensaje original solo se lee «21 pax». No entiende fechas en inglés
+   («17.-21. February», «17-21 February 2027»), ni «MSH / Mediterranean Sports
+   Hub» como Cambrils, ni «players». Lo arreglaron escribiendo «profesores: 2»,
+   «El centro es Viajes Velero»… Los alojamientos deportivos (Villa Bonita /
+   Aloha, Mediterrània MED1, MED2/3) no tienen localidad en el catálogo.
+   «quiero añadir 5 entrenamientos extras» lo escribieron como respuesta a la
+   pregunta del presupuesto por alumno.
+
+### 02/11/2026 · Ricard sin contestar desde el 27/10 → asunto en Validación + rama `ricard-27-10`
+
+- Comprobado hoy (solo lectura): sus tres puntos seguían igual y sin respuesta;
+  producción en `040ca5d` (reiniciada el 28/10 06:09). Ninguna tarifa de
+  autocares publicada; Arbitraje con 0 tarifas.
+- La 0011 de Ricard (26/10 14:30 local) creó la oportunidad AL PREPARAR: tenía la
+  App abierta desde antes de la subida (el endpoint viejo /api/crm/opportunities/new
+  sigue vivo). La 0012 de Javier (14:57) ya la creó al enviar.
+- Otros documentos en PENDING_REVIEW: «TARIFARIO INSTALACIONES DEPORTIVAS
+  MUNICIPALES VENTA» (43 actividades SIN revisar: campos y entrenamientos),
+  «Extras MSH Compra vs Venta» (11 aprobadas), «Tarifas Oravia Sports» (4
+  alojamientos aprobados), «Fútbol Salou 2027 · venta general» (sustituiría lo
+  publicado) y «Hoteles Oravia 2027». Los dos últimos parecen versiones viejas.
+- Correo a Ricard en Validación:
+  `asuntos/2026-11-02-correo-38186-respuesta-a-ricard-tarifas-arbitraje-y-peticiones/`.
+- Rama `ricard-27-10` (sin subir): fechas en inglés, alemán, francés y catalán
+  (`leerRangoInternacional` en `src/domain/fechas.ts`), «players/jugadores»,
+  «coaches/entrenadores», «profesores: 2», MSH / Mediterranean Sports Hub /
+  Cambrils Park = Cambrils (alias por palabra entera), clubes FC/CF/CD/UD… como
+  centro, señales de inglés. `tests/peticionDeportiva.test.ts` (14).
+  Pendiente: elegir solo el alojamiento (bungalows MSH) y los campos.

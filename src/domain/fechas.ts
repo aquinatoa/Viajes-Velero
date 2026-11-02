@@ -203,7 +203,100 @@ export function leerRango(texto: string, hoy: Date): RangoLeido {
     }
   }
 
+  // 7) Otros idiomas: los clubes y turoperadores de Deportivo escriben en
+  // inglés o alemán. «17.-21. February» (FC Sins, 27/10/2026) devolvía dos
+  // fechas vacías y Ricard tuvo que escribirlas a mano.
+  const internacional = leerRangoInternacional(bajo, hoy);
+  if (internacional) return internacional;
+
   return VACIO;
+}
+
+/**
+ * Meses en inglés, alemán, francés y catalán, con sus abreviaturas. Van aparte
+ * de los castellanos para no tocar las lecturas de arriba, que son las de los
+ * colegios y están probadas.
+ */
+const MESES_OTROS: Record<string, number> = {
+  january: 1, jan: 1, januar: 1, janvier: 1, gener: 1,
+  february: 2, feb: 2, februar: 2, fevrier: 2, febrer: 2,
+  march: 3, mar: 3, marz: 3, maerz: 3, mars: 3, marc: 3,
+  april: 4, apr: 4, avril: 4, abril: 4,
+  may: 5, mai: 5, maig: 5,
+  june: 6, jun: 6, juni: 6, juin: 6, juny: 6,
+  july: 7, jul: 7, juli: 7, juillet: 7, juliol: 7,
+  august: 8, aug: 8, aout: 8, agost: 8,
+  september: 9, sep: 9, sept: 9, septembre: 9, setembre: 9,
+  october: 10, oct: 10, oktober: 10, octobre: 10, octubre: 10,
+  november: 11, nov: 11, novembre: 11,
+  december: 12, dec: 12, dezember: 12, decembre: 12, desembre: 12,
+};
+// Los largos primero: si no, «mar» se come el principio de «march».
+const MES_OTRO = Object.keys(MESES_OTROS).sort((a, b) => b.length - a.length).join("|");
+const ORDINAL = "(?:st|nd|rd|th|er|e)?\\.?";
+const HASTA = "(?:-|–|—|to|till|until|bis|au|a|al|-\\s*the)";
+
+function leerRangoInternacional(bajo: string, hoy: Date): RangoLeido | null {
+  const mesDe = (t: string) => MESES_OTROS[t.replace(/\.$/, "")] ?? null;
+  const conAnio = (m1: number, d1: number, m2: number, d2: number, anio: string | undefined) => {
+    if (!diaValido(d1) || !diaValido(d2)) return null;
+    const a1 = anio ? Number(anio) - (m2 < m1 ? 1 : 0) : proximoAnioCon(m1, d1, hoy);
+    const a2 = m2 < m1 ? a1 + 1 : a1;
+    return { desde: aIso(a1, m1, d1), hasta: aIso(a2, m2, d2) };
+  };
+
+  // «17.-21. February 2027», «17-21 February», «from 17th to 21st of February, 2027»
+  const diasYMes = bajo.match(
+    new RegExp(
+      `(?<!\\d)(\\d{1,2})${ORDINAL}\\s*${HASTA}\\s*(\\d{1,2})${ORDINAL}\\s+(?:of\\s+)?(${MES_OTRO})\\b\\.?(?:,?\\s*(20\\d{2}))?`,
+    ),
+  );
+  if (diasYMes) {
+    const mes = mesDe(diasYMes[3]);
+    if (mes) {
+      const d1 = Number(diasYMes[1]);
+      const d2 = Number(diasYMes[2]);
+      // «30-2 March»: el primero es del mes anterior.
+      const m1 = d2 < d1 ? ((mes + 10) % 12) + 1 : mes;
+      const r = conAnio(m1, d1, mes, d2, diasYMes[4]);
+      if (r) return r;
+    }
+  }
+
+  // «28 February - 3 March 2027», «28. Februar bis 3. März»
+  const dosMeses = bajo.match(
+    new RegExp(
+      `(?<!\\d)(\\d{1,2})${ORDINAL}\\s+(?:of\\s+)?(${MES_OTRO})\\b\\.?\\s*${HASTA}\\s*(\\d{1,2})${ORDINAL}\\s+(?:of\\s+)?(${MES_OTRO})\\b\\.?(?:,?\\s*(20\\d{2}))?`,
+    ),
+  );
+  if (dosMeses) {
+    const m1 = mesDe(dosMeses[2]);
+    const m2 = mesDe(dosMeses[4]);
+    if (m1 && m2) {
+      const r = conAnio(m1, Number(dosMeses[1]), m2, Number(dosMeses[3]), dosMeses[5]);
+      if (r) return r;
+    }
+  }
+
+  // Mes delante, a la inglesa: «February 17-21, 2027», «Feb 17th to 21st»
+  const mesDelante = bajo.match(
+    new RegExp(
+      `\\b(${MES_OTRO})\\b\\.?\\s+(\\d{1,2})${ORDINAL}\\s*${HASTA}\\s*(\\d{1,2})${ORDINAL}(?!\\d)(?:,?\\s*(20\\d{2}))?`,
+    ),
+  );
+  // «may» delante es también el verbo («you may 3 to 5…»): solo con año.
+  if (mesDelante && !(mesDelante[1] === "may" && !mesDelante[4])) {
+    const mes = mesDe(mesDelante[1]);
+    if (mes) {
+      const d1 = Number(mesDelante[2]);
+      const d2 = Number(mesDelante[3]);
+      const mesFin = d2 < d1 ? (mes % 12) + 1 : mes;
+      const r = conAnio(mes, d1, mesFin, d2, mesDelante[4]);
+      if (r) return r;
+    }
+  }
+
+  return null;
 }
 
 /**
