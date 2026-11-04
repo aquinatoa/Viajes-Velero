@@ -322,6 +322,76 @@ export function porAlumno(lineas: LineaDeActividad[], alumnos: number): number {
   return redondear(totalDeLineas(lineas) / alumnos);
 }
 
+/** Lo que paga cada uno por la actividad, sin repartir lo de los profesores. */
+export interface PreciosPorPersona {
+  /** Lo que paga cada alumno: su entrada, menos el descuento. */
+  alumno: number;
+  /** Lo que paga cada profesor de pago; null si no paga ninguno. */
+  profesor: number | null;
+  profesoresDePago: number;
+  profesoresGratis: number;
+  /** Lo que pagan entre todos los profesores de pago. */
+  deLosProfesores: number;
+}
+
+/**
+ * Cuánto paga cada alumno y cada profesor, en vez del total repartido.
+ *
+ * Ruth, 02/11/2026, con el kayak de TEST MIÑANA (100 alumnos, 10 profesores,
+ * 1 gratis cada 15 de pago): pagan 104 a 29,60 € y el documento decía «30,78 €
+ * por alumno», porque cargaba a cada alumno su parte de los 4 profesores que
+ * pagan. «En el desglose no queremos que diga que el alumno paga la parte
+ * proporcional del adulto. Mantener precio por alumno + precio por adulto».
+ *
+ * Los alumnos ocupan primero las plazas de las tarifas que no son de adulto;
+ * las que sobran (los profesores que van con la misma entrada) y las de adulto
+ * son de los profesores. El descuento en euros es por alumno.
+ *
+ * Sin entradas una por persona (por grupo, por hora…) no hay precio por
+ * cabeza: devuelve null y se sigue repartiendo el total entre los alumnos.
+ */
+export function preciosPorPersona(lineas: LineaDeActividad[], alumnos: number, profesores: number): PreciosPorPersona | null {
+  const activas = lineas.filter((l) => l.cantidad > 0);
+  if (!(alumnos > 0) || activas.length === 0) return null;
+  const gratis = activas.filter(esLineaDeGratuidad).reduce((s, l) => s + l.cantidad, 0);
+  const dePago = activas.filter((l) => !esLineaDeGratuidad(l) && l.precio > 0);
+  const descuentos = activas.filter((l) => l.precio < 0);
+  const plazas = dePago.reduce((s, l) => s + l.cantidad, 0);
+  if (plazas + gratis !== alumnos + Math.max(0, profesores)) return null;
+
+  let quedan = alumnos;
+  let deAlumnos = 0;
+  let deProfesores = 0;
+  let profesoresDePago = 0;
+  const enOrden = [...dePago].sort((a, b) => Number(esDeAdulto(a.etiqueta)) - Number(esDeAdulto(b.etiqueta)));
+  for (const l of enOrden) {
+    const deEllos = Math.min(quedan, l.cantidad);
+    quedan -= deEllos;
+    deAlumnos += deEllos * l.precio;
+    deProfesores += (l.cantidad - deEllos) * l.precio;
+    profesoresDePago += l.cantidad - deEllos;
+  }
+  if (quedan > 0) return null;
+  deAlumnos += descuentos.reduce((s, l) => s + l.precio * l.cantidad, 0);
+
+  return {
+    alumno: redondear(Math.max(0, deAlumnos) / alumnos),
+    profesor: profesoresDePago > 0 ? redondear(deProfesores / profesoresDePago) : null,
+    profesoresDePago,
+    profesoresGratis: gratis,
+    deLosProfesores: redondear(deProfesores),
+  };
+}
+
+/** «29,60 € por profesor · 6 gratis», «Profesores gratis» o null si no van profesores. */
+export function textoDeLosProfesores(p: PreciosPorPersona | null): string | null {
+  if (!p) return null;
+  if (p.profesor !== null) {
+    return `${euros(p.profesor)} por profesor${p.profesoresGratis > 0 ? ` · ${p.profesoresGratis} gratis` : ""}`;
+  }
+  return p.profesoresGratis > 0 ? "Profesores gratis" : null;
+}
+
 // Con espacio normal antes del euro: Intl mete uno «duro» (U+00A0) que luego
 // rompe búsquedas y comparaciones sin que se vea.
 const euros = (n: number) =>

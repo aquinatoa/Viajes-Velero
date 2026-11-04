@@ -10,9 +10,19 @@ import { approveTripProposalApi, saveTripProposalApi } from "./apiClient";
 import { applyDefaultMarkup, totalAlojamiento } from "./pricing";
 import { diffNights, formatCurrencyExact } from "./utils";
 
+/** Sin hoteles y con actividades: la propuesta es solo de actividades (Ruth, 02/11/2026). */
+export function esSoloActividades(input: Pick<BuildProposalInput, "builderState">): boolean {
+  return (
+    input.builderState.selectedAccommodationIds.length === 0 &&
+    (input.builderState.activitiesByOption[1] ?? []).length > 0
+  );
+}
+
 function ensureProposalInputs(input: BuildProposalInput) {
-  if (input.builderState.selectedAccommodationIds.length === 0) {
-    throw new Error("Selecciona al menos un alojamiento para construir la propuesta.");
+  // «No todas las cotizaciones requieren de alojamiento» (Ruth, 02/11/2026):
+  // sin hoteles vale, si hay actividades.
+  if (input.builderState.selectedAccommodationIds.length === 0 && !esSoloActividades(input)) {
+    throw new Error("Selecciona al menos un alojamiento o una actividad para construir la propuesta.");
   }
 
   if (input.builderState.selectedAccommodationIds.length > 3) {
@@ -113,8 +123,11 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
     };
   });
 
-  const activityOptions = accommodationOptions.flatMap((option) => {
-    const activityIds = input.builderState.activitiesByOption[option.optionNumber] ?? [];
+  // Las actividades, por opción. Solo actividades: todas en la opción 1, que
+  // no tiene alojamiento.
+  const numerosDeOpcion = accommodationOptions.length ? accommodationOptions.map((o) => o.optionNumber) : [1];
+  const activityOptions = numerosDeOpcion.flatMap((optionNumber) => {
+    const activityIds = input.builderState.activitiesByOption[optionNumber] ?? [];
 
     return activityIds.map((activityId, index) => {
       const selected = activityMap.get(activityId);
@@ -132,7 +145,7 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
       const importePorAlumno = activas.length ? porAlumno(activas, participants) : null;
 
       return {
-        optionNumber: option.optionNumber,
+        optionNumber,
         activityId: selected.activity.id,
         displayOrder: index + 1,
         activityNameSnapshot: selected.activity.activityName,
@@ -166,11 +179,13 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
 
   const uniqueActivities = new Set(activityOptions.map((a) => a.activityId)).size;
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-  const summaryText = `${plural(accommodationOptions.length, "opción", "opciones")}, ${plural(
-    nights,
-    "noche",
-    "noches",
-  )}, ${participants} participantes y ${plural(uniqueActivities, "actividad", "actividades")}.`;
+  const summaryText = accommodationOptions.length
+    ? `${plural(accommodationOptions.length, "opción", "opciones")}, ${plural(
+        nights,
+        "noche",
+        "noches",
+      )}, ${participants} participantes y ${plural(uniqueActivities, "actividad", "actividades")}.`
+    : `Solo actividades: ${plural(uniqueActivities, "actividad", "actividades")} para ${participants} participantes.`;
 
   return saveTripProposalApi({
     tripRequestId: input.tripRequestId,

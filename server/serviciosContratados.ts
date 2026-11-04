@@ -407,6 +407,13 @@ export async function contratarEnElCrm(deliveryId: string, optionNumber: number)
       console.info(`[crm] ${deliveryId}: sin trato en el CRM, no hay dónde escribir lo contratado.`);
       return null;
     }
+    // Solo actividades (Ruth, 02/11/2026): no hay alojamiento que contratar.
+    // Las actividades no se escriben aquí, tampoco con hotel; la aceptación sí.
+    if (delivery.proposal.accommodationOptions.length === 0) {
+      console.info(`[crm] ${delivery.reference}: propuesta solo de actividades, sin alojamiento que poner en Servicios Contratados.`);
+      await updateZohoDeal({ dealId, chosenOption: optionNumber });
+      return null;
+    }
     const opcion = delivery.proposal.accommodationOptions.find((o) => o.optionNumber === optionNumber);
     if (!opcion) {
       console.error(`[crm] ${delivery.reference}: la opción ${optionNumber} no existe en la propuesta.`);

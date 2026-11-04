@@ -14,12 +14,18 @@
  * generado, para poder probar el circuito entero antes de que llegue la clave.
  */
 
-import { lineasEnLista, resumenDeLineas, type LineaDeActividad } from "../src/domain/lineasDeActividad";
+import {
+  lineasEnLista,
+  preciosPorPersona,
+  resumenDeLineas,
+  textoDeLosProfesores,
+  type LineaDeActividad,
+} from "../src/domain/lineasDeActividad";
 import { importeDe } from "../src/domain/importe";
 import crypto from "node:crypto";
-import { PrismaClient, type DeliveryStatus } from "@prisma/client";
+import { PrismaClient, type DeliveryStatus, type Prisma } from "@prisma/client";
 import nodemailer from "nodemailer";
-import { buildProposalPdf, type PdfOption } from "./proposalPdf";
+import { buildProposalPdf, type PdfActivity, type PdfOption } from "./proposalPdf";
 import { canSend, loadMailSettings, mailboxFor, replyToFor } from "./mailConfig";
 import { marcarHito, type Hito } from "./crmPipeline";
 import { contratarEnElCrm } from "./serviciosContratados";
@@ -114,13 +120,20 @@ function composeMessage(input: {
   const lineas = [
     saludo,
     "",
-    input.optionCount === 1
-      ? `Os adjuntamos la propuesta para ${input.tripTitle}${fechas}, con una opción de alojamiento.`
-      : `Os adjuntamos la propuesta para ${input.tripTitle}${fechas}, con ${input.optionCount} opciones para que elijáis la que mejor os encaje.`,
+    input.optionCount === 0
+      ? `Os adjuntamos la propuesta de actividades para ${input.tripTitle}${fechas}.`
+      : input.optionCount === 1
+        ? `Os adjuntamos la propuesta para ${input.tripTitle}${fechas}, con una opción de alojamiento.`
+        : `Os adjuntamos la propuesta para ${input.tripTitle}${fechas}, con ${input.optionCount} opciones para que elijáis la que mejor os encaje.`,
     "",
-    input.publicUrl
-      ? `Podéis verlas y aceptar la que prefiráis aquí: ${input.publicUrl}`
-      : "Respondiendo a este correo nos decís cuál preferís y seguimos adelante.",
+    // Solo actividades (Ruth, 02/11/2026): no hay entre qué elegir, se acepta o no.
+    input.optionCount === 0
+      ? input.publicUrl
+        ? `Podéis verla y aceptarla aquí: ${input.publicUrl}`
+        : "Respondiendo a este correo nos decís si os encaja y seguimos adelante."
+      : input.publicUrl
+        ? `Podéis verlas y aceptar la que prefiráis aquí: ${input.publicUrl}`
+        : "Respondiendo a este correo nos decís cuál preferís y seguimos adelante.",
     "",
     `Cualquier duda, responded a este mismo correo indicando la referencia ${input.reference}.`,
     "",
@@ -197,40 +210,7 @@ export async function prepareDelivery(input: PrepareDeliveryInput): Promise<Deli
   const publicToken = previous?.publicToken ?? newPublicToken();
   const publicUrl = settings.publicBaseUrl ? `${settings.publicBaseUrl}/p/${publicToken}` : null;
 
-  const options: PdfOption[] = proposal.accommodationOptions.map((option) => ({
-    optionNumber: option.optionNumber,
-    accommodationName: option.accommodationNameSnapshot ?? "Alojamiento",
-    boardType: option.boardType,
-    nights: option.nights,
-    participants: option.participants,
-    teachers: option.teachers,
-    totalPvpText: option.totalPvpText,
-    totalAmount: importeDe(option.totalPvpText),
-    priceBreakdownText: option.priceBreakdownText,
-    conditionsText: option.conditionsText,
-    observationsText: option.observationsText,
-    freePolicyText: option.freePolicyText,
-    // Cada opción se lleva SUS actividades: el colegio elige una opción entera,
-    // no un hotel por un lado y unas excursiones por otro.
-    // NO se filtra por `isSelected`. Ese campo significa «el colegio eligió
-    // esta opción» y se pone al aprobar, así que al generar el documento vale
-    // false en todas: filtrando por él, el PDF salía SIEMPRE sin actividades
-    // aunque se hubieran elegido. Las que están guardadas en una opción ya son
-    // las que eligió quien cotiza.
-    activities: proposal.activityOptions
-      .filter((actividad) => actividad.optionNumber === option.optionNumber)
-      .map((actividad) => ({
-        name: actividad.activityNameSnapshot,
-        provider: actividad.providerSnapshot,
-        duration: actividad.durationSnapshot,
-        priceText: actividad.pvpSnapshot ? `${actividad.pvpSnapshot}${actividad.linesJson ? " por alumno" : ""}` : actividad.pvpSnapshot,
-        amount: importeDe(actividad.pvpSnapshot),
-        description: actividad.descriptionSnapshot,
-        linesText: resumenDeLineas(lineasGuardadas(actividad.linesJson)),
-        linesList: lineasEnLista(lineasGuardadas(actividad.linesJson)),
-        groupAmount: actividad.amountTotal == null ? null : Number(actividad.amountTotal),
-      })),
-  }));
+  const options = opcionesDelDocumento(proposal);
 
   // Si el nombre es solo un año («2027»), el del centro: Ruth, 19/10/2026.
   const tripTitle = tituloDelViaje(request);
@@ -250,6 +230,7 @@ export async function prepareDelivery(input: PrepareDeliveryInput): Promise<Deli
     participants: request.participants,
     teachers: request.teachers,
     options,
+    activities: actividadesSinAlojamiento(proposal, request.participants ?? 0, request.teachers ?? 0),
     publicUrl,
     preparedBy: box.displayName,
   });
@@ -451,6 +432,76 @@ export async function prepareAndSend(input: PrepareDeliveryInput): Promise<Deliv
   return sendDelivery(prepared.id);
 }
 
+type PropuestaDelDocumento = Prisma.TripProposalGetPayload<{
+  include: { accommodationOptions: true; activityOptions: true };
+}>;
+
+/**
+ * Las opciones del documento, cada una con sus actividades: lo que reciben el
+ * PDF y la página del enlace, que tienen que decir lo mismo (Ruth, 02/11/2026).
+ */
+export function opcionesDelDocumento(proposal: PropuestaDelDocumento): PdfOption[] {
+  return proposal.accommodationOptions.map((option) => ({
+    optionNumber: option.optionNumber,
+    accommodationName: option.accommodationNameSnapshot ?? "Alojamiento",
+    boardType: option.boardType,
+    nights: option.nights,
+    participants: option.participants,
+    teachers: option.teachers,
+    totalPvpText: option.totalPvpText,
+    totalAmount: importeDe(option.totalPvpText),
+    priceBreakdownText: option.priceBreakdownText,
+    conditionsText: option.conditionsText,
+    observationsText: option.observationsText,
+    freePolicyText: option.freePolicyText,
+    // Cada opción se lleva SUS actividades: el colegio elige una opción entera,
+    // no un hotel por un lado y unas excursiones por otro.
+    // NO se filtra por `isSelected`. Ese campo significa «el colegio eligió
+    // esta opción» y se pone al aprobar, así que al generar el documento vale
+    // false en todas: filtrando por él, el PDF salía SIEMPRE sin actividades
+    // aunque se hubieran elegido. Las que están guardadas en una opción ya son
+    // las que eligió quien cotiza.
+    activities: proposal.activityOptions
+      .filter((actividad) => actividad.optionNumber === option.optionNumber)
+      .map((actividad) => actividadDelDocumento(actividad, option.participants ?? 0, option.teachers ?? 0)),
+  }));
+}
+
+/**
+ * Las actividades de una propuesta SIN alojamiento: van sueltas, no colgadas de
+ * una opción. Ruth, 02/11/2026: «no todas las cotizaciones requieren de
+ * alojamiento». Con alojamiento, ninguna: van dentro de cada opción.
+ */
+export function actividadesSinAlojamiento(proposal: PropuestaDelDocumento, alumnos: number, profesores: number): PdfActivity[] {
+  if (proposal.accommodationOptions.length > 0) return [];
+  return proposal.activityOptions.map((actividad) => actividadDelDocumento(actividad, alumnos, profesores));
+}
+
+function actividadDelDocumento(
+  actividad: PropuestaDelDocumento["activityOptions"][number],
+  alumnos: number,
+  profesores: number,
+): PdfActivity {
+  const lineas = lineasGuardadas(actividad.linesJson);
+  // Lo que paga cada alumno y cada profesor, sin repartir: `pvpSnapshot`
+  // sigue siendo lo que se suma por alumno al viaje (Ruth, 02/11/2026).
+  const porPersona = preciosPorPersona(lineas, alumnos, profesores);
+  return {
+    name: actividad.activityNameSnapshot,
+    provider: actividad.providerSnapshot,
+    duration: actividad.durationSnapshot,
+    priceText: actividad.pvpSnapshot ? `${actividad.pvpSnapshot}${actividad.linesJson ? " por alumno" : ""}` : actividad.pvpSnapshot,
+    amount: importeDe(actividad.pvpSnapshot),
+    description: actividad.descriptionSnapshot,
+    linesText: resumenDeLineas(lineas),
+    linesList: lineasEnLista(lineas),
+    groupAmount: actividad.amountTotal == null ? null : Number(actividad.amountTotal),
+    studentAmount: porPersona?.alumno ?? null,
+    teachersAmount: porPersona?.deLosProfesores ?? null,
+    teachersText: textoDeLosProfesores(porPersona),
+  };
+}
+
 /** Las líneas guardadas como JSON en la actividad de la propuesta. */
 function lineasGuardadas(texto: string | null | undefined): LineaDeActividad[] {
   if (!texto) return [];
@@ -470,6 +521,8 @@ export async function readPublicProposal(token: string) {
       proposal: {
         include: {
           accommodationOptions: { orderBy: { optionNumber: "asc" } },
+          // Las actividades también: la página dice lo mismo que el PDF (Ruth, 02/11/2026).
+          activityOptions: { orderBy: [{ optionNumber: "asc" }, { displayOrder: "asc" }] },
           tripRequest: { include: { client: true } },
         },
       },

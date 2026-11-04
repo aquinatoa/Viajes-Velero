@@ -16,7 +16,9 @@ import {
   unidadDeTarifa,
   lineasPorDefecto,
   porAlumno,
+  preciosPorPersona,
   resumenDeLineas,
+  textoDeLosProfesores,
   totalDeLineas,
   tramoDelGrupo,
 } from "../src/domain/lineasDeActividad";
@@ -228,6 +230,61 @@ prueba("PortAventura: «1 profesor gratis por cada 10 escolares de pago» (lo qu
   const lineas = lineasPorDefecto(pa, 25, 2, { min: 14, max: 15 }, { gratuidad: g });
   // 25 escolares: 2 profesores gratis, no se cobra ninguno.
   assert.equal(totalDeLineas(lineas), 25 * 35);
+});
+
+// Ruth, 02/11/2026, TEST MIÑANA: 100 alumnos, 10 profesores.
+prueba("kayak: 104 de pago a 29,60 € → 29,60 € por alumno y por profesor, no 30,78 € (Ruth, 02/11)", () => {
+  const kayak = [
+    { rateId: "k", etiqueta: "De 25 a 50 pax", precio: 29.6, cantidad: 104 },
+    { rateId: "k#gratis", etiqueta: "De 25 a 50 pax · gratuidad", precio: 0, cantidad: 6 },
+  ];
+  assert.equal(porAlumno(kayak, 100), 30.78, "lo que se suma al viaje sigue siendo el total repartido");
+  const p = preciosPorPersona(kayak, 100, 10)!;
+  assert.equal(p.alumno, 29.6);
+  assert.equal(p.profesor, 29.6);
+  assert.equal(p.profesoresDePago, 4);
+  assert.equal(p.profesoresGratis, 6);
+  assert.equal(p.deLosProfesores, 118.4);
+  assert.equal(p.alumno * 100 + p.deLosProfesores, totalDeLineas(kayak), "alumnos + profesores = el grupo");
+  assert.equal(textoDeLosProfesores(p), "29,60 € por profesor · 6 gratis");
+});
+
+prueba("PortAventura con los 10 profesores gratis: 41,28 € por alumno y «Profesores gratis»", () => {
+  const pa = [
+    { rateId: "a#gratis", etiqueta: "Adulto (18-59) · Entrada · Periodo D · gratuidad", precio: 0, cantidad: 10 },
+    { rateId: "j", etiqueta: "Joven/Secundaria/Uni (12-17) · Entrada · Periodo D", precio: 41.28, cantidad: 100 },
+  ];
+  const p = preciosPorPersona(pa, 100, 10)!;
+  assert.equal(p.alumno, 41.28);
+  assert.equal(p.profesor, null);
+  assert.equal(textoDeLosProfesores(p), "Profesores gratis");
+});
+
+prueba("tarifa de adulto aparte: cada uno con la suya", () => {
+  const lineas = [
+    { rateId: "j", etiqueta: "Joven (12-17) · Entrada · Periodo B", precio: 17, cantidad: 25 },
+    { rateId: "a", etiqueta: "Adulto (18-59) · Entrada · Periodo B", precio: 23, cantidad: 2 },
+  ];
+  const p = preciosPorPersona(lineas, 25, 2)!;
+  assert.equal(p.alumno, 17);
+  assert.equal(p.profesor, 23);
+  assert.equal(textoDeLosProfesores(p), "23,00 € por profesor");
+});
+
+prueba("descuento por alumno: lo baja a cada alumno, no a los profesores", () => {
+  const lineas = [
+    { rateId: "t", etiqueta: "Circuito", precio: 22.95, cantidad: 37 },
+    { rateId: "#descuento", etiqueta: "descuento por alumno", precio: -4, cantidad: 35 },
+  ];
+  const p = preciosPorPersona(lineas, 35, 2)!;
+  assert.equal(p.alumno, 18.95);
+  assert.equal(p.profesor, 22.95);
+});
+
+prueba("por grupo o con plazas que no cuadran con el grupo: sin precio por cabeza", () => {
+  assert.equal(preciosPorPersona([{ rateId: "g", etiqueta: "Por grupo", precio: 300, cantidad: 1 }], 40, 4), null);
+  assert.equal(preciosPorPersona([{ rateId: "x", etiqueta: "Entrada", precio: 10, cantidad: 30 }], 40, 4), null);
+  assert.equal(preciosPorPersona([], 40, 4), null);
 });
 
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);

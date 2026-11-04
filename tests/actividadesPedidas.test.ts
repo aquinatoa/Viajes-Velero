@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 
-import { actividadesPedidas, candidatasDe } from "../src/domain/actividadesPedidas";
+import { actividadesPedidas, candidatasDe, usaCalendarioDePortAventura } from "../src/domain/actividadesPedidas";
 import { lineasPorDefecto } from "../src/domain/lineasDeActividad";
 import { periodoDePortAventura } from "../src/domain/calendarioPortAventura";
 
@@ -88,6 +88,17 @@ prueba("el esbozo coge el periodo del día del parque y la modalidad pedida", ()
   assert.equal(lineas[0].rateId, "jcp");
   assert.equal(lineas[0].cantidad, 80);
   assert.equal(lineas[1].rateId, "acp", "los profesores, con la misma entrada y el mismo periodo");
+});
+
+prueba("el periodo es solo de PortAventura: el paintball tiene día pero no periodo (Ruth, 02/11)", () => {
+  const pedidas = actividadesPedidas("Paintball el 14 de abril de 2027. El 15 de abril van a Port Aventura.", 2027);
+  const paintball = pedidas.find((x) => x.clave === "paintball")!;
+  const pa = pedidas.find((x) => x.clave === "portaventura")!;
+  assert.equal(paintball.fecha, "2027-04-14");
+  assert.equal(usaCalendarioDePortAventura(paintball), false);
+  assert.equal(usaCalendarioDePortAventura(pa), true);
+  assert.equal(usaCalendarioDePortAventura({ clave: "ferrariland" }), true);
+  assert.equal(usaCalendarioDePortAventura({ clave: "kayak" }), false);
 });
 
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);

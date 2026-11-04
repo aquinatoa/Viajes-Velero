@@ -254,7 +254,9 @@ prueba("se dice lo que cuestan TODAS las actividades juntas", () => {
   assert.match(textoDos, /Total de las actividades/);
   // Sin entradas por tarifa, el precio por persona × el grupo; y lo que sale por alumno.
   assert.match(textoDos, /3\.900,00 € para el grupo/);
-  assert.match(textoDos, /48 alumnos y 4 profesores · 81,25 € por alumno/);
+  // Por alumno, lo que paga cada uno, y lo de los profesores aparte: no se
+  // carga a los alumnos (Ruth, 02/11/2026). Antes: 3.900 / 48 = 81,25 €.
+  assert.match(textoDos, /48 alumnos y 4 profesores · 75,00 € por alumno · 300,00 € los profesores de pago/);
 });
 
 prueba("las condiciones del alojamiento se leen, sin corchetes en mayúsculas", () => {
@@ -338,6 +340,212 @@ prueba("las actividades se siguen sumando", () => {
 prueba("y el total del viaje no es solo el alojamiento", () => {
   // 9.200 de alojamiento + 4.500 de actividades.
   assert.match(textoTres, /13\.700,00/);
+});
+
+// ── TEST MIÑANA (Ruth, 02/11/2026) ───────────────────────────────────────────
+//
+// 100 alumnos y 10 profesores. En el kayak pagan 104 a 29,60 € (1 gratis cada
+// 15 de pago) y el PDF decía «30,78 € por alumno»: cargaba a los alumnos lo de
+// los 4 profesores que pagan. Y la página del enlace no enseñaba ni las
+// actividades ni el precio por persona: tiene que decir lo mismo que el PDF.
+
+const { documentoParaElCliente } = await import("../server/proposalPdf");
+const { opcionesDelDocumento } = await import("../server/proposalDelivery");
+
+const MINANA = {
+  accommodationOptions: [
+    {
+      optionNumber: 1,
+      accommodationNameSnapshot: "Hotel Planas 3* (Salou)",
+      boardType: "MP",
+      nights: 4,
+      participants: 100,
+      teachers: 10,
+      totalPvpText: "23.234,82 €",
+      priceBreakdownText: "48,46 € x 100 alumnos + 48,46 € x 10 profesores, por noche x 4 noches",
+      conditionsText: "[GRATUITY] 1 gratuidad cada 25 pax. | [PAYMENT] Depósito 20€/pax.",
+      observationsText: null,
+      freePolicyText: "1 gratuidad cada 25 pax.",
+    },
+  ],
+  activityOptions: [
+    {
+      optionNumber: 1,
+      activityNameSnapshot: "1 día, 2 parques PortAventura Park y Ferrari Land",
+      providerSnapshot: "PortAventura World",
+      durationSnapshot: "1 día",
+      pvpSnapshot: "41,28 €",
+      descriptionSnapshot: null,
+      amountTotal: 4128,
+      linesJson: JSON.stringify([
+        { rateId: "a#gratis", etiqueta: "Adulto (18-59) · Entrada · Periodo D · gratuidad", precio: 0, cantidad: 10 },
+        { rateId: "j", etiqueta: "Joven/Secundaria/Uni (12-17) · Entrada · Periodo D", precio: 41.28, cantidad: 100 },
+      ]),
+    },
+    {
+      optionNumber: 1,
+      activityNameSnapshot: "Kayak + paddle surf + agility y XXL",
+      providerSnapshot: "Club Nàutic Salou",
+      durationSnapshot: "2 h 30 min",
+      pvpSnapshot: "30,78 €",
+      descriptionSnapshot: null,
+      amountTotal: 3078.4,
+      linesJson: JSON.stringify([
+        { rateId: "k", etiqueta: "De 25 a 50 pax", precio: 29.6, cantidad: 104 },
+        { rateId: "k#gratis", etiqueta: "De 25 a 50 pax · gratuidad", precio: 0, cantidad: 6 },
+      ]),
+    },
+  ],
+} as unknown as Parameters<typeof opcionesDelDocumento>[0];
+
+const entradaMinana = {
+  reference: "ORV-2026-9996",
+  clientName: "Ruth Pujol",
+  centreName: null,
+  tripTitle: "TEST MIÑANA 2027",
+  destination: "Salou",
+  dateFrom: new Date("2027-06-14T00:00:00Z"),
+  dateTo: new Date("2027-06-18T00:00:00Z"),
+  participants: 100,
+  teachers: 10,
+  options: opcionesDelDocumento(MINANA),
+  preparedBy: "Oravia Travel Group",
+};
+const rutaMinana = await buildProposalPdf(entradaMinana);
+const pdfMinana = await getDocument({
+  data: new Uint8Array(readFileSync(path.resolve(rutaMinana))),
+  useSystemFonts: true,
+}).promise;
+let textoMinana = "";
+for (let p = 1; p <= pdfMinana.numPages; p += 1) {
+  const contenido = await (await pdfMinana.getPage(p)).getTextContent();
+  textoMinana += " " + contenido.items.map((i) => ("str" in i ? i.str : "")).join(" ");
+}
+textoMinana = textoMinana.replace(/\s+/g, " ");
+const documentoMinana = documentoParaElCliente(entradaMinana);
+
+console.log("\nTEST MIÑANA: precio por alumno y por profesor, y la página igual que el PDF");
+
+prueba("el kayak sale a 29,60 € por alumno y 29,60 € por profesor, no a 30,78 €", () => {
+  assert.match(textoMinana, /29,60 € por alumno/);
+  assert.match(textoMinana, /29,60 € por profesor · 6 gratis/);
+  assert.ok(!/30,78 € por alumno/.test(textoMinana), "sigue saliendo 30,78 € por alumno");
+  assert.match(textoMinana, /3\.078,40 € el grupo/);
+});
+
+prueba("PortAventura con los 10 profesores gratis lo dice", () => {
+  assert.match(textoMinana, /41,28 € por alumno/);
+  assert.match(textoMinana, /Profesores gratis/);
+});
+
+prueba("el total de las actividades: lo de cada alumno y lo de los profesores aparte", () => {
+  // 41,28 + 29,60 = 70,88 por alumno; 4 × 29,60 = 118,40 de profesores; 7.088 + 118,40 = 7.206,40.
+  assert.match(textoMinana, /7\.206,40 € para el grupo/);
+  assert.match(textoMinana, /70,88 € por alumno · 118,40 € los profesores de pago/);
+});
+
+prueba("la página del enlace lleva las actividades y el precio por persona, como el PDF", () => {
+  const kayak = documentoMinana.actividades?.lista.find((a) => /Kayak/.test(a.nombre));
+  assert.ok(kayak, "la página no trae el kayak");
+  // Intl pone un espacio duro antes del euro: para comparar, espacios normales.
+  const llano = (t: string | null | undefined) => (t ?? "").replace(/\s+/g, " ");
+  assert.equal(llano(kayak.precio), "29,60 € por alumno");
+  assert.equal(llano(kayak.profesores), "29,60 € por profesor · 6 gratis");
+  assert.deepEqual(kayak.lineas, ["104 × 29,60 € De 25 a 50 pax", "6 × 0,00 € De 25 a 50 pax · gratuidad"]);
+  assert.ok(documentoMinana.opciones[0].porAlumno?.endsWith("por alumno"), "falta el precio por alumno del alojamiento");
+  assert.equal(documentoMinana.resumen?.filas.length, 1);
+  // Todo lo que dice la página está en el PDF, palabra por palabra.
+  const textos = [
+    documentoMinana.opciones[0].porAlumno,
+    documentoMinana.opciones[0].gratuidades,
+    ...documentoMinana.actividades!.lista.flatMap((a) => [a.nombre, a.precio, a.profesores, a.grupo]),
+    documentoMinana.actividades!.total,
+    documentoMinana.resumen!.filas[0].total,
+    documentoMinana.resumen!.filas[0].porAlumno,
+  ].filter((t): t is string => Boolean(t));
+  for (const t of textos) assert.ok(textoMinana.includes(t.replace(/\s+/g, " ")), `la página dice «${t}» y el PDF no`);
+});
+
+prueba("las condiciones de la página salen sin etiquetas internas", () => {
+  const todas = documentoMinana.opciones.flatMap((o) => o.condiciones.map((c) => `${c.etiqueta}: ${c.texto}`));
+  assert.ok(todas.length > 0);
+  assert.ok(!todas.some((t) => /\[[A-Z_]+\]|GRATUITY|PAYMENT/.test(t)), todas.join(" | "));
+});
+
+// ── Solo actividades (Ruth, 02/11/2026) ──────────────────────────────────────
+//
+// «No todas las cotizaciones requieren de alojamiento.» Sin hoteles, el
+// documento es el programa: ni «Los alojamientos» vacío ni un resumen de
+// opciones que no existen.
+
+const { actividadesSinAlojamiento } = await import("../server/proposalDelivery");
+const SOLO_ACTIVIDADES = {
+  accommodationOptions: [],
+  activityOptions: [
+    {
+      optionNumber: 1,
+      activityNameSnapshot: "Paintball",
+      providerSnapshot: "Aventura Salou",
+      durationSnapshot: "2 h",
+      pvpSnapshot: "18,00 €",
+      descriptionSnapshot: null,
+      amountTotal: 990,
+      linesJson: JSON.stringify([
+        { rateId: "p", etiqueta: "Por persona", precio: 18, cantidad: 55 },
+        { rateId: "p#gratis", etiqueta: "Por persona · gratuidad", precio: 0, cantidad: 5 },
+      ]),
+    },
+  ],
+} as unknown as Parameters<typeof actividadesSinAlojamiento>[0];
+
+const entradaSolo = {
+  reference: "ORV-2026-9995",
+  clientName: "Ruth Pujol",
+  centreName: null,
+  tripTitle: "TEST SOLO ACTIVIDADES",
+  destination: "Salou",
+  dateFrom: new Date("2027-04-14T00:00:00Z"),
+  dateTo: new Date("2027-04-14T00:00:00Z"),
+  participants: 55,
+  teachers: 5,
+  options: opcionesDelDocumento(SOLO_ACTIVIDADES),
+  activities: actividadesSinAlojamiento(SOLO_ACTIVIDADES, 55, 5),
+  publicUrl: "https://presupuesto.example/p/prueba",
+  preparedBy: "Oravia Travel Group",
+};
+const rutaSolo = await buildProposalPdf(entradaSolo);
+const pdfSolo = await getDocument({
+  data: new Uint8Array(readFileSync(path.resolve(rutaSolo))),
+  useSystemFonts: true,
+}).promise;
+let textoSolo = "";
+for (let p = 1; p <= pdfSolo.numPages; p += 1) {
+  const contenido = await (await pdfSolo.getPage(p)).getTextContent();
+  textoSolo += " " + contenido.items.map((i) => ("str" in i ? i.str : "")).join(" ");
+}
+textoSolo = textoSolo.replace(/\s+/g, " ");
+const documentoSolo = documentoParaElCliente(entradaSolo);
+
+console.log("\nSolo actividades: sin alojamiento");
+
+prueba("no hay parte de alojamientos ni resumen de opciones", () => {
+  assert.ok(!/LOS ALOJAMIENTOS/.test(textoSolo), "sale «Los alojamientos» sin hoteles");
+  assert.ok(!/RESUMEN DEL VIAJE/.test(textoSolo), "sale un resumen de opciones que no existen");
+  assert.equal(documentoSolo.opciones.length, 0);
+  assert.equal(documentoSolo.resumen, null);
+});
+
+prueba("las actividades son la parte 1, con su precio y su total", () => {
+  assert.match(textoSolo, /1 · LAS ACTIVIDADES/);
+  assert.match(textoSolo, /Paintball/);
+  assert.match(textoSolo, /18,00 € por alumno/);
+  assert.match(textoSolo, /990,00 € para el grupo/);
+  assert.equal(documentoSolo.actividades?.lista.length, 1);
+});
+
+prueba("para aceptar: la propuesta, no «la opción que prefieras»", () => {
+  assert.match(textoSolo, /Para aceptar la propuesta/);
+  assert.match(textoSolo, /Aceptar la propuesta/);
 });
 
 rmSync(ALMACEN, { recursive: true, force: true });

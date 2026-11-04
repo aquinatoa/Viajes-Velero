@@ -187,7 +187,26 @@ export async function fichaDeLaPropuesta(deliveryId: string, visibilidad: Record
     embudo: embudoDe(await coloresDelEmbudo(), delivery, faseEnElCrm),
     fases: FASES,
 
-    opciones: delivery.proposal.accommodationOptions.map((o) => ({
+    // Solo actividades (Ruth, 02/11/2026): una opción sin alojamiento con el
+    // programa, para verla y para poder apuntar que la han aceptado.
+    opciones: (delivery.proposal.accommodationOptions.length
+      ? delivery.proposal.accommodationOptions
+      : delivery.proposal.activityOptions.length
+        ? [
+            {
+              optionNumber: 1,
+              accommodationNameSnapshot: "Solo actividades",
+              boardType: null,
+              nights: null,
+              totalPvpText: totalDeLasActividades(delivery.proposal.activityOptions),
+              priceBreakdownText: null,
+              freePolicyText: null,
+              conditionsText: null,
+              observationsText: null,
+            },
+          ]
+        : []
+    ).map((o) => ({
       optionNumber: o.optionNumber,
       alojamiento: o.accommodationNameSnapshot,
       regimen: o.boardType,
@@ -253,6 +272,14 @@ export async function fichaDeLaPropuesta(deliveryId: string, visibilidad: Record
     pdf: delivery.pdfPath ? `/api/deliveries/${delivery.id}/pdf` : null,
     publicToken: delivery.publicToken,
   };
+}
+
+/** «7.206,40 €»: lo que suman las actividades para el grupo, de sus líneas. */
+function totalDeLasActividades(actividades: Array<{ amountTotal: unknown }>): string | null {
+  // Si alguna no lo trae (sin líneas), un total a medias diría de menos: mejor nada.
+  if (actividades.length === 0 || actividades.some((a) => a.amountTotal == null)) return null;
+  const total = actividades.reduce((suma, a) => suma + Number(a.amountTotal), 0);
+  return new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", minimumFractionDigits: 2, useGrouping: "always" }).format(total);
 }
 
 /**

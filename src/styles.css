@@ -6167,6 +6167,221 @@ button.cw-ev__more:hover { text-decoration: underline; }
   color: #33455f;
 }
 
+.pp__optdetail ul,
+.pp__conds,
+.pp__actlines {
+  margin: 2px 0 0;
+  padding-left: 18px;
+}
+
+/* Las tres partes del PDF: alojamientos, actividades y resumen (Ruth, 02/11/2026). */
+.pp__sec {
+  margin-top: 30px;
+}
+
+.pp__sec:first-of-type {
+  margin-top: 0;
+}
+
+.pp__sectitle {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5b6c86;
+}
+
+.pp__secintro {
+  margin: 0 0 14px;
+  font-size: 13.5px;
+  color: #5b6c86;
+}
+
+.pp__opthead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.pp__opttotal {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--pp-navy);
+}
+
+.pp__optper {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px 16px;
+}
+
+.pp__optotros {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--pp-navy);
+}
+
+.pp__optnote {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: #5b6c86;
+}
+
+.pp__block {
+  margin-top: 12px;
+  font-size: 13.5px;
+  color: #33455f;
+}
+
+.pp__label {
+  margin: 0 0 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #5b6c86;
+}
+
+.pp__free {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: #fff9ec;
+  border: 1px solid var(--pp-amber);
+  border-radius: 10px;
+  font-size: 13.5px;
+}
+
+.pp__free p:last-child {
+  margin: 0;
+}
+
+.pp__acts {
+  background: #fff;
+  border: 1px solid rgba(19, 46, 93, 0.12);
+  border-radius: 16px;
+  padding: 6px 22px 18px;
+}
+
+.pp__act {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 20px;
+  padding: 14px 0;
+  border-bottom: 1px solid #d9e1ec;
+}
+
+.pp__actmain {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.pp__actname {
+  margin: 0;
+  font-size: 16px;
+}
+
+.pp__actlines,
+.pp__actmeta {
+  font-size: 12.5px;
+  color: #5b6c86;
+}
+
+.pp__actmeta {
+  margin: 4px 0 0;
+}
+
+.pp__actdesc {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  color: #33455f;
+}
+
+.pp__actprice,
+.pp__acttotal > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.pp__actprice strong {
+  font-size: 16px;
+}
+
+.pp__actprice span,
+.pp__acttotal span {
+  font-size: 12.5px;
+  color: #5b6c86;
+}
+
+.pp__acttotal {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  padding-top: 14px;
+}
+
+.pp__acttotalnum {
+  color: var(--pp-navy);
+}
+
+.pp__sumwrap {
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid rgba(19, 46, 93, 0.12);
+  border-radius: 16px;
+  padding: 8px 18px;
+}
+
+.pp__sum {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pp__sum th {
+  padding: 8px 6px;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #5b6c86;
+  text-align: right;
+  border-bottom: 1px solid #d9e1ec;
+}
+
+.pp__sum td {
+  padding: 10px 6px;
+  text-align: right;
+  vertical-align: top;
+  color: #33455f;
+}
+
+.pp__sum th:first-child,
+.pp__sum td:first-child {
+  text-align: left;
+  font-weight: 600;
+  color: #0e1b33;
+}
+
+.pp__sum td strong {
+  display: block;
+  color: var(--pp-navy);
+}
+
+.pp__sum td span {
+  font-size: 12px;
+  color: #5b6c86;
+}
+
 .pp__optcond {
   margin-top: 10px;
   font-size: 13.5px;

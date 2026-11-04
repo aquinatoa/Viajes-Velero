@@ -5,8 +5,10 @@ import {
   idDeGratuidad,
   lineasPorDefecto,
   porAlumno,
+  preciosPorPersona,
   resumenDeLineas,
   textoDeLaUnidad,
+  textoDeLosProfesores,
   totalDeLineas,
   tramoDelGrupo,
   type ContextoDelEsbozo,
@@ -15,7 +17,7 @@ import {
 } from "../../domain/lineasDeActividad";
 import { gratuidadDeProfesores, textoDeLaGratuidad } from "../../domain/gratuidadDeActividad";
 import { periodoDePortAventura, periodosDelViaje, periodosPorDia } from "../../domain/calendarioPortAventura";
-import { actividadesPedidas, candidatasDe, type ActividadPedida } from "../../domain/actividadesPedidas";
+import { actividadesPedidas, candidatasDe, usaCalendarioDePortAventura, type ActividadPedida } from "../../domain/actividadesPedidas";
 import {
   descuentoValido,
   lineasConDescuento,
@@ -1154,6 +1156,10 @@ export function RequestCanvas({
     return hotelesVista?.matches.find((m) => m.accommodation.id === id);
   }
 
+  // Sin hoteles y con actividades: se cotiza solo el programa. Ruth, 02/11/2026:
+  // «no todas las cotizaciones requieren de alojamiento».
+  const soloActividades = elegidos.length === 0 && programaBase.length > 0;
+
   // ── Los tres hitos, calculados del estado real ──────────────────────────────
   const hitos: Hito[] = useMemo(() => {
     const faltaEnPeticion: string[] = [];
@@ -1181,9 +1187,11 @@ export function RequestCanvas({
               : "hecho",
     };
 
-    const sinPrecio = elegidos.some((id) =>
-      actividadesDe(elegidos.indexOf(id) + 1).some((actId) => !(matchActividad(actId)?.rate.salePvpAmount)),
-    );
+    const sinPrecio = soloActividades
+      ? programaBase.some((actId) => !(matchActividad(actId)?.rate.salePvpAmount))
+      : elegidos.some((id) =>
+          actividadesDe(elegidos.indexOf(id) + 1).some((actId) => !(matchActividad(actId)?.rate.salePvpAmount)),
+        );
     const fueraDeTope = tope
       ? elegidos.filter((id, indice) => {
           const hotel = matchHotel(id);
@@ -1199,7 +1207,9 @@ export function RequestCanvas({
       detalle:
         ocupado === "buscando"
           ? "Buscando hoteles…"
-          : elegidos.length === 0
+          : soloActividades
+            ? `Solo actividades · ${programaBase.length} ${programaBase.length === 1 ? "actividad" : "actividades"}`
+            : elegidos.length === 0
             ? hoteles
               ? `Elige hasta ${MAX_OPCIONES} hoteles de la lista`
               : "Sin montar"
@@ -1209,7 +1219,11 @@ export function RequestCanvas({
       estado:
         ocupado === "buscando"
           ? "trabajando"
-          : elegidos.length === 0
+          : soloActividades
+            ? sinPrecio
+              ? "aviso"
+              : "hecho"
+            : elegidos.length === 0
             ? "pendiente"
             : programaBase.length === 0 || sinPrecio || fueraDeTope
               ? "aviso"
@@ -1229,21 +1243,28 @@ export function RequestCanvas({
           : `Enviada como ${entrega.reference}`
         : faltaCorreo
           ? `Falta ${faltaContacto.join(" y ")}`
-          : elegidos.length === 0
+          : elegidos.length === 0 && !soloActividades
             ? "Aún no hay opciones"
             : "Todo listo",
-      estado: enviada ? "hecho" : ocupado === "enviando" ? "trabajando" : faltaCorreo || elegidos.length === 0 ? "pendiente" : "hecho",
+      estado:
+        enviada
+          ? "hecho"
+          : ocupado === "enviando"
+            ? "trabajando"
+            : faltaCorreo || (elegidos.length === 0 && !soloActividades)
+              ? "pendiente"
+              : "hecho",
     };
 
     return [peticion, opciones, enviar];
-  }, [entendido, elegidos, programaBase, excepciones, form.email, form.firstName, form.lastName, ocupado, entrega, enviada, actividades, hoteles, tope, noches, peticionValidada]);
+  }, [entendido, elegidos, programaBase, excepciones, form.email, form.firstName, form.lastName, ocupado, entrega, enviada, actividades, hoteles, tope, noches, peticionValidada, soloActividades]);
 
   // El visto bueno es la puerta de salida, no la de entrada. Buscar se busca
   // en cuanto hay lo mínimo -si no, la pantalla se queda muerta mientras se
   // revisa-, pero nada sale hacia el colegio ni hacia el CRM sin que alguien
   // haya leído y confirmado lo que se entendió.
   const puedeRevisar =
-    hitos[2].estado === "hecho" && !enviada && elegidos.length > 0 && peticionValidada;
+    hitos[2].estado === "hecho" && !enviada && (elegidos.length > 0 || soloActividades) && peticionValidada;
 
   // ── Acciones ────────────────────────────────────────────────────────────────
 
@@ -1753,6 +1774,8 @@ export function RequestCanvas({
       elegidos.forEach((_, indice) => {
         actividadesPorOpcion[indice + 1] = actividadesDe(indice + 1);
       });
+      // Solo actividades: el programa entero, en la opción 1 sin hotel.
+      if (elegidos.length === 0) actividadesPorOpcion[1] = [...programaBase];
 
       const nueva = await buildProposal({
         tripRequestId: guardada.id,
@@ -1870,9 +1893,11 @@ export function RequestCanvas({
   function siguientePaso(): string {
     if (!entendido) return "Pega el mensaje del cliente en La petición y pulsa enviar.";
     if (pregunta) return `Contesta en La petición: ${pregunta.pregunta}`;
-    if (!hoteles) return "Contesta lo que falte en La petición y buscaré los hoteles.";
-    if (hoteles.matches.length === 0) return "No hay hoteles para esas fechas: revisa el destino o las fechas.";
-    if (elegidos.length === 0) return `Elige hasta ${MAX_OPCIONES} hoteles: cada uno será una opción.`;
+    if (!soloActividades) {
+      if (!hoteles) return "Contesta lo que falte en La petición y buscaré los hoteles.";
+      if (hoteles.matches.length === 0) return "No hay hoteles para esas fechas: revisa el destino o las fechas, o cotiza solo actividades.";
+      if (elegidos.length === 0) return `Elige hasta ${MAX_OPCIONES} hoteles (cada uno será una opción), o solo las actividades si no lleva alojamiento.`;
+    }
     if (!peticionValidada) return "Revisa «Lo que hemos entendido» y confírmalo antes de enviar.";
     if (programaBase.length === 0) return "Elige las actividades del programa, o envía solo con alojamiento.";
     if (!form.email.trim() || !form.firstName.trim() || !form.lastName.trim()) {
@@ -4634,7 +4659,7 @@ function PedidasDelMensaje({
         {pedidas.map((p) => {
           const candidatas = candidatasDe(p, catalogo);
           const puestas = candidatas.filter((c) => programa.includes(c.id));
-          const periodo = p.fecha ? periodoDePortAventura(p.fecha) : null;
+          const periodo = p.fecha && usaCalendarioDePortAventura(p) ? periodoDePortAventura(p.fecha) : null;
           const detalle = [
             p.lugar ? `en ${p.lugar}` : null,
             p.modalidad,
@@ -4906,6 +4931,22 @@ function VentanaDeActividad({
                           <td className="cv__lineas-n">{euros(porAlumno(activas, alumnos))} por alumno</td>
                         </tr>
                       ) : null}
+                      {(() => {
+                        // Lo que lee el colegio en el documento: cada uno lo suyo,
+                        // sin cargar a los alumnos lo de los profesores (Ruth, 02/11/2026).
+                        const porPersona = activas.length ? preciosPorPersona(activas, alumnos, profesores) : null;
+                        if (!porPersona) return null;
+                        const deProfesores = textoDeLosProfesores(porPersona);
+                        return (
+                          <tr>
+                            <td colSpan={3}>En el documento del colegio</td>
+                            <td className="cv__lineas-n">
+                              {euros(porPersona.alumno)} por alumno
+                              {deProfesores ? <> · {deProfesores}</> : null}
+                            </td>
+                          </tr>
+                        );
+                      })()}
                     </tfoot>
                   </table>
                   <div className="cv__lineas-pie">

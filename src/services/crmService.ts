@@ -156,6 +156,15 @@ function buildOpportunityDescription(
   if (request.ageRangeText) lines.push(`Edades: ${request.ageRangeText}`);
   if (request.requirementsText) lines.push(`Requisitos: ${request.requirementsText}`);
 
+  // Solo actividades (Ruth, 02/11/2026): el programa, sin opciones de alojamiento.
+  if (proposal.accommodationOptions.length === 0) {
+    lines.push("", "SOLO ACTIVIDADES (sin alojamiento)");
+    for (const a of proposal.activityOptions) {
+      lines.push(`- ${a.activityNameSnapshot} (${a.pvpSnapshot})`);
+    }
+    return lines.join("\n");
+  }
+
   lines.push("", "OPCIONES DE ALOJAMIENTO");
   for (const option of proposal.accommodationOptions) {
     lines.push(
@@ -181,7 +190,13 @@ export const prepareNewOpportunityPayload = ({
   opportunityRecommendation,
   opportunityName
 }: PrepareCrmPayloadInput): CrmPayload => {
-  const groupedActivities = proposal.accommodationOptions.map((option) => ({
+  // Sin alojamiento, el programa va en una «opción 1» sin hotel.
+  const opcionesDelTrato = proposal.accommodationOptions.length
+    ? proposal.accommodationOptions
+    : proposal.activityOptions.length
+      ? [{ optionNumber: 1, accommodationNameSnapshot: null, boardType: null, totalPvpText: null, priceBreakdownText: null }]
+      : [];
+  const groupedActivities = opcionesDelTrato.map((option) => ({
     option_number: option.optionNumber,
     accommodation_name: option.accommodationNameSnapshot,
     board_type: option.boardType,
@@ -210,8 +225,13 @@ export const prepareNewOpportunityPayload = ({
       ? nombreAutomatico(centro, (request.dateFrom ?? "").slice(0, 4) || null)
       : nombreDeViaje(client, request);
 
-  // Importe del trato = total de la opción 1 (la principal/mejor).
-  const amount = amountFromText(proposal.accommodationOptions[0]?.totalPvpText);
+  // Importe del trato = total de la opción 1 (la principal/mejor). Solo con
+  // actividades, lo que suman para el grupo; si alguna no lo trae, sin importe.
+  const amount = proposal.accommodationOptions.length
+    ? amountFromText(proposal.accommodationOptions[0]?.totalPvpText)
+    : proposal.activityOptions.length && proposal.activityOptions.every((a) => a.amountTotal != null)
+      ? Math.round(proposal.activityOptions.reduce((suma, a) => suma + Number(a.amountTotal), 0) * 100) / 100
+      : null;
 
   return {
     contact: buildCommonContact(client),

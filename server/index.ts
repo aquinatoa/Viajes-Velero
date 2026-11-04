@@ -1,7 +1,7 @@
 import { marcarOpcionElegida } from "./proposalDelivery";
 import { tituloDelViaje } from "../src/domain/tituloDelViaje";
 import { desgloseEnLista, desgloseParaElCliente, pensionesParaElCliente } from "../src/domain/desgloseParaElCliente";
-import { textoParaElCliente } from "./proposalPdf";
+import { documentoParaElCliente, textoParaElCliente } from "./proposalPdf";
 import { arrancarLaRecogida } from "./correoEntrante";
 import "./loadEnv";
 import express from "express";
@@ -50,7 +50,9 @@ import {
   DEPOSIT_PERCENT,
   chooseOption,
   getDelivery,
+  actividadesSinAlojamiento,
   listDeliveries,
+  opcionesDelDocumento,
   prepareDelivery,
   readPublicProposal,
   sendDelivery,
@@ -2540,6 +2542,22 @@ app.get("/api/public/proposals/:token", async (request, response) => {
       return;
     }
     const request_ = delivery.proposal.tripRequest;
+    // Lo mismo que el PDF, sacado de la misma función: alojamientos con su
+    // precio por persona, actividades y resumen (Ruth, 02/11/2026: «no debería
+    // salir diferente… debería salir como aparece en el archivo anexo»).
+    const documento = documentoParaElCliente({
+      reference: delivery.reference,
+      department: delivery.department,
+      clientName: "",
+      tripTitle: tituloDelViaje(request_),
+      destination: request_.destinationText,
+      dateFrom: request_.dateFrom,
+      dateTo: request_.dateTo,
+      participants: request_.participants,
+      teachers: request_.teachers,
+      options: opcionesDelDocumento(delivery.proposal),
+      activities: actividadesSinAlojamiento(delivery.proposal, request_.participants ?? 0, request_.teachers ?? 0),
+    });
     response.json({
       reference: delivery.reference,
       department: delivery.department,
@@ -2564,6 +2582,7 @@ app.get("/api/public/proposals/:token", async (request, response) => {
         breakdownList: desgloseEnLista(option.priceBreakdownText, request_.dateFrom),
         conditionsText: option.conditionsText ? textoParaElCliente(option.conditionsText) : option.conditionsText,
       })),
+      documento,
     });
   } catch (error) {
     console.error("Error abriendo la propuesta pública", error);

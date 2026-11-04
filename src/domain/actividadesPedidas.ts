@@ -167,6 +167,17 @@ export function actividadesPedidas(texto: string, anioPorDefecto: number | null 
   return [...porClave.values()];
 }
 
+/**
+ * Si lo pedido va por el calendario de PortAventura (periodos A-F).
+ *
+ * Ruth, 02/11/2026: «Paintball: no sé por qué sale periodo D». El periodo es
+ * de los parques de PortAventura World; un paintball o un kayak tienen su día,
+ * pero no periodo.
+ */
+export function usaCalendarioDePortAventura(pedida: Pick<ActividadPedida, "clave">): boolean {
+  return pedida.clave === "portaventura" || pedida.clave === "ferrariland" || pedida.clave === "caribe";
+}
+
 /** Lo mínimo de una actividad del catálogo para reconocerla. */
 export interface ActividadDelCatalogo {
   id: string;
