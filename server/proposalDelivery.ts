@@ -33,6 +33,7 @@ import { contratarEnElCrm } from "./serviciosContratados";
 import { tituloDelViaje } from "../src/domain/tituloDelViaje";
 import { borrarBorradorDeSolicitudDb } from "./draftsDb";
 import { guardarMensajeSaliente } from "./correoDb";
+import { avisarPendienteDeDeposito } from "./avisoDeDeposito";
 
 const prisma = new PrismaClient();
 
@@ -627,6 +628,9 @@ export async function marcarOpcionElegida(
   );
   // Y lo contratado, en su tabla. No lanza.
   await contratarEnElCrm(delivery.id, optionNumber);
+  // Y el aviso a quien hizo la propuesta: la oportunidad pasa a «Pendiente de depósito».
+  // Una sola vez: una opción ya elegida no llega hasta aquí. No lanza.
+  await avisarPendienteDeDeposito(delivery.id, optionNumber, quien);
 
   return elegida;
 }
@@ -658,6 +662,8 @@ export async function chooseOption(token: string, optionNumber: number) {
   );
   // Y lo contratado, en su tabla. No lanza.
   await contratarEnElCrm(delivery.id, optionNumber);
+  // Y el aviso a quien hizo la propuesta (06/11/2026). No lanza.
+  await avisarPendienteDeDeposito(delivery.id, optionNumber);
 
   return elegida;
 }

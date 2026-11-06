@@ -1965,6 +1965,63 @@ async function main() {
     assert.equal(quedan, 0, "una propuesta hecha ya no es trabajo a medias");
   });
 
+  await test("al elegir opción se avisa a quien hizo la propuesta (el propietario), y sin buzón queda simulado", async () => {
+    // Compromiso de la reunión del 05/11: aviso al pasar a «Pendiente de depósito». El
+    // propietario es quien hizo la propuesta (Anthony, 06/11/2026). Aquí no hay clave de
+    // buzón, así que no sale correo de verdad: se comprueba a quién iría y que no rompe nada.
+    const aviso = await import("../server/avisoDeDeposito.ts");
+    const usuario = await prisma.user.create({
+      data: { email: `cotiza-${Date.now()}@example.com`, name: "Marta Ruiz", passwordHash: "x", passwordSalt: "x" },
+    });
+    const req = await nuevaSolicitud("Aviso de depósito: propietario");
+    await prisma.tripRequest.update({ where: { id: req.id }, data: { ownerUserId: usuario.id } });
+    const propuesta = await commercial.saveTripProposalDb({
+      tripRequestId: req.id,
+      versionNumber: 1,
+      proposalStatus: "READY_FOR_APPROVAL",
+      accommodationOptions: [opcion("Hotel del aviso")],
+      activityOptions: [],
+    });
+    const entrega = await delivery.prepareDelivery({ proposalId: propuesta.id, recipientEmail: "colegio@example.com" });
+
+    // Sin propietario no se avisa a nadie.
+    const sinDueno = await nuevaSolicitud("Aviso de depósito: sin propietario");
+    const propuestaSin = await commercial.saveTripProposalDb({
+      tripRequestId: sinDueno.id,
+      versionNumber: 1,
+      proposalStatus: "READY_FOR_APPROVAL",
+      accommodationOptions: [opcion("Hotel sin dueño")],
+      activityOptions: [],
+    });
+    const entregaSin = await delivery.prepareDelivery({ proposalId: propuestaSin.id, recipientEmail: "colegio@example.com" });
+    assert.deepEqual(await aviso.avisarPendienteDeDeposito(entregaSin.id, 1), {
+      enviado: false,
+      motivo: "la propuesta no tiene propietario",
+    });
+
+    // Con propietario y sin clave de buzón: simulado, sin romper.
+    const delBorrador = await prisma.proposalDelivery.update({
+      where: { id: entrega.id },
+      data: { chosenOptionNumber: 1, chosenAt: new Date(), depositDueAt: new Date("2026-12-16T10:00:00Z") },
+    });
+    assert.ok(delBorrador.depositDueAt);
+    assert.deepEqual(await aviso.avisarPendienteDeDeposito(entrega.id, 1), {
+      enviado: false,
+      motivo: "sin clave de buzón: simulado",
+    });
+
+    // Un propietario dado de baja no recibe nada.
+    await prisma.user.update({ where: { id: usuario.id }, data: { isActive: false } });
+    assert.deepEqual(await aviso.avisarPendienteDeDeposito(entrega.id, 1), {
+      enviado: false,
+      motivo: "el propietario no está activo o no tiene correo",
+    });
+
+    // Elegir la opción por la vía real no lanza aunque el aviso no pueda salir.
+    const elegida = await delivery.marcarOpcionElegida(entregaSin.id, 1, "Anthony");
+    assert.equal(elegida?.chosenOptionNumber, 1);
+  });
+
   await test("un cambio del cliente crea la versión nueva SIN perder las entradas, el importe, el coste ni las notas", async () => {
     // Hallado el 05/11/2026 al investigar las actividades que no llegaban al CRM:
     // la versión nueva copiaba la actividad sin `linesJson`, `amountTotal`,
