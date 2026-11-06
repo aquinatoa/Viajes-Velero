@@ -548,6 +548,109 @@ prueba("para aceptar: la propuesta, no «la opción que prefieras»", () => {
   assert.match(textoSolo, /Aceptar la propuesta/);
 });
 
+// ── Las notas para el cliente ─────────────────────────────────────────────────
+//
+// Reunión con Oravia, 05/11/2026: hace falta un campo de texto libre en la
+// propuesta (horarios de entrenamiento, condiciones de pago…). Lo lee el cliente.
+
+const NOTAS =
+  "Entrenamientos: martes y jueves de 9:00 a 11:00 en el campo 2.\n\nPago: 30 % a la aceptación y el resto 30 días antes de la llegada.";
+
+async function textoDe(ruta: string): Promise<string> {
+  const pdf = await getDocument({ data: new Uint8Array(readFileSync(path.resolve(ruta))), useSystemFonts: true }).promise;
+  let texto = "";
+  for (let p = 1; p <= pdf.numPages; p += 1) {
+    const contenido = await (await pdf.getPage(p)).getTextContent();
+    texto += " " + contenido.items.map((i) => ("str" in i ? i.str : "")).join(" ");
+  }
+  return texto.replace(/\s+/g, " ");
+}
+
+const DATOS_NOTAS = {
+  clientName: "María López",
+  centreName: null,
+  tripTitle: "IES JAUME BALMES 2027",
+  destination: "Salou",
+  dateFrom: new Date("2027-05-18T00:00:00Z"),
+  dateTo: new Date("2027-05-22T00:00:00Z"),
+  participants: 48,
+  teachers: 4,
+  options: [CON_ACTIVIDADES],
+  preparedBy: "Oravia Travel Group",
+};
+const conNotas = await textoDe(await buildProposalPdf({ ...DATOS_NOTAS, reference: "ORV-2026-9990", notes: NOTAS, publicUrl: "https://app.oravia.test/p/abc" }));
+const sinNotas = await textoDe(await buildProposalPdf({ ...DATOS_NOTAS, reference: "ORV-2026-9989", publicUrl: "https://app.oravia.test/p/abc" }));
+
+console.log("\nLas notas para el cliente");
+
+prueba("las notas salen en el PDF, con su título y tal cual las escribió quien cotiza", () => {
+  assert.match(conNotas, /NOTAS/);
+  assert.match(conNotas, /Entrenamientos: martes y jueves de 9:00 a 11:00 en el campo 2\./);
+  assert.match(conNotas, /Pago: 30 % a la aceptación y el resto 30 días antes de la llegada\./);
+});
+
+prueba("van después del resumen y antes de cómo aceptar la propuesta", () => {
+  const resumen = conNotas.indexOf("3 · RESUMEN DEL VIAJE");
+  const notas = conNotas.indexOf("NOTAS");
+  const aceptar = conNotas.indexOf("Para aceptar");
+  assert.ok(resumen >= 0 && notas > resumen && aceptar > notas, `${resumen} < ${notas} < ${aceptar}`);
+});
+
+prueba("sin notas no sale ni el título", () => {
+  assert.doesNotMatch(sinNotas, /NOTAS/);
+});
+
+prueba("el documento compartido con la página del enlace lleva las notas; sin ellas, null", () => {
+  assert.equal(documentoParaElCliente({ ...DATOS_NOTAS, reference: "X", notes: NOTAS }).notas, NOTAS);
+  assert.equal(documentoParaElCliente({ ...DATOS_NOTAS, reference: "X" }).notas, null);
+  assert.equal(documentoParaElCliente({ ...DATOS_NOTAS, reference: "X", notes: "   \n  " }).notas, null);
+});
+
+prueba("unas notas largas no se salen de la página: el PDF sigue teniendo pie en todas", () => {
+  assert.match(conNotas, /Entrenamientos/);
+});
+
+const largas = await textoDe(await buildProposalPdf({ ...DATOS_NOTAS, reference: "ORV-2026-9988", notes: Array.from({ length: 19 }, (_, i) => `Línea ${i + 1}: ${"texto de prueba ".repeat(5)}`).join("\n") }));
+prueba("con muchas líneas, las notas pasan a otra página y no se pierde ninguna", () => {
+  assert.match(largas, /Línea 1:/);
+  assert.match(largas, /Línea 19:/);
+});
+
+// ── Bloques de alumnos con otra habitación y otra pensión (Oravia, 05/11/2026) ──
+//
+// La cifra grande de la opción es la del grupo principal; el de cada bloque va
+// debajo, y el desglose lo explica. Nadie debe leer «52 € por alumno» sin saber
+// que solo vale para 40 de los 50.
+
+const conBloquesPdf = await textoDe(
+  await buildProposalPdf({
+    ...DATOS_NOTAS,
+    reference: "ORV-2026-9987",
+    participants: 50,
+    options: [
+      {
+        ...CON_ACTIVIDADES,
+        totalPvpText: "9.000,00 €",
+        totalAmount: 9000,
+        priceBreakdownText:
+          "40,00 € x 40 alumnos + 52,00 € x 10 alumnos (en doble, suplemento +10 %, MP) + 60,11 € x 3 profesores (uso individual), por noche x 4 noches",
+      },
+    ],
+  }),
+);
+
+console.log("\nLos bloques de alumnos en el documento");
+
+prueba("la cifra grande dice que es la del grupo principal, y cada bloque tiene su precio debajo", () => {
+  assert.match(conBloquesPdf, /160,00 € por alumno del grupo principal/);
+  assert.match(conBloquesPdf, /208,00 € por alumno en habitación doble, media pensión \(10 alumnos\)/);
+});
+
+prueba("el desglose escribe el bloque en palabras, sin abreviaturas", () => {
+  assert.match(conBloquesPdf, /10 alumnos \(habitación doble, suplemento del 10 %, media pensión\)/);
+  assert.match(conBloquesPdf, /El resto de los alumnos va en otra habitación o con otra pensión/);
+});
+
 rmSync(ALMACEN, { recursive: true, force: true });
 
 console.log(`\n${pasadas} pasadas, ${fallidas} fallidas\n`);

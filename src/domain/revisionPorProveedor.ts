@@ -1,4 +1,5 @@
 import type { StagingActivity, StagingActivityPolicy, StagingActivityRate } from "./documentImportTypes";
+import { algunCampoCoincide, proveedorCanonico } from "./aliasDeProveedor";
 
 /**
  * La revisión de actividades, agrupada por proveedor.
@@ -116,7 +117,8 @@ function agruparCondiciones(actividades: StagingActivity[]): CondicionAgrupada[]
 export function agruparPorProveedor(actividades: StagingActivity[]): GrupoProveedor[] {
   const grupos = new Map<string, StagingActivity[]>();
   for (const a of actividades) {
-    const nombre = (a.supplierName ?? "").trim() || SIN_PROVEEDOR;
+    // «MSH» y «Cambrils Park» son el mismo proveedor (Oravia, 05/11/2026).
+    const nombre = proveedorCanonico(a.supplierName) || SIN_PROVEEDOR;
     grupos.set(nombre, [...(grupos.get(nombre) ?? []), a]);
   }
   return [...grupos.entries()].map(([proveedor, lista]) => {
@@ -139,10 +141,10 @@ export function agruparPorProveedor(actividades: StagingActivity[]): GrupoProvee
 
 /** ¿Esta actividad encaja con lo que se ha escrito en el buscador? */
 export function coincideConBusqueda(actividad: StagingActivity, texto: string): boolean {
-  const q = normalizar(texto);
-  if (!q) return true;
-  const campos = [actividad.activityName, actividad.supplierName, actividad.activityType, actividad.locationMain];
-  return campos.some((c) => normalizar(c).includes(q));
+  return algunCampoCoincide(
+    [actividad.activityName, actividad.supplierName, actividad.activityType, actividad.locationMain],
+    texto,
+  );
 }
 
 export interface ProgresoDeRevision {

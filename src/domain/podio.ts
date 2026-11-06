@@ -46,7 +46,7 @@ export function cuentaDelEncaje(lista: ComprobacionDeEncaje[] | undefined): Cuen
 
 /** Lo que paga un alumno por la estancia (o la tarifa por noche si no hay estancia), para desempatar. */
 function precioParaOrdenar(item: AccommodationSearchMatch): number {
-  return item.estancia?.porAlumno ?? (item.rate.pvpAmount || item.rate.netSaleAmount || 0);
+  return item.estancia?.porAlumnoMedio ?? item.estancia?.porAlumno ?? (item.rate.pvpAmount || item.rate.netSaleAmount || 0);
 }
 
 /**

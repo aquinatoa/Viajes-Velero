@@ -69,6 +69,8 @@ interface DocumentoDelCliente {
     }>;
     nota: string;
   } | null;
+  /** Las notas de quien preparó la propuesta (horarios, condiciones de pago…). */
+  notas?: string | null;
 }
 
 interface PublicProposal {
@@ -409,6 +411,13 @@ export function PublicProposalPage({ token }: { token: string }) {
               </table>
             </div>
             <p className="pp__optnote">{resumen.nota}</p>
+          </section>
+        ) : null}
+
+        {proposal.documento.notas ? (
+          <section className="pp__sec">
+            <h2 className="pp__sectitle">Notas</h2>
+            <p className="pp__notas">{proposal.documento.notas}</p>
           </section>
         ) : null}
       </main>

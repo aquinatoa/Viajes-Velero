@@ -1,3 +1,4 @@
+import { limpiarNotas } from "../domain/notasDeLaPropuesta";
 import { porAlumno, totalDeLineas } from "../domain/lineasDeActividad";
 import { textoDelDescuento } from "../domain/descuentoDeActividad";
 import { costesDelTramo, textoDelDesglose } from "../domain/estancia";
@@ -204,6 +205,12 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
       lineas: input.builderState.lineasSinDescuento ?? {},
       fechasDeVisita: input.builderState.fechasDeVisita ?? {},
       modalidades: input.builderState.modalidades ?? {},
+      // Lo que el cliente lee en el documento, aparte de las opciones.
+      notas: limpiarNotas(input.builderState.notas),
+      // Cuántos alumnos van en cada tarifa de cada hotel: «Rehacer» y los cambios del
+      // cliente tienen que recalcular con el mismo reparto.
+      alumnosPorTarifa: input.builderState.alumnosPorTarifa ?? {},
+      acompanantesPorHotel: input.builderState.acompanantesPorHotel ?? {},
     }),
     accommodationOptions,
     activityOptions

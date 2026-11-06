@@ -37,12 +37,16 @@ import {
   saveNormalizedTripRequest,
   upsertClientFromRequest,
   extractClientInfo,
+  completarDatosDeContacto,
+  sugerirDepartamento,
 } from "../../services/mcpTools";
 import {
   abrirProposalPdf,
   buscarContactoCrmApi,
   borrarBorradorApi,
   guardarBorradorApi,
+  auditarSolicitudConIaApi,
+  leerSolicitudConIaApi,
   leerBorradorApi,
   listarBorradoresApi,
   tomarBorradorApi,
@@ -66,17 +70,57 @@ import {
 } from "./draft";
 import type { ClientSegment } from "../../domain/documentImportTypes";
 import { podio, razonDelPodio } from "../../domain/podio";
+import { algunCampoCoincide } from "../../domain/aliasDeProveedor";
+import {
+  frasesDeDiscrepancia,
+  leerLaSolicitud,
+  textosConOrigen,
+  type CampoFijado,
+  type RespuestaLibre,
+  type TextoConOrigen,
+} from "../../services/lecturaDeLaSolicitud";
+import { frasesDeLaIa, sumarLecturaIa } from "../../domain/lecturaIa";
+import {
+  FILA_A_CLAVE,
+  valoresParaAuditar,
+  type ClaveAuditada,
+  type ValorAuditado,
+  type Veredicto,
+} from "../../domain/auditoriaIa";
+import type { MarcaPedida } from "../../domain/marcasEnTexto";
+import {
+  SECCIONES,
+  estaConfirmada,
+  faltaEnSeccion,
+  firmaDeSeccion,
+  fraseDeLaPeticion,
+  pasosPorConfirmar,
+  resumenDeSeccion,
+  sePuedeVerLoBuscado,
+  seccionDeLaClave,
+  valoresDeSeccion,
+  type Confirmaciones,
+  type SeccionDeValidacion,
+  type SeccionId,
+} from "../../domain/seccionesDeValidacion";
+import {
+  AUDITORIA_VACIA,
+  FraseDeLaPeticion,
+  MensajesMarcados,
+  PasoDeValidacion,
+  type EstadoDeLaAuditoria,
+  type EstadoDeLaIaEnPantalla,
+  type FilaDelPaso,
+} from "./ValidacionPorPasos";
 import { etiquetaDeRegimen, rejillaDeActividad } from "../../domain/rejillaDeTarifas";
 import { TablaDeTarifas } from "../inventory/TablaDeTarifas";
 import { leerRango, leerUnaFecha } from "../../domain/fechas";
 import { interpretarRespuesta } from "../../domain/interpretarRespuesta";
 import {
   bloquesParaValidar,
-  firmaDeLaPeticion,
-  loQueFaltaDeVerdad,
+  type PeticionParaValidar,
 } from "../../domain/validacionDeLaPeticion";
 import {
-  conservarLoContestado,
   loQueSeIgnora,
   sePuedeRecomendar,
   siguientePregunta,
@@ -98,9 +142,16 @@ import type {
 } from "../../domain/types";
 import { nombreDelCanal } from "../../domain/clientesEspeciales";
 import { siguientesNombre } from "../../domain/tituloDelViaje";
+import { MAX_NOTAS } from "../../domain/notasDeLaPropuesta";
+import {
+  avisosAntesDeEnviar,
+  sePuedeEnviar,
+  type ActividadParaRevisar,
+} from "../../domain/avisosAntesDeEnviar";
 import { codigoDePension, COMPOSICION_POR_DEFECTO, type ComposicionDeLaEstancia } from "../../domain/estancia";
 import { encajeConLaEstancia } from "../../domain/encajeConLaEstancia";
-import { estanciaDeHotel } from "../../services/estanciaDeHotel";
+import { estanciaDeHotel, type AcompanantesDelHotel } from "../../services/estanciaDeHotel";
+import { gratuidadDeHotel } from "../../domain/gratuidadDeHotel";
 import { PanelEstancia } from "./PanelEstancia";
 import { useClientesEspeciales } from "../useClientesEspeciales";
 import type { ClienteEspecial } from "../../domain/documentImportTypes";
@@ -187,7 +238,7 @@ function precioPorAlumno(
   actividades: ActivitySearchMatch[],
   noches: number,
 ): number {
-  const base = hotel.estancia ? hotel.estancia.porAlumno : precioDeTarifa(hotel.rate) * Math.max(noches, 1);
+  const base = hotel.estancia ? (hotel.estancia.porAlumnoMedio ?? hotel.estancia.porAlumno) : precioDeTarifa(hotel.rate) * Math.max(noches, 1);
   const extras = actividades.reduce((suma, item) => suma + (item.rate.salePvpAmount || 0), 0);
   return Math.round((base + extras) * 100) / 100;
 }
@@ -355,10 +406,11 @@ function porQueNoHayActividades(datos: NormalizedRequestDraft | null, resultado:
 
 /** ¿Esta actividad encaja con lo escrito en el buscador? Sin tildes ni mayúsculas. */
 function coincideActividad(item: ActivitySearchMatch, texto: string): boolean {
-  const q = texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-  if (!q) return true;
-  const campos = [item.activity.activityName, item.activity.supplierName, item.activity.locationMain, item.rate.ageLabel];
-  return campos.some((c) => (c ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes(q));
+  // \u00abMSH\u00bb encuentra lo de Cambrils Park: los alias viven en `aliasDeProveedor`.
+  return algunCampoCoincide(
+    [item.activity.activityName, item.activity.supplierName, item.activity.locationMain, item.rate.ageLabel],
+    texto,
+  );
 }
 
 /**
@@ -367,10 +419,12 @@ function coincideActividad(item: ActivitySearchMatch, texto: string): boolean {
  * buscar el 4R a ojo (Anthony, 20/10/2026).
  */
 function coincideHotel(item: AccommodationSearchMatch, texto: string): boolean {
-  const q = texto.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
-  if (!q) return true;
-  const campos = [item.accommodation.accommodationName, item.accommodation.locality, item.accommodation.categoryType];
-  return campos.some((c) => (c ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().includes(q));
+  // Escribir «MSH» encuentra Mediterrània, Villa Bonita…: los alias viven en
+  // `aliasDeProveedor` (reunión con Oravia, 05/11/2026).
+  return algunCampoCoincide(
+    [item.accommodation.accommodationName, item.accommodation.locality, item.accommodation.categoryType],
+    texto,
+  );
 }
 
 /** Convierte cualquier error (incluidos los de validación) en una frase legible. */
@@ -407,6 +461,24 @@ export function RequestCanvas({
   /** Lo que se ha ido preguntando y contestando en el chat de la petición. */
   const [conversacion, setConversacion] = useState<TurnoDelChat[]>([]);
   /**
+   * Lo que se ha ESCRITO en el chat, con cuántos mensajes del colegio había.
+   *
+   * Es un mensaje más: «lo entendido» se calcula leyendo estos textos junto con
+   * los del colegio (`leerLaSolicitud`). Antes la respuesta solo se copiaba a
+   * nueve campos y lo demás —actividades, tipo de grupo, texto libre— se perdía.
+   */
+  const [respuestasLibres, setRespuestasLibres] = useState<RespuestaLibre[]>([]);
+  /**
+   * Campos que alguien ha fijado a mano o con un botón. Ninguna lectura
+   * posterior los vuelve a tocar: lo que corrige una persona manda.
+   */
+  const [fijados, setFijados] = useState<CampoFijado[]>([]);
+  const fijar = useCallback((campos: CampoFijado[]) => {
+    setFijados((actuales) =>
+      campos.every((c) => actuales.includes(c)) ? actuales : [...new Set([...actuales, ...campos])],
+    );
+  }, []);
+  /**
    * Preguntas ya hechas que se quedaron sin respuesta.
    *
    * Se guardan para NO repetirlas. Insistir con el tope por alumno cuando ya
@@ -425,7 +497,12 @@ export function RequestCanvas({
    * campo corregido a mano- la huella deja de coincidir y se vuelve a pedir.
    * Un «revisado» sobre datos que ya han cambiado no vale nada.
    */
-  const [firmaValidada, setFirmaValidada] = useState<string | null>(null);
+  const [confirmaciones, setConfirmaciones] = useState<Confirmaciones>({});
+  /**
+   * Avisos de la IA que quien cotiza ha dejado «como están»: la clave lleva el
+   * valor, así que si el dato cambia, el aviso vuelve a mirarse.
+   */
+  const [dejados, setDejados] = useState<string[]>([]);
   /** Solicitudes previas del mismo cliente: evita crear dos tratos del mismo viaje. */
   const [previas, setPrevias] = useState<FindCandidateOpportunitiesResult | null>(null);
   const [parseResult, setParseResult] = useState<ParseTripRequestResult | null>(null);
@@ -494,6 +571,29 @@ export function RequestCanvas({
    * tarifas y suplementos.
    */
   const [composicion, setComposicion] = useState<ComposicionDeLaEstancia>(COMPOSICION_POR_DEFECTO);
+  /**
+   * Las «Notas» para el cliente (reunión del 05/11/2026): horarios de
+   * entrenamiento, condiciones de pago, lo hablado. Las LEE EL CLIENTE: salen
+   * tal cual en el PDF y en la página del enlace.
+   */
+  const [notas, setNotas] = useState("");
+  /**
+   * Cuántos alumnos van en cada tarifa de cada hotel: hotel → tarifa → cantidad
+   * (reunión con Oravia, 05/11/2026; como las entradas de una actividad). La
+   * tarifa que eligió la búsqueda lleva los que no se asignan a otra.
+   */
+  const [alumnosPorTarifa, setAlumnosPorTarifa] = useState<Record<string, Record<string, number>>>({});
+  /**
+   * Lo mismo para los profesores y el chófer de cada hotel, y las plazas de gratuidad del hotel
+   * que se les aplican (06/11/2026). Por defecto nada: la gratuidad no se aplica sola.
+   */
+  const [acompanantesPorHotel, setAcompanantesPorHotel] = useState<Record<string, AcompanantesDelHotel>>({});
+  /**
+   * La huella de los avisos de envío que quien cotiza ha marcado como revisados.
+   * Si cambian los avisos (se elige otra actividad, se cambia una tarifa), la
+   * huella deja de coincidir y hay que volver a marcarlos.
+   */
+  const [avisosRevisados, setAvisosRevisados] = useState("");
   /**
    * Hoteles y actividades fuera del catálogo, con el precio del proveedor
    * (Ruth, 29/09/2026). Viven en la cotización: se mezclan con lo que devuelve
@@ -650,10 +750,23 @@ export function RequestCanvas({
       setBorrador(estado.redaccion ?? "");
       setForm(estado.form);
       setEntendido(estado.entendido);
+      // Sin esto, «Revisar y enviar» no hacía nada en un borrador abierto desde la lista
+      // o con «Rehacer»: preparar exige haber leído la petición, y el panel se quedaba en
+      // «Preparando la propuesta…» sin documento ni error (06/11/2026).
+      if (estado.entendido) {
+        setParseResult({
+          normalized: estado.entendido,
+          missingFields: [],
+          warnings: [],
+          requestStatus: "READY_FOR_SEARCH",
+        });
+      }
       setTope(estado.tope ?? null);
       setRequisitos(estado.requisitos ?? []);
       setDepartamento(estado.departamento ?? departamentoDelUsuario ?? "");
       setConversacion(estado.conversacion ?? []);
+      setRespuestasLibres(estado.respuestasLibres ?? []);
+      setFijados(estado.fijados ?? []);
       setPreguntadas(estado.preguntadas ?? []);
       setElegidos(estado.elegidos ?? []);
       setProgramaBase(estado.programaBase ?? []);
@@ -662,6 +775,9 @@ export function RequestCanvas({
       setDescuentos(estado.descuentos ?? {});
       setLineas(estado.lineas ?? {});
       setComposicion(estado.composicion ?? COMPOSICION_POR_DEFECTO);
+      setNotas(estado.notas ?? "");
+      setAlumnosPorTarifa(estado.alumnosPorTarifa ?? {});
+      setAcompanantesPorHotel(estado.acompanantesPorHotel ?? {});
       setHotelesAdHoc(estado.hotelesAdHoc ?? []);
       setActividadesAdHoc(estado.actividadesAdHoc ?? []);
       adHocRef.current = { hoteles: estado.hotelesAdHoc ?? [], actividades: estado.actividadesAdHoc ?? [] };
@@ -719,6 +835,22 @@ export function RequestCanvas({
    * quedaron tres cuentas llamadas «Marta Ferrer».
    */
   const ultimoCorreoConsultado = useRef<string>("");
+  /** Lo último que se le dio a leer a la IA, para no repetir la misma lectura. */
+  const ultimaLecturaIa = useRef<string>("");
+  /** El estado de ahora mismo, para la IA: cuando contesta, los cierres de React están viejos. */
+  const estadoParaIa = useRef({ entendido, tope, requisitos, form, departamento, fijados, canal });
+  estadoParaIa.current = { entendido, tope, requisitos, form, departamento, fijados, canal };
+  const [auditoria, setAuditoria] = useState<Record<SeccionId, EstadoDeLaAuditoria>>({
+    viaje: AUDITORIA_VACIA,
+    grupo: AUDITORIA_VACIA,
+    piden: AUDITORIA_VACIA,
+    tarifas: AUDITORIA_VACIA,
+    contacto: AUDITORIA_VACIA,
+  });
+  /** Lo último que se le dio a revisar a la IA de cada paso: si no ha cambiado nada, no se repite. */
+  const ultimaAuditoria = useRef<Partial<Record<SeccionId, string>>>({});
+  /** `false` en cuanto el servidor dice que la IA está apagada: no se vuelve a preguntar. */
+  const iaActiva = useRef<boolean | null>(null);
   useEffect(() => {
     const correo = form.email.trim().toLowerCase();
     // Sin arroba no es un correo todavía: se está escribiendo.
@@ -767,6 +899,8 @@ export function RequestCanvas({
         // El hilo del chat viaja con el borrador: sin esto, retomarlo mañana
         // volvía a preguntar lo que el colegio ya había contestado.
         conversacion,
+        respuestasLibres,
+        fijados,
         preguntadas,
         elegidos,
         programaBase,
@@ -775,6 +909,9 @@ export function RequestCanvas({
         descuentos,
         lineas,
         composicion,
+        notas,
+        alumnosPorTarifa,
+        acompanantesPorHotel,
         hotelesAdHoc,
         actividadesAdHoc,
         fechasDeVisita,
@@ -808,7 +945,7 @@ export function RequestCanvas({
     return () => {
       if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
     };
-  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, preguntadas, elegidos, programaBase, excepciones, preciosFijados, descuentos, lineas, composicion, hotelesAdHoc, actividadesAdHoc, fechasDeVisita, modalidades, pedidasHechas, rehaceEntrega, solicitudId, canal, enviada]);
+  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, respuestasLibres, fijados, preguntadas, elegidos, programaBase, excepciones, preciosFijados, descuentos, lineas, composicion, notas, alumnosPorTarifa, acompanantesPorHotel, hotelesAdHoc, actividadesAdHoc, fechasDeVisita, modalidades, pedidasHechas, rehaceEntrega, solicitudId, canal, enviada]);
 
   /** Recupera el borrador y vuelve a buscar hoteles: las tarifas pueden haber cambiado. */
   function recuperar() {
@@ -822,6 +959,8 @@ export function RequestCanvas({
     setTope(recuperable.tope);
     setDepartamento(recuperable.departamento ?? departamentoDelUsuario ?? "");
     setConversacion(recuperable.conversacion ?? []);
+    setRespuestasLibres(recuperable.respuestasLibres ?? []);
+    setFijados(recuperable.fijados ?? []);
     setPreguntadas(recuperable.preguntadas ?? []);
     setRequisitos(recuperable.requisitos);
     setElegidos(recuperable.elegidos);
@@ -831,6 +970,9 @@ export function RequestCanvas({
     setDescuentos(recuperable.descuentos ?? {});
     setLineas(recuperable.lineas ?? {});
     setComposicion(recuperable.composicion ?? COMPOSICION_POR_DEFECTO);
+    setNotas(recuperable.notas ?? "");
+    setAlumnosPorTarifa(recuperable.alumnosPorTarifa ?? {});
+    setAcompanantesPorHotel(recuperable.acompanantesPorHotel ?? {});
     setHotelesAdHoc(recuperable.hotelesAdHoc ?? []);
     setActividadesAdHoc(recuperable.actividadesAdHoc ?? []);
     adHocRef.current = { hoteles: recuperable.hotelesAdHoc ?? [], actividades: recuperable.actividadesAdHoc ?? [] };
@@ -885,9 +1027,9 @@ export function RequestCanvas({
     };
     return {
       ...hoteles,
-      matches: hoteles.matches.map((m) => ({ ...m, estancia: estanciaDeHotel(m, composicion, viaje) })),
+      matches: hoteles.matches.map((m) => ({ ...m, estancia: estanciaDeHotel(m, composicion, viaje, alumnosPorTarifa[m.accommodation.id], acompanantesPorHotel[m.accommodation.id]) })),
     };
-  }, [hoteles, composicion, entendido?.dateFrom, entendido?.participants, entendido?.teachers, entendido?.ageRangeText, entendido?.averageAgeText, noches]);
+  }, [hoteles, composicion, alumnosPorTarifa, acompanantesPorHotel, entendido?.dateFrom, entendido?.participants, entendido?.teachers, entendido?.ageRangeText, entendido?.averageAgeText, noches]);
 
   // La petición tal y como está ahora mismo, con lo que no cabe en el borrador
   // normalizado: el tope y los requisitos. Es lo que mira el chat para decidir
@@ -905,8 +1047,10 @@ export function RequestCanvas({
   // adivinó.
   const hayLoMinimo = peticionEnCurso ? sePuedeRecomendar(peticionEnCurso) : false;
 
-  const firmaAhora = entendido
-    ? firmaDeLaPeticion({
+  // Los datos de la ventana de validación, en un solo sitio: de ellos salen las
+  // huellas de cada paso, lo que se le da a revisar a la IA y la frase.
+  const datosPeticion: PeticionParaValidar | null = entendido
+    ? {
         ...entendido,
         topePorAlumno: tope,
         requisitos,
@@ -917,9 +1061,30 @@ export function RequestCanvas({
         opportunityName: form.opportunityName ?? "",
         canal,
         departamento,
-      })
-    : "";
-  const peticionValidada = Boolean(firmaValidada) && firmaValidada === firmaAhora;
+      }
+    : null;
+  /**
+   * Se pueden enseñar los alojamientos y las actividades cuando están
+   * confirmados los cuatro pasos que hacen falta para buscarlos. Cada
+   * confirmación guarda la huella de SU paso: cambiar un dato solo caduca ese
+   * paso. «Centro y contacto» no bloquea: se confirma al enviar.
+   */
+  const peticionValidada = datosPeticion ? sePuedeVerLoBuscado(confirmaciones, datosPeticion) : false;
+  const contactoConfirmado = datosPeticion ? estaConfirmada(confirmaciones, "contacto", datosPeticion) : false;
+  const clientesParaValidar = useClientesEspeciales();
+
+  // La IA revisa los pasos EN SEGUNDO PLANO en cuanto hay lo mínimo, sin esperar
+  // a que se abra la ventana: así, cuando se abre, ya está hecho. Un pequeño
+  // retraso evita una revisión por cada cambio mientras se escribe, y solo se
+  // vuelve a pedir el paso cuyos datos (o cuyo texto) han cambiado.
+  const valoresParaIa = datosPeticion ? valoresParaAuditar(datosPeticion, clientesParaValidar) : [];
+  const claveParaIa = JSON.stringify([textosConOrigen(mensajes, respuestasLibres), valoresParaIa]);
+  useEffect(() => {
+    if (!hayLoMinimo || iaActiva.current === false) return;
+    const espera = setTimeout(() => void auditar(valoresParaIa), 1200);
+    return () => clearTimeout(espera);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claveParaIa, hayLoMinimo]);
 
   /**
    * Busca hoteles y actividades para una petición ya entendida.
@@ -934,7 +1099,10 @@ export function RequestCanvas({
   async function buscarHoteles(
     datos: NormalizedRequestDraft,
     canalPedido: ClientSegment = canal,
-    pedido: { requisitos: string[]; tope: number | null } = { requisitos, tope },
+    pedido: { requisitos: string[]; tope: number | null; departamento?: "GROUPS" | "SPORTS" | "" } = {
+      requisitos,
+      tope,
+    },
   ) {
     setOcupado("buscando");
     try {
@@ -955,7 +1123,9 @@ export function RequestCanvas({
         clientSegment: canalPedido,
         // El departamento filtra los alojamientos: el mismo hotel vale
         // distinto para un colegio y para un club (Javier, 08/10/2026).
-        department: departamento || null,
+        // Recién deducido del mensaje, el estado todavía no lo tiene: manda lo
+        // que llega por parámetro.
+        department: (pedido.departamento || departamento) || null,
         // Lo que el centro pidió en prosa y el tope por alumno. Se leían del
         // mensaje y se pintaban en pantalla, pero no llegaban a la búsqueda:
         // los dos celíacos y la alumna con movilidad reducida no influían en
@@ -1264,7 +1434,7 @@ export function RequestCanvas({
   // revisa-, pero nada sale hacia el colegio ni hacia el CRM sin que alguien
   // haya leído y confirmado lo que se entendió.
   const puedeRevisar =
-    hitos[2].estado === "hecho" && !enviada && (elegidos.length > 0 || soloActividades) && peticionValidada;
+    hitos[2].estado === "hecho" && !enviada && (elegidos.length > 0 || soloActividades) && peticionValidada && contactoConfirmado;
 
   // ── Acciones ────────────────────────────────────────────────────────────────
 
@@ -1333,6 +1503,10 @@ export function RequestCanvas({
     // decirla es el tipo de cosa que hace abandonar un chat.
     if (ademas) nuevo = { ...nuevo, ...ademas };
 
+    // Lo elegido con un botón lo ha decidido una persona: no lo pisa ninguna
+    // lectura posterior.
+    fijar([hueco.clave, ...(Object.keys(ademas ?? {}) as CampoFijado[])]);
+
     setEntendido(nuevo);
     setTope(nuevoTope);
     setRequisitos(nuevosReq);
@@ -1344,6 +1518,266 @@ export function RequestCanvas({
       } catch (err) {
         setError(mensajeDeError(err, "No se pudo buscar con esa respuesta."));
       }
+    }
+  }
+
+  /**
+   * Los cambios hechos en el formulario de «Lo que hemos entendido».
+   *
+   * Cada campo que se toca queda fijado: sin esto, la siguiente relectura de lo
+   * que dijo el colegio deshacía la corrección.
+   */
+  function editarEntendido(nuevo: NormalizedRequestDraft) {
+    if (entendido) {
+      const cambiados = (Object.keys(nuevo) as (keyof NormalizedRequestDraft)[]).filter(
+        (k) => nuevo[k] !== entendido[k],
+      );
+      if (cambiados.length > 0) fijar(cambiados);
+    }
+    setEntendido(nuevo);
+  }
+  function editarTope(valor: number | null) {
+    fijar(["topePorAlumno"]);
+    setTope(valor);
+  }
+  function editarRequisitos(valor: string[]) {
+    fijar(["requisitos"]);
+    setRequisitos(valor);
+  }
+
+  /**
+   * El departamento, deducido del mensaje cuando nadie lo ha elegido.
+   *
+   * Decide qué tarifas de hotel se ofrecen, cómo se clasifica el trato en el CRM
+   * y desde qué buzón sale el correo, y para un administrador venía en «Sin
+   * elegir» escondido al final de «Lo que hemos entendido». Un correo de un club
+   * («FC…», «24 pax», «Natural Grass», «MSH») se quedaba sin departamento y la
+   * búsqueda sin filtrar (05/11/2026). Quien tiene departamento propio no se
+   * toca nunca, y lo que alguien elija a mano manda: esto solo rellena el hueco.
+   * Se dice en el chat, con el porqué, para que se pueda corregir.
+   */
+  function deducirDepartamento(texto: string): "GROUPS" | "SPORTS" | "" {
+    if (departamento || departamentoDelUsuario) return departamento || departamentoDelUsuario || "";
+    const sugerido = sugerirDepartamento(texto);
+    if (!sugerido) return "";
+    setDepartamento(sugerido.departamento);
+    const nombre = sugerido.departamento === "SPORTS" ? "Turismo Deportivo" : "Grupos";
+    setConversacion((hilo) => [
+      ...hilo,
+      {
+        pregunta: `He entendido que es de ${nombre} (${sugerido.motivo}). Decide qué tarifas se ofrecen y desde qué buzón sale el correo: si no es así, cámbialo en «Lo que hemos entendido» → Departamento.`,
+        respuesta: "",
+      },
+    ]);
+    return sugerido.departamento;
+  }
+
+  /**
+   * La IA REVISA cada dato de «Lo que hemos entendido» contra lo escrito
+   * (prueba de Anthony, 05/11/2026: el régimen era una frase del chat y nadie
+   * lo avisó). Se revisa POR PASOS y en paralelo: cuatro llamadas pequeñas
+   * tardan unos 5 s en total, frente a 9 s de una sola, y cada paso llega por
+   * separado. Solo se vuelve a pedir un paso si cambió el texto o SUS datos.
+   * Propone, no cambia nada.
+   */
+  async function auditar(valores: ValorAuditado[]) {
+    if (iaActiva.current === false) return;
+    const textos = textosConOrigen(mensajes, respuestasLibres);
+    if (textos.length === 0) return;
+    await Promise.all(
+      SECCIONES.map(async (seccion) => {
+        const vs = valoresDeSeccion(seccion.id, valores);
+        if (vs.length === 0) return;
+        const clave = JSON.stringify([textos, vs]);
+        if (clave === ultimaAuditoria.current[seccion.id]) return;
+        ultimaAuditoria.current[seccion.id] = clave;
+        const poner = (estado: EstadoDeLaAuditoria) => setAuditoria((a) => ({ ...a, [seccion.id]: estado }));
+        poner({ fase: "cargando", resultado: null, valores: vs, motivo: null });
+        try {
+          const r = await auditarSolicitudConIaApi({ textos, valores: vs });
+          if (ultimaAuditoria.current[seccion.id] !== clave) return; // llegó tarde: ya se pidió otra
+          if (!r.activa) {
+            iaActiva.current = false;
+            poner({ fase: "apagada", resultado: null, valores: vs, motivo: null });
+          } else if (!r.auditoria) {
+            poner({ fase: "error", resultado: null, valores: vs, motivo: r.motivo });
+          } else {
+            iaActiva.current = true;
+            poner({ fase: "lista", resultado: r.auditoria, valores: vs, motivo: null });
+          }
+        } catch (err) {
+          if (ultimaAuditoria.current[seccion.id] !== clave) return;
+          poner({ fase: "error", resultado: null, valores: vs, motivo: err instanceof Error ? err.message : "sin respuesta" });
+        }
+      }),
+    );
+  }
+
+  /** Confirmar un paso: se guarda la huella de SUS datos de ahora. */
+  function confirmarPaso(id: SeccionId) {
+    if (!datosPeticion) return;
+    const firma = firmaDeSeccion(id, datosPeticion);
+    setConfirmaciones((c) => ({ ...c, [id]: firma }));
+  }
+  function desconfirmarPaso(id: SeccionId) {
+    setConfirmaciones((c) => {
+      const resto = { ...c };
+      delete resto[id];
+      return resto;
+    });
+  }
+  function dejarAviso(llave: string) {
+    setDejados((d) => (d.includes(llave) ? d : [...d, llave]));
+  }
+
+  /**
+   * Aplica lo que propone la IA en una fila, con un clic de quien cotiza.
+   * `valor === null` quita el dato. Todo queda fijado, como una corrección a mano.
+   */
+  function aplicarAuditoria(clave: ClaveAuditada, valor: string | null) {
+    if (!entendido) return;
+    const v = valor ?? "";
+    const numero = (t: string) => (/^\d+$/.test(t) ? Number(t) : null);
+    switch (clave) {
+      case "destino":
+        editarEntendido({ ...entendido, destinationText: v });
+        break;
+      case "fechas": {
+        const m = v.match(/^(\d{4}-\d{2}-\d{2})\s*→\s*(\d{4}-\d{2}-\d{2})$/);
+        if (m) editarEntendido({ ...entendido, dateFrom: m[1], dateTo: m[2] });
+        break;
+      }
+      case "alumnos":
+        editarEntendido({ ...entendido, participants: numero(v) });
+        break;
+      case "profesores":
+        editarEntendido({ ...entendido, teachers: valor === null ? null : numero(v) });
+        break;
+      case "edades":
+        editarEntendido({ ...entendido, ageRangeText: v, averageAgeText: /^\d{1,2}$/.test(v) ? `${v} años` : "" });
+        break;
+      case "regimen":
+        editarEntendido({ ...entendido, regimeRequested: v });
+        break;
+      case "categoria":
+        editarEntendido({ ...entendido, categoryRequested: v });
+        break;
+      case "presupuesto":
+        editarTope(valor === null ? null : Number(v) || null);
+        break;
+      case "requisitos":
+        editarRequisitos(valor === null ? [] : v.split(" · ").map((r) => r.trim()).filter(Boolean));
+        break;
+      case "centro":
+        setForm((actual) => ({
+          ...actual,
+          centreName: v,
+          opportunityName: siguientesNombre(actual.opportunityName, actual.centreName, v, (entendido.dateFrom ?? "").slice(0, 4) || null),
+        }));
+        break;
+      case "contacto": {
+        const [nombre, ...resto] = v.split(/\s+/).filter(Boolean);
+        setForm((actual) => ({ ...actual, firstName: nombre ?? "", lastName: resto.join(" ") }));
+        break;
+      }
+      case "cotizamosPara":
+        setCanal(v || "GENERIC");
+        fijar(["canal"]);
+        break;
+      case "departamento":
+        setDepartamento(v === "GROUPS" || v === "SPORTS" ? v : "");
+        fijar(["departamento"]);
+        break;
+      default:
+        break; // el correo no se corrige desde aquí: solo se comprueba
+    }
+  }
+
+  /**
+   * La IA lee lo mismo que las reglas y SE SUMA a lo que ellas entendieron
+   * (reunión con Oravia, 05/11/2026). Va en segundo plano: la pantalla ya ha
+   * respondido con las reglas cuando esto termina, y si la IA está apagada, no
+   * contesta o falla, no pasa nada. Solo rellena huecos —nunca pisa lo leído por
+   * las reglas ni lo fijado a mano— y cuenta en el chat qué ha añadido, de qué
+   * frase lo sacó y en qué no está de acuerdo. Ver `domain/lecturaIa.ts`.
+   *
+   * Lee el estado de `estadoParaIa` y no el de esta función: cuando la IA
+   * contesta, el cierre de React que la lanzó lleva varios segundos de retraso.
+   */
+  async function leerConIa(textos: TextoConOrigen[], reglas: unknown) {
+    if (textos.length === 0) return;
+    const clave = JSON.stringify(textos);
+    if (clave === ultimaLecturaIa.current) return;
+    ultimaLecturaIa.current = clave;
+    try {
+      const r = await leerSolicitudConIaApi({ textos, reglas });
+      if (!r.activa) return;
+      if (!r.lectura) {
+        setConversacion((hilo) => [...hilo, { pregunta: `No he podido leer el mensaje con IA (${r.motivo ?? "sin motivo"}). Sigo con lo que entienden las reglas.`, respuesta: "" }]);
+        return;
+      }
+      const e = estadoParaIa.current;
+      const suma = sumarLecturaIa(
+        {
+          entendido: e.entendido ?? readTripMessage("").normalized,
+          tope: e.tope,
+          requisitos: e.requisitos,
+          contacto: {
+            firstName: e.form.firstName,
+            lastName: e.form.lastName,
+            email: e.form.email,
+            centreName: e.form.centreName ?? "",
+          },
+          departamento: e.departamento || departamentoDelUsuario || "",
+          canal: e.canal,
+          clientes: r.clientes,
+          fijados: e.fijados,
+        },
+        r.lectura,
+      );
+
+      if (suma.entendido) setEntendido(suma.entendido);
+      if (suma.tope !== e.tope) setTope(suma.tope);
+      if (suma.requisitos !== e.requisitos) setRequisitos(suma.requisitos);
+      if (Object.keys(suma.contacto).length > 0) {
+        // Solo huecos, también ahora: puede que alguien haya escrito algo mientras la IA leía.
+        setForm((actual) => ({
+          ...actual,
+          email: actual.email.trim() || suma.contacto.email || "",
+          firstName: actual.firstName.trim() || suma.contacto.firstName || "",
+          lastName: actual.lastName.trim() || suma.contacto.lastName || "",
+          centreName: (actual.centreName ?? "").trim() || suma.contacto.centreName || "",
+        }));
+      }
+      if (suma.departamento) setDepartamento((actual) => actual || suma.departamento);
+      // «Cotizamos para»: solo se cambia desde «general» y sin que nadie lo haya tocado.
+      if (suma.canal) setCanal((actual) => (actual === "GENERIC" ? suma.canal : actual));
+
+      const dicho = frasesDeLaIa(suma);
+      setConversacion((hilo) => [
+        ...hilo,
+        {
+          pregunta: dicho || "La IA ha leído el mensaje y coincide con lo que ya habían entendido las reglas: no añade nada.",
+          respuesta: "",
+        },
+      ]);
+
+      const entendidoFinal = suma.entendido ?? e.entendido;
+      const departamentoFinal = e.departamento || departamentoDelUsuario || suma.departamento || "";
+      if (
+        suma.cambiaLaBusqueda &&
+        entendidoFinal &&
+        sePuedeRecomendar({ ...entendidoFinal, topePorAlumno: suma.tope, requisitos: suma.requisitos })
+      ) {
+        await buscarHoteles(entendidoFinal, suma.canal || e.canal, {
+          requisitos: suma.requisitos,
+          tope: suma.tope,
+          departamento: departamentoFinal,
+        });
+      }
+    } catch (err) {
+      // La IA es un complemento: si falla, la pantalla sigue con las reglas.
+      console.error("Lectura con IA", err);
     }
   }
 
@@ -1363,11 +1797,13 @@ export function RequestCanvas({
   async function contestarEscribiendo(hueco: Hueco, texto: string) {
     const hoy = new Date();
 
-    // Los lectores de siempre, aplicados a la respuesta: es un mensaje más.
-    const leido = readTripMessage(texto).normalized;
-    const extrasLeidos = extractRequestExtras(texto);
-    const rango = leerRango(texto, hoy);
-    const unaFecha = leerUnaFecha(texto, hoy);
+    // Los lectores de siempre, aplicados a la respuesta: es un mensaje más. Sin
+    // los correos: las cifras de «pablo2@colegio.es» no son profesores.
+    const sinCorreos = texto.replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, " ");
+    const leido = readTripMessage(sinCorreos).normalized;
+    const extrasLeidos = extractRequestExtras(sinCorreos);
+    const rango = leerRango(sinCorreos, hoy);
+    const unaFecha = leerUnaFecha(sinCorreos, hoy);
 
     const lectura = {
       destinationText: leido.destinationText,
@@ -1382,56 +1818,104 @@ export function RequestCanvas({
       requisitos: extrasLeidos.specialRequirements,
     };
 
-    const r = interpretarRespuesta(hueco, texto, lectura);
+    const r = interpretarRespuesta(hueco, sinCorreos, lectura);
+
+    // El contacto y el correo también pueden venir en este mensaje y no en el
+    // primero (Oravia, 05/11/2026). Solo rellena huecos; si trae un correo, el
+    // efecto de arriba consulta en el CRM quién es. Si la respuesta no ha servido
+    // para nada más, un nombre suelto es el contacto.
+    const sinNada = !r.contesta && Object.keys(r.aplicar).length === 0;
+    const contacto = completarDatosDeContacto(form, texto, { nombreSuelto: sinNada });
+    const apuntaContacto = contacto !== form;
+    if (apuntaContacto) setForm((actual) => completarDatosDeContacto(actual, texto, { nombreSuelto: sinNada }));
+
+    // Si solo era el contacto, no se insiste con «eso no me dice cuántos
+    // profesores van»: se dice que se ha apuntado y se vuelve a la pregunta.
+    const dice =
+      apuntaContacto && sinNada
+        ? `Apunto como contacto ${[contacto.firstName, contacto.lastName].filter(Boolean).join(" ")}${
+            contacto.email ? ` (${contacto.email})` : ""
+          }. Sigo necesitando esto: ${hueco.pregunta}`
+        : r.dice;
 
     // Lo dicho por la persona, y lo que la app contesta, van al hilo antes de
     // nada: si la búsqueda tarda, la conversación no se queda congelada.
     setConversacion((hilo) => [
       ...hilo,
       { pregunta: hueco.pregunta, respuesta: texto },
-      ...(r.dice ? [{ pregunta: r.dice, respuesta: "" }] : []),
+      ...(dice ? [{ pregunta: dice, respuesta: "" }] : []),
     ]);
 
-    if (Object.keys(r.aplicar).length === 0) {
-      if (!r.contesta) return;
-    }
+    // Lo escrito es un mensaje más: se suma al texto y «lo entendido» se calcula
+    // de nuevo con TODO lo dicho (Oravia, 05/11/2026). Antes se copiaban a mano
+    // nueve campos de esta respuesta y el resto —actividades, tipo de grupo,
+    // texto libre— se quedaba en el chat sin asignarse a nada.
+    const respuestas = [...respuestasLibres, { texto, trasMensajes: mensajes.length }];
+    setRespuestasLibres(respuestas);
 
-    const nuevo: NormalizedRequestDraft = {
-      ...(entendido as NormalizedRequestDraft),
-      ...(r.aplicar.destinationText ? { destinationText: r.aplicar.destinationText } : {}),
-      ...(r.aplicar.dateFrom ? { dateFrom: r.aplicar.dateFrom } : {}),
-      ...(r.aplicar.dateTo ? { dateTo: r.aplicar.dateTo } : {}),
-      ...(r.aplicar.participants ? { participants: r.aplicar.participants } : {}),
-      ...(r.aplicar.teachers !== undefined && r.aplicar.teachers !== null
-        ? { teachers: r.aplicar.teachers }
-        : {}),
-      ...(r.aplicar.ageRangeText
-        ? {
-            ageRangeText: r.aplicar.ageRangeText,
-            // El buscador saca el número de `averageAgeText` cuando no hay
-            // guion; solo con `ageRangeText` la edad se vería y no filtraría.
-            averageAgeText: /^\d{1,2}$/.test(r.aplicar.ageRangeText.trim())
-              ? `${r.aplicar.ageRangeText.trim()} años`
-              : (entendido as NormalizedRequestDraft).averageAgeText,
-          }
-        : {}),
-      ...(r.aplicar.regimeRequested ? { regimeRequested: r.aplicar.regimeRequested } : {}),
-      ...(r.aplicar.categoryRequested ? { categoryRequested: r.aplicar.categoryRequested } : {}),
+    const comun = {
+      mensajes,
+      respuestas,
+      previo: entendido,
+      topePrevio: tope,
+      requisitosPrevios: requisitos,
+      fijados,
     };
+    const base = leerLaSolicitud(comun);
+    // La IA lee en paralelo, sin esperar: ver `leerConIa`.
+    void leerConIa(textosConOrigen(mensajes, respuestas), {
+      entendido: base.entendido,
+      tope: base.tope,
+      requisitos: base.requisitos,
+      contacto: { email: contacto.email, firstName: contacto.firstName, lastName: contacto.lastName },
+    });
 
-    const nuevoTope = r.aplicar.topePorAlumno ?? tope;
-    const nuevosReq = r.aplicar.requisitos?.length
-      ? [...new Set([...requisitos, ...r.aplicar.requisitos])]
-      : requisitos;
+    // Lo que la persona ha dado y la lectura del texto no ve por sí sola: un
+    // número suelto («48»), un pueblo que no está en la lista. Se aplica y queda
+    // fijado, como una corrección.
+    const explicitos: Partial<Record<CampoFijado, unknown>> = {};
+    const leidoYa = base.entendido as unknown as Record<string, unknown>;
+    for (const [clave, valor] of Object.entries(r.aplicar)) {
+      if (clave === "topePorAlumno") {
+        if (base.tope !== valor) explicitos.topePorAlumno = valor;
+      } else if (clave === "requisitos") {
+        const dados = (valor as string[]) ?? [];
+        if (dados.some((d) => !base.requisitos.includes(d))) {
+          explicitos.requisitos = [...new Set([...base.requisitos, ...dados])];
+        }
+      } else if (JSON.stringify(leidoYa[clave]) !== JSON.stringify(valor)) {
+        explicitos[clave as CampoFijado] = valor;
+      }
+    }
+    const fundido = Object.keys(explicitos).length > 0 ? leerLaSolicitud({ ...comun, explicitos }) : base;
 
+    const nuevo = fundido.entendido;
+    const nuevoTope = fundido.tope;
+    const nuevosReq = fundido.requisitos;
+
+    const cambio =
+      JSON.stringify([nuevo, nuevoTope, nuevosReq]) !== JSON.stringify([entendido, tope, requisitos]);
+    if (!cambio && Object.keys(r.aplicar).length === 0 && !r.contesta) return;
+
+    fijar(fundido.fijados);
     setEntendido(nuevo);
     setTope(nuevoTope);
     setRequisitos(nuevosReq);
-    setAviso("");
+    // Lo fijado manda, pero si el colegio dice otra cosa se dice, no se ignora.
+    setAviso(
+      fundido.discrepancias.length > 0
+        ? `Ojo, ${frasesDeDiscrepancia(fundido.discrepancias)}. Se mantiene lo que tienes; cámbialo en «Lo que hemos entendido» si vale el texto.`
+        : "",
+    );
 
+    const departamentoDeducido = deducirDepartamento(fundido.texto);
     if (sePuedeRecomendar({ ...nuevo, topePorAlumno: nuevoTope, requisitos: nuevosReq })) {
       try {
-        await buscarHoteles(nuevo, canal, { requisitos: nuevosReq, tope: nuevoTope });
+        await buscarHoteles(nuevo, canal, {
+          requisitos: nuevosReq,
+          tope: nuevoTope,
+          departamento: departamentoDeducido,
+        });
       } catch (err) {
         setError(mensajeDeError(err, "No se pudo buscar con esa respuesta."));
       }
@@ -1523,20 +2007,44 @@ export function RequestCanvas({
       // manejador que lo acaba de cambiar.
 
       // Leer NO exige datos de contacto: el correo hace falta para enviar.
-      const resultado = readTripMessage(texto);
-      setParseResult(resultado);
-      // Lo leído ahora manda, pero lo que este mensaje NO diga no borra lo que
-      // ya se había contestado en el chat. Sin esto, un segundo correo del
-      // colegio -que no repite el destino- borraba el «Salou» recién dicho y la
-      // app lo volvía a preguntar.
-      const leido = conservarLoContestado(resultado.normalized, entendido);
+      //
+      // «Lo entendido» sale de TODO lo dicho: los mensajes del colegio y lo que
+      // se ha escrito en el chat, en orden (`leerLaSolicitud`). Lo que este
+      // mensaje NO diga no borra lo ya entendido —un segundo correo que no
+      // repite el destino no hace perder el «Salou»— y lo que una persona fijó a
+      // mano no lo pisa ninguna lectura; si el colegio lo contradice, se avisa.
+      const lectura = leerLaSolicitud({
+        mensajes: [...mensajes, borrador].map((m) => m.trim()).filter(Boolean),
+        respuestas: respuestasLibres,
+        previo: entendido,
+        topePrevio: tope,
+        requisitosPrevios: requisitos,
+        fijados,
+      });
+      setParseResult(lectura.resultado);
+      const leido = lectura.entendido;
       setEntendido(leido);
 
-      const extras = extractRequestExtras(texto);
-      const topeLeido = extras.budgetPerStudent ?? tope;
-      const reqLeidos = extras.specialRequirements.length ? extras.specialRequirements : requisitos;
+      const topeLeido = lectura.tope;
+      const reqLeidos = lectura.requisitos;
       setTope(topeLeido);
       setRequisitos(reqLeidos);
+      if (lectura.discrepancias.length > 0) {
+        setAviso(
+          `Ojo, ${frasesDeDiscrepancia(lectura.discrepancias)}. Se mantiene lo que tienes; cámbialo en «Lo que hemos entendido» si vale el texto.`,
+        );
+      }
+
+      // La IA lee en paralelo, sin esperar: ver `leerConIa`.
+      void leerConIa(
+        textosConOrigen([...mensajes, borrador].map((m) => m.trim()).filter(Boolean), respuestasLibres),
+        {
+          entendido: leido,
+          tope: topeLeido,
+          requisitos: reqLeidos,
+          contacto: { email: entrada.email, firstName: entrada.firstName, lastName: entrada.lastName },
+        },
+      );
 
       if (borrador.trim()) {
         setMensajes((actuales) => [...actuales, borrador.trim()]);
@@ -1546,14 +2054,56 @@ export function RequestCanvas({
       // Sin destino, fechas y alumnos no hay nada que buscar: el chat lo
       // pregunta y se busca en cuanto esté. Lanzar la búsqueda igualmente
       // devolvía cero hoteles y un aviso, que es la pantalla vacía de siempre.
+      const departamentoDeducido = deducirDepartamento(lectura.texto);
       if (sePuedeRecomendar({ ...leido, topePorAlumno: topeLeido, requisitos: reqLeidos })) {
-        await buscarHoteles(leido, canal, { requisitos: reqLeidos, tope: topeLeido });
+        await buscarHoteles(leido, canal, {
+          requisitos: reqLeidos,
+          tope: topeLeido,
+          departamento: departamentoDeducido,
+        });
       }
     } catch (err) {
       setError(mensajeDeError(err, "No se pudo leer el mensaje."));
     } finally {
       setOcupado("");
     }
+  }
+
+  /**
+   * Cuántos alumnos van en una tarifa de un hotel (tabla «Lo que tiene este hotel
+   * para estas fechas»). 0 la quita; la elegida por la búsqueda lleva los demás.
+   */
+  function asignarAlumnos(hotelId: string, tarifaId: string, cantidad: number) {
+    setAlumnosPorTarifa((actual) => {
+      const delHotel = { ...(actual[hotelId] ?? {}) };
+      const n = Math.max(0, Math.floor(cantidad || 0));
+      if (n > 0) delHotel[tarifaId] = n;
+      else delete delHotel[tarifaId];
+      const siguiente = { ...actual };
+      if (Object.keys(delHotel).length) siguiente[hotelId] = delHotel;
+      else delete siguiente[hotelId];
+      return siguiente;
+    });
+  }
+
+  /**
+   * Profesores y chófer en cada tarifa del hotel, y las plazas de gratuidad (06/11/2026).
+   * Se guarda solo lo que no es cero; sin nada, el hotel se cotiza como siempre.
+   */
+  function cambiarAcompanantes(hotelId: string, siguiente: AcompanantesDelHotel) {
+    const limpio: AcompanantesDelHotel = {};
+    for (const quien of ["profesores", "chofer"] as const) {
+      const lleno = Object.fromEntries(Object.entries(siguiente[quien] ?? {}).filter(([, n]) => n > 0));
+      if (Object.keys(lleno).length) limpio[quien] = lleno;
+    }
+    if ((siguiente.gratisProfesores ?? 0) > 0) limpio.gratisProfesores = Math.floor(siguiente.gratisProfesores ?? 0);
+    if ((siguiente.gratisChofer ?? 0) > 0) limpio.gratisChofer = Math.floor(siguiente.gratisChofer ?? 0);
+    setAcompanantesPorHotel((actual) => {
+      const todos = { ...actual };
+      if (Object.keys(limpio).length) todos[hotelId] = limpio;
+      else delete todos[hotelId];
+      return todos;
+    });
   }
 
   function alternarHotel(id: string) {
@@ -1632,10 +2182,12 @@ export function RequestCanvas({
   const pedidas = useMemo(
     () =>
       actividadesPedidas(
-        [...mensajes, entendido?.requirementsText ?? ""].join("\n"),
+        // Lo escrito en el chat también cuenta: «queremos multiaventura» dicho
+        // en una respuesta no llegaba al programa (Oravia, 05/11/2026).
+        [...mensajes, ...respuestasLibres.map((r) => r.texto), entendido?.requirementsText ?? ""].join("\n"),
         Number((entendido?.dateFrom ?? "").slice(0, 4)) || null,
       ),
-    [mensajes, entendido?.requirementsText, entendido?.dateFrom],
+    [mensajes, respuestasLibres, entendido?.requirementsText, entendido?.dateFrom],
   );
 
   // Lo pedido que tiene UNA actividad clara en el catálogo se añade solo, con
@@ -1714,19 +2266,36 @@ export function RequestCanvas({
    * Solo se marca aparte para que el botón de enviar no diga «Enviando…»
    * mientras esto ocurre.
    */
-  async function rehacerDocumento() {
+  async function generarDocumento() {
+    if (enviada) return;
+    // La pestaña se abre YA, en el clic: generar tarda, y el navegador bloquea las ventanas
+    // que se abren después de esperar. Cuando el documento está, se carga en ella.
+    const ventana = window.open("", "_blank");
     setRehaciendo(true);
     setAviso("");
     try {
-      await prepararParaRevisar();
-      setAviso("Documento rehecho con lo que hay ahora. Vuelve a abrirlo para verlo.");
+      const lista = await prepararParaRevisar();
+      if (!lista) {
+        ventana?.close();
+        return;
+      }
+      await abrirProposalPdf(lista.id, ventana);
+      setAviso("Documento generado con lo que hay ahora. Puedes volver a generarlo hasta que lo envíes.");
+    } catch (err) {
+      ventana?.close();
+      setError(mensajeDeError(err, "No se pudo abrir el documento."));
     } finally {
       setRehaciendo(false);
     }
   }
 
-  async function prepararParaRevisar() {
-    if (!parseResult || !entendido) return;
+  async function prepararParaRevisar(): Promise<Awaited<ReturnType<typeof prepareProposalDeliveryApi>> | null> {
+    if (!parseResult || !entendido) {
+      // Nunca en silencio: el panel de revisión se quedaría abierto y vacío.
+      setError("Falta la lectura de la petición para preparar el documento. Vuelve a la solicitud y pulsa «Revisar y enviar» de nuevo.");
+      setRevisando(false);
+      return null;
+    }
     setError("");
     const validacion = validateTripRequest({
       clientType: form.clientType,
@@ -1739,7 +2308,7 @@ export function RequestCanvas({
     if (errores.length) {
       setError(errores.map((i) => i.message).join(" "));
       setRevisando(false);
-      return;
+      return null;
     }
 
     setOcupado("enviando");
@@ -1798,6 +2367,9 @@ export function RequestCanvas({
           ),
           selectedActivityIds: programaBase,
           composicion,
+          notas,
+          alumnosPorTarifa,
+          acompanantesPorHotel,
           canal,
           tope,
           requisitos,
@@ -1833,9 +2405,11 @@ export function RequestCanvas({
       });
       setEntrega(preparada);
       setAviso("");
+      return preparada;
     } catch (err) {
       setError(mensajeDeError(err, "No se pudo preparar la propuesta."));
       setRevisando(false);
+      return null;
     } finally {
       setOcupado("");
     }
@@ -1903,10 +2477,59 @@ export function RequestCanvas({
     if (!form.email.trim() || !form.firstName.trim() || !form.lastName.trim()) {
       return "Rellena el correo y el nombre de contacto del centro para poder enviar.";
     }
+    if (!contactoConfirmado) return "Confirma «Centro y contacto» en «Lo que hemos entendido» antes de enviar.";
     return "Todo listo: pulsa Revisar y enviar para ver antes lo que saldrá.";
   }
 
   // ── Pintado ─────────────────────────────────────────────────────────────────
+
+  // ── Avisos antes de enviar (reunión con Oravia, 05/11/2026) ──────────────────
+  // Lo elegido a medias: una actividad con varias tarifas que se quedó con la
+  // primera, sin el día de PortAventura, fuera de temporada, sin precio… La
+  // lógica vive en `domain/avisosAntesDeEnviar.ts`; aquí solo se resume lo elegido.
+  const periodosDelViajeDistintos = new Set(
+    periodosPorDia(entendido?.dateFrom, entendido?.dateTo)
+      .map((d) => d.periodo)
+      .filter(Boolean),
+  ).size;
+  const actividadesParaRevisar: ActividadParaRevisar[] = (soloActividades
+    ? programaBase
+    : [...new Set(elegidos.flatMap((_, indice) => actividadesDe(indice + 1)))]
+  ).flatMap((id) => {
+    const item = actividadesElegibles.find((m) => m.activity.id === id);
+    if (!item) return [];
+    const puesta = matchActividad(id);
+    const todasLasTarifas = [item.rate, ...(item.alternativas ?? [])];
+    const entradas = lineas[id] ?? [];
+    const hayEsbozo = !item.precioAFijar && esbozosRef.current[id] !== undefined;
+    return [
+      {
+        id,
+        nombre: item.activity.activityName,
+        enOpciones: soloActividades ? [] : elegidos.flatMap((_, i) => (actividadesDe(i + 1).includes(id) ? [i + 1] : [])),
+        sinPrecio: !puesta?.rate.salePvpAmount,
+        tarifas: todasLasTarifas.length,
+        tarifaQueSale:
+          entradas.some((l) => l.cantidad > 0)
+            ? resumenDeLineas(puesta?.lineas ?? entradas)
+            : `${item.rate.ageLabel ? `Tarifa: ${item.rate.ageLabel}` : "Tarifa única"} · ${textoDeLaUnidad(item.rate)}`,
+        // Lo que hay son las entradas que propuso el sistema: nadie las tocó.
+        sinTocar: hayEsbozo && esbozosRef.current[id] === JSON.stringify(entradas),
+        necesitaDia: /per[ií]odo/i.test(todasLasTarifas.map((r) => r.ageLabel).join(" ")) && periodosDelViajeDistintos > 1,
+        tieneDia: Boolean(fechasDeVisita[id]),
+        fueraDeTemporada: Boolean(item.fueraDeTemporada),
+        sinEntradas: entradas.length > 0 && !entradas.some((l) => l.cantidad > 0),
+      },
+    ];
+  });
+  const avisosDeEnvio = avisosAntesDeEnviar({
+    alumnos: entendido?.participants ?? 0,
+    opciones: soloActividades ? 0 : elegidos.length,
+    soloActividades,
+    actividades: actividadesParaRevisar,
+  });
+  const huellaDeAvisos = avisosDeEnvio.map((a) => a.id).join("|");
+  const envioPosible = sePuedeEnviar(avisosDeEnvio, avisosRevisados === huellaDeAvisos && huellaDeAvisos !== "");
 
   const titulo = form.opportunityName?.trim() || entendido?.destinationText || "Nueva solicitud";
 
@@ -2224,6 +2847,22 @@ export function RequestCanvas({
             </button>
           </div>
 
+          {/* Las notas que lee el cliente: horarios de entrenamiento, condiciones
+              de pago, lo que se ha hablado (reunión con Oravia, 05/11/2026). Van
+              en el PDF y en la página del enlace, así que se escribe como se le
+              diría a él. Es opcional. */}
+          <label className="cv__field cv__field--ancho cv__notas">
+            <span>Notas para el cliente (opcional)</span>
+            <textarea
+              rows={2}
+              maxLength={MAX_NOTAS}
+              value={notas}
+              onChange={(e) => setNotas(e.target.value)}
+              placeholder="Horarios de entrenamiento, condiciones de pago, lo que se ha hablado con el cliente…"
+            />
+            <small>Salen tal cual en el PDF y en la página del enlace.</small>
+          </label>
+
           {hoteles ? (
             <>
               {/* Dos pestañas, alojamientos y actividades. Antes iba todo en una
@@ -2475,6 +3114,10 @@ export function RequestCanvas({
               destinoPedido={entendido?.destinationText ?? ""}
               detalle={detalle}
               onDetalle={(id) => setDetalle((actual) => (actual === id ? null : id))}
+              alumnosPorTarifa={alumnosPorTarifa}
+              onAsignarAlumnos={asignarAlumnos}
+              acompanantesPorHotel={acompanantesPorHotel}
+              onAcompanantes={cambiarAcompanantes}
             />
           ) : (
             <MatrizPrograma
@@ -2792,40 +3435,39 @@ export function RequestCanvas({
       {revisandoPeticion && entendido ? (
         <PanelEntendido
           entendido={entendido}
-          setEntendido={setEntendido}
+          setEntendido={editarEntendido}
           form={form}
           setForm={setForm}
           tope={tope}
-          setTope={setTope}
+          setTope={editarTope}
           requisitos={requisitos}
-          setRequisitos={setRequisitos}
+          setRequisitos={editarRequisitos}
           canal={canal}
-          setCanal={setCanal}
+          setCanal={(valor) => {
+            setCanal(valor);
+            // Lo elegido a mano manda: la IA lo contrasta pero no lo cambia.
+            fijar(["canal"]);
+          }}
           departamento={departamento}
-          setDepartamento={setDepartamento}
+          setDepartamento={(valor) => {
+            setDepartamento(valor);
+            fijar(["departamento"]);
+          }}
           contactoCrm={contactoCrm}
           previas={previas}
-          validado={peticionValidada}
-          onValidar={() => {
-            // La huella se guarda con los datos de ESTE momento, no un
-            // «validado: true». Si mañana cambian las fechas, deja de coincidir
-            // y el visto bueno se cae solo.
-            setFirmaValidada(
-              firmaDeLaPeticion({
-                ...entendido,
-                topePorAlumno: tope,
-                requisitos,
-                centreName: form.centreName ?? "",
-                email: form.email,
-                firstName: form.firstName,
-                lastName: form.lastName,
-                opportunityName: form.opportunityName ?? "",
-                canal,
-                departamento,
-              }),
-            );
+          textos={textosConOrigen(mensajes, respuestasLibres)}
+          auditoria={auditoria}
+          onAuditar={auditar}
+          onAplicar={aplicarAuditoria}
+          dejados={dejados}
+          onDejar={dejarAviso}
+          confirmaciones={confirmaciones}
+          onConfirmar={confirmarPaso}
+          onDesconfirmar={desconfirmarPaso}
+          onVer={() => {
+            // Con los pasos confirmados se enseñan las opciones. La búsqueda se
+            // repite con lo corregido en la ventana.
             setRevisandoPeticion(false);
-            // Lo corregido cambia la búsqueda: se vuelve a buscar al confirmar.
             void buscarHoteles(entendido, canal, { requisitos, tope });
           }}
           onCerrar={() => setRevisandoPeticion(false)}
@@ -2854,6 +3496,35 @@ export function RequestCanvas({
                 </p>
               ) : (
                 <>
+                  {/* Lo que se dejó sin elegir. Lo que bloquea impide enviar; lo
+                      demás hay que haberlo visto: se marca una sola vez. */}
+                  {avisosDeEnvio.length > 0 ? (
+                    <section className="rv__block rv__avisos" aria-label="Avisos antes de enviar">
+                      <h3 className="rv__bt">
+                        {avisosDeEnvio.some((a) => a.gravedad === "bloquea")
+                          ? "Falta algo para poder enviar"
+                          : `Revisa antes de enviar · ${avisosDeEnvio.length} ${avisosDeEnvio.length === 1 ? "aviso" : "avisos"}`}
+                      </h3>
+                      <ul className="rv__avlista">
+                        {avisosDeEnvio.map((a) => (
+                          <li key={a.id} className={a.gravedad === "bloquea" ? "is-bloquea" : ""}>
+                            {a.texto}
+                          </li>
+                        ))}
+                      </ul>
+                      {avisosDeEnvio.every((a) => a.gravedad === "aviso") ? (
+                        <label className="rv__avmarca">
+                          <input
+                            type="checkbox"
+                            checked={avisosRevisados === huellaDeAvisos}
+                            onChange={(e) => setAvisosRevisados(e.target.checked ? huellaDeAvisos : "")}
+                          />
+                          He revisado {avisosDeEnvio.length === 1 ? "el aviso" : "los avisos"} y quiero enviar así
+                        </label>
+                      ) : null}
+                    </section>
+                  ) : null}
+
                   <section className="rv__block">
                     <h3 className="rv__bt">Sobre qué se ha hecho</h3>
                     <dl className="rv__datos">
@@ -2928,6 +3599,15 @@ export function RequestCanvas({
                       <span>{form.email}</span>
                     </p>
                     {entrega ? <p className="rv__sub">Asunto: {entrega.subject}</p> : null}
+                  </section>
+
+                  <section className="rv__block">
+                    <h3 className="rv__bt">Notas para el cliente</h3>
+                    {notas.trim() ? (
+                      <p className="rv__line rv__notas">{notas.trim()}</p>
+                    ) : (
+                      <p className="rv__sub">Sin notas.</p>
+                    )}
                   </section>
 
                   <section className="rv__block">
@@ -3030,32 +3710,18 @@ export function RequestCanvas({
 
             <footer className="rv__foot">
               <div className="rv__docrow">
+                {/* Un solo botón para el documento (pedido de Anthony, 06/11/2026): genera
+                    siempre de nuevo con lo que hay AHORA (notas, precios, hoteles…) y lo abre.
+                    Hasta que se envíe se puede repetir las veces que haga falta. Conserva la
+                    referencia y el enlace: por dentro reaprovecha la entrega en borrador. */}
                 <button
                   type="button"
                   className="cv__ghost"
-                  onClick={verDocumento}
-                  disabled={!entrega?.pdfPath}
-                >
-                  Ver el documento
-                </button>
-                {/* Rehacerlo sin salir de aquí.
-                    El mecanismo ya existía —«Revisar y enviar» vuelve a
-                    prepararlo todo— pero ese botón está en la barra de arriba,
-                    que esta pantalla tapa. Así que para regenerar el documento
-                    había que salir, volver a entrar y no era evidente que eso
-                    lo rehiciera. Mientras no se haya enviado, rehacer es una
-                    operación normal, no una salida de emergencia.
-
-                    Conserva la referencia y el enlace: por dentro reaprovecha
-                    la entrega en borrador en vez de crear otra. */}
-                <button
-                  type="button"
-                  className="cv__ghost"
-                  onClick={() => void rehacerDocumento()}
+                  onClick={() => void generarDocumento()}
                   disabled={ocupado !== "" || enviada}
-                  title="Vuelve a generar el PDF con lo que hay ahora, sin cambiar la referencia"
+                  title="Vuelve a generar el documento con todo lo que hay ahora (notas, precios…) y lo abre. Puedes repetirlo hasta que lo envíes; la referencia no cambia."
                 >
-                  {rehaciendo ? "Rehaciendo…" : "Rehacer el documento"}
+                  {rehaciendo ? "Generando…" : "Generar el documento"}
                 </button>
               </div>
               <div className="rv__footr">
@@ -3066,7 +3732,8 @@ export function RequestCanvas({
                   type="button"
                   className={entrega ? "cv__send" : "cv__send cv__send--off"}
                   onClick={enviarAhora}
-                  disabled={!entrega || ocupado !== "" || enviada}
+                  disabled={!entrega || ocupado !== "" || enviada || !envioPosible.si}
+                  title={entrega && !envioPosible.si ? (envioPosible.motivo ?? undefined) : undefined}
                 >
                   {ocupado === "enviando" && !rehaciendo ? "Enviando…" : "Enviar al colegio"}
                 </button>
@@ -3241,7 +3908,16 @@ function AvisoDelEnvio({
   );
 }
 
-function PanelEntendido({
+/**
+ * «Lo que hemos entendido», validado paso a paso (maqueta C, 06/11/2026).
+ *
+ * NO se enseñan los alojamientos ni las actividades hasta confirmar los cuatro
+ * pasos que hacen falta para buscarlos (el viaje, el grupo, lo que piden y qué
+ * tarifas se aplican). «Centro y contacto» no bloquea: se confirma al enviar.
+ * La IA revisa cada paso contra lo escrito, por separado y en segundo plano;
+ * propone, nunca cambia. Ver `domain/seccionesDeValidacion.ts`.
+ */
+export function PanelEntendido({
   entendido,
   setEntendido,
   form,
@@ -3256,8 +3932,16 @@ function PanelEntendido({
   setDepartamento,
   contactoCrm,
   previas,
-  validado,
-  onValidar,
+  textos,
+  auditoria,
+  onAuditar,
+  onAplicar,
+  dejados,
+  onDejar,
+  confirmaciones,
+  onConfirmar,
+  onDesconfirmar,
+  onVer,
   onCerrar,
 }: {
   entendido: NormalizedRequestDraft;
@@ -3274,13 +3958,27 @@ function PanelEntendido({
   setDepartamento: (valor: "GROUPS" | "SPORTS" | "") => void;
   contactoCrm: ContactoDelCrm | null;
   previas: FindCandidateOpportunitiesResult | null;
-  validado: boolean;
-  onValidar: () => void;
+  /** Lo que escribieron (el cliente y quien cotiza), para enseñarlo con lo usado subrayado. */
+  textos: TextoConOrigen[];
+  auditoria: Record<SeccionId, EstadoDeLaAuditoria>;
+  onAuditar: (valores: ValorAuditado[]) => void;
+  onAplicar: (clave: ClaveAuditada, valor: string | null) => void;
+  dejados: string[];
+  onDejar: (llave: string) => void;
+  confirmaciones: Confirmaciones;
+  onConfirmar: (id: SeccionId) => void;
+  onDesconfirmar: (id: SeccionId) => void;
+  onVer: () => void;
   onCerrar: () => void;
 }) {
   const [editando, setEditando] = useState(false);
+  /** El dato sobre el que está el ratón: enlaza la fila con su frase en el mensaje. */
+  const [foco, setFoco] = useState<string | null>(null);
+  /** Pasos que se confirmaron y la IA ha reabierto porque encontró algo después. */
+  const [reabiertos, setReabiertos] = useState<SeccionId[]>([]);
+  const clientesEspeciales = useClientesEspeciales();
 
-  const datos = {
+  const datos: PeticionParaValidar = {
     ...entendido,
     topePorAlumno: tope,
     requisitos,
@@ -3292,9 +3990,60 @@ function PanelEntendido({
     canal,
     departamento,
   };
-  const clientesEspeciales = useClientesEspeciales();
   const bloques = bloquesParaValidar(datos, clientesEspeciales);
-  const faltan = loQueFaltaDeVerdad(datos);
+  const filaPorNombre = new Map(bloques.flatMap((b) => b.filas).map((f) => [f.que, f] as const));
+  const valores = valoresParaAuditar(datos, clientesEspeciales);
+
+  // La revisión suele estar hecha ya (se lanza al leer el mensaje); esto cubre
+  // abrir la ventana antes de que llegue y volver de «Modificar» con datos nuevos.
+  // Si no ha cambiado nada, `onAuditar` no hace nada.
+  const auditarAhora = useRef(onAuditar);
+  auditarAhora.current = onAuditar;
+  const valoresAhora = useRef(valores);
+  valoresAhora.current = valores;
+  useEffect(() => {
+    if (!editando) auditarAhora.current(valoresAhora.current);
+  }, [editando]);
+
+  const llaveDeDejado = (v: ValorAuditado) => `${v.clave}::${v.valor}::${v.codigo ?? ""}`;
+
+  /** Las filas de un paso, cada una con el veredicto vigente de la IA (si el dato no ha cambiado desde entonces). */
+  const filasDe = (seccion: SeccionDeValidacion): FilaDelPaso[] =>
+    seccion.filas.flatMap((que) => {
+      const fila = filaPorNombre.get(que);
+      if (!fila) return [];
+      const clave = FILA_A_CLAVE[que] ?? null;
+      let v: Veredicto | null = null;
+      let cambiado = false;
+      let dejado = false;
+      if (clave) {
+        const estado = auditoria[seccionDeLaClave(clave)];
+        const veredicto = estado.fase === "lista" ? estado.resultado?.veredictos[clave] : undefined;
+        if (veredicto) {
+          const antes = estado.valores.find((x) => x.clave === clave);
+          const ahora = valores.find((x) => x.clave === clave);
+          if (antes && ahora && antes.valor === ahora.valor && antes.codigo === ahora.codigo) {
+            v = veredicto;
+            dejado = dejados.includes(llaveDeDejado(ahora));
+          } else {
+            cambiado = true;
+          }
+        }
+      }
+      return [{ fila, clave, v, cambiado, dejado }];
+    });
+  const pendientesDe = (seccion: SeccionDeValidacion) =>
+    filasDe(seccion).filter((f) => f.v?.estado === "no_cuadra" && !f.dejado).length;
+
+  // Si la IA encuentra algo en un paso que ya se confirmó (llegó tarde), se reabre.
+  useEffect(() => {
+    for (const seccion of SECCIONES) {
+      if (estaConfirmada(confirmaciones, seccion.id, datos) && pendientesDe(seccion) > 0) {
+        onDesconfirmar(seccion.id);
+        setReabiertos((r) => (r.includes(seccion.id) ? r : [...r, seccion.id]));
+      }
+    }
+  });
 
   // Escape cierra, como cualquier ventana. Sin esto hay que buscar la aspa.
   useEffect(() => {
@@ -3305,16 +4054,121 @@ function PanelEntendido({
     return () => window.removeEventListener("keydown", alPulsar);
   }, [onCerrar]);
 
+  const confirmado = (seccion: SeccionDeValidacion) => estaConfirmada(confirmaciones, seccion.id, datos);
+  const faltaDe = (seccion: SeccionDeValidacion) => faltaEnSeccion(seccion.id, datos, clientesEspeciales);
+  const sinConfirmar = pasosPorConfirmar(confirmaciones, datos);
+  const sePuedeVer = sinConfirmar.length === 0;
+
+  // Los pasos que se pueden confirmar de golpe: la IA los ha revisado y no ve nada
+  // que no cuadre. Un clic para lo limpio; lo que tiene avisos hay que resolverlo.
+  const limpias = SECCIONES.filter(
+    (s) => s.bloquea && !confirmado(s) && auditoria[s.id].fase === "lista" && pendientesDe(s) === 0 && faltaDe(s).length === 0,
+  );
+
+  // «Aprobar todo» (pedido de Anthony, 06/11/2026): un solo clic para confirmar todos los pasos
+  // que se pueden confirmar, hayan pasado o no la revisión de la IA. Lo que falta de verdad
+  // (un dato obligatorio vacío) no se aprueba. Los avisos de la IA que quedaran se dejan
+  // «como están», que es exactamente lo que haría quien los mirara y los diera por buenos.
+  const aprobables = SECCIONES.filter((s) => !confirmado(s) && faltaDe(s).length === 0);
+  // «Confirmar los que están bien» solo tiene sentido si hay pasos que NO lo están.
+  const hayDudosos = aprobables.some((s) => s.bloquea && !limpias.includes(s));
+  const avisosPorDejar = aprobables.flatMap((s) => filasDe(s).filter((f) => f.v?.estado === "no_cuadra" && !f.dejado && f.clave !== null));
+  const aprobarTodo = () => {
+    for (const f of avisosPorDejar) {
+      const ahora = valores.find((x) => x.clave === f.clave);
+      if (ahora) onDejar(llaveDeDejado(ahora));
+    }
+    for (const s of aprobables) {
+      setReabiertos((r) => r.filter((x) => x !== s.id));
+      onConfirmar(s.id);
+    }
+  };
+
+  const marcas: MarcaPedida[] = SECCIONES.flatMap((s) => filasDe(s)).flatMap((f) =>
+    f.v && f.clave && f.v.cita && f.v.estado !== "sin_respaldo"
+      ? [{ clave: f.clave, cita: f.v.cita, aviso: f.v.estado === "no_cuadra" && !f.dejado }]
+      : [],
+  );
+
+  const fases = SECCIONES.map((s) => auditoria[s.id].fase);
+  const comprobandoAlgo = fases.includes("cargando");
+  const iaApagada = fases.every((f) => f === "apagada");
+  const iaFalla = !comprobandoAlgo && !fases.includes("lista") && fases.includes("error");
+  const motivoDelFallo = SECCIONES.map((s) => auditoria[s.id].motivo).find(Boolean);
+
+  // Lo que hace la IA, en una línea (en la esquina de la frase): no ocupa un bloque propio.
+  const comprobadosPorIa = SECCIONES.flatMap((s) => filasDe(s)).filter((f) => f.v?.estado === "correcto" && f.v.cita !== "").length;
+  const iaEnPantalla: EstadoDeLaIaEnPantalla | null = comprobandoAlgo
+    ? { tono: "espera", texto: "La IA está comprobando…" }
+    : iaFalla
+      ? { tono: "error", texto: "La IA no ha respondido: sin comprobar", detalle: motivoDelFallo ?? undefined }
+      : iaApagada
+        ? { tono: "apagada", texto: "La IA no está activada: sin comprobar" }
+        : fases.includes("lista")
+          ? { tono: "ok", texto: `✓ La IA ha comprobado ${comprobadosPorIa} datos` }
+          : null;
+
+  /** Quién es este correo en el CRM y si este cliente ya tenía solicitudes: cambia lo que hay que revisar, va arriba. */
+  const avisosDelCrm = (
+    <>
+      {contactoCrm ? (
+        <div className={contactoCrm.deals.length ? "cv__ventavi" : "cv__ventcrmok"}>
+          <p className="cv__ventavit">
+            {contactoCrm.deals.length
+              ? "Este contacto ya está en el CRM, y con oportunidades abiertas"
+              : "Este contacto ya está en el CRM"}
+          </p>
+          <p className="cv__ventavip">
+            <b>{contactoCrm.fullName}</b>
+            {contactoCrm.accountName ? ` · ${contactoCrm.accountName}` : " · sin cuenta asociada"}
+            {contactoCrm.phone ? ` · ${contactoCrm.phone}` : ""}
+          </p>
+          {contactoCrm.deals.length ? (
+            <>
+              <ul>
+                {contactoCrm.deals.map((d) => (
+                  <li key={d.id ?? d.dealName}>
+                    {d.dealName} <span className="cv__ventchip">{d.stage}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="cv__ventavip">
+                Si este viaje es una de ellas, mejor continuarla que crear una segunda oportunidad del mismo viaje.
+              </p>
+            </>
+          ) : null}
+        </div>
+      ) : form.email.trim() ? (
+        <div className="cv__ventcrmno">
+          <b>{form.email.trim()}</b> no está en el CRM: se creará el contacto y su cuenta al enviar.
+        </div>
+      ) : null}
+
+      {/* Un trato repetido no se descubre en el CRM tres días después. */}
+      {previas && previas.opportunities.length ? (
+        <div className="cv__ventavi">
+          <p className="cv__ventavit">Ojo: este cliente ya tenía solicitudes</p>
+          <ul>
+            {previas.opportunities.map((oportunidad) => (
+              <li key={oportunidad.id}>{oportunidad.name}</li>
+            ))}
+          </ul>
+          <p className="cv__ventavip">Si es el mismo viaje, mejor continuar aquella que crear una segunda oportunidad.</p>
+        </div>
+      ) : null}
+    </>
+  );
+
   return (
     <div className="cv__velo" role="dialog" aria-modal="true" aria-label="Lo que hemos entendido">
-      <div className="cv__vent">
+      <div className={editando ? "cv__vent" : "cv__vent cv__vent--ancha"}>
         <header className="cv__venth">
           <div>
             <p className="cv__venttl">Lo que hemos entendido</p>
             <p className="cv__ventsub">
               {editando
-                ? "Corrige lo que haga falta. Se guarda al confirmar."
-                : "Léelo antes de seguir: esto es lo que se va a usar para buscar los alojamientos y lo que irá al presupuesto."}
+                ? "Corrige lo que haga falta. Los pasos que cambies habrá que volver a confirmarlos."
+                : "Confirma cada paso para ver los alojamientos y las actividades."}
             </p>
           </div>
           <button type="button" className="cv__ventx" onClick={onCerrar} aria-label="Cerrar">
@@ -3322,68 +4176,9 @@ function PanelEntendido({
           </button>
         </header>
 
-        <div className="cv__ventb">
-          {/* Quién es este correo en el CRM. Va ARRIBA, antes que los datos,
-              porque cambia lo que hay que hacer: si el contacto ya existe, sus
-              datos mandan sobre lo que hayamos adivinado del mensaje, y si
-              además tiene oportunidades abiertas puede que este viaje sea una
-              de ellas y no haga falta crear otra. */}
-          {contactoCrm ? (
-            <div className={contactoCrm.deals.length ? "cv__ventavi" : "cv__ventcrmok"}>
-              <p className="cv__ventavit">
-                {contactoCrm.deals.length
-                  ? "Este contacto ya está en el CRM, y con oportunidades abiertas"
-                  : "Este contacto ya está en el CRM"}
-              </p>
-              <p className="cv__ventavip">
-                <b>{contactoCrm.fullName}</b>
-                {contactoCrm.accountName ? ` · ${contactoCrm.accountName}` : " · sin cuenta asociada"}
-                {contactoCrm.phone ? ` · ${contactoCrm.phone}` : ""}
-              </p>
-              {contactoCrm.deals.length ? (
-                <>
-                  <ul>
-                    {contactoCrm.deals.map((d) => (
-                      <li key={d.id ?? d.dealName}>
-                        {d.dealName} <span className="cv__ventchip">{d.stage}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="cv__ventavip">
-                    Si este viaje es una de ellas, mejor continuarla que crear una segunda oportunidad del
-                    mismo viaje.
-                  </p>
-                </>
-              ) : null}
-            </div>
-          ) : form.email.trim() ? (
-            <div className="cv__ventcrmno">
-              <b>{form.email.trim()}</b> no está en el CRM: se creará el contacto y su cuenta al enviar.
-            </div>
-          ) : null}
-
-          {/* Un trato repetido no se descubre en el CRM tres días después. */}
-          {previas && previas.opportunities.length ? (
-            <div className="cv__ventavi">
-              <p className="cv__ventavit">Ojo: este cliente ya tenía solicitudes</p>
-              <ul>
-                {previas.opportunities.map((oportunidad) => (
-                  <li key={oportunidad.id}>{oportunidad.name}</li>
-                ))}
-              </ul>
-              <p className="cv__ventavip">
-                Si es el mismo viaje, mejor continuar aquella que crear una segunda oportunidad.
-              </p>
-            </div>
-          ) : null}
-
-          {faltan.length && !editando ? (
-            <div className="cv__ventfalta">
-              Falta <b>{faltan.join(", ")}</b>. Se puede seguir buscando, pero sin eso no se puede enviar.
-            </div>
-          ) : null}
-
-          {editando ? (
+        {editando ? (
+          <div className="cv__ventb">
+            {avisosDelCrm}
             <CamposEntendido
               entendido={entendido}
               setEntendido={setEntendido}
@@ -3399,56 +4194,115 @@ function PanelEntendido({
               setDepartamento={setDepartamento}
               contactoCrm={contactoCrm}
             />
-          ) : (
-            bloques.map((bloque) => (
-              <section key={bloque.titulo} className="cv__ventbloq">
-                <p className="cv__ventbt">{bloque.titulo}</p>
-                <p className="cv__ventbp">{bloque.para}</p>
-                <dl className="cv__ventgrid">
-                  {bloque.filas.map((f) => (
-                    <div key={f.que} className={f.falta ? "cv__ventfila is-falta" : "cv__ventfila"}>
-                      <dt>{f.que}</dt>
-                      <dd>{f.valor}</dd>
-                      {f.nota ? <p className="cv__ventnota">{f.nota}</p> : null}
-                    </div>
-                  ))}
-                </dl>
-              </section>
-            ))
-          )}
+          </div>
+        ) : (
+          <div className="cv__ventb cv__ventb--vc">
+            <aside className="cv__vcizq" aria-label="El mensaje del cliente">
+              <p className="cv__ventbt">El mensaje del cliente, con lo que se ha usado subrayado</p>
+              {/* Solo lo que escribió el cliente: lo que se contesta en el chat es de quien cotiza,
+                  no hay nada que validar contra ello y ocupaba la mitad de la columna. */}
+              <MensajesMarcados textos={textos.filter((t) => t.origen !== "chat")} marcas={marcas} foco={foco} onFoco={setFoco} />
+              {marcas.length > 0 ? (
+                <div className="cv__vcleyenda">
+                  <span>
+                    <mark className="cv__vcmark">Se ha usado</mark>
+                  </span>
+                  <span>
+                    <mark className="cv__vcmark is-aviso">No cuadra</mark>
+                  </span>
+                </div>
+              ) : null}
+              <p className="cv__vcayuda">
+                {marcas.length > 0
+                  ? "Pasa el ratón por un dato y verás de dónde sale."
+                  : "Cuando la IA termine, aquí se subrayará lo que se ha usado."}
+              </p>
+            </aside>
 
-          {!editando ? (
-            <p className="cv__ventpie">
-              ¿Falta algo que aquí no aparece? Cierra y escríbelo en el chat: lo que se conversa se queda
-              en el hilo, y lo que se corrige se corrige aquí.
-            </p>
-          ) : null}
-        </div>
+            <div className="cv__vcder">
+              {avisosDelCrm}
+              <FraseDeLaPeticion frase={fraseDeLaPeticion(datos, clientesEspeciales)} ia={iaEnPantalla} />
+
+              {SECCIONES.map((seccion) => (
+                <PasoDeValidacion
+                  key={seccion.id}
+                  seccion={seccion}
+                  filas={filasDe(seccion)}
+                  confirmado={confirmado(seccion)}
+                  resumen={resumenDeSeccion(seccion.id, datos, clientesEspeciales)}
+                  falta={faltaDe(seccion)}
+                  pendientes={pendientesDe(seccion)}
+                  comprobando={auditoria[seccion.id].fase === "cargando"}
+                  revisadoPorIa={auditoria[seccion.id].fase === "lista"}
+                  foco={foco}
+                  onFoco={setFoco}
+                  clientes={clientesEspeciales}
+                  onAplicar={onAplicar}
+                  onDejar={(clave) => {
+                    const ahora = valores.find((x) => x.clave === clave);
+                    if (ahora) onDejar(llaveDeDejado(ahora));
+                  }}
+                  onConfirmar={() => {
+                    setReabiertos((r) => r.filter((x) => x !== seccion.id));
+                    onConfirmar(seccion.id);
+                  }}
+                  onCambiar={() => onDesconfirmar(seccion.id)}
+                  nota={
+                    reabiertos.includes(seccion.id) ? (
+                      <div className="cv__vcestado is-reabierto">
+                        La IA ha encontrado algo en este paso después de que lo confirmaras: lo he reabierto.
+                      </div>
+                    ) : undefined
+                  }
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         <footer className="cv__ventf">
           {editando ? (
-            <>
-              <button type="button" className="cv__ghost cv__ghost--sm" onClick={() => setEditando(false)}>
-                Volver a leerlo
-              </button>
-              <button
-                type="button"
-                className="cv__primary cv__primary--sm"
-                onClick={() => {
-                  setEditando(false);
-                  onValidar();
-                }}
-              >
-                Guardar y confirmar
-              </button>
-            </>
+            <button type="button" className="cv__primary cv__primary--sm" onClick={() => setEditando(false)}>
+              Volver a los pasos
+            </button>
           ) : (
             <>
+              <span className={sePuedeVer ? "cv__ventconf is-ok" : "cv__ventconf"}>
+                {sePuedeVer
+                  ? "✓ Todo confirmado"
+                  : `Falta confirmar: ${sinConfirmar.map((id) => SECCIONES.find((s) => s.id === id)!.titulo).join(", ")}`}
+              </span>
               <button type="button" className="cv__ghost cv__ghost--sm" onClick={() => setEditando(true)}>
                 Modificar
               </button>
-              <button type="button" className="cv__primary cv__primary--sm" onClick={onValidar}>
-                {validado ? "Sigue estando bien" : "Está todo bien"}
+              {limpias.length >= 2 && hayDudosos ? (
+                <button
+                  type="button"
+                  className="cv__ghost cv__ghost--sm"
+                  onClick={() => limpias.forEach((s) => onConfirmar(s.id))}
+                >
+                  Confirmar los {limpias.length} que están bien
+                </button>
+              ) : null}
+              {aprobables.length > 0 ? (
+                <button
+                  type="button"
+                  className="cv__ghost cv__ghost--sm"
+                  data-aprobar-todo
+                  title={
+                    avisosPorDejar.length > 0
+                      ? `Confirma ${aprobables.length === 1 ? "el paso" : `los ${aprobables.length} pasos`} y deja como están ${avisosPorDejar.length === 1 ? "el aviso" : `los ${avisosPorDejar.length} avisos`} de la IA. Lo que falta de verdad no se aprueba.`
+                      : "Confirma de una vez todos los pasos que se pueden confirmar."
+                  }
+                  onClick={aprobarTodo}
+                >
+                  {avisosPorDejar.length > 0
+                    ? `Aprobar todo y dejar ${avisosPorDejar.length === 1 ? "el aviso" : `${avisosPorDejar.length} avisos`} como ${avisosPorDejar.length === 1 ? "está" : "están"}`
+                    : "Aprobar todo"}
+                </button>
+              ) : null}
+              <button type="button" className="cv__primary cv__primary--sm" disabled={!sePuedeVer} onClick={onVer}>
+                Ver alojamientos y actividades
               </button>
             </>
           )}
@@ -4010,13 +4864,17 @@ function Podio({
  * búsqueda elige una, y hasta ahora no había forma de saber que existían las
  * demás.
  */
-function DetalleAlojamiento({
+export function DetalleAlojamiento({
   item,
   noches,
   alumnos,
   profesores,
   desde,
   hasta,
+  asignacion,
+  onAsignar,
+  acompanantes = {},
+  onAcompanantes = () => {},
 }: {
   item: AccommodationSearchMatch;
   noches: number;
@@ -4024,23 +4882,64 @@ function DetalleAlojamiento({
   profesores: number;
   desde: string;
   hasta: string;
+  asignacion: Record<string, number>;
+  onAsignar: (tarifaId: string, cantidad: number) => void;
+  /** Profesores y chófer en cada tarifa, y la gratuidad del hotel que se les aplica. */
+  acompanantes?: AcompanantesDelHotel;
+  onAcompanantes?: (siguiente: AcompanantesDelHotel) => void;
 }) {
   const clientesEspeciales = useClientesEspeciales();
   const nAlumno = item.estancia?.noches[0]?.alumno.precio ?? precioDeTarifa(item.rate);
   const nProfesor =
     item.estancia?.noches[0]?.profesor.precio ?? (item.singleRate ? precioDeTarifa(item.singleRate) : nAlumno);
   const dias = Math.max(noches, 1);
-  const totalAlumnos = item.estancia
-    ? item.estancia.noches.reduce((s, n) => s + n.alumno.precio, 0) * alumnos
+  // Alumnos en bloques con otra habitación o con otra pensión (05/11/2026): los
+  // del grupo principal y, aparte, cada bloque con su precio.
+  const alumnosOtros = item.estancia?.noches[0]?.alumnosOtros ?? [];
+  const alumnosAqui = Math.max(alumnos - alumnosOtros.reduce((s, g) => s + g.cantidad, 0), 0);
+  const totalDeBloques = (clave: "alumnosOtros" | "profesoresOtros" | "choferOtros") =>
+    (item.estancia?.noches ?? []).reduce((s, n) => s + (n[clave] ?? []).reduce((a, g) => a + g.precio * g.cantidad, 0), 0);
+  const totalAlumnosPrincipal = item.estancia
+    ? item.estancia.noches.reduce((s, n) => s + n.alumno.precio, 0) * (alumnosOtros.length ? alumnosAqui : alumnos)
     : nAlumno * alumnos * dias;
+  const totalAlumnos = totalAlumnosPrincipal + (item.estancia ? totalDeBloques("alumnosOtros") : 0);
   // Profesores y chóferes repartidos en varias habitaciones (21/10/2026): los
   // de la habitación principal y, aparte, cada grupo con su precio.
   const profesoresOtros = item.estancia?.noches[0]?.profesoresOtros ?? [];
   const choferOtros = item.estancia?.noches[0]?.choferOtros ?? [];
   const profesoresAqui = Math.max(profesores - profesoresOtros.reduce((s, g) => s + g.cantidad, 0), 0);
   const choferAqui = Math.max((item.estancia?.chofer ?? 0) - choferOtros.reduce((s, g) => s + g.cantidad, 0), 0);
-  const totalDeGrupos = (clave: "profesoresOtros" | "choferOtros") =>
-    (item.estancia?.noches ?? []).reduce((s, n) => s + (n[clave] ?? []).reduce((a, g) => a + g.precio * g.cantidad, 0), 0);
+  // Profesores y chófer por tarifa, y la gratuidad del hotel (06/11/2026).
+  const choferTotal = item.estancia?.chofer ?? 0;
+  const gratuidad = gratuidadDeHotel(item.accommodation.freePolicy);
+  const plazasGratis = gratuidad ? Math.floor(alumnos / gratuidad.cada) * gratuidad.gratis : null;
+  const asigProfesores = acompanantes.profesores ?? {};
+  const asigChofer = acompanantes.chofer ?? {};
+  const gratisProfesores = acompanantes.gratisProfesores ?? 0;
+  const gratisChofer = acompanantes.gratisChofer ?? 0;
+  const suma = (r: Record<string, number>, salvo?: string) =>
+    Object.entries(r).reduce((s, [k, n]) => (k === salvo ? s : s + n), 0);
+  /** Cuántos caben aún en una tarifa (o en la gratuidad) sin pasar de los que van. */
+  const huecoDeProfesores = (tarifaId: string) => Math.max(profesores - suma(asigProfesores, tarifaId) - gratisProfesores, 0);
+  const huecoDeChofer = (tarifaId: string) => Math.max(choferTotal - suma(asigChofer, tarifaId) - gratisChofer, 0);
+  const ponerEnTarifa = (quien: "profesores" | "chofer", tarifaId: string, cantidad: number) => {
+    const tope = quien === "profesores" ? huecoDeProfesores(tarifaId) : huecoDeChofer(tarifaId);
+    const n = Math.min(Math.max(Math.floor(cantidad || 0), 0), tope);
+    onAcompanantes({ ...acompanantes, [quien]: { ...(acompanantes[quien] ?? {}), [tarifaId]: n } });
+  };
+  const ponerGratis = (quien: "profesores" | "chofer", cantidad: number) => {
+    const sinTarifa = quien === "profesores" ? profesores - suma(asigProfesores) : choferTotal - suma(asigChofer);
+    const otraGratis = quien === "profesores" ? gratisChofer : gratisProfesores;
+    const porPlazas = plazasGratis === null ? Infinity : Math.max(plazasGratis - otraGratis, 0);
+    const n = Math.min(Math.max(Math.floor(cantidad || 0), 0), Math.max(sinTarifa, 0), porPlazas);
+    onAcompanantes({ ...acompanantes, [quien === "profesores" ? "gratisProfesores" : "gratisChofer"]: n });
+  };
+  const usarLasPlazas = () => {
+    const paraProfesores = Math.min(Math.max(profesores - suma(asigProfesores), 0), plazasGratis ?? 0);
+    onAcompanantes({ ...acompanantes, gratisProfesores: paraProfesores, gratisChofer: 0 });
+  };
+  const hayGratuidadQueGestionar = Boolean(item.accommodation.freePolicy) && (profesores > 0 || choferTotal > 0);
+  const totalDeGrupos = (clave: "profesoresOtros" | "choferOtros") => totalDeBloques(clave);
   const totalProfesores = item.estancia
     ? item.estancia.noches.reduce((s, n) => s + n.profesor.precio, 0) * profesoresAqui + totalDeGrupos("profesoresOtros")
     : nProfesor * profesores * dias;
@@ -4061,7 +4960,7 @@ function DetalleAlojamiento({
     if (grupos.length < 2) return null;
     return `(${grupos.map((g) => `${g.noches} ${g.noches === 1 ? "noche" : "noches"} a ${euros(g.precio)}`).join(" + ")}) × ${personas}`;
   };
-  const tramosAlumno = item.estancia ? porPrecio(item.estancia.noches.map((n) => n.alumno.precio), alumnos) : null;
+  const tramosAlumno = item.estancia ? porPrecio(item.estancia.noches.map((n) => n.alumno.precio), alumnosOtros.length ? alumnosAqui : alumnos) : null;
   const tramosProfesor = item.estancia ? porPrecio(item.estancia.noches.map((n) => n.profesor.precio), profesoresAqui) : null;
   const tramosChofer = item.estancia
     ? porPrecio(item.estancia.noches.map((n) => n.chofer?.precio ?? 0), choferAqui)
@@ -4190,7 +5089,12 @@ function DetalleAlojamiento({
                   en la que diga la estancia, con su suplemento (20/10/2026). */}
               {item.estancia && item.estancia.noches[0]
                 ? [
-                    `alumnos en ${item.rate.occupancyLabel || "la de la tarifa"}`,
+                    alumnosOtros.length
+                      ? `alumnos: ${[
+                          ...(alumnosAqui > 0 ? [`${alumnosAqui} en ${item.rate.occupancyLabel || "la de la tarifa"}`] : []),
+                          ...alumnosOtros.map((g) => `${g.cantidad} en ${g.como}`),
+                        ].join(" y ")}`
+                      : `alumnos en ${item.rate.occupancyLabel || "la de la tarifa"}`,
                     profesores > 0
                       ? profesoresOtros.length
                         ? `profesores: ${[
@@ -4250,10 +5154,27 @@ function DetalleAlojamiento({
             <tr>
               <th scope="row">Alumnos</th>
               <td>
-                {tramosAlumno ?? `${euros(nAlumno)} × ${alumnos} × ${dias} ${dias === 1 ? "noche" : "noches"}`}
+                {tramosAlumno ?? `${euros(nAlumno)} × ${alumnosOtros.length ? alumnosAqui : alumnos} × ${dias} ${dias === 1 ? "noche" : "noches"}`}
+                {alumnosOtros.length ? " · grupo principal" : ""}
               </td>
-              <td className="cv__num">{euros(totalAlumnos)}</td>
+              <td className="cv__num">{euros(totalAlumnosPrincipal)}</td>
             </tr>
+            {item.estancia
+              ? alumnosOtros.map((g, i) => {
+                  const precios = item.estancia!.noches.map((n) => n.alumnosOtros?.[i]?.precio ?? 0);
+                  return (
+                    <tr key={`alum-${i}`}>
+                      <th scope="row">Alumnos</th>
+                      <td>
+                        {porPrecio(precios, g.cantidad) ?? `${euros(precios[0] ?? 0)} × ${g.cantidad} × ${dias} ${dias === 1 ? "noche" : "noches"}`}
+                        {` · ${g.como}`}
+                        {g.regimen !== item.estancia!.noches[0]?.regimen ? `, ${etiquetaDeRegimen(g.regimen).toLowerCase()}` : ""}
+                      </td>
+                      <td className="cv__num">{euros(precios.reduce((s, p) => s + p, 0) * g.cantidad)}</td>
+                    </tr>
+                  );
+                })
+              : null}
             {profesores > 0 && (profesoresAqui > 0 || !item.estancia) ? (
               <tr>
                 <th scope="row">Profesores</th>
@@ -4378,7 +5299,7 @@ function DetalleAlojamiento({
       ) : null}
 
       {/* 3 · Las demas tarifas del mismo hotel. Esto es lo que no existia. */}
-      {alternativas.length > 0 ? (
+      {alternativas.length > 0 || hayGratuidadQueGestionar ? (
         <div className="cv__detbloq">
           <p className="cv__deth">
             Lo que tiene este hotel para estas fechas{" "}
@@ -4394,6 +5315,19 @@ function DetalleAlojamiento({
                   <th scope="col" className="cv__num">
                     Por persona y noche
                   </th>
+                  <th scope="col" className="cv__num" title="Cuántos alumnos van en cada tarifa">
+                    Alumnos
+                  </th>
+                  {profesores > 0 ? (
+                    <th scope="col" className="cv__num" title="Cuántos profesores van en cada tarifa">
+                      Profesores
+                    </th>
+                  ) : null}
+                  {choferTotal > 0 ? (
+                    <th scope="col" className="cv__num" title="Cuántos chóferes van en cada tarifa">
+                      Chófer
+                    </th>
+                  ) : null}
                 </tr>
               </thead>
               <tbody>
@@ -4410,12 +5344,32 @@ function DetalleAlojamiento({
                   <td>{temporadaDe(item.rate)}</td>
                   <td>{minimoDe(item.rate)}</td>
                   <td className="cv__num">{euros(precioDeTarifa(item.rate))}</td>
+                  {/* La elegida lleva los alumnos que no se asignen a otra tarifa. */}
+                  <td className="cv__num cv__detasig" title="Los alumnos que no asignes a otra tarifa van en esta">
+                    <b>{alumnos > 0 ? alumnosAqui : "—"}</b>
+                  </td>
+                  {profesores > 0 ? (
+                    <td className="cv__num cv__detasig" title="Los profesores que no asignes a otra tarifa ni a la gratuidad van en esta">
+                      <b>{profesoresAqui}</b>
+                    </td>
+                  ) : null}
+                  {choferTotal > 0 ? (
+                    <td className="cv__num cv__detasig" title="Los chóferes que no asignes a otra tarifa ni a la gratuidad van en esta">
+                      <b>{choferAqui}</b>
+                    </td>
+                  ) : null}
                 </tr>
                 {alternativasOrdenadas.map((r) => (
                   <tr
                     key={r.id}
                     className={
-                      etiquetasDeProfesoresYChofer(r).length || etiquetaAlumnos(r) ? "cv__detsel" : undefined
+                      etiquetasDeProfesoresYChofer(r).length ||
+                      etiquetaAlumnos(r) ||
+                      (asignacion[r.id] ?? 0) > 0 ||
+                      (asigProfesores[r.id] ?? 0) > 0 ||
+                      (asigChofer[r.id] ?? 0) > 0
+                        ? "cv__detsel"
+                        : undefined
                     }
                   >
                     <td title={r.rawText || undefined}>
@@ -4432,20 +5386,134 @@ function DetalleAlojamiento({
                           <span className="cv__detchip">{e}</span>
                         </span>
                       ))}
+                      {(asignacion[r.id] ?? 0) > 0 ? (
+                        <>
+                          {" "}
+                          <span className="cv__detchip">
+                            {asignacion[r.id]} {asignacion[r.id] === 1 ? "alumno" : "alumnos"}
+                          </span>
+                        </>
+                      ) : null}
+                      {(asigProfesores[r.id] ?? 0) > 0 ? (
+                        <>
+                          {" "}
+                          <span className="cv__detchip">
+                            {asigProfesores[r.id]} {asigProfesores[r.id] === 1 ? "profesor" : "profesores"}
+                          </span>
+                        </>
+                      ) : null}
+                      {(asigChofer[r.id] ?? 0) > 0 ? (
+                        <>
+                          {" "}
+                          <span className="cv__detchip">
+                            {asigChofer[r.id]} {asigChofer[r.id] === 1 ? "chófer" : "chóferes"}
+                          </span>
+                        </>
+                      ) : null}
                     </td>
                     <td>{temporadaDe(r)}</td>
                     <td>{minimoDe(r)}</td>
                     <td className="cv__num">{euros(precioDeTarifa(r))}</td>
+                    <td className="cv__num cv__detasig">
+                      <input
+                        type="number"
+                        min={0}
+                        max={Math.max(alumnosAqui + (asignacion[r.id] ?? 0) - 1, 0)}
+                        value={asignacion[r.id] ?? 0}
+                        disabled={!item.estancia || alumnos < 2}
+                        aria-label={`Alumnos en ${nombreTarifa(r)}`}
+                        onChange={(e) => onAsignar(r.id, Math.floor(Number(e.target.value) || 0))}
+                      />
+                    </td>
+                    {profesores > 0 ? (
+                      <td className="cv__num cv__detasig">
+                        <input
+                          type="number"
+                          min={0}
+                          max={huecoDeProfesores(r.id)}
+                          value={asigProfesores[r.id] ?? 0}
+                          disabled={!item.estancia}
+                          aria-label={`Profesores en ${nombreTarifa(r)}`}
+                          onChange={(e) => ponerEnTarifa("profesores", r.id, Number(e.target.value))}
+                        />
+                      </td>
+                    ) : null}
+                    {choferTotal > 0 ? (
+                      <td className="cv__num cv__detasig">
+                        <input
+                          type="number"
+                          min={0}
+                          max={huecoDeChofer(r.id)}
+                          value={asigChofer[r.id] ?? 0}
+                          disabled={!item.estancia}
+                          aria-label={`Chófer en ${nombreTarifa(r)}`}
+                          onChange={(e) => ponerEnTarifa("chofer", r.id, Number(e.target.value))}
+                        />
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
+                {hayGratuidadQueGestionar ? (
+                  <tr className={gratisProfesores + gratisChofer > 0 ? "cv__detsel" : undefined} data-gratuidad>
+                    <td colSpan={3} title={item.accommodation.freePolicy || undefined}>
+                      <b>Gratuidad del hotel</b>{" "}
+                      <span className="cv__detchip">
+                        {gratuidad
+                          ? `${gratuidad.gratis} cada ${gratuidad.cada}${
+                              plazasGratis !== null ? ` · con ${alumnos} alumnos: ${plazasGratis} ${plazasGratis === 1 ? "plaza" : "plazas"}` : ""
+                            }`
+                          : "sin cifra clara en el documento"}
+                      </span>
+                      <em className="cv__detgrat">{item.accommodation.freePolicy}</em>
+                      {gratuidad && plazasGratis && profesores > 0 && gratisProfesores + gratisChofer === 0 ? (
+                        <button type="button" className="cv__detusar" disabled={!item.estancia} onClick={usarLasPlazas}>
+                          Usar {Math.min(plazasGratis, Math.max(profesores - suma(asigProfesores), 0))} en profesores
+                        </button>
+                      ) : null}
+                    </td>
+                    <td className="cv__num">{euros(0)}</td>
+                    <td className="cv__num cv__detasig">—</td>
+                    {profesores > 0 ? (
+                      <td className="cv__num cv__detasig">
+                        <input
+                          type="number"
+                          min={0}
+                          max={Math.max(Math.min(profesores - suma(asigProfesores), plazasGratis === null ? Infinity : plazasGratis - gratisChofer), 0)}
+                          value={gratisProfesores}
+                          disabled={!item.estancia}
+                          aria-label="Profesores en gratuidad del hotel"
+                          onChange={(e) => ponerGratis("profesores", Number(e.target.value))}
+                        />
+                      </td>
+                    ) : null}
+                    {choferTotal > 0 ? (
+                      <td className="cv__num cv__detasig">
+                        <input
+                          type="number"
+                          min={0}
+                          max={Math.max(Math.min(choferTotal - suma(asigChofer), plazasGratis === null ? Infinity : plazasGratis - gratisProfesores), 0)}
+                          value={gratisChofer}
+                          disabled={!item.estancia}
+                          aria-label="Chófer en gratuidad del hotel"
+                          onChange={(e) => ponerGratis("chofer", Number(e.target.value))}
+                        />
+                      </td>
+                    ) : null}
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
           <p className="cv__detnota">
             Las tarifas que valen para alguna noche del viaje (las que no dicen sus fechas también salen).
             Las marcadas son las que se cobran, con sus noches; con suplemento, a profesores y chófer se les
-            cobra la de los alumnos más el suplemento. La pensión de cada noche y la habitación de profesores
-            y chófer se cambian en el panel de la estancia, encima de la lista.
+            cobra la de los alumnos más el suplemento. En la columna «Alumnos» se dice cuántos alumnos van en
+            cada tarifa (los que no asignes van en la elegida); lo mismo vale para profesores y chófer.
+            {hayGratuidadQueGestionar
+              ? " La fila de gratuidad es la del documento del hotel: aquí decides cuántos profesores o chóferes ocupan esas plazas (a 0 €); por defecto no se aplica ninguna."
+              : ""}{" "}
+            La habitación de profesores y chófer que no asignes se cambia en el panel de la estancia, encima de
+            la lista.
           </p>
           {hayIndistinguibles ? (
             <p className="cv__detaviso">
@@ -4517,6 +5585,10 @@ function VentanaDeDetalle({
   profesores,
   desde,
   hasta,
+  asignacion,
+  onAsignar,
+  acompanantes,
+  onAcompanantes,
   onCerrar,
 }: {
   item: AccommodationSearchMatch;
@@ -4525,6 +5597,10 @@ function VentanaDeDetalle({
   profesores: number;
   desde: string;
   hasta: string;
+  asignacion: Record<string, number>;
+  onAsignar: (tarifaId: string, cantidad: number) => void;
+  acompanantes: AcompanantesDelHotel;
+  onAcompanantes: (siguiente: AcompanantesDelHotel) => void;
   onCerrar: () => void;
 }) {
   // Escape cierra, como cualquier ventana. Sin esto hay que buscar la aspa.
@@ -4573,6 +5649,10 @@ function VentanaDeDetalle({
             profesores={profesores}
             desde={desde}
             hasta={hasta}
+            asignacion={asignacion}
+            onAsignar={onAsignar}
+            acompanantes={acompanantes}
+            onAcompanantes={onAcompanantes}
           />
         </div>
       </div>
@@ -5047,6 +6127,10 @@ function ListaOpciones({
   destinoPedido,
   detalle,
   onDetalle,
+  alumnosPorTarifa,
+  onAsignarAlumnos,
+  acompanantesPorHotel,
+  onAcompanantes,
 }: {
   hoteles: AccommodationSearchMatch[];
   elegidos: string[];
@@ -5063,6 +6147,10 @@ function ListaOpciones({
   destinoPedido: string;
   detalle: string | null;
   onDetalle: (id: string) => void;
+  alumnosPorTarifa: Record<string, Record<string, number>>;
+  onAsignarAlumnos: (hotelId: string, tarifaId: string, cantidad: number) => void;
+  acompanantesPorHotel: Record<string, AcompanantesDelHotel>;
+  onAcompanantes: (hotelId: string, siguiente: AcompanantesDelHotel) => void;
 }) {
   const tres = podio(hoteles);
   const enElPodio = new Set(tres.map((item) => item.accommodation.id));
@@ -5078,6 +6166,10 @@ function ListaOpciones({
           profesores={profesores}
           desde={desde}
           hasta={hasta}
+          asignacion={alumnosPorTarifa[enDetalle.accommodation.id] ?? {}}
+          onAsignar={(tarifaId, cantidad) => onAsignarAlumnos(enDetalle.accommodation.id, tarifaId, cantidad)}
+          acompanantes={acompanantesPorHotel[enDetalle.accommodation.id] ?? {}}
+          onAcompanantes={(siguiente) => onAcompanantes(enDetalle.accommodation.id, siguiente)}
           onCerrar={() => onDetalle(enDetalle.accommodation.id)}
         />
       ) : null}

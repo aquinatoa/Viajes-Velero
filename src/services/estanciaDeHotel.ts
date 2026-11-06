@@ -1,4 +1,7 @@
 import {
+  gruposDeAlumnosPorTarifa,
+  gruposDeChoferPorTarifa,
+  gruposDeProfesoresPorTarifa,
   precioDeLaEstancia,
   type ComposicionDeLaEstancia,
   type ResultadoDeLaEstancia,
@@ -38,24 +41,51 @@ export interface EstanciaDeHotel extends ResultadoDeLaEstancia {
   chofer: number;
 }
 
+/**
+ * Cómo van los profesores y el chófer en las tarifas de UN hotel (06/11/2026):
+ * cuántos en cada tarifa (tarifa → cantidad) y cuántos en gratuidad del hotel.
+ * Los que no se asignan a ninguna van como dice el panel de la estancia.
+ */
+export interface AcompanantesDelHotel {
+  profesores?: Record<string, number>;
+  chofer?: Record<string, number>;
+  gratisProfesores?: number;
+  gratisChofer?: number;
+}
+
 export function estanciaDeHotel(
   hotel: AccommodationSearchMatch,
   composicion: ComposicionDeLaEstancia,
   viaje: { fechaEntrada: string; noches: number; alumnos: number; profesores: number; edad?: { min: number | null; max: number | null } | null },
+  /** Cuántos alumnos van en cada tarifa de ESTE hotel (tarifa → cantidad); los demás, en la elegida. */
+  asignacionDeAlumnos?: Record<string, number>,
+  /** Lo mismo para profesores y chófer, y la gratuidad del hotel. */
+  acompanantes?: AcompanantesDelHotel,
 ): EstanciaDeHotel | null {
   if (!viaje.fechaEntrada || viaje.noches <= 0) return null;
   const otras = [
     ...(hotel.singleRate ? [hotel.singleRate] : []),
     ...(hotel.alternativas ?? []),
   ].map(comoTarifa);
+  const elegida = comoTarifa(hotel.rate);
+  const bloques = gruposDeAlumnosPorTarifa([elegida, ...otras], elegida.id, asignacionDeAlumnos ?? {});
+  const tarifas = [elegida, ...otras];
+  const deProfesores = gruposDeProfesoresPorTarifa(tarifas, acompanantes?.profesores ?? {}, acompanantes?.gratisProfesores ?? 0);
+  const deChofer = gruposDeChoferPorTarifa(tarifas, acompanantes?.chofer ?? {}, acompanantes?.gratisChofer ?? 0);
   const resultado = precioDeLaEstancia({
     fechaEntrada: viaje.fechaEntrada,
     noches: viaje.noches,
     alumnos: viaje.alumnos,
     profesores: viaje.profesores,
-    composicion,
+    composicion: {
+      ...composicion,
+      ...(bloques.length ? { alumnosOtros: bloques } : {}),
+      // Los de la tabla primero: la gratuidad y las tarifas elegidas; después, los del panel.
+      ...(deProfesores.length ? { profesoresOtros: [...deProfesores, ...(composicion.profesoresOtros ?? [])] } : {}),
+      ...(deChofer.length ? { choferOtros: [...deChofer, ...(composicion.choferOtros ?? [])] } : {}),
+    },
     edadGrupo: viaje.edad ?? null,
-    elegida: comoTarifa(hotel.rate),
+    elegida,
     otras,
     suplementos: hotel.suplementosHabitacion ?? {},
   });

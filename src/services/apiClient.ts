@@ -19,6 +19,8 @@ import type {
 } from "../domain/documentImportTypes";
 import type { Client, SearchFilters, TripProposal, TripRequest } from "../domain/types";
 import type { ContextoDeCotizacion, LecturaDeCotizacion } from "../domain/cotizacionDelProveedor";
+import type { ResultadoAuditoria, ValorAuditado } from "../domain/auditoriaIa";
+import type { LecturaIa, TextoParaLaIa } from "../domain/lecturaIa";
 import type { ClienteEspecial } from "../domain/documentImportTypes";
 
 // Mismo origen: en dev lo resuelve el proxy de Vite (`/api` -> :8787) y en
@@ -345,6 +347,36 @@ export function fetchZohoDealStagesApi() {
     "/api/crm/deal-stages",
     "No se pudieron obtener las fases de Zoho.",
   );
+}
+
+/**
+ * La lectura con IA de la solicitud. Con la IA apagada en el servidor contesta
+ * `activa: false` y la pantalla sigue solo con las reglas, como siempre. Si
+ * falla, no es un error de la pantalla: se queda con lo que ya entendió.
+ */
+export async function leerSolicitudConIaApi(payload: {
+  textos: TextoParaLaIa[];
+  reglas: unknown;
+}): Promise<{
+  activa: boolean;
+  lectura: LecturaIa | null;
+  motivo: string | null;
+  clientes?: import("../domain/documentImportTypes").ClienteEspecial[];
+}> {
+  return postJson("/api/solicitud/lectura-ia", payload, "No se pudo leer la solicitud con IA.");
+}
+
+/** La IA revisa cada dato de «Lo que hemos entendido» contra lo escrito. Ver `domain/auditoriaIa.ts`. */
+export async function auditarSolicitudConIaApi(payload: {
+  textos: TextoParaLaIa[];
+  valores: ValorAuditado[];
+}): Promise<{
+  activa: boolean;
+  auditoria: ResultadoAuditoria | null;
+  motivo: string | null;
+  clientes?: import("../domain/documentImportTypes").ClienteEspecial[];
+}> {
+  return postJson("/api/solicitud/auditoria-ia", payload, "No se pudo revisar la solicitud con IA.");
 }
 
 export interface ContactoDelCrm {
@@ -1066,7 +1098,7 @@ export function listProposalDeliveriesApi() {
  * en la cabecera y se abre desde memoria: así el token no acaba en la URL, ni
  * en el historial del navegador ni en los registros del servidor.
  */
-export async function abrirProposalPdf(deliveryId: string): Promise<void> {
+export async function abrirProposalPdf(deliveryId: string, ventana?: Window | null): Promise<void> {
   const response = await fetch(
     `${API_BASE_URL}/api/deliveries/${encodeURIComponent(deliveryId)}/pdf`,
     { headers: authHeaders() },
@@ -1076,7 +1108,10 @@ export async function abrirProposalPdf(deliveryId: string): Promise<void> {
   }
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
-  window.open(url, "_blank", "noopener");
+  // Con una pestaña ya abierta (al pulsar «Generar el documento», que tarda: el navegador
+  // bloquea las ventanas que se abren tras esperar), se carga ahí el PDF.
+  if (ventana && !ventana.closed) ventana.location.href = url;
+  else window.open(url, "_blank", "noopener");
   // Se revoca con margen para que la pestaña haya cargado el PDF.
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

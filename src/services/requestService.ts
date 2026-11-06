@@ -395,7 +395,9 @@ function nombreDeLaFirma(text: string): string {
   if (indice < 0) return "";
 
   const enLaMismaLinea = lineas[indice].split(/[\w.+-]+@[\w-]+\.[\w.-]+/)[0];
-  const candidatos = [enLaMismaLinea, lineas[indice - 1] ?? ""];
+  // También la línea de DEBAJO: «correo@colegio.es / Luis Peña» es tan normal
+  // como la firma encima (Anthony, 05/11/2026, contestando en el chat).
+  const candidatos = [enLaMismaLinea, lineas[indice - 1] ?? "", lineas[indice + 1] ?? ""];
 
   for (const candidato of candidatos) {
     const limpio = candidato.replace(/[<(\[]/g, " ").replace(/[-–—,;:|]+\s*$/, "").trim();
@@ -466,6 +468,136 @@ export function extractClientInfo(text: string): ExtractedClientInfo {
   const opportunityName = [base, destination, year].filter(Boolean).join(" ").trim();
 
   return { email, firstName, lastName, centreName, opportunityName };
+}
+
+export interface DepartamentoSugerido {
+  departamento: "GROUPS" | "SPORTS";
+  /** Lo que lo delata, dicho como se lo diríamos a una persona. */
+  motivo: string;
+}
+
+/**
+ * ¿Es una solicitud de Grupos (colegios) o de Turismo Deportivo (clubes)?
+ *
+ * Hasta ahora lo decidía una persona en el último campo de «Lo que hemos
+ * entendido», y para un administrador venía en «Sin elegir» (05/11/2026: un
+ * correo de un club suizo —«FC Weinfelden», «24 pax», «Natural Grass», «MSH»—
+ * seguía sin departamento). Importa: el departamento filtra las tarifas de hotel,
+ * clasifica el trato en el CRM y elige desde qué buzón sale el correo.
+ *
+ * Solo sugiere cuando las señales son claras. Con señales de los dos lados, o
+ * con ninguna, no dice nada: equivocarse en silencio es peor que preguntar.
+ */
+export function sugerirDepartamento(texto: string): DepartamentoSugerido | null {
+  const t = texto ?? "";
+  const deporte: [RegExp, string][] = [
+    // Las siglas de club, en mayúscula y como palabra: «FC», no «fc» dentro de otra.
+    [/(?<![\p{L}])(?:FC|CF|CD|UD|SD|SC|SV|TSV|VfB|VfL)(?![\p{L}])/u, "un club (FC, CF…)"],
+    [/\bpax\b/i, "«pax»"],
+    [/natural\s+grass|artificial\s+(?:grass|turf)|césped|cesped/i, "el tipo de césped"],
+    [/\b(?:MSH|Mediterranean Sports Hub)\b/i, "MSH"],
+    [/\b(?:football|soccer|fútbol|futbol|torneo|tournament|jugadores|players|coaches|entrenadores?)\b/i, "deporte"],
+  ];
+  const grupos: [RegExp, string][] = [
+    [/\b(?:IES|CEIP|CPI|colegio|instituto|institut|escuela|escola|school|schule)\b/i, "un colegio o instituto"],
+    [/\b(?:alumnos|alumnes|estudiantes|students|schüler)\b/i, "alumnos"],
+    [/\bprofesores|profesors|teachers|lehrer\b/i, "profesores"],
+    [/fin de curso|viaje de estudios|\bESO\b|bachillerato/i, "viaje de curso"],
+  ];
+
+  const señalesDeporte = deporte.filter(([re]) => re.test(t));
+  const señalesGrupos = grupos.filter(([re]) => re.test(t));
+
+  if (señalesDeporte.length >= 2 && señalesDeporte.length > señalesGrupos.length) {
+    return { departamento: "SPORTS", motivo: señalesDeporte.map(([, m]) => m).slice(0, 3).join(", ") };
+  }
+  if (señalesGrupos.length >= 2 && señalesGrupos.length > señalesDeporte.length) {
+    return { departamento: "GROUPS", motivo: señalesGrupos.map(([, m]) => m).slice(0, 3).join(", ") };
+  }
+  return null;
+}
+
+/**
+ * ¿Es el texto SOLO un nombre y apellidos («Anthony Quinatoa», «Marta de la Fuente»)?
+ *
+ * Dos a cuatro palabras que empiezan por mayúscula, sin cifras ni signos, y que
+ * no son un sitio del catálogo ni una despedida. Es deliberadamente estricto: se
+ * usa para decidir que una respuesta suelta es el contacto, y equivocarse
+ * convertiría «La Pineda» en una persona.
+ */
+export function parecenSoloNombreYApellidos(texto: string): boolean {
+  const limpio = (texto ?? "").trim();
+  if (limpio.length < 5 || limpio.length > 50 || /[\d@:;,.!?¿¡()/]/.test(limpio)) return false;
+  if (NO_ES_NOMBRE.test(limpio) || findDestination(limpio)) return false;
+  return /^[A-ZÁÉÍÓÚÑ][a-záéíóúñ'’-]+(?:\s+(?:de|del|la|las|los|i|y)){0,2}(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ'’-]+){1,3}$/.test(
+    limpio,
+  );
+}
+
+/** Lo que del formulario de la solicitud se puede completar leyendo un mensaje. */
+export interface DatosDeContacto {
+  email?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  centreName?: string | null;
+  opportunityName?: string | null;
+}
+
+/**
+ * Completa los datos de contacto con lo que diga un mensaje POSTERIOR al primero.
+ *
+ * Reunión con Oravia, 05/11/2026: «el extractor del chat no recoge el contacto
+ * ni el email si no vienen en el primer mensaje». Lo que se escribe en el chat
+ * mientras hay una pregunta abierta es una respuesta, y las respuestas solo se
+ * leían para destino, fechas y alumnos. El correo y el nombre que llegaban en
+ * ese segundo mensaje se perdían y el operador tenía que teclearlos.
+ *
+ * Solo rellena HUECOS: lo que ya hay —escrito a mano o leído del primer
+ * mensaje— no se toca. El nombre y el apellido se completan juntos o ninguno,
+ * para no mezclar un nombre tecleado con un apellido de la firma de otra persona.
+ *
+ * El nombre de la oportunidad solo se completa si el mensaje trae el centro. Sin
+ * él, `extractClientInfo` cae en el respaldo «Viaje escolar Salou»: con una
+ * respuesta corta como «Salou» eso dejaría el nombre de la oportunidad en
+ * «Salou».
+ *
+ * Devuelve el MISMO objeto si no hay nada que completar, para no provocar un
+ * pintado de más.
+ */
+export function completarDatosDeContacto<T extends DatosDeContacto>(
+  actual: T,
+  texto: string,
+  opciones: { nombreSuelto?: boolean } = {},
+): T {
+  const leido = extractClientInfo(texto);
+  const vacio = (valor?: string | null) => !valor || !valor.trim();
+  const cambios: DatosDeContacto = {};
+
+  if (vacio(actual.email) && leido.email) cambios.email = leido.email;
+  if (vacio(actual.firstName) && vacio(actual.lastName) && leido.firstName) {
+    cambios.firstName = leido.firstName;
+    cambios.lastName = leido.lastName;
+  } else if (
+    // Alguien que contesta con solo su nombre («Anthony Quinatoa»): si la
+    // respuesta no ha servido para nada más y ya hay un correo, es el contacto.
+    opciones.nombreSuelto &&
+    vacio(actual.firstName) &&
+    vacio(actual.lastName) &&
+    (!vacio(actual.email) || leido.email) &&
+    parecenSoloNombreYApellidos(texto)
+  ) {
+    const partes = texto.trim().split(/\s+/);
+    cambios.firstName = partes[0];
+    cambios.lastName = partes.slice(1).join(" ");
+  }
+  if (vacio(actual.centreName) && leido.centreName) {
+    cambios.centreName = leido.centreName;
+    if (vacio(actual.opportunityName) && leido.opportunityName) {
+      cambios.opportunityName = leido.opportunityName;
+    }
+  }
+
+  return Object.keys(cambios).length === 0 ? actual : { ...actual, ...cambios };
 }
 
 export interface RequestExtras {
@@ -718,6 +850,21 @@ export const readTripMessage = (
   normalized.categoryRequested = extractCategory(rawTripRequestText);
   normalized.requirementsText = extractRequirements(rawTripRequestText);
 
+  return resultadoDeUnaLectura(normalized, rawTripRequestText);
+};
+
+/**
+ * Lo que falta y los avisos de una petición YA entendida.
+ *
+ * Sale de `readTripMessage` para poder aplicarlo también a una petición fundida
+ * de varios mensajes y respuestas del chat (`lecturaDeLaSolicitud`): si los
+ * huecos se calcularan sobre una lectura y se mostrara otra, la pantalla
+ * pediría datos que ya están.
+ */
+export function resultadoDeUnaLectura(
+  normalized: NormalizedRequestDraft,
+  rawTripRequestText: string,
+): ParseTripRequestResult {
   const missingFields = buildMissingFields(normalized, rawTripRequestText);
   const warnings = buildWarnings(normalized);
 
@@ -729,7 +876,7 @@ export const readTripMessage = (
       ? "PARSED_WITH_GAPS"
       : "READY_FOR_SEARCH"
   };
-};
+}
 
 export const parseTripRequest = (input: ParseTripRequestInput): ParseTripRequestResult => {
   intakeSchema.parse(input);

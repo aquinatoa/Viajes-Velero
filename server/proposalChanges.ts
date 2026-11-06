@@ -20,7 +20,7 @@
 import { importeDe } from "../src/domain/importe";
 import { PrismaClient } from "@prisma/client";
 import { searchAccommodationsDb } from "./searchDb";
-import { estanciaDeHotel } from "../src/services/estanciaDeHotel";
+import { estanciaDeHotel, type AcompanantesDelHotel } from "../src/services/estanciaDeHotel";
 import { COMPOSICION_POR_DEFECTO, costesDelTramo, textoDelDesglose, type ComposicionDeLaEstancia } from "../src/domain/estancia";
 
 const prisma = new PrismaClient();
@@ -69,6 +69,37 @@ function composicionGuardada(stayJson: string | null | undefined): ComposicionDe
     return c ? { ...COMPOSICION_POR_DEFECTO, ...c } : COMPOSICION_POR_DEFECTO;
   } catch {
     return COMPOSICION_POR_DEFECTO;
+  }
+}
+
+/**
+ * Cuántos alumnos iban en cada tarifa de ESTE hotel cuando se cotizó (tarifa →
+ * cantidad), de `stayJson`. Sin esto, un cambio del cliente recalcularía la
+ * opción con todos los alumnos en la tarifa elegida y el total cambiaría sin
+ * que nadie lo hubiera tocado.
+ */
+export function asignacionDeAlumnosGuardada(stayJson: string | null | undefined, accommodationId: string | null | undefined): Record<string, number> {
+  if (!stayJson || !accommodationId) return {};
+  try {
+    const g = JSON.parse(stayJson) as Record<string, unknown> | null;
+    const todos = g?.alumnosPorTarifa as Record<string, Record<string, number>> | undefined;
+    const delHotel = todos?.[accommodationId];
+    return delHotel && typeof delHotel === "object" ? delHotel : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Cómo iban los profesores y el chófer en las tarifas de este hotel, y la gratuidad, al cotizar. */
+export function acompanantesGuardados(stayJson: string | null | undefined, accommodationId: string | null | undefined): AcompanantesDelHotel {
+  if (!stayJson || !accommodationId) return {};
+  try {
+    const g = JSON.parse(stayJson) as Record<string, unknown> | null;
+    const todos = g?.acompanantesPorHotel as Record<string, AcompanantesDelHotel> | undefined;
+    const delHotel = todos?.[accommodationId];
+    return delHotel && typeof delHotel === "object" ? delHotel : {};
+  } catch {
+    return {};
   }
 }
 
@@ -214,14 +245,22 @@ export async function previewChange(
       // como al cotizar. Antes era una tarifa × noches × alumnos: sin profesores
       // ni tramos, y el desglose de la versión nueva no cuadraba con su total.
       const composicion = composicionGuardada(proposal.stayJson);
-      const estancia = estanciaDeHotel(encontrado, composicion, {
-        fechaEntrada: nuevaDesde ? fechaCorta(nuevaDesde) : "",
-        noches: Math.max(nochesNuevas, 1),
-        alumnos: nuevoParticipantes ?? 0,
-        profesores: nuevoTeachers ?? 0,
-      });
+      const estancia = estanciaDeHotel(
+        encontrado,
+        composicion,
+        {
+          fechaEntrada: nuevaDesde ? fechaCorta(nuevaDesde) : "",
+          noches: Math.max(nochesNuevas, 1),
+          alumnos: nuevoParticipantes ?? 0,
+          profesores: nuevoTeachers ?? 0,
+        },
+        asignacionDeAlumnosGuardada(proposal.stayJson, opcion.accommodationId),
+        acompanantesGuardados(proposal.stayJson, opcion.accommodationId),
+      );
       const unidad = encontrado.rate.pvpAmount || encontrado.rate.netSaleAmount || 0;
-      const precioAhora = estancia ? estancia.porAlumno : Math.round(unidad * Math.max(nochesNuevas, 1) * 100) / 100;
+      // Con alumnos en otra tarifa, el precio por alumno que se compara con el de antes es
+      // el medio de todo el grupo (el de antes sale de dividir el total entre los alumnos).
+      const precioAhora = estancia ? (estancia.porAlumnoMedio ?? estancia.porAlumno) : Math.round(unidad * Math.max(nochesNuevas, 1) * 100) / 100;
       const totalAhora = estancia
         ? estancia.total
         : nuevoParticipantes
@@ -354,6 +393,14 @@ export async function applyChange(
           durationSnapshot: actividad.durationSnapshot,
           pvpSnapshot: actividad.pvpSnapshot,
           descriptionSnapshot: actividad.descriptionSnapshot,
+          // Las entradas, el importe del grupo y el coste viajan con la actividad:
+          // sin ellos la versión nueva perdía el precio por alumno y por profesor
+          // y el coste (hallado el 05/11/2026 al investigar las actividades que
+          // no llegaban al CRM).
+          linesJson: actividad.linesJson,
+          amountTotal: actividad.amountTotal,
+          unitCostAmount: actividad.unitCostAmount,
+          supplierQuoteId: actividad.supplierQuoteId,
           isSelected: actividad.isSelected,
         })),
       },

@@ -14,6 +14,8 @@ prisma/test-flow.db*
 mockups/
 rae-zoho-migration/
 storage/
+# Lecturas con IA: llevan datos reales de contacto (nunca al repositorio)
+solicitud-ia/
 .claude/
 .gstack/
 

@@ -39,6 +39,7 @@ function habitacion(texto: string): string {
     .split(",")
     .map((p) => p.trim())
     .map((p) => {
+      if (/^gratuidad$/.test(p)) return "gratuidad del hotel, sin coste";
       if (/^sin tarifa/.test(p)) return "al mismo precio que los alumnos";
       if (/^uso individual$|^individual$/.test(p)) return "habitación individual";
       if (/^en doble$/.test(p)) return "habitación doble";
@@ -65,6 +66,13 @@ export function desgloseParaElCliente(texto: string | null | undefined): string 
           const nombre = quien === "profesores" ? (uno ? "profesor" : "profesores") : uno ? "chófer" : "chóferes";
           return ` × ${n} ${nombre} (${habitacion(dentro)})`;
         })
+        // Un bloque de alumnos con otra habitación y otra pensión (05/11/2026): se lee
+        // como los profesores. Solo si el paréntesis dice habitación: el del grupo
+        // principal lleva suplementos de la noche y se deja como está.
+        .replace(
+          / x (\d+) alumnos \(((?:en doble|en múltiple|individual|sin tarifa)[^)]*)\)/g,
+          (_, n: string, dentro: string) => ` × ${n} ${Number(n) === 1 ? "alumno" : "alumnos"} (${habitacion(dentro)})`,
+        )
         .replace(/ x (\d+) profesores\b/g, (_, n: string) => ` × ${n} ${Number(n) === 1 ? "profesor" : "profesores"}`)
         .replace(/ x (\d+) alumnos/g, (_, n: string) => ` × ${n} ${Number(n) === 1 ? "alumno" : "alumnos"}`)
         .replace(/por noche x (\d+) noche(s?)/, "por noche × $1 noche$2"),
@@ -153,7 +161,11 @@ export function estanciaParaElCliente(
   const d = desgloseDeLaOpcion(priceBreakdownText, totalPvpText);
   if (!d) return null;
   const plural = (n: number) => `${n} ${n === 1 ? "noche" : "noches"}`;
-  if (d.tramos.length <= 1) return `Toda la estancia: ${plural(d.noches)} a ${euros(d.alumnos.precio)} por alumno y noche.`;
+  // Con bloques de alumnos en otra habitación o con otra pensión, esta cifra es la
+  // del grupo principal: se dice, para que nadie la tome por la de todos.
+  const conBloques = d.tramos.some((t) => (t.alumnosGrupos?.length ?? 0) > 0);
+  const aviso = conBloques ? " El resto de los alumnos va en otra habitación o con otra pensión: está en el desglose." : "";
+  if (d.tramos.length <= 1) return `Toda la estancia: ${plural(d.noches)} a ${euros(d.alumnos.precio)} por alumno y noche.${aviso}`;
 
   // Tramos seguidos con la misma pensión y el mismo precio de alumno, juntos.
   const juntos: Array<{ regimen: string | null; noches: number; precio: number; desde: number }> = [];
@@ -165,7 +177,7 @@ export function estanciaParaElCliente(
     desde += t.noches;
   }
   if (juntos.length === 1) {
-    return `Toda la estancia: ${plural(d.noches)}${juntos[0].regimen ? ` de ${pension(juntos[0].regimen).toLowerCase()}` : ""} a ${euros(juntos[0].precio)} por alumno y noche.`;
+    return `Toda la estancia: ${plural(d.noches)}${juntos[0].regimen ? ` de ${pension(juntos[0].regimen).toLowerCase()}` : ""} a ${euros(juntos[0].precio)} por alumno y noche.${aviso}`;
   }
   const entrada = fechaEntrada ? new Date(`${String(fechaEntrada instanceof Date ? fechaEntrada.toISOString() : fechaEntrada).slice(0, 10)}T12:00:00Z`) : null;
   const cuando = (desdeNoche: number, noches: number) => {
@@ -180,5 +192,5 @@ export function estanciaParaElCliente(
   const partes = juntos.map(
     (j) => `${plural(j.noches)}${j.regimen ? ` de ${pension(j.regimen).toLowerCase()}` : ""} a ${euros(j.precio)}${cuando(j.desde, j.noches)}`,
   );
-  return `Toda la estancia, por alumno y noche: ${partes.slice(0, -1).join(", ")} y ${partes[partes.length - 1]}.`;
+  return `Toda la estancia, por alumno y noche: ${partes.slice(0, -1).join(", ")} y ${partes[partes.length - 1]}.${aviso}`;
 }

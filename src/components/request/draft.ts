@@ -4,6 +4,7 @@ import type { DescuentoDeActividad } from "../../domain/descuentoDeActividad";
 import type { LineaDeActividad } from "../../domain/lineasDeActividad";
 import type { ComposicionDeLaEstancia } from "../../domain/estancia";
 import type { NormalizedRequestDraft, ParseTripRequestInput } from "../../domain/types";
+import type { CampoFijado } from "../../services/lecturaDeLaSolicitud";
 
 /**
  * Borrador del lienzo.
@@ -54,6 +55,14 @@ export interface BorradorSolicitud {
    * contestado ayer por teléfono.
    */
   conversacion?: { pregunta: string; respuesta: string }[];
+  /**
+   * Lo que se ESCRIBIÓ en el chat, con cuántos mensajes del colegio había.
+   * «Lo entendido» se calcula leyéndolo junto con los mensajes (05/11/2026).
+   * Opcional: un borrador anterior no lo tiene y se lee como vacío.
+   */
+  respuestasLibres?: { texto: string; trasMensajes: number }[];
+  /** Campos que alguien fijó a mano o con un botón: ninguna lectura los pisa. */
+  fijados?: CampoFijado[];
   /** Preguntas que se hicieron y se quedaron sin respuesta: no se repiten. */
   preguntadas?: string[];
   elegidos: string[];
@@ -78,6 +87,12 @@ export interface BorradorSolicitud {
   lineas?: Record<string, LineaDeActividad[]>;
   /** Pensión por noche y habitación de profesores y chófer (19/10/2026). */
   composicion?: ComposicionDeLaEstancia;
+  /** Las «Notas» para el cliente: salen en el PDF y en la página del enlace (05/11/2026). */
+  notas?: string;
+  /** Cuántos alumnos van en cada tarifa de cada hotel: hotel → tarifa → cantidad (06/11/2026). */
+  alumnosPorTarifa?: Record<string, Record<string, number>>;
+  /** Profesores y chófer en cada tarifa de cada hotel, y la gratuidad: hotel → reparto (06/11/2026). */
+  acompanantesPorHotel?: Record<string, import("../../services/estanciaDeHotel").AcompanantesDelHotel>;
   /** Hoteles y actividades fuera del catálogo, con el precio del proveedor. */
   hotelesAdHoc?: HotelAdHoc[];
   actividadesAdHoc?: ActividadAdHoc[];

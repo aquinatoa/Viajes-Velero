@@ -343,5 +343,71 @@ prueba("profesores y chóferes en varias habitaciones: una fila por habitación,
   assert.deepEqual([0, 1, 2, 3, 4].map(cuesta), [33.6, 58.8, 41.36, 58.8, 33.6]);
 });
 
+// ── Bloques de alumnos con otra habitación y otra pensión (Oravia, 05/11/2026) ──
+
+const CON_BLOQUE =
+  "40,00 € x 40 alumnos + 52,00 € x 10 alumnos (en doble, suplemento +10 %, MP) + 60,11 € x 3 profesores (uso individual), por noche x 4 noches";
+
+prueba("un bloque de alumnos en doble y con otra pensión es OTRA fila, con su habitación y su pensión", () => {
+  const r = filasDeLaOpcion(opcion(CON_BLOQUE, "9.000,00 €", "PC"))!;
+  assert.deepEqual(
+    r.filas.map((f) => [f.quien, f.comentario, f.pax, f.precio, f.producto, f.regimen]),
+    [
+      ["alumnos", "ALUMNOS EN MÚLTIPLE - PC", 40, 40, "Habitación Múltiple - Camping La Siesta - PC", "Pensión Completa"],
+      ["alumnos", "ALUMNOS EN DOBLE - MP", 10, 52, "Habitación Doble - Camping La Siesta - MP", "Media Pensión"],
+      ["profesores", "PROFESORES EN INDIVIDUAL - PC", 3, 60.11, "Habitación Individual - Camping La Siesta - PC", "Pensión Completa"],
+    ],
+  );
+  assert.equal(r.filas[1].grupo, 1, "el bloque es el grupo 1; el principal, el 0");
+});
+
+prueba("el coste de cada bloque sale de su sitio en costsJson (el principal primero)", () => {
+  const r = filasDeLaOpcion(opcion(CON_BLOQUE, "9.000,00 €", "PC"))!;
+  const costsJson = JSON.stringify([{ alumno: 31, profesor: 45, chofer: null, alumnos: [31, 40.5] }]);
+  assert.equal(costeDeLaFila(r.filas[0], { costsJson }, []), 31);
+  assert.equal(costeDeLaFila(r.filas[1], { costsJson }, []), 40.5);
+});
+
+prueba("sin costsJson (propuestas de antes) un bloque NO hereda el coste del grupo principal", () => {
+  const r = filasDeLaOpcion(opcion(CON_BLOQUE, "9.000,00 €", "PC"))!;
+  const opcionAntigua = { studentCostAmount: 31, teacherCostAmount: 45 };
+  assert.equal(costeDeLaFila(r.filas[0], opcionAntigua, []), 31);
+  assert.equal(costeDeLaFila(r.filas[1], opcionAntigua, []), null, "mejor sin validar que con un coste que no es");
+});
+
+prueba("sin bloques las filas son las de siempre (regresión)", () => {
+  const r = filasDeLaOpcion(opcion(SIESTA, "12.882,24 €"))!;
+  assert.ok(r.filas.every((f) => f.grupo === undefined));
+  assert.equal(r.filas.filter((f) => f.quien === "alumnos").length, 1);
+});
+
+// ── Plazas de gratuidad del hotel (06/11/2026): no se cobran ni cuestan, no son una fila ──
+
+prueba("una plaza de gratuidad de profesores o de chófer no genera fila en Servicios Contratados", () => {
+  const texto =
+    "54,00 € x 50 alumnos + 0,00 € x 2 profesores (gratuidad) + 54,00 € x 1 profesores (múltiple) + 0,00 € x 1 chófer (gratuidad), por noche x 4 noches";
+  const r = filasDeLaOpcion(opcion(texto, "11.016,00 €", "PC"))!;
+  assert.deepEqual(
+    r.filas.map((f) => [f.quien, f.pax, f.precio]),
+    [
+      ["alumnos", 50, 54],
+      ["profesores", 1, 54],
+    ],
+    "solo lo que se cobra",
+  );
+  const suma = r.filas.reduce((n, f) => n + f.pax * f.precio * f.noches, 0);
+  assert.equal(Math.round(suma * 100) / 100, 11016, "las filas siguen sumando el total de la opción");
+});
+
+prueba("el coste de un grupo sigue su índice aunque delante haya una plaza de gratuidad", () => {
+  const texto = "54,00 € x 50 alumnos + 0,00 € x 2 profesores (gratuidad) + 43,20 € x 1 profesores (en múltiple, MP), por noche x 1 noche";
+  const r = filasDeLaOpcion(opcion(texto, "2.743,20 €", "PC"))!;
+  const profesores = r.filas.filter((f) => f.quien === "profesores");
+  assert.equal(profesores.length, 1);
+  assert.equal(profesores[0].grupo, 1, "es el segundo grupo: el primero es la gratuidad");
+  const costsJson = JSON.stringify([{ alumno: 43, profesor: 43, profesores: [0, 34.56], choferes: [] }]);
+  assert.equal(costeDeLaFila(profesores[0], { costsJson }, []), 34.56);
+});
+
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);
 if (fallidas > 0) process.exit(1);

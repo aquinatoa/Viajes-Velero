@@ -15,7 +15,7 @@
  */
 import assert from "node:assert/strict";
 
-import { interpretarRespuesta, numeroDe, pareceUnLugar } from "../src/domain/interpretarRespuesta";
+import { interpretarRespuesta, numeroDe, pareceUnaOpcion, pareceUnLugar } from "../src/domain/interpretarRespuesta";
 import { siguientePregunta } from "../src/domain/loQueFalta";
 
 let pasadas = 0;
@@ -40,6 +40,38 @@ const TOPE = siguientePregunta(
   { destinationText: "Salou", dateFrom: "2027-05-12", dateTo: "2027-05-16", participants: 48, regimeRequested: "PC" },
   ["regimeRequested"],
 )!;
+
+const REGIMEN = {
+  clave: "regimeRequested",
+  pregunta: "¿Qué régimen quieren?",
+  porque: "",
+  bloquea: false,
+  tipo: "opciones",
+} as const;
+
+console.log("\nUna frase no es un régimen (prueba de Oravia, 05/11)");
+
+prueba("una frase entera NO se guarda como régimen", () => {
+  const frase = "de los 24 pasajeros somos 20 alumnos y 4 profesores. Soy Anthony Quinatoa,";
+  const r = interpretarRespuesta(REGIMEN, frase, { participants: 20, teachers: 4 });
+  assert.equal(r.contesta, false);
+  assert.equal(r.aplicar.regimeRequested, undefined);
+  assert.equal(r.aplicar.participants, 20, "pero lo demás se aprovecha");
+});
+
+prueba("un régimen escrito a mano de otra forma sí se admite", () => {
+  const r = interpretarRespuesta(REGIMEN, "todo incluido", {});
+  assert.equal(r.contesta, true);
+  assert.equal(r.aplicar.regimeRequested, "todo incluido");
+});
+
+prueba("pareceUnaOpcion: corto sí, párrafo no", () => {
+  assert.equal(pareceUnaOpcion("media pensión"), true);
+  assert.equal(pareceUnaOpcion("4 estrellas"), true);
+  assert.equal(pareceUnaOpcion("3.5 estrellas"), true);
+  assert.equal(pareceUnaOpcion("Soy Anthony. Somos 20 alumnos"), false);
+  assert.equal(pareceUnaOpcion(""), false);
+});
 
 console.log("\nEl caso de la pantalla");
 

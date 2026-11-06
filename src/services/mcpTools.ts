@@ -6,6 +6,8 @@ export {
   saveNormalizedTripRequest,
   findCandidateOpportunities,
   extractClientInfo,
+  completarDatosDeContacto,
+  sugerirDepartamento,
   extractRequestExtras
 } from "./requestService";
 export { buildProposal, approveProposal, confirmFinalSelection } from "./proposalService";

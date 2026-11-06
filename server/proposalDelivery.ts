@@ -14,6 +14,7 @@
  * generado, para poder probar el circuito entero antes de que llegue la clave.
  */
 
+import { notasGuardadas } from "../src/domain/notasDeLaPropuesta";
 import {
   lineasEnLista,
   preciosPorPersona,
@@ -178,7 +179,33 @@ export interface DeliveryResult {
  * cierre del lienzo se reintenta cuando falla a mitad, y sin esto cada
  * reintento quemaba un número de referencia y dejaba otro borrador colgando.
  */
-export async function prepareDelivery(input: PrepareDeliveryInput): Promise<DeliveryResult> {
+export function prepareDelivery(input: PrepareDeliveryInput): Promise<DeliveryResult> {
+  return enCola(() => prepararEntrega(input));
+}
+
+/**
+ * Una preparación detrás de otra.
+ *
+ * Reunión con Oravia, 05/11/2026: «Ver documento se bloquea si dos usuarios
+ * están en la misma propuesta». Preparar calcula «la última referencia + 1»,
+ * genera el PDF y crea la fila; con dos personas a la vez ambas calculaban el
+ * mismo número y la segunda chocaba con la restricción de unicidad de
+ * `reference`. Poniendo las preparaciones en cola, la segunda encuentra ya el
+ * borrador de la primera y lo reutiliza (misma referencia, mismo enlace).
+ *
+ * Vale porque la API es un solo proceso Node. Preparar tarda una fracción de
+ * segundo, así que la cola no se nota.
+ */
+let colaDePreparacion: Promise<unknown> = Promise.resolve();
+
+function enCola<T>(trabajo: () => Promise<T>): Promise<T> {
+  const turno = colaDePreparacion.then(trabajo, trabajo);
+  // Lo que falla no puede dejar atascada a la siguiente persona.
+  colaDePreparacion = turno.catch(() => undefined);
+  return turno;
+}
+
+async function prepararEntrega(input: PrepareDeliveryInput): Promise<DeliveryResult> {
   const proposal = await prisma.tripProposal.findUnique({
     where: { id: input.proposalId },
     include: {
@@ -233,6 +260,7 @@ export async function prepareDelivery(input: PrepareDeliveryInput): Promise<Deli
     activities: actividadesSinAlojamiento(proposal, request.participants ?? 0, request.teachers ?? 0),
     publicUrl,
     preparedBy: box.displayName,
+    notes: notasGuardadas(proposal.stayJson),
   });
 
   const { subject, bodyText } = composeMessage({

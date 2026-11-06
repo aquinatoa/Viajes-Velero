@@ -27,7 +27,7 @@ import "../server/loadEnv";
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -1348,6 +1348,58 @@ async function main() {
     assert.equal(entregas, 1);
   });
 
+  // Reunión del 05/11/2026: «Ver documento se bloquea si dos usuarios están en
+  // la misma propuesta». Preparar leía «la última referencia + 1» sin ningún
+  // cerrojo y escribía el PDF en una ruta que sale de la referencia: dos
+  // personas a la vez recibían el mismo número y el segundo `create` chocaba
+  // con la restricción de unicidad.
+  await test("dos personas preparan propuestas distintas a la vez: cada una su referencia", async () => {
+    const solicitudes = await Promise.all([nuevaSolicitud("Concurrente A"), nuevaSolicitud("Concurrente B")]);
+    const propuestas = await Promise.all(
+      solicitudes.map((req) =>
+        commercial.saveTripProposalDb({
+          tripRequestId: req.id,
+          versionNumber: 1,
+          proposalStatus: "READY_FOR_APPROVAL",
+          accommodationOptions: [opcion("Hotel A")],
+          activityOptions: [],
+        }),
+      ),
+    );
+
+    const entregas = await Promise.all(
+      propuestas.map((p) =>
+        delivery.prepareDelivery({ proposalId: p.id, recipientEmail: "colegio@example.com" }),
+      ),
+    );
+
+    assert.equal(entregas.length, 2);
+    assert.notEqual(entregas[0].reference, entregas[1].reference, "no pueden compartir número");
+  });
+
+  await test("dos personas preparan LA MISMA propuesta a la vez: una entrega y un PDF legible", async () => {
+    const req = await nuevaSolicitud("Concurrente misma propuesta");
+    const propuesta = await commercial.saveTripProposalDb({
+      tripRequestId: req.id,
+      versionNumber: 1,
+      proposalStatus: "READY_FOR_APPROVAL",
+      accommodationOptions: [opcion("Hotel A")],
+      activityOptions: [],
+    });
+
+    const [a, b] = await Promise.all([
+      delivery.prepareDelivery({ proposalId: propuesta.id, recipientEmail: "colegio@example.com" }),
+      delivery.prepareDelivery({ proposalId: propuesta.id, recipientEmail: "colegio@example.com" }),
+    ]);
+
+    assert.equal(a.id, b.id, "es la misma entrega");
+    assert.equal(a.reference, b.reference);
+    const entregas = await prisma.proposalDelivery.count({ where: { proposalId: propuesta.id } });
+    assert.equal(entregas, 1, "no debe quedar una segunda entrega colgando");
+    const cabecera = readFileSync(path.resolve(process.cwd(), a.pdfPath!)).subarray(0, 5).toString();
+    assert.equal(cabecera, "%PDF-", "el documento tiene que poder abrirse");
+  });
+
   await test("lo que ya salió no se reescribe: se abre una propuesta nueva", async () => {
     const req = await nuevaSolicitud("Ya enviada");
     const propuesta = await commercial.saveTripProposalDb({
@@ -1911,6 +1963,77 @@ async function main() {
 
     const quedan = await prisma.requestDraft.count({ where: { tripRequestId: req.id } });
     assert.equal(quedan, 0, "una propuesta hecha ya no es trabajo a medias");
+  });
+
+  await test("un cambio del cliente crea la versión nueva SIN perder las entradas, el importe, el coste ni las notas", async () => {
+    // Hallado el 05/11/2026 al investigar las actividades que no llegaban al CRM:
+    // la versión nueva copiaba la actividad sin `linesJson`, `amountTotal`,
+    // `unitCostAmount` ni `supplierQuoteId`, y el documento perdía el precio por
+    // alumno y por profesor. Las notas viajan en `stayJson`.
+    const proposalChanges = await import("../server/proposalChanges.ts");
+    const req = await nuevaSolicitud("Cambio del cliente: conserva lo elegido");
+    const lines = [{ rateId: "r1", cantidad: 40, etiqueta: "Alumnos", precio: 17 }];
+    const propuesta = await commercial.saveTripProposalDb({
+      tripRequestId: req.id,
+      versionNumber: 1,
+      proposalStatus: "READY_FOR_APPROVAL",
+      stayJson: JSON.stringify({ canal: "GENERIC", notas: "Entrenamientos martes y jueves" }),
+      accommodationOptions: [opcion("Hotel con cambio")],
+      activityOptions: [
+        {
+          optionNumber: 1,
+          activityId: "adhoc:kayak",
+          displayOrder: 1,
+          activityNameSnapshot: "Kayak",
+          pvpSnapshot: "17,00 €",
+          lines,
+          amountTotal: 680,
+          unitCostAmount: 11.5,
+          supplierQuoteId: null,
+        },
+      ],
+    });
+
+    const resultado = await proposalChanges.applyChange(propuesta.id, { participants: 60 }, "Seremos 60");
+    assert.equal(resultado.versionNumber, 2);
+
+    const nueva = await prisma.tripProposal.findFirst({
+      where: { tripRequestId: req.id, versionNumber: 2 },
+      include: { activityOptions: true },
+    });
+    assert.ok(nueva, "hay una versión 2");
+    assert.equal(nueva.activityOptions.length, 1);
+    const kayak = nueva.activityOptions[0];
+    assert.deepEqual(JSON.parse(kayak.linesJson ?? "null"), lines, "las entradas viajan");
+    assert.equal(Number(kayak.amountTotal), 680, "el importe del grupo viaja");
+    assert.equal(Number(kayak.unitCostAmount), 11.5, "el coste viaja");
+    assert.equal(JSON.parse(nueva.stayJson ?? "{}").notas, "Entrenamientos martes y jueves", "las notas viajan");
+  });
+
+  await test("el reparto de alumnos por tarifa de un hotel se lee de `stayJson` (y sin él, vacío)", async () => {
+    // Un cambio del cliente recalcula la opción: tiene que usar el mismo reparto con el
+    // que se cotizó, o el total cambiaría sin que nadie lo hubiera tocado (06/11/2026).
+    const { asignacionDeAlumnosGuardada } = await import("../server/proposalChanges.ts");
+    const stayJson = JSON.stringify({ alumnosPorTarifa: { "hotel-1": { "tarifa-mp": 10 }, "hotel-2": { "tarifa-x": 3 } } });
+    assert.deepEqual(asignacionDeAlumnosGuardada(stayJson, "hotel-1"), { "tarifa-mp": 10 });
+    assert.deepEqual(asignacionDeAlumnosGuardada(stayJson, "hotel-2"), { "tarifa-x": 3 });
+    assert.deepEqual(asignacionDeAlumnosGuardada(stayJson, "hotel-3"), {}, "otro hotel: nada");
+    assert.deepEqual(asignacionDeAlumnosGuardada(null, "hotel-1"), {});
+    assert.deepEqual(asignacionDeAlumnosGuardada("no es json", "hotel-1"), {});
+    assert.deepEqual(asignacionDeAlumnosGuardada(JSON.stringify({ notas: "x" }), "hotel-1"), {}, "una propuesta de antes");
+    assert.deepEqual(asignacionDeAlumnosGuardada(stayJson, null), {}, "un hotel ad hoc no tiene tabla");
+  });
+
+  await test("profesores, chófer y gratuidad por hotel se leen de `stayJson` (y sin él, vacío)", async () => {
+    const { acompanantesGuardados } = await import("../server/proposalChanges.ts");
+    const reparto = { profesores: { "tarifa-mp": 2 }, chofer: { "tarifa-mp": 1 }, gratisProfesores: 1 };
+    const stayJson = JSON.stringify({ acompanantesPorHotel: { "hotel-1": reparto } });
+    assert.deepEqual(acompanantesGuardados(stayJson, "hotel-1"), reparto);
+    assert.deepEqual(acompanantesGuardados(stayJson, "hotel-2"), {}, "otro hotel: nada");
+    assert.deepEqual(acompanantesGuardados(null, "hotel-1"), {});
+    assert.deepEqual(acompanantesGuardados("no es json", "hotel-1"), {});
+    assert.deepEqual(acompanantesGuardados(JSON.stringify({ notas: "x" }), "hotel-1"), {}, "una propuesta de antes");
+    assert.deepEqual(acompanantesGuardados(stayJson, null), {}, "un hotel ad hoc no tiene tabla");
   });
 
   await test("una reserva vieja no deja el borrador bloqueado para siempre", async () => {

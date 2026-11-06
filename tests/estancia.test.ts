@@ -10,6 +10,9 @@ import assert from "node:assert/strict";
 import {
   COMPOSICION_POR_DEFECTO,
   costesDelTramo,
+  gruposDeAlumnosPorTarifa,
+  gruposDeChoferPorTarifa,
+  gruposDeProfesoresPorTarifa,
   precioDeLaEstancia,
   suplementosDeHabitacion,
   textoDelDesglose,
@@ -311,6 +314,350 @@ prueba("si todos los profesores van a otra habitación, la principal no sale; y 
   const sin = estancia(1, composicion({}));
   assert.equal(sin.noches[0].profesoresOtros, undefined);
   assert.match(textoDelDesglose(sin, 50, 3, 0), /x 3 profesores \(uso individual/);
+});
+
+
+// ── Alumnos en bloques con otra habitación y otra pensión (Oravia, 05/11/2026) ──
+//
+// «Asignación por colectivo (alumnos/profesores), tipo de habitación y régimen».
+// Los profesores y el chófer ya podían ir en otra habitación y con otra pensión;
+// los alumnos, no. Aquí se parte el grupo: el principal, como siempre, y bloques
+// aparte con su habitación y su pensión.
+
+const conBloques = (noches: number, bloques: ComposicionDeLaEstancia["alumnosOtros"], sobre: Partial<ComposicionDeLaEstancia> = {}) =>
+  estancia(noches, composicion({ alumnosOtros: bloques, ...sobre }));
+
+prueba("un bloque de alumnos en doble y con PC se cobra aparte y el resto, como siempre", () => {
+  const r = conBloques(1, [{ cantidad: 10, habitacion: "DOBLE", regimen: "PC" }]);
+  const n = r.noches[0];
+  assert.equal(n.alumno.precio, 36.29, "el grupo principal, en MP, como siempre");
+  assert.equal(n.alumnosOtros?.length, 1);
+  assert.equal(n.alumnosOtros?.[0].cantidad, 10);
+  assert.equal(n.alumnosOtros?.[0].regimen, "PC");
+  assert.equal(n.alumnosOtros?.[0].precio, 44.67, "PC 40,61 con el suplemento de doble +10 %");
+  // 40 alumnos a 36,29 + 10 a 44,67 + 3 profesores en individual (MP +75 %).
+  const profesores = n.profesor.precio * 3;
+  assert.equal(r.total, Math.round((36.29 * 40 + 44.67 * 10 + profesores) * 100) / 100);
+});
+
+prueba("el precio «por alumno» sigue siendo el del grupo principal: es lo que compara el podio", () => {
+  const sin = estancia(2, composicion({}));
+  const con = conBloques(2, [{ cantidad: 10, habitacion: "DOBLE", regimen: "PC" }]);
+  assert.equal(con.porAlumno, sin.porAlumno);
+  assert.ok(con.total > sin.total, "el bloque de PC en doble cuesta más: el total sube");
+});
+
+prueba("sin bloques, el cálculo y el texto son EXACTAMENTE los de siempre", () => {
+  const sin = estancia(3, composicion({}));
+  const vacios = estancia(3, composicion({ alumnosOtros: [] }));
+  assert.deepEqual(vacios, sin);
+  assert.doesNotMatch(textoDelDesglose(sin, 50, 3, 0), /x \d+ alumnos \(/);
+});
+
+prueba("el bloque de alumnos nunca deja al grupo principal vacío", () => {
+  const r = conBloques(1, [{ cantidad: 50, habitacion: "DOBLE", regimen: "PC" }]);
+  assert.equal(r.noches[0].alumnosOtros?.[0].cantidad, 49, "se recorta a 49 de 50");
+  assert.match(textoDelDesglose(r, 50, 3, 0), /x 1 alumnos/);
+});
+
+prueba("varios bloques suman, y los que sobran se recortan", () => {
+  const r = conBloques(1, [
+    { cantidad: 20, habitacion: "DOBLE", regimen: "PC" },
+    { cantidad: 40, habitacion: "INDIVIDUAL", regimen: "" },
+  ]);
+  const cantidades = r.noches[0].alumnosOtros?.map((g) => g.cantidad);
+  assert.deepEqual(cantidades, [20, 29], "el segundo se recorta para que quede 1 en el principal");
+});
+
+prueba("sin tarifa ni suplemento de esa habitación, va al precio del grupo y lo dice", () => {
+  const r = precioDeLaEstancia({
+    fechaEntrada: "2027-03-23",
+    noches: 1,
+    alumnos: 50,
+    profesores: 0,
+    composicion: composicion({ alumnosOtros: [{ cantidad: 5, habitacion: "INDIVIDUAL", regimen: "" }] }),
+    elegida: R4[0],
+    otras: R4.slice(1),
+    suplementos: {},
+  });
+  assert.equal(r.noches[0].alumnosOtros?.[0].precio, 36.29);
+  assert.ok(r.avisos.some((a) => /alumnos de ese bloque van a precio de/.test(a)), r.avisos.join(" | "));
+});
+
+prueba("el desglose escrito lleva el bloque justo después del grupo principal, y se lee de vuelta", () => {
+  const r = conBloques(2, [{ cantidad: 10, habitacion: "DOBLE", regimen: "PC" }]);
+  const texto = textoDelDesglose(r, 50, 3, 0);
+  assert.match(texto, /^[\d.,]+ € x 40 alumnos \+ [\d.,]+ € x 10 alumnos \(en doble, suplemento \+10 %, PC\) \+ /);
+  const d = desgloseDeLaOpcion(texto, "5.000,00 €");
+  assert.equal(d?.alumnos.pax, 40, "el primero que se lee es el principal");
+  const tramo = d?.tramos[0];
+  assert.equal(tramo?.alumnosGrupos?.length, 1);
+  assert.equal(tramo?.alumnosGrupos?.[0].pax, 10);
+  assert.equal(tramo?.alumnosGrupos?.[0].habitacion, "DOBLE");
+  assert.equal(tramo?.alumnosGrupos?.[0].regimen, "PC");
+  // Y el precio por alumno de la estancia sigue siendo el del principal.
+  assert.equal(precioPorEstancia(d!).alumno, r.porAlumno);
+});
+
+prueba("un texto de siempre, sin bloques, se lee sin `alumnosGrupos`", () => {
+  const d = desgloseDeLaOpcion("43,13 € x 48 alumnos + 60,11 € x 8 profesores (uso individual), por noche x 4 noches", "9.661,12 €");
+  assert.equal(d?.tramos[0].alumnosGrupos, undefined);
+  assert.equal(d?.alumnos.pax, 48);
+});
+
+prueba("los suplementos del grupo principal entre paréntesis NO se toman por un bloque", () => {
+  const d = desgloseDeLaOpcion("47,65 € x 50 alumnos (Sábado / víspera de festivo +25 %) + 63,51 € x 3 profesores (uso individual), por noche x 1 noche", "3.000,00 €");
+  assert.equal(d?.tramos[0].alumnosGrupos, undefined);
+  assert.equal(d?.alumnos.pax, 50);
+});
+
+prueba("el coste de cada bloque se guarda en el mismo orden que el desglose", () => {
+  const conCoste: TarifaDeHotel[] = R4.map((t) => ({ ...t, coste: Math.round(t.precio * 0.8 * 100) / 100 }));
+  const r = precioDeLaEstancia({
+    fechaEntrada: "2027-03-23",
+    noches: 1,
+    alumnos: 50,
+    profesores: 3,
+    composicion: composicion({ alumnosOtros: [{ cantidad: 10, habitacion: "DOBLE", regimen: "PC" }] }),
+    elegida: conCoste[0],
+    otras: conCoste.slice(1),
+    suplementos: SUPLEMENTOS_4R,
+  });
+  const costes = costesDelTramo(r.tramos[0], 50, 3, 0);
+  assert.equal(costes.alumno, conCoste[0].coste);
+  assert.equal(costes.alumnos?.length, 2);
+  assert.equal(costes.alumnos?.[0], conCoste[0].coste);
+  assert.ok((costes.alumnos?.[1] ?? 0) > (costes.alumnos?.[0] ?? 0), "el bloque de PC en doble cuesta más");
+});
+
+prueba("sin bloques, `costesDelTramo` no añade la lista de alumnos", () => {
+  const r = estancia(1, composicion({}));
+  assert.equal(costesDelTramo(r.tramos[0], 50, 3, 0).alumnos, undefined);
+});
+
+prueba("el precio medio por alumno cuenta los bloques; sin bloques es el de siempre", () => {
+  const sin = estancia(1, composicion({}));
+  assert.equal(sin.porAlumnoMedio, sin.porAlumno, "sin bloques son iguales");
+  const con = conBloques(1, [{ cantidad: 10, habitacion: "DOBLE", regimen: "PC" }]);
+  // 40 a 36,29 y 10 a 44,67, repartido entre los 50.
+  assert.equal(con.porAlumnoMedio, Math.round(((36.29 * 40 + 44.67 * 10) / 50) * 100) / 100);
+  assert.ok(con.porAlumnoMedio > con.porAlumno, "la media sube: es lo que se compara con el tope del centro");
+  assert.equal(con.porAlumno, 36.29, "el del grupo principal no cambia");
+});
+
+// ── «Tantos alumnos en ESTA tarifa»: la tabla de tarifas del hotel (06/11/2026) ──
+//
+// Como en actividades (tarifa × cantidad): en la tabla de «Lo que tiene este
+// hotel para estas fechas» se dice cuántos alumnos van en cada tarifa, y el
+// precio sale de esa tarifa, no de adivinarla por habitación y pensión.
+
+const APARTAMENTOS: TarifaDeHotel[] = [
+  { id: "mp", boardType: "Media pensión", occupancyLabel: "Múltiple", unitName: "Apartamentos (grupos, PPPN)", seasonName: "Única", precio: 43.2 },
+  { id: "pc", boardType: "Pensión completa", occupancyLabel: "Múltiple", unitName: "Apartamentos (grupos, PPPN)", seasonName: "Única", precio: 54 },
+];
+const enApartamentos = (alumnosOtros: ComposicionDeLaEstancia["alumnosOtros"], noches = 4, elegida = APARTAMENTOS[1]) =>
+  precioDeLaEstancia({
+    fechaEntrada: "2027-03-23",
+    noches,
+    alumnos: 50,
+    profesores: 0,
+    composicion: composicion({ alumnosOtros }),
+    elegida,
+    otras: APARTAMENTOS.filter((t) => t !== elegida),
+    suplementos: {},
+  });
+
+prueba("gruposDeAlumnosPorTarifa: solo las tarifas con alumnos, sin la elegida, con su habitación y su pensión", () => {
+  const grupos = gruposDeAlumnosPorTarifa(APARTAMENTOS, "pc", { mp: 10, pc: 99, otra: 5 });
+  assert.deepEqual(grupos, [{ cantidad: 10, habitacion: "MULTIPLE", regimen: "MP", tarifaId: "mp" }]);
+  assert.deepEqual(gruposDeAlumnosPorTarifa(APARTAMENTOS, "pc", { mp: 0 }), []);
+  assert.deepEqual(gruposDeAlumnosPorTarifa(APARTAMENTOS, "pc", { mp: -3 }), []);
+  assert.deepEqual(gruposDeAlumnosPorTarifa(APARTAMENTOS, "pc", {}), []);
+});
+
+prueba("el caso de la tabla: 40 alumnos en pensión completa (54 €) y 10 en media pensión (43,20 €)", () => {
+  const grupos = gruposDeAlumnosPorTarifa(APARTAMENTOS, "pc", { mp: 10 });
+  const r = enApartamentos(grupos);
+  const n = r.noches[0];
+  assert.equal(n.alumno.precio, 54);
+  assert.equal(n.alumnosOtros?.[0].cantidad, 10);
+  assert.equal(n.alumnosOtros?.[0].precio, 43.2, "el precio de ESA tarifa");
+  assert.equal(n.alumnosOtros?.[0].regimen, "MP");
+  assert.equal(n.alumnosOtros?.[0].tarifaId, "mp", "y se sabe de qué tarifa sale");
+  assert.equal(r.total, Math.round((54 * 40 + 43.2 * 10) * 4 * 100) / 100);
+});
+
+prueba("sin asignar nada, todos los alumnos van en la tarifa elegida, como siempre", () => {
+  const r = enApartamentos(gruposDeAlumnosPorTarifa(APARTAMENTOS, "pc", {}));
+  assert.equal(r.noches[0].alumnosOtros, undefined);
+  assert.equal(r.total, 54 * 50 * 4);
+});
+
+prueba("la tarifa que se elige manda aunque haya otra de la misma pensión con distinto servicio", () => {
+  const conServicio: TarifaDeHotel[] = [
+    { id: "base", boardType: "PC", occupancyLabel: "Múltiple", includedService: "Sin campo", precio: 40 },
+    { id: "campo", boardType: "PC", occupancyLabel: "Múltiple", includedService: "Campo natural", precio: 52 },
+  ];
+  const r = precioDeLaEstancia({
+    fechaEntrada: "2027-03-23",
+    noches: 1,
+    alumnos: 20,
+    profesores: 0,
+    composicion: composicion({ alumnosOtros: gruposDeAlumnosPorTarifa(conServicio, "base", { campo: 8 }) }),
+    elegida: conServicio[0],
+    otras: [conServicio[1]],
+    suplementos: {},
+  });
+  assert.equal(r.noches[0].alumno.precio, 40);
+  assert.equal(r.noches[0].alumnosOtros?.[0].precio, 52, "la del campo natural, no la de los demás alumnos");
+  assert.equal(r.total, 40 * 12 + 52 * 8);
+});
+
+prueba("el tramo por noches lo decide el viaje: asignar a la fila de «1 noche» cobra el tramo que toca", () => {
+  const tramos: TarifaDeHotel[] = [
+    { id: "p1", boardType: "PC", occupancyLabel: "Múltiple", minNights: 1, precio: 40.61 },
+    { id: "p4", boardType: "PC", occupancyLabel: "Múltiple", minNights: 4, precio: 34.56 },
+    { id: "m4", boardType: "MP", occupancyLabel: "Múltiple", minNights: 4, precio: 30.24 },
+    { id: "m1", boardType: "MP", occupancyLabel: "Múltiple", minNights: 1, precio: 36.29 },
+  ];
+  const r = precioDeLaEstancia({
+    fechaEntrada: "2027-03-23",
+    noches: 4,
+    alumnos: 30,
+    profesores: 0,
+    composicion: composicion({ alumnosOtros: gruposDeAlumnosPorTarifa(tramos, "p4", { m1: 10 }) }),
+    elegida: tramos[1],
+    otras: tramos.filter((t) => t !== tramos[1]),
+    suplementos: {},
+  });
+  assert.equal(r.noches[0].alumno.precio, 34.56);
+  assert.equal(r.noches[0].alumnosOtros?.[0].precio, 30.24, "con 4 noches, la MP de 4 noches, aunque se marcó la de 1");
+});
+
+prueba("si la tarifa asignada no vale esa noche, se cae a la forma de siempre y no da NaN", () => {
+  const fuera: TarifaDeHotel[] = [
+    { id: "a", boardType: "PC", occupancyLabel: "Múltiple", dateFrom: "2027-03-01", dateTo: "2027-06-30", precio: 40 },
+    { id: "b", boardType: "MP", occupancyLabel: "Múltiple", dateFrom: "2027-09-01", dateTo: "2027-12-31", precio: 30 },
+    { id: "c", boardType: "MP", occupancyLabel: "Múltiple", dateFrom: "2027-03-01", dateTo: "2027-06-30", precio: 33 },
+  ];
+  const r = precioDeLaEstancia({
+    fechaEntrada: "2027-03-23",
+    noches: 2,
+    alumnos: 10,
+    profesores: 0,
+    composicion: composicion({ alumnosOtros: gruposDeAlumnosPorTarifa(fuera, "a", { b: 4 }) }),
+    elegida: fuera[0],
+    otras: fuera.slice(1),
+    suplementos: {},
+  });
+  const bloque = r.noches[0].alumnosOtros?.[0];
+  assert.ok(bloque && Number.isFinite(bloque.precio), "tiene precio");
+  assert.equal(bloque?.precio, 33, "la MP que sí vale esas fechas");
+});
+
+// ── Profesores y chófer en cada tarifa, y la gratuidad del hotel (06/11/2026) ──
+
+const MULTIPLE_SIN_SUPLEMENTO = { profesores: { habitacion: "MULTIPLE" as const, regimen: "" }, chofer: { cantidad: 0, habitacion: "MULTIPLE" as const, regimen: "" } };
+const conAcompanantes = (cambios: Partial<ComposicionDeLaEstancia>, profesores = 3, noches = 4) =>
+  precioDeLaEstancia({
+    fechaEntrada: "2027-03-23",
+    noches,
+    alumnos: 50,
+    profesores,
+    composicion: composicion({ ...MULTIPLE_SIN_SUPLEMENTO, ...cambios }),
+    elegida: APARTAMENTOS[1],
+    otras: APARTAMENTOS.filter((t) => t !== APARTAMENTOS[1]),
+    suplementos: {},
+  });
+
+prueba("profesores asignados a una tarifa: se cobran por ESA tarifa; los demás, como dice el panel", () => {
+  const r = conAcompanantes({ profesoresOtros: gruposDeProfesoresPorTarifa(APARTAMENTOS, { mp: 2 }, 0) });
+  const n = r.noches[0];
+  assert.equal(n.profesor.precio, 54, "el que queda va en la elegida (múltiple, PC)");
+  assert.equal(n.profesoresOtros?.[0].cantidad, 2);
+  assert.equal(n.profesoresOtros?.[0].precio, 43.2);
+  assert.equal(n.profesoresOtros?.[0].regimen, "MP");
+  assert.equal(r.total, Math.round((54 * 50 + 54 * 1 + 43.2 * 2) * 4 * 100) / 100);
+});
+
+prueba("una plaza de gratuidad sale con precio 0 y coste 0, y se dice «gratuidad»", () => {
+  const r = conAcompanantes({ profesoresOtros: gruposDeProfesoresPorTarifa(APARTAMENTOS, {}, 2) });
+  const g = r.noches[0].profesoresOtros?.[0];
+  assert.equal(g?.precio, 0);
+  assert.equal(g?.coste, 0);
+  assert.equal(g?.como, "gratuidad");
+  assert.equal(g?.cantidad, 2);
+  assert.equal(r.total, Math.round((54 * 50 + 54 * 1) * 4 * 100) / 100, "2 de los 3 profesores no pagan");
+  assert.match(textoDelDesglose(r, 50, 3, 0), /0,00 € x 2 profesores \(gratuidad\)/);
+});
+
+prueba("gratuidad más una tarifa asignada: la gratuidad primero y todo suma bien", () => {
+  const grupos = gruposDeProfesoresPorTarifa(APARTAMENTOS, { mp: 1 }, 1);
+  assert.deepEqual(grupos.map((g) => [g.cantidad, !!g.gratis, g.tarifaId ?? null]), [[1, true, null], [1, false, "mp"]]);
+  const r = conAcompanantes({ profesoresOtros: grupos });
+  assert.equal(r.total, Math.round((54 * 50 + 54 * 1 + 43.2 * 1) * 4 * 100) / 100, "uno paga múltiple PC, otro MP y uno es gratis");
+});
+
+prueba("más gratuidades que profesores: se recortan y el principal puede quedarse sin ninguno", () => {
+  const r = conAcompanantes({ profesoresOtros: gruposDeProfesoresPorTarifa(APARTAMENTOS, {}, 9) });
+  assert.equal(r.noches[0].profesoresOtros?.[0].cantidad, 3);
+  assert.equal(r.total, 54 * 50 * 4);
+});
+
+prueba("el chófer se asigna a una tarifa y puede ocupar una plaza de gratuidad", () => {
+  const r = conAcompanantes({
+    chofer: { cantidad: 2, habitacion: "MULTIPLE", regimen: "" },
+    choferOtros: [...gruposDeChoferPorTarifa(APARTAMENTOS, {}, 1), ...gruposDeChoferPorTarifa(APARTAMENTOS, { mp: 1 }, 0)],
+  });
+  const n = r.noches[0];
+  assert.deepEqual(n.choferOtros?.map((g) => [g.cantidad, g.precio, g.como]), [[1, 0, "gratuidad"], [1, 43.2, "múltiple"]]);
+  assert.equal(n.chofer, null, "no queda ninguno en el principal");
+  assert.equal(r.total, Math.round((54 * 50 + 54 * 3 + 43.2) * 4 * 100) / 100);
+});
+
+prueba("a una tarifa de habitación individual, el profesor paga la de esa habitación", () => {
+  const con = [...APARTAMENTOS, { id: "ind", boardType: "PC", occupancyLabel: "Individual", unitName: "Apartamentos (grupos, PPPN)", seasonName: "Única", precio: 70 }];
+  const r = precioDeLaEstancia({
+    fechaEntrada: "2027-03-23",
+    noches: 2,
+    alumnos: 50,
+    profesores: 2,
+    composicion: composicion({ ...MULTIPLE_SIN_SUPLEMENTO, profesoresOtros: gruposDeProfesoresPorTarifa(con, { ind: 1 }, 0) }),
+    elegida: con[1],
+    otras: con.filter((t) => t !== con[1]),
+    suplementos: {},
+  });
+  const g = r.noches[0].profesoresOtros?.[0];
+  assert.equal(g?.precio, 70);
+  assert.equal(g?.habitacion === undefined ? "individual" : "individual", "individual");
+  assert.match(textoDelDesglose(r, 50, 2, 0), /70,00 € x 1 profesores \(uso individual\)/);
+});
+
+prueba("el desglose escrito con gratuidad se lee de vuelta y el grupo queda marcado", () => {
+  const r = conAcompanantes({ profesoresOtros: gruposDeProfesoresPorTarifa(APARTAMENTOS, {}, 2) });
+  const d = desgloseDeLaOpcion(textoDelDesglose(r, 50, 3, 0), "10.000,00 €");
+  const grupos = d?.tramos[0].profesoresGrupos;
+  assert.equal(grupos?.length, 2);
+  assert.equal(grupos?.[0].gratuidad, undefined, "el principal paga");
+  assert.equal(grupos?.[1].gratuidad, true);
+  assert.equal(grupos?.[1].pax, 2);
+  assert.equal(grupos?.[1].precio, 0);
+});
+
+prueba("el coste de la plaza de gratuidad va en su sitio de `costesDelTramo`", () => {
+  const conCoste = APARTAMENTOS.map((t) => ({ ...t, coste: Math.round(t.precio * 0.8 * 100) / 100 }));
+  const r = precioDeLaEstancia({
+    fechaEntrada: "2027-03-23",
+    noches: 1,
+    alumnos: 50,
+    profesores: 3,
+    composicion: composicion({ ...MULTIPLE_SIN_SUPLEMENTO, profesoresOtros: gruposDeProfesoresPorTarifa(conCoste, {}, 2) }),
+    elegida: conCoste[1],
+    otras: [conCoste[0]],
+    suplementos: {},
+  });
+  const costes = costesDelTramo(r.tramos[0], 50, 3, 0);
+  assert.deepEqual(costes.profesores, [43.2, 0], "el que paga cuesta lo que cuesta; la plaza de gratuidad, 0");
 });
 
 console.log(`\n${pasadas} pasada(s), ${fallidas} fallida(s)`);

@@ -123,6 +123,18 @@ export function pareceUnLugar(texto: string): boolean {
   return palabras.some((p) => /^[A-ZÁÉÍÓÚÑÜ]/.test(p));
 }
 
+/**
+ * Si un texto suelto puede ser una opción de una lista cerrada (régimen,
+ * categoría): corto, de pocas palabras y sin ser una frase con puntuación.
+ * «Media pensión» y «4 estrellas» sí; un párrafo, no.
+ */
+export function pareceUnaOpcion(texto: string): boolean {
+  const limpio = (texto ?? "").trim();
+  if (limpio.length === 0 || limpio.length > 40) return false;
+  if (/[.;:!?]/.test(limpio.replace(/\d\.\d/g, ""))) return false;
+  return limpio.split(/\s+/).filter(Boolean).length <= 5;
+}
+
 /** Un número dentro de una frase: «unos 48 alumnos» → 48. */
 export function numeroDe(texto: string): number | null {
   const m = (texto ?? "").match(/-?\d+(?:[.,]\d+)?/);
@@ -171,9 +183,14 @@ export function interpretarRespuesta(
     } else if (
       (hueco.tipo === "opciones" || hueco.tipo === "varias") &&
       literal.trim() &&
-      !NO_ES_RESPUESTA.test(literal.trim())
+      !NO_ES_RESPUESTA.test(literal.trim()) &&
+      (hueco.tipo === "varias" || pareceUnaOpcion(literal))
     ) {
-      // Régimen o categoría escritos a mano de otra forma: se admite tal cual.
+      // Régimen o categoría escritos a mano de otra forma: se admite tal cual,
+      // pero solo si PARECE una opción («media pensión», «4 estrellas»), no una
+      // frase. Con una frase entera el régimen de la solicitud pasaba a ser
+      // «de los 24 pasajeros somos 20 alumnos y 4 profesores. Soy Anthony…»
+      // (Oravia, prueba del 05/11/2026), y de ahí filtraba hoteles y viajaba al CRM.
       (aplicar as Record<string, unknown>)[esperada] =
         hueco.tipo === "varias" ? [literal.trim()] : literal.trim();
       contesta = true;

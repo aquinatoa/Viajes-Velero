@@ -5,6 +5,10 @@ import type { Acompanantes, ComposicionDeLaEstancia, GrupoDeAcompanantes, Habita
  * Cómo es la estancia: la pensión de cada noche y la habitación y pensión de
  * profesores y chófer (Ruth, 19/10/2026). Vale para todas las opciones; el
  * precio de cada hotel sale de sus propias tarifas y suplementos.
+ *
+ * Los alumnos que van en otra tarifa NO se piden aquí: dependen de las tarifas de
+ * cada hotel, así que se asignan en la tabla de tarifas de su detalle, como las
+ * entradas de una actividad (06/11/2026).
  */
 
 const REGIMENES: Array<[string, string]> = [
@@ -201,7 +205,8 @@ export function PanelEstancia({
       <p className="es__nota">
         Vale para todas las opciones. Cada hotel calcula con sus tarifas: si no tiene tarifa de individual o doble, aplica su
         suplemento; si tampoco lo tiene, cobra la múltiple y lo avisa en el detalle. Con «+ Otra habitación» se reparten
-        profesores o chóferes en habitaciones distintas, cada una con su pensión.
+        profesores o chóferes en habitaciones distintas, cada una con su pensión. Los alumnos que van en otra tarifa se
+        asignan en la tabla de tarifas del detalle de cada hotel.
       </p>
     </section>
   );

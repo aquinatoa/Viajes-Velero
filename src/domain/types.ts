@@ -404,6 +404,12 @@ export interface ProposalBuilderState {
   /** El día de cada actividad y la entrada pedida (26/10/2026). */
   fechasDeVisita?: Record<string, string>;
   modalidades?: Record<string, string>;
+  /** Las «Notas» para el cliente: salen en el PDF y en la página del enlace (05/11/2026). */
+  notas?: string;
+  /** Cuántos alumnos van en cada tarifa de cada hotel: hotel → tarifa → cantidad (06/11/2026). */
+  alumnosPorTarifa?: Record<string, Record<string, number>>;
+  /** Profesores y chófer en cada tarifa de cada hotel, y la gratuidad: hotel → reparto (06/11/2026). */
+  acompanantesPorHotel?: Record<string, import("../services/estanciaDeHotel").AcompanantesDelHotel>;
 }
 
 export interface ProposalAccommodationOption {

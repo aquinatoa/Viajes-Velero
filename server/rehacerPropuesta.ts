@@ -1,3 +1,4 @@
+import { limpiarNotas } from "../src/domain/notasDeLaPropuesta";
 import { PrismaClient } from "@prisma/client";
 import { guardarBorradorDb } from "./draftsDb";
 import { nuevoIdAdHoc, type ActividadAdHoc, type HotelAdHoc } from "../src/domain/adHoc";
@@ -116,6 +117,9 @@ export async function borradorParaRehacer(
   let requisitos: string[] = [];
   let fechasDeVisita: Record<string, string> = {};
   let modalidades: Record<string, string> = {};
+  let notas = "";
+  let alumnosPorTarifa: Record<string, Record<string, number>> = {};
+  let acompanantesPorHotel: Record<string, unknown> = {};
   let conEstadoGuardado = false;
   if (propuesta.stayJson) {
     try {
@@ -131,6 +135,9 @@ export async function borradorParaRehacer(
         requisitos = Array.isArray(guardado.requisitos) ? (guardado.requisitos as string[]) : [];
         fechasDeVisita = (guardado.fechasDeVisita as Record<string, string>) ?? {};
         modalidades = (guardado.modalidades as Record<string, string>) ?? {};
+        notas = limpiarNotas(guardado.notas);
+        alumnosPorTarifa = (guardado.alumnosPorTarifa as Record<string, Record<string, number>>) ?? {};
+        acompanantesPorHotel = (guardado.acompanantesPorHotel as Record<string, unknown>) ?? {};
       } else {
         composicion = { ...COMPOSICION_POR_DEFECTO, ...(guardado as unknown as ComposicionDeLaEstancia) };
       }
@@ -208,6 +215,9 @@ export async function borradorParaRehacer(
     actividadesAdHoc,
     fechasDeVisita,
     modalidades,
+    notas,
+    alumnosPorTarifa,
+    acompanantesPorHotel,
     // Lo que se ha hecho ya no se vuelve a añadir solo desde el mensaje.
     pedidasHechas: ["*"],
     // Con esto, al enviar se sigue el MISMO viaje y el mismo trato del CRM. Antes

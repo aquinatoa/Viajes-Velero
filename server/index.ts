@@ -1,3 +1,4 @@
+import { notasGuardadas } from "../src/domain/notasDeLaPropuesta";
 import { marcarOpcionElegida } from "./proposalDelivery";
 import { tituloDelViaje } from "../src/domain/tituloDelViaje";
 import { desgloseEnLista, desgloseParaElCliente, pensionesParaElCliente } from "../src/domain/desgloseParaElCliente";
@@ -27,6 +28,7 @@ import { bandeja, hiloDeLaEntrega } from "./correoDb";
 import { escribirAlContacto } from "./correoSaliente";
 import { leerAdjunto } from "./adjuntosDeCorreo";
 import { leerCotizacionDelProveedor, leerJustificante } from "./cotizacionDelProveedor";
+import { auditarSolicitudConIa, leerSolicitudConIa } from "./lecturaDeLaSolicitudIa";
 import type { ContextoDeCotizacion } from "../src/domain/cotizacionDelProveedor";
 import { fichaDeLaPropuesta, renombrarViaje } from "./fichaPropuesta";
 import { borradorParaRehacer } from "./rehacerPropuesta";
@@ -2421,6 +2423,48 @@ app.post("/api/clientes-especiales", requireAuth, async (request, response) => {
   }
 });
 
+// La lectura con IA de una solicitud. Apagada por defecto (SOLICITUD_IA): con ella
+// apagada contesta `activa: false` sin llamar a ningún modelo.
+app.post("/api/solicitud/lectura-ia", requireAuth, async (request, response) => {
+  try {
+    const body = (request.body ?? {}) as { textos?: unknown; reglas?: unknown };
+    const textos = Array.isArray(body.textos)
+      ? body.textos
+          .filter((t): t is { texto: unknown; origen: unknown } => !!t && typeof t === "object")
+          .map((t) => ({ texto: String(t.texto ?? ""), origen: t.origen === "chat" ? ("chat" as const) : ("colegio" as const) }))
+      : [];
+    const resultado = await leerSolicitudConIa({
+      textos,
+      reglas: body.reglas ?? null,
+      usuario: (request as AuthedRequest).user?.email ?? null,
+    });
+    response.json(resultado);
+  } catch (error) {
+    console.error("Error leyendo la solicitud con IA", error);
+    response.status(500).json({ error: "No se pudo leer la solicitud con IA." });
+  }
+});
+
+// El auditor de «Lo que hemos entendido»: la IA comprueba cada dato del resumen
+// contra lo escrito. Mismo interruptor que la lectura (SOLICITUD_IA).
+app.post("/api/solicitud/auditoria-ia", requireAuth, async (request, response) => {
+  try {
+    const body = (request.body ?? {}) as { textos?: unknown; valores?: unknown };
+    const textos = Array.isArray(body.textos)
+      ? body.textos
+          .filter((t): t is { texto: unknown; origen: unknown } => !!t && typeof t === "object")
+          .map((t) => ({ texto: String(t.texto ?? ""), origen: t.origen === "chat" ? ("chat" as const) : ("colegio" as const) }))
+      : [];
+    const valores = Array.isArray(body.valores) ? (body.valores as never[]) : [];
+    response.json(
+      await auditarSolicitudConIa({ textos, valores, usuario: (request as AuthedRequest).user?.email ?? null }),
+    );
+  } catch (error) {
+    console.error("Error auditando la solicitud con IA", error);
+    response.status(500).json({ error: "No se pudo revisar la solicitud con IA." });
+  }
+});
+
 // Para qué cliente es la tarifa que se va a subir, leído del propio documento.
 app.post("/api/clientes-especiales/detectar", requireAuth, upload.single("archivo"), async (request, response) => {
   try {
@@ -2557,6 +2601,7 @@ app.get("/api/public/proposals/:token", async (request, response) => {
       teachers: request_.teachers,
       options: opcionesDelDocumento(delivery.proposal),
       activities: actividadesSinAlojamiento(delivery.proposal, request_.participants ?? 0, request_.teachers ?? 0),
+      notes: notasGuardadas(delivery.proposal.stayJson),
     });
     response.json({
       reference: delivery.reference,

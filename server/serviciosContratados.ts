@@ -176,7 +176,11 @@ export interface FilaContratada {
   quien: "alumnos" | "profesores" | "chofer";
   /** El tramo de la estancia (0 si es uno solo) y si hay más de uno. */
   tramo?: number;
-  /** El grupo de profesores o chóferes, si van en varias habitaciones (0 = el primero). */
+  /**
+   * El grupo, si van en varias habitaciones (0 = el primero): de profesores, de
+   * chóferes o, desde el 05/11/2026, los BLOQUES de alumnos con otra habitación
+   * y otra pensión (el 0 es el grupo principal).
+   */
   grupo?: number;
   variosTramos?: boolean;
   comentario: string;
@@ -211,6 +215,8 @@ interface CosteDeTramo {
   /** Con grupos en varias habitaciones: el coste de cada uno, en el orden del desglose. */
   profesores?: Array<number | null>;
   choferes?: Array<number | null>;
+  /** Con bloques de alumnos: el coste de cada uno, el principal primero. */
+  alumnos?: Array<number | null>;
 }
 
 function costesDeTramos(json: string | null | undefined): CosteDeTramo[] | null {
@@ -249,7 +255,7 @@ export function costeDeLaFila(
         ? (t?.profesores?.[g] ?? (g === 0 ? t?.profesor : null))
         : fila.quien === "chofer"
           ? (t?.choferes?.[g] ?? (g === 0 ? t?.chofer : null))
-          : t?.alumno,
+          : (t?.alumnos?.[g] ?? (g === 0 ? t?.alumno : null)),
     );
     return delTramo ?? costeDelPrecio(fila.precio, tarifas);
   }
@@ -258,7 +264,7 @@ export function costeDeLaFila(
   // precio (y si no sale, la fila queda sin validar).
   const unSoloTramo = !fila.variosTramos;
   const guardado = unSoloTramo
-    ? numeroONulo(fila.quien === "profesores" ? opcion.teacherCostAmount : fila.quien === "alumnos" ? opcion.studentCostAmount : null)
+    ? numeroONulo(fila.quien === "profesores" ? opcion.teacherCostAmount : fila.quien === "alumnos" && !fila.grupo ? opcion.studentCostAmount : null)
     : null;
   return guardado ?? costeDelPrecio(fila.precio, tarifas);
 }
@@ -326,14 +332,21 @@ export function filasDeLaOpcion(opcion: OpcionParaContratar): { filas: FilaContr
       };
     };
     filas.push(fila("alumnos", "ALUMNOS", "MULTIPLE", tramo.alumnos.pax, tramo.alumnos.precio, null));
+    // Los bloques de alumnos con otra habitación y otra pensión: una fila cada uno
+    // (Oravia, 05/11/2026: «asignación por colectivo, tipo de habitación y régimen»).
+    (tramo.alumnosGrupos ?? []).forEach((a, i) => {
+      if (a.pax > 0) filas.push(fila("alumnos", "ALUMNOS", a.habitacion, a.pax, a.precio, a.regimen, i + 1));
+    });
     // Profesores y chóferes: una fila por habitación (Ruth, 21/10/2026).
     const profesores = tramo.profesoresGrupos ?? (tramo.profesores ? [tramo.profesores] : []);
+    // Las plazas de gratuidad del hotel (06/11/2026) no se cobran ni cuestan: no son una fila.
+    // El índice `g` se conserva, que es el del coste de cada grupo en `costsJson`.
     profesores.forEach((p, g) => {
-      if (p.pax > 0) filas.push(fila("profesores", "PROFESORES", p.habitacion, p.pax, p.precio, p.regimen, g));
+      if (p.pax > 0 && !p.gratuidad) filas.push(fila("profesores", "PROFESORES", p.habitacion, p.pax, p.precio, p.regimen, g));
     });
     const choferes = tramo.choferGrupos ?? (tramo.chofer ? [tramo.chofer] : []);
     choferes.forEach((c, g) => {
-      if (c.pax > 0) filas.push(fila("chofer", "CHÓFER", c.habitacion, c.pax, c.precio, c.regimen, g));
+      if (c.pax > 0 && !c.gratuidad) filas.push(fila("chofer", "CHÓFER", c.habitacion, c.pax, c.precio, c.regimen, g));
     });
   }
   return { filas, total: d.total };

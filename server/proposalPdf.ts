@@ -11,12 +11,14 @@
  */
 
 import { desgloseDeLaOpcion, precioPorEstancia } from "../src/domain/desgloseDeOpcion";
+import { limpiarNotas } from "../src/domain/notasDeLaPropuesta";
 import {
   desgloseEnLista,
   desgloseParaElCliente,
   estanciaParaElCliente,
   pensionesParaElCliente,
 } from "../src/domain/desgloseParaElCliente";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
@@ -99,6 +101,8 @@ export interface PdfInput {
   activities?: PdfActivity[] | null;
   publicUrl?: string | null;
   preparedBy?: string | null;
+  /** Las «Notas» que escribió quien cotiza para el cliente (05/11/2026). */
+  notes?: string | null;
 }
 
 /**
@@ -458,6 +462,8 @@ export interface DocumentoParaElCliente {
   opciones: OpcionParaElCliente[];
   actividades: ActividadesParaElCliente | null;
   resumen: ResumenParaElCliente | null;
+  /** Las notas, tal como las escribió quien cotiza; null si no hay. */
+  notas: string | null;
 }
 
 /** Una opción como la lee el colegio. */
@@ -483,8 +489,17 @@ export function opcionParaElCliente(option: PdfOption, fechaEntrada?: Date | nul
   if (desglose) {
     const porEstancia = precioPorEstancia(desglose);
     const porChofer = desglose.tramos.reduce((s, tr) => s + (tr.chofer?.precio ?? 0) * tr.noches, 0);
-    porAlumno = `${formatMoney(porEstancia.alumno)} por alumno`;
+    // Con bloques de alumnos en otra habitación o con otra pensión, la cifra grande
+    // es la del grupo principal (05/11/2026): se dice, y el de cada bloque va debajo.
+    const bloques = (desglose.tramos[0]?.alumnosGrupos ?? []).map((g, i) => {
+      const precio = desglose.tramos.reduce((s, tr) => s + (tr.alumnosGrupos?.[i]?.precio ?? 0) * tr.noches, 0);
+      const sitio = { INDIVIDUAL: "habitación individual", DOBLE: "habitación doble", MULTIPLE: "habitación múltiple" }[g.habitacion];
+      const pension = g.regimen ? `, ${(pensionesParaElCliente(g.regimen) || g.regimen).toLowerCase()}` : "";
+      return `${formatMoney(Math.round(precio * 100) / 100)} por alumno en ${sitio}${pension} (${g.pax} ${g.pax === 1 ? "alumno" : "alumnos"})`;
+    });
+    porAlumno = `${formatMoney(porEstancia.alumno)} por alumno${bloques.length ? " del grupo principal" : ""}`;
     otrosPrecios = [
+      ...bloques,
       porEstancia.profesor !== null && porEstancia.profesor !== porEstancia.alumno
         ? `${formatMoney(porEstancia.profesor)} por profesor`
         : null,
@@ -720,6 +735,7 @@ export function documentoParaElCliente(input: PdfInput): DocumentoParaElCliente 
     opciones: input.options.map((option) => opcionParaElCliente(option, input.dateFrom ?? null)),
     actividades: actividadesParaElCliente(input),
     resumen: resumenParaElCliente(input),
+    notas: limpiarNotas(input.notes) || null,
   };
 }
 
@@ -969,6 +985,21 @@ function drawResumen(doc: PDFKit.PDFDocument, resumen: ResumenParaElCliente, top
 }
 
 /**
+ * Las notas de la propuesta, al final del documento, antes de cómo aceptarla.
+ * Es texto libre que escribió quien cotiza para el cliente: se imprime tal cual,
+ * respetando los saltos de línea.
+ */
+function drawNotas(doc: PDFKit.PDFDocument, notas: string, top: number): number {
+  let y = top;
+  doc.font("Helvetica-Bold").fontSize(8).fillColor(MUTED);
+  doc.text("NOTAS", 50, y, { characterSpacing: 0.8 });
+  y = doc.y + 6;
+  doc.font("Helvetica").fontSize(9.5).fillColor(INK);
+  doc.text(notas, 50, y, { width: 495, lineGap: 2 });
+  return doc.y + 12;
+}
+
+/**
  * Importes del resumen: con céntimos y con el punto de los miles SIEMPRE.
  *
  * El español no agrupa los números de cuatro cifras, así que sin forzarlo una
@@ -1021,9 +1052,13 @@ export async function buildProposalPdf(input: PdfInput): Promise<string> {
   const folder = path.join(STORAGE_ROOT, input.reference);
   fs.mkdirSync(folder, { recursive: true });
   const filePath = path.join(folder, `Propuesta-${input.reference}.pdf`);
+  // Se escribe en un fichero aparte y solo al final se pone en su sitio. Quien
+  // abre «Ver el documento» mientras otra persona lo rehace (05/11/2026) nunca
+  // se encuentra un PDF a medias, y dos escrituras simultáneas no se mezclan.
+  const provisional = `${filePath}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
 
   const doc = new PDFDocument({ size: "A4", margin: 50, bufferPages: true });
-  const stream = fs.createWriteStream(filePath);
+  const stream = fs.createWriteStream(provisional);
   doc.pipe(stream);
 
   let y = drawHeader(doc, input);
@@ -1071,6 +1106,16 @@ export async function buildProposalPdf(input: PdfInput): Promise<string> {
     y = drawResumen(doc, documento.resumen, y) + 8;
   }
 
+  // Las notas de quien cotiza. Pueden ser largas: si no caben, a otra página.
+  if (documento.notas) {
+    const alto = doc.heightOfString(documento.notas, { width: 495, lineGap: 2 }) + 30;
+    if (y + alto > 740) {
+      doc.addPage();
+      y = 60;
+    }
+    y = drawNotas(doc, documento.notas, y);
+  }
+
   if (input.publicUrl) {
     if (y > 660) {
       doc.addPage();
@@ -1100,10 +1145,16 @@ export async function buildProposalPdf(input: PdfInput): Promise<string> {
   drawFooter(doc, input);
   doc.end();
 
-  await new Promise<void>((resolve, reject) => {
-    stream.on("finish", () => resolve());
-    stream.on("error", reject);
-  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      stream.on("finish", () => resolve());
+      stream.on("error", reject);
+    });
+    fs.renameSync(provisional, filePath);
+  } catch (error) {
+    fs.rmSync(provisional, { force: true });
+    throw error;
+  }
 
   return path.relative(process.cwd(), filePath);
 }

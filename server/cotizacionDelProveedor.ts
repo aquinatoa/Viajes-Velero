@@ -213,7 +213,15 @@ function instrucciones(contexto: ContextoDeCotizacion, texto: string, pegado: st
     .join("\n");
 }
 
-export async function preguntarAlModelo(bloques: Bloque[], prompt: string, sistema: string = SISTEMA): Promise<unknown> {
+export async function preguntarAlModelo(
+  bloques: Bloque[],
+  prompt: string,
+  sistema: string = SISTEMA,
+  /** Otro modelo distinto del configurado para todo el servidor (p. ej. uno más ligero). */
+  modelo?: string,
+  /** Si se pasa, se rellena con los tokens gastados (para medir el coste). */
+  uso?: { tokensEntrada?: number; tokensSalida?: number },
+): Promise<unknown> {
   const config = getAiProviderConfig();
   if (config.provider !== "anthropic" || !config.anthropicApiKey) {
     throw new Error("La lectura automática no está configurada en este servidor (AI_PROVIDER / ANTHROPIC_API_KEY).");
@@ -221,12 +229,16 @@ export async function preguntarAlModelo(bloques: Bloque[], prompt: string, siste
   const client = new Anthropic({ apiKey: config.anthropicApiKey });
   try {
     const stream = client.messages.stream({
-      model: config.model || DEFAULT_ANTHROPIC_MODEL,
+      model: modelo || config.model || DEFAULT_ANTHROPIC_MODEL,
       max_tokens: 4000,
       system: sistema,
       messages: [{ role: "user", content: [...bloques, { type: "text", text: prompt }] }],
     });
     const mensaje = await stream.finalMessage();
+    if (uso) {
+      uso.tokensEntrada = mensaje.usage?.input_tokens;
+      uso.tokensSalida = mensaje.usage?.output_tokens;
+    }
     const salida = mensaje.content.map((b) => (b.type === "text" ? b.text : "")).join("");
     return parseModelJson(salida);
   } catch (error) {

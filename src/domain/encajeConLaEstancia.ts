@@ -47,7 +47,7 @@ export function encajeConLaEstancia(
   for (const n of estancia.noches) cuenta.set(n.regimen, (cuenta.get(n.regimen) ?? 0) + 1);
   const pensiones = [...cuenta.keys()];
 
-  const precio = Math.round((estancia.porAlumno + (peticion.extraPorAlumno ?? 0)) * 100) / 100;
+  const precio = Math.round(((estancia.porAlumnoMedio ?? estancia.porAlumno) + (peticion.extraPorAlumno ?? 0)) * 100) / 100;
 
   // Lo que el cálculo no pudo comprobar no entra en el podio como «cumple»:
   // noches sin tarifa (no cumple) o temporadas sin fechas (por confirmar).

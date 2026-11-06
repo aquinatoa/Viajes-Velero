@@ -21,6 +21,8 @@ export interface ParteDelDesglose {
 }
 
 export type ParteDeAcompanantes = ParteDelDesglose & {
+  /** Gratuidad del hotel: sin precio ni coste (06/11/2026). */
+  gratuidad?: boolean;
   individual: boolean;
   habitacion: "INDIVIDUAL" | "DOBLE" | "MULTIPLE";
   regimen?: string | null;
@@ -33,10 +35,15 @@ export interface TramoDelDesglose {
   alumnos: ParteDelDesglose;
   /** El primer grupo de profesores (con un solo tipo de habitación, todos). */
   profesores: ParteDeAcompanantes | null;
-  chofer: (ParteDelDesglose & { habitacion: "INDIVIDUAL" | "DOBLE" | "MULTIPLE"; regimen?: string | null }) | null;
+  chofer: (ParteDelDesglose & { habitacion: "INDIVIDUAL" | "DOBLE" | "MULTIPLE"; regimen?: string | null; gratuidad?: boolean }) | null;
   /** Todos los grupos: profesores o chóferes repartidos en varias habitaciones (21/10/2026). */
   profesoresGrupos?: ParteDeAcompanantes[];
   choferGrupos?: ParteDeAcompanantes[];
+  /**
+   * Alumnos en bloques con otra habitación y otra pensión (05/11/2026). `alumnos`
+   * es el grupo principal; estos son los demás, en el orden en que se escriben.
+   */
+  alumnosGrupos?: ParteDeAcompanantes[];
 }
 
 /** «uso individual, PC» → «PC»: la pensión propia, si la lleva. */
@@ -71,7 +78,18 @@ function habitacionDe(texto: string): "INDIVIDUAL" | "DOBLE" | "MULTIPLE" {
 
 function leerTramo(segmento: string): TramoDelDesglose | null {
   const regimen = /^([A-Z+]{2,12}):\s/.exec(segmento);
-  const alumnos = /([\d.]+,\d{2}) € x (\d+) alumnos(?: \(([^)]*)\))?/.exec(segmento);
+  // El primero que se lee es el grupo principal (con sus suplementos entre
+  // paréntesis, si los hay); los siguientes son bloques de alumnos con otra
+  // habitación y otra pensión, siempre con su paréntesis.
+  const losAlumnos = [...segmento.matchAll(/([\d.]+,\d{2}) € x (\d+) alumnos(?: \(([^)]*)\))?/g)];
+  const alumnos = losAlumnos[0] ?? null;
+  const bloquesDeAlumnos: ParteDeAcompanantes[] = losAlumnos.slice(1).map((m) => ({
+    pax: Number(m[2]),
+    precio: importeDesdeTexto(m[1]) ?? 0,
+    individual: /individual/i.test(m[3] ?? ""),
+    habitacion: habitacionDe(m[3] ?? ""),
+    regimen: regimenPropio(m[3] ?? ""),
+  }));
   const noches = /por noche x (\d+) noche/.exec(segmento);
   if (!alumnos || !noches) return null;
   const grupos = (quien: "profesores" | "chófer"): ParteDeAcompanantes[] =>
@@ -81,6 +99,7 @@ function leerTramo(segmento: string): TramoDelDesglose | null {
       individual: quien === "profesores" ? /uso individual/i.test(m[3]) : /individual/i.test(m[3]),
       habitacion: habitacionDe(m[3]),
       regimen: regimenPropio(m[3]),
+      ...(/gratuidad/i.test(m[3]) ? { gratuidad: true } : {}),
     }));
   const profesores = grupos("profesores");
   const chofer = grupos("chófer");
@@ -89,9 +108,12 @@ function leerTramo(segmento: string): TramoDelDesglose | null {
     noches: Number(noches[1]),
     alumnos: { pax: Number(alumnos[2]), precio: importeDesdeTexto(alumnos[1]) ?? 0 },
     profesores: profesores[0] ?? null,
-    chofer: chofer[0] ? { pax: chofer[0].pax, precio: chofer[0].precio, habitacion: chofer[0].habitacion, regimen: chofer[0].regimen } : null,
+    chofer: chofer[0]
+      ? { pax: chofer[0].pax, precio: chofer[0].precio, habitacion: chofer[0].habitacion, regimen: chofer[0].regimen, ...(chofer[0].gratuidad ? { gratuidad: true } : {}) }
+      : null,
     ...(profesores.length > 1 ? { profesoresGrupos: profesores } : {}),
     ...(chofer.length > 1 ? { choferGrupos: chofer } : {}),
+    ...(bloquesDeAlumnos.length > 0 ? { alumnosGrupos: bloquesDeAlumnos } : {}),
   };
 }
 

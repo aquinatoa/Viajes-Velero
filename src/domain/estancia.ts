@@ -34,6 +34,19 @@ export interface Acompanantes {
 /** Unos cuantos profesores (o chóferes) en otra habitación y con su pensión. */
 export interface GrupoDeAcompanantes extends Acompanantes {
   cantidad: number;
+  /**
+   * La tarifa del hotel a la que se asocian (solo alumnos, 06/11/2026): quien
+   * cotiza dice en la tabla de tarifas «10 alumnos en ESTA». Con ella, el precio
+   * sale de esa tarifa —su habitación, su servicio, su tipo de unidad— y no de
+   * adivinarla por habitación y pensión. Si esa noche no vale, se cae a la forma
+   * de siempre.
+   */
+  tarifaId?: string | null;
+  /**
+   * Gratuidad del hotel (06/11/2026): estos profesores no pagan. Salen con precio
+   * 0 y el desglose los dice «gratuidad». Aplicarla es decisión de quien cotiza.
+   */
+  gratis?: boolean;
 }
 
 export interface ComposicionDeLaEstancia {
@@ -50,6 +63,13 @@ export interface ComposicionDeLaEstancia {
   profesoresOtros?: GrupoDeAcompanantes[];
   /** Lo mismo para los chóferes, si hay más de uno. */
   choferOtros?: GrupoDeAcompanantes[];
+  /**
+   * Alumnos en bloques con otra habitación y otra pensión (reunión con Oravia,
+   * 05/11/2026: «asignación por colectivo, tipo de habitación y régimen»): 10 en
+   * doble con MP y los demás, como siempre. Igual que `profesoresOtros`, pero
+   * para el grupo: el principal nunca se queda sin ningún alumno.
+   */
+  alumnosOtros?: GrupoDeAcompanantes[];
 }
 
 export const COMPOSICION_POR_DEFECTO: ComposicionDeLaEstancia = {
@@ -58,6 +78,46 @@ export const COMPOSICION_POR_DEFECTO: ComposicionDeLaEstancia = {
   profesores: { habitacion: "INDIVIDUAL", regimen: "" },
   chofer: { cantidad: 0, habitacion: "INDIVIDUAL", regimen: "" },
 };
+
+/**
+ * Los bloques de alumnos que salen de decir, en la tabla de tarifas de un hotel,
+ * «tantos alumnos en ESTA tarifa». `asignacion` es tarifa → cantidad; la tarifa
+ * elegida por la búsqueda (`principalId`) no cuenta: lleva los que sobran.
+ */
+export function gruposDeAlumnosPorTarifa(
+  tarifas: Array<Pick<TarifaDeHotel, "id" | "boardType" | "occupancyLabel">>,
+  principalId: string | null | undefined,
+  asignacion: Record<string, number>,
+): GrupoDeAcompanantes[] {
+  return tarifas.flatMap((t) => {
+    const n = Math.floor(Number(t.id ? asignacion[t.id] : 0) || 0);
+    if (!t.id || n <= 0 || t.id === principalId) return [];
+    return [{ cantidad: n, habitacion: ocupacionDe(t.occupancyLabel), regimen: codigoDePension(t.boardType), tarifaId: t.id }];
+  });
+}
+
+/**
+ * Los grupos de profesores que salen de la tabla de tarifas de un hotel: «tantos
+ * profesores en ESTA tarifa» y, si los hay, los que van en gratuidad (precio 0).
+ * Los profesores que no se asignan a ninguna van como dice el panel de la estancia.
+ */
+export function gruposDeProfesoresPorTarifa(
+  tarifas: Array<Pick<TarifaDeHotel, "id" | "boardType" | "occupancyLabel">>,
+  asignacion: Record<string, number>,
+  enGratuidad: number,
+): GrupoDeAcompanantes[] {
+  const gratis = Math.floor(Number(enGratuidad) || 0);
+  const grupos: GrupoDeAcompanantes[] = gratis > 0 ? [{ cantidad: gratis, habitacion: "MULTIPLE", regimen: "", gratis: true }] : [];
+  for (const t of tarifas) {
+    const n = Math.floor(Number(t.id ? asignacion[t.id] : 0) || 0);
+    if (!t.id || n <= 0) continue;
+    grupos.push({ cantidad: n, habitacion: ocupacionDe(t.occupancyLabel), regimen: codigoDePension(t.boardType), tarifaId: t.id });
+  }
+  return grupos;
+}
+
+/** Lo mismo para los chóferes: «tantos en ESTA tarifa» y los que van en gratuidad. */
+export const gruposDeChoferPorTarifa = gruposDeProfesoresPorTarifa;
 
 /** Lo mínimo de una tarifa que hace falta para la cuenta. */
 export interface TarifaDeHotel {
@@ -359,6 +419,8 @@ export interface NocheDeLaEstancia {
   /** Los profesores y chóferes en otras habitaciones (ver `ComposicionDeLaEstancia`). */
   profesoresOtros?: PrecioDeGrupo[];
   choferOtros?: PrecioDeGrupo[];
+  /** Los bloques de alumnos en otra habitación o con otra pensión. */
+  alumnosOtros?: PrecioDeGrupo[];
   /** No hay tarifa del hotel para esa fecha: se ha puesto otra y se avisa. */
   sinTarifa?: boolean;
   /** Los suplementos del hotel aplicados a esa noche: «Sábado / víspera de festivo +25 %». */
@@ -374,6 +436,7 @@ export interface TramoDeLaEstancia {
   chofer: PrecioDePersona | null;
   profesoresOtros?: PrecioDeGrupo[];
   choferOtros?: PrecioDeGrupo[];
+  alumnosOtros?: PrecioDeGrupo[];
   /** Los suplementos de la noche, para decirlos en el desglose. */
   suplementos?: string[];
 }
@@ -381,8 +444,14 @@ export interface TramoDeLaEstancia {
 export interface ResultadoDeLaEstancia {
   noches: NocheDeLaEstancia[];
   tramos: TramoDeLaEstancia[];
-  /** Por alumno, toda la estancia. */
+  /** Por alumno del grupo principal, toda la estancia. */
   porAlumno: number;
+  /**
+   * Por alumno de TODO el grupo, contando los bloques en otra habitación o con
+   * otra pensión. Sin bloques es igual que `porAlumno`. Es lo que se compara con
+   * el tope del centro: con 10 alumnos en PC y doble, el del principal se queda corto.
+   */
+  porAlumnoMedio: number;
   total: number;
   avisos: string[];
   /** «MP», «PC» o «MP + PC»: las pensiones que de verdad se cobran. */
@@ -453,6 +522,11 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
     }
     return salida;
   };
+  // Los bloques de alumnos, sin dejar al grupo principal sin ninguno: si todos
+  // fueran «otros», no habría ya un grupo de siempre al que atribuir el precio.
+  const alumnosTotales = Math.max(Math.floor(e.alumnos) || 0, 0);
+  const alumnosOtros = recortar(e.composicion.alumnosOtros, Math.max(alumnosTotales - 1, 0));
+  const alumnosPrincipal = alumnosTotales - alumnosOtros.reduce((s, g) => s + g.cantidad, 0);
   const profesoresOtros = recortar(e.composicion.profesoresOtros, Math.max(e.profesores, 0));
   const choferOtros = recortar(e.composicion.choferOtros, cantidadChofer);
   const profesoresPrincipal = Math.max(e.profesores, 0) - profesoresOtros.reduce((s, g) => s + g.cantidad, 0);
@@ -498,19 +572,24 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
    * tarifa» (verificación del 20/10/2026). Y las de la edad del grupo: el
    * Albergue de Jaca cobra distinto «-14 años» y «+14 años».
    */
-  const nivelesDeAlumnos = (pension: string): TarifaDeHotel[][] => {
-    let dePension = todas.filter((t) => codigoDePension(t.boardType) === pension && !esDeAdultos(t));
+  const nivelesPara = (
+    pension: string,
+    ocupacion: string,
+    claseDeLaHabitacion: Habitacion,
+    servicio: string,
+    conAdultos = false,
+  ): TarifaDeHotel[][] => {
+    let dePension = todas.filter((t) => codigoDePension(t.boardType) === pension && (conAdultos || !esDeAdultos(t)));
     const deSuEdad = dePension.filter((t) => encajaConLaEdad(t, e.edadGrupo));
     if (deSuEdad.length) dePension = deSuEdad;
-    const exactas = dePension.filter(
-      (t) => claveDeOcupacion(t) === ocupacionAlumnos && claveDeServicio(t.includedService) === servicioAlumnos,
-    );
+    const exactas = dePension.filter((t) => claveDeOcupacion(t) === ocupacion && claveDeServicio(t.includedService) === servicio);
     const misma = dePension.filter(
-      (t) => ocupacionDe(t.occupancyLabel) === claseAlumnos && claveDeServicio(t.includedService) === servicioAlumnos,
+      (t) => ocupacionDe(t.occupancyLabel) === claseDeLaHabitacion && claveDeServicio(t.includedService) === servicio,
     );
-    const clase = dePension.filter((t) => ocupacionDe(t.occupancyLabel) === claseAlumnos);
+    const clase = dePension.filter((t) => ocupacionDe(t.occupancyLabel) === claseDeLaHabitacion);
     return [exactas, misma, clase].filter((l) => l.length > 0);
   };
+  const nivelesDeAlumnos = (pension: string): TarifaDeHotel[][] => nivelesPara(pension, ocupacionAlumnos, claseAlumnos, servicioAlumnos);
 
   /** De varios niveles, la primera con fechas que cubra la noche; si ninguna, la primera sin fechas. */
   const laQueValePorNiveles = (niveles: TarifaDeHotel[][], fecha: string): TarifaDeHotel | null => {
@@ -534,7 +613,17 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
     pension: string,
     fecha: string,
     quien: "los profesores" | "el chófer",
+    tarifa?: TarifaDeHotel,
   ): PrecioDePersona => {
+    // Con la tarifa que se eligió en la tabla (06/11/2026): su habitación, su servicio y su
+    // tipo de unidad —también si es de adultos—, con el tramo de noches y la temporada de la noche.
+    if (tarifa) {
+      const clase = ocupacionDe(tarifa.occupancyLabel);
+      const propia = laQueValePorNiveles(nivelesPara(pension, claveDeOcupacion(tarifa), clase, claveDeServicio(tarifa.includedService), true), fecha);
+      if (propia) {
+        return { precio: propia.precio, como: NOMBRE_HABITACION[clase], regimen: pension, tarifaId: propia.id ?? null, coste: propia.coste ?? null };
+      }
+    }
     // La tarifa de los alumnos con esa pensión esa noche; si no la hay, la de la noche del grupo.
     const baseAlumnos = precioAlumno(pension, fecha);
     // Si el hotel distingue a los adultos (Jaca), el suplemento de individual
@@ -602,6 +691,63 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
     return { precio: NaN, como: "", regimen: pension, tarifaId: null };
   };
 
+  /**
+   * El precio de unos alumnos en otra habitación y con otra pensión.
+   *
+   * Como `persona`, pero SIN la tarifa de adultos: son escolares. Su habitación
+   * sale de la tarifa propia del hotel con el mismo servicio; si no la hay, del
+   * suplemento sobre la de los alumnos; y si tampoco, al precio de la habitación
+   * del grupo, avisando.
+   */
+  const alumnosEn = (habitacion: Habitacion, pension: string, fecha: string, tarifa?: TarifaDeHotel): PrecioDePersona => {
+    // Con la tarifa que se eligió en la tabla: su habitación, su servicio y su tipo
+    // de unidad, con el tramo de noches y la temporada que toquen esa noche.
+    if (tarifa) {
+      const clase = ocupacionDe(tarifa.occupancyLabel);
+      const propia = laQueValePorNiveles(nivelesPara(pension, claveDeOcupacion(tarifa), clase, claveDeServicio(tarifa.includedService)), fecha);
+      if (propia) {
+        return { precio: propia.precio, como: NOMBRE_HABITACION[clase], regimen: pension, tarifaId: propia.id ?? null, coste: propia.coste ?? null };
+      }
+    }
+    const base = precioAlumno(pension, fecha);
+    if (!base) return { precio: NaN, como: "", regimen: pension, tarifaId: null };
+    if (habitacion === claseAlumnos || habitacion === "MULTIPLE") {
+      return { precio: base.precio, como: NOMBRE_HABITACION[claseAlumnos], regimen: pension, tarifaId: base.id ?? null, coste: base.coste ?? null };
+    }
+    const deHabitacion = todas.filter(
+      (t) => codigoDePension(t.boardType) === pension && ocupacionDe(t.occupancyLabel) === habitacion && !esDeAdultos(t),
+    );
+    const mismoServicio = deHabitacion.filter((t) => claveDeServicio(t.includedService) === servicioAlumnos);
+    const propia = laQueValePorNiveles([mismoServicio, deHabitacion].filter((l) => l.length), fecha);
+    if (propia) return { precio: propia.precio, como: NOMBRE_HABITACION[habitacion], regimen: pension, tarifaId: propia.id ?? null, coste: propia.coste ?? null };
+    const sup = habitacion === "INDIVIDUAL" ? e.suplementos.individual : e.suplementos.doble;
+    if (sup) {
+      const cuanto = sup.tipo === "PCT" ? `+${String(sup.valor).replace(".", ",")} %` : `+${String(sup.valor).replace(".", ",")} €`;
+      return {
+        precio: aplicarSuplemento(base.precio, sup),
+        como: `${NOMBRE_HABITACION[habitacion]} (suplemento ${cuanto})`,
+        regimen: pension,
+        tarifaId: base.id ?? null,
+        coste: base.coste == null ? null : aplicarSuplemento(base.coste, sup),
+      };
+    }
+    const habitacionesDelHotel = todas.filter((x) => ocupacionDe(x.occupancyLabel) === habitacion);
+    if (habitacionesDelHotel.length === 0) {
+      avisos.suelto(`El hotel no tiene tarifa ni suplemento de habitación ${NOMBRE_HABITACION[habitacion]}: los alumnos de ese bloque van a precio de ${NOMBRE_HABITACION[claseAlumnos]}.`);
+    } else {
+      avisos.porNoche(`sinhab-alumnos-${habitacion}-${pension}`, fecha, (cuando) =>
+        `No hay tarifa ${NOMBRE_HABITACION[habitacion]} de ${nombreDePension(pension)} para ${cuando} (ni suplemento): los alumnos de ese bloque van a precio de ${NOMBRE_HABITACION[claseAlumnos]}.`,
+      );
+    }
+    return {
+      precio: base.precio,
+      como: `${NOMBRE_HABITACION[habitacion]}: sin tarifa, precio de ${NOMBRE_HABITACION[claseAlumnos]}`,
+      regimen: pension,
+      tarifaId: base.id ?? null,
+      coste: base.coste ?? null,
+    };
+  };
+
   const noches: NocheDeLaEstancia[] = [];
   for (let i = 0; i < nochesTotales; i++) {
     const fecha = sumarDias(e.fechaEntrada, i);
@@ -667,19 +813,36 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
     }
     // Los grupos en otras habitaciones, con su pensión (y la del grupo si el hotel no la tiene).
     const deGrupo = (g: GrupoDeAcompanantes, quien: "los profesores" | "el chófer"): PrecioDeGrupo => {
+      // Gratuidad del hotel: sin precio ni coste (06/11/2026).
+      if (g.gratis) return { precio: 0, como: "gratuidad", regimen: pension, tarifaId: null, coste: 0, cantidad: g.cantidad };
       const suya = codigoDePension(g.regimen) || pension;
-      let p = persona(g.habitacion, suya, fecha, quien);
+      const suTarifa = g.tarifaId ? todas.find((t) => t.id === g.tarifaId) : undefined;
+      let p = persona(g.habitacion, suya, fecha, quien, suTarifa);
       if (!Number.isFinite(p.precio) && suya !== pension) {
         avisos.porNoche(`sinpension-${quien}-${suya}`, fecha, (cuando) =>
           `El hotel no tiene ${nombreDePension(suya)} para ${cuando}: ${quien === "el chófer" ? "el chófer va" : "los profesores van"} en ${nombreDePension(pension)}.`,
         );
-        p = persona(g.habitacion, pension, fecha, quien);
+        p = persona(g.habitacion, pension, fecha, quien, suTarifa);
+      }
+      return { ...conRespaldo(p), cantidad: g.cantidad };
+    };
+    // Un bloque de alumnos, con su pensión (y la del grupo si el hotel no la tiene).
+    const deBloqueDeAlumnos = (g: GrupoDeAcompanantes): PrecioDeGrupo => {
+      const suya = codigoDePension(g.regimen) || pension;
+      const suTarifa = g.tarifaId ? todas.find((t) => t.id === g.tarifaId) : undefined;
+      let p = alumnosEn(g.habitacion, suya, fecha, suTarifa);
+      if (!Number.isFinite(p.precio) && suya !== pension) {
+        avisos.porNoche(`sinpension-alumnos-${suya}`, fecha, (cuando) =>
+          `El hotel no tiene ${nombreDePension(suya)} para ${cuando}: los alumnos de ese bloque van en ${nombreDePension(pension)}.`,
+        );
+        p = alumnosEn(g.habitacion, pension, fecha, suTarifa);
       }
       return { ...conRespaldo(p), cantidad: g.cantidad };
     };
     // Los suplementos de sábado, fin de semana o estancia corta que trae el
     // documento, sobre el precio de cada persona esa noche.
     const noche: NocheDeLaEstancia = { fecha, regimen: pension, alumno: alumnoPrecio, profesor: conRespaldo(profesor), chofer, sinTarifa };
+    if (alumnosOtros.length) noche.alumnosOtros = alumnosOtros.map(deBloqueDeAlumnos);
     if (profesoresOtros.length) noche.profesoresOtros = profesoresOtros.map((g) => deGrupo(g, "los profesores"));
     if (choferOtros.length) noche.choferOtros = choferOtros.map((g) => deGrupo(g, "el chófer"));
     const aplicadas = (e.suplementos.porNoche ?? []).filter((r) => reglaAplica(r, fecha, nochesTotales));
@@ -695,6 +858,7 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
         return { ...p, precio, coste };
       };
       noche.alumno = aplicar(noche.alumno);
+      if (noche.alumnosOtros) noche.alumnosOtros = noche.alumnosOtros.map((g) => ({ ...aplicar(g), cantidad: g.cantidad }));
       noche.profesor = aplicar(noche.profesor);
       if (noche.chofer) noche.chofer = aplicar(noche.chofer);
       if (noche.profesoresOtros) noche.profesoresOtros = noche.profesoresOtros.map((g) => ({ ...aplicar(g), cantidad: g.cantidad }));
@@ -732,7 +896,8 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
       (ultimo.chofer?.regimen ?? null) === (n.chofer?.regimen ?? null) &&
       (ultimo.suplementos ?? []).join("|") === (n.suplementos ?? []).join("|") &&
       firmaDeGrupos(ultimo.profesoresOtros) === firmaDeGrupos(n.profesoresOtros) &&
-      firmaDeGrupos(ultimo.choferOtros) === firmaDeGrupos(n.choferOtros);
+      firmaDeGrupos(ultimo.choferOtros) === firmaDeGrupos(n.choferOtros) &&
+      firmaDeGrupos(ultimo.alumnosOtros) === firmaDeGrupos(n.alumnosOtros);
     if (igual) ultimo.noches += 1;
     else
       tramos.push({
@@ -744,6 +909,7 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
         suplementos: n.suplementos,
         ...(n.profesoresOtros ? { profesoresOtros: n.profesoresOtros } : {}),
         ...(n.choferOtros ? { choferOtros: n.choferOtros } : {}),
+        ...(n.alumnosOtros ? { alumnosOtros: n.alumnosOtros } : {}),
       });
   }
 
@@ -753,7 +919,8 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
     noches.reduce(
       (s, n) =>
         s +
-        n.alumno.precio * e.alumnos +
+        n.alumno.precio * alumnosPrincipal +
+        deGrupos(n.alumnosOtros) +
         n.profesor.precio * profesoresPrincipal +
         (n.chofer ? n.chofer.precio * choferPrincipal : 0) +
         deGrupos(n.profesoresOtros) +
@@ -762,7 +929,12 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
     ),
   );
   const regimenes = [...new Set(noches.map((n) => n.regimen).filter(Boolean))].join(" + ") || pensionBase;
-  return { noches, tramos, porAlumno, total, avisos: avisos.lista(), regimenes };
+  const porAlumnoMedio = alumnosOtros.length
+    ? redondear(
+        noches.reduce((s, n) => s + n.alumno.precio * alumnosPrincipal + deGrupos(n.alumnosOtros), 0) / Math.max(alumnosTotales, 1),
+      )
+    : porAlumno;
+  return { noches, tramos, porAlumno, porAlumnoMedio, total, avisos: avisos.lista(), regimenes };
 }
 
 /**
@@ -770,8 +942,12 @@ export function precioDeLaEstancia(e: EntradaDeLaEstancia): ResultadoDeLaEstanci
  * alumnos y, por cada grupo de profesores o chóferes que sale en el desglose,
  * el suyo, en el mismo orden.
  */
-export function costesDelTramo(t: TramoDeLaEstancia, _alumnos: number, profesores: number, chofer: number) {
+export function costesDelTramo(t: TramoDeLaEstancia, alumnos: number, profesores: number, chofer: number) {
   const enOtras = (g: PrecioDeGrupo[] | undefined) => (g ?? []).reduce((s, x) => s + x.cantidad, 0);
+  const alumnosCostes = [
+    ...(alumnos - enOtras(t.alumnosOtros) > 0 ? [t.alumno.coste ?? null] : []),
+    ...(t.alumnosOtros ?? []).map((g) => g.coste ?? null),
+  ];
   const profesoresCostes = [
     ...(profesores - enOtras(t.profesoresOtros) > 0 ? [t.profesor.coste ?? null] : []),
     ...(t.profesoresOtros ?? []).map((g) => g.coste ?? null),
@@ -784,6 +960,7 @@ export function costesDelTramo(t: TramoDeLaEstancia, _alumnos: number, profesore
     alumno: t.alumno.coste ?? null,
     profesor: profesoresCostes[0] ?? null,
     chofer: choferCostes[0] ?? null,
+    ...(alumnosCostes.length > 1 ? { alumnos: alumnosCostes } : {}),
     ...(profesoresCostes.length > 1 ? { profesores: profesoresCostes } : {}),
     ...(choferCostes.length > 1 ? { choferes: choferCostes } : {}),
   };
@@ -812,8 +989,14 @@ const euros = (n: number) =>
 export function textoDelDesglose(r: ResultadoDeLaEstancia, alumnos: number, profesores: number, chofer: number): string {
   const enOtras = (g: PrecioDeGrupo[] | undefined) => (g ?? []).reduce((s, x) => s + x.cantidad, 0);
   const tramo = (t: TramoDeLaEstancia, conRegimen: boolean) => {
-    const partes = [`${euros(t.alumno.precio)} x ${alumnos} alumnos${t.suplementos?.length ? ` (${t.suplementos.join(", ").replace(/[()]/g, "")})` : ""}`];
+    const alumnosAqui = alumnos - enOtras(t.alumnosOtros);
+    const partes = [`${euros(t.alumno.precio)} x ${alumnosAqui} alumnos${t.suplementos?.length ? ` (${t.suplementos.join(", ").replace(/[()]/g, "")})` : ""}`];
     const pension = (p: PrecioDePersona) => (p.regimen !== t.regimen ? `, ${p.regimen}` : "");
+    // Los bloques de alumnos van justo después del grupo principal; el primero
+    // que se lee sigue siendo el principal (lo de siempre).
+    for (const g of t.alumnosOtros ?? []) {
+      partes.push(`${euros(g.precio)} x ${g.cantidad} alumnos (${comoProfesor(g).replace("uso individual", "individual")}${pension(g)})`);
+    }
     const profesoresAqui = profesores - enOtras(t.profesoresOtros);
     if (profesoresAqui > 0) {
       partes.push(`${euros(t.profesor.precio)} x ${profesoresAqui} profesores (${comoProfesor(t.profesor)}${pension(t.profesor)})`);
@@ -831,6 +1014,7 @@ export function textoDelDesglose(r: ResultadoDeLaEstancia, alumnos: number, prof
 
 /** Lo de los profesores como lo leía Servicios Contratados: «uso individual» o «sin tarifa individual: mismo precio». */
 function comoProfesor(p: PrecioDePersona): string {
+  if (p.como === "gratuidad") return "gratuidad";
   if (p.como.includes("sin tarifa")) {
     // La doble sin tarifa ni suplemento no es «sin tarifa individual»: lo
     // que se cobra es la múltiple, y así lo lee Servicios Contratados.
