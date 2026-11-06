@@ -629,8 +629,9 @@ export async function marcarOpcionElegida(
   // Y lo contratado, en su tabla. No lanza.
   await contratarEnElCrm(delivery.id, optionNumber);
   // Y el aviso a quien hizo la propuesta: la oportunidad pasa a «Pendiente de depósito».
-  // Una sola vez: una opción ya elegida no llega hasta aquí. No lanza.
-  await avisarPendienteDeDeposito(delivery.id, optionNumber, quien);
+  // Una sola vez: una opción ya elegida no llega hasta aquí. No lanza ni se espera: el SMTP
+  // puede tardar y quien elige no tiene por qué esperarlo (06/11/2026).
+  void avisarPendienteDeDeposito(delivery.id, optionNumber, quien);
 
   return elegida;
 }
@@ -662,8 +663,9 @@ export async function chooseOption(token: string, optionNumber: number) {
   );
   // Y lo contratado, en su tabla. No lanza.
   await contratarEnElCrm(delivery.id, optionNumber);
-  // Y el aviso a quien hizo la propuesta (06/11/2026). No lanza.
-  await avisarPendienteDeDeposito(delivery.id, optionNumber);
+  // Y el aviso a quien hizo la propuesta (06/11/2026). No lanza ni se espera: el colegio
+  // no debe esperar al SMTP para ver su confirmación.
+  void avisarPendienteDeDeposito(delivery.id, optionNumber);
 
   return elegida;
 }
