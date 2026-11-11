@@ -1,8 +1,8 @@
 # Inventario de funciones · Propuestas + Viajes → Oportunidades
 
-Fecha: 05/11/2026. Hecho leyendo el código (working tree de la rama `correo-por-oportunidad`), sin arrancar la app.
+Fecha: 05/11/2026. Hecho leyendo el código, sin arrancar la app.
 Criterio de aceptación: **ninguna fila de esta tabla puede quedar sin destino** en la pantalla única.
-El correo (CorreoPanel, CorreosSueltosPanel) queda fuera de este cambio: se conservan tal cual y se adaptan después.
+La gestión de correo por oportunidad (bandeja por oportunidad, rol cliente/proveedor y la relación de los correos con el CRM) queda FUERA de este cambio: se presupuesta y se coordina aparte. Aquí «Conversación» (CorreoPanel) se conserva tal cual está en `main`.
 
 Leyenda de origen: **P** = Propuestas (ProposalDesk + FichaPropuesta) · **V** = Viajes (ConfirmRequestsPanel).
 
@@ -78,9 +78,8 @@ Leyenda de origen: **P** = Propuestas (ProposalDesk + FichaPropuesta) · **V** =
 | # | Función | Origen |
 |---|---|---|
 | 48 | Conversación con el colegio y proveedores (CorreoPanel) | P |
-| 49 | Correos sin asignar con sugerencias (CorreosSueltosPanel) | P |
 
-Para las solo-Zoho, el botón de conversación no aparece hasta adaptar el correo.
+Para las solo-Zoho, el botón de conversación no aparece: el correo por oportunidad queda para otro presupuesto.
 
 ## Cosas nuevas que no existían
 

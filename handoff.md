@@ -2916,3 +2916,24 @@ fechas, pax ni centro, y servicios extra que no aparecen. **Lo lleva Anthony por
   Cambrils Park = Cambrils (alias por palabra entera), clubes FC/CF/CD/UD… como
   centro, señales de inglés. `tests/peticionDeportiva.test.ts` (14).
   Pendiente: elegir solo el alojamiento (bungalows MSH) y los campos.
+
+
+## Oportunidades: Propuestas y Viajes en una sola pantalla (11/11/2026) — rama `oportunidades`, SIN subir
+
+Rama `oportunidades`, desde `origin/main` (65acd32). **No lleva nada del correo por oportunidad**: Anthony (11/11) dijo que eso no se va a hacer ahora, que hay que presupuestarlo y que antes hay que coordinar cómo actualizar la relación de los correos dentro del CRM. El correo sigue aparte, en la rama `correo-por-oportunidad` (commit `ed45f9f`, con sus dos migraciones `correo_rol` y `correo_contraparte`, el panel «Correos sin asignar» y el emparejado). Esta rama conserva «Conversación» (CorreoPanel) tal cual está en `main`.
+
+**Qué lleva**
+- `src/domain/oportunidadUnificada.ts` y `server/oportunidades.ts`: la unión de propuestas de la app y tratos de Zoho (una fila por viaje).
+- `src/domain/oportunidadesVista.ts`: seis estados que suman el total (Cerradas separa ganadas y perdidas), lo siguiente que hay que hacer, orden de prisa real, vistas rápidas, carga por mes, agrupar por cuenta, reglas del cambio de fase.
+- `POST /api/oportunidades/:dealId/fase` (`server/moverFase.ts`): retroceder, perder o lista de espera exigen motivo (mín. 3 caracteres); escribe en Zoho (fase y nota fechada) y deja constancia en `CambioDeFase` y en la auditoría. Si Zoho falla, no queda constancia.
+- Pantalla `src/components/oportunidades/` (Lista · Tabla · Tablero · Calendario, ficha de oportunidades de solo Zoho, panel «Mover de fase») y cambios en `FichaPropuesta.tsx` («Lo siguiente» arriba con la única acción destacada, menú «Más ⋯», avance fino, «Han aceptado una opción» solo si está enviada). CSS con prefijo `opx-`.
+- Menú: una entrada «Oportunidades»; `/propuestas`, `/viajes`, `/viajes/calendario`, `/inicio`, `/confirmar` y `/existente` redirigen. `ProposalDesk.tsx` y la parte de pantalla de `ConfirmRequestsPanel.tsx` siguen vivos SIN USO (se retiran en la fase 6).
+
+**Base de datos:** UNA migración propia, `20261105100000_oportunidad_y_cambios_de_fase`, solo aditiva (tablas `Oportunidad` y `CambioDeFase`). No toca nada existente.
+
+**Comprobado:** `tsc -b` limpio; `npm test` 62 suites, 0 fallos (incluye `test:oportunidades`, `test:oportunidades-vista` con 27 y `test:mover-fase` con 15); las 430 oportunidades reales de 2027 pintadas con los componentes sin errores; el endpoint de fase, con login real, rechaza bien (sin sesión 401, sin motivo 400, fase inexistente 400, trato inexistente 404) y no escribió nada en Zoho.
+**NO probado:** un cambio de fase REAL contra Zoho (hace falta permiso explícito de Anthony y un trato de prueba) ni la pantalla en un navegador por mi parte.
+
+**Pendiente:** su impresión de la pantalla; prueba controlada del cambio de fase; fase 6 (retirar las pantallas viejas); arreglar «Importe en curso» en la pantalla vieja de Viajes que sigue en `main` (cuenta lo ganado como abierto; fallo ajeno a esta rama); subir solo con su orden literal y la migración de Oportunidades coordinada con Mateo.
+
+**No confundir:** la rama `unificar-oportunidades` (9b1af7f) es la versión vieja, construida SOBRE el correo. Queda solo como copia de seguridad (`refs/respaldo/oportunidades-pantalla`).

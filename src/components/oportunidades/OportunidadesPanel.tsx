@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  correosSueltosApi,
   fetchZohoDealStagesApi,
   listarOportunidadesApi,
   listProposalDeliveriesApi,
@@ -16,7 +15,7 @@ import {
   rangoValido,
   type RangoDeViajes,
 } from "../../domain/rangoDeViajes";
-import { nombreDelViaje, type OportunidadFila } from "../../domain/oportunidadUnificada";
+import type { OportunidadFila } from "../../domain/oportunidadUnificada";
 import {
   ESTADOS,
   filtrar,
@@ -33,7 +32,6 @@ import {
 } from "../../domain/oportunidadesVista";
 import { ConfirmCalendar } from "../confirm/ConfirmRequestsPanel";
 import { FichaPropuesta } from "../home/FichaPropuesta";
-import { CorreosSueltosPanel } from "../home/CorreosSueltosPanel";
 import { FichaDeTrato } from "./FichaDeTrato";
 import { ListaDeOportunidades } from "./ListaDeOportunidades";
 import { MoverDeFase } from "./MoverDeFase";
@@ -112,8 +110,6 @@ export function OportunidadesPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
-  const [sueltos, setSueltos] = useState(0);
-  const [verSueltos, setVerSueltos] = useState(false);
 
   const eligeDepartamento = !usuario || !usuario.department;
   const [departamento, setDepartamento] = useState<FiltroDepartamento>("TODOS");
@@ -189,13 +185,6 @@ export function OportunidadesPanel({
   useEffect(() => {
     void cargar();
   }, [cargar]);
-
-  useEffect(() => {
-    // La cuenta de correos sin asignar es un aviso: si falla, no estorba.
-    correosSueltosApi()
-      .then(({ mensajes }) => setSueltos(mensajes.length))
-      .catch(() => undefined);
-  }, []);
 
   const entregaPorId = useMemo(() => new Map(entregas.map((e) => [e.id, e])), [entregas]);
   const hoy = useMemo(() => new Date(), [todas]);
@@ -351,10 +340,6 @@ export function OportunidadesPanel({
               Calendario
             </button>
           </div>
-          <button type="button" className="opx-btn" onClick={() => setVerSueltos(true)}>
-            Correos sin asignar
-            {sueltos > 0 ? <b className="opx-pill">{sueltos}</b> : null}
-          </button>
           <button type="button" className="opx-btn" onClick={() => void cargar()} disabled={loading}>
             Actualizar
           </button>
@@ -531,7 +516,6 @@ export function OportunidadesPanel({
         </>
       )}
 
-      {verSueltos ? <CorreosSueltosPanel deliveries={entregas} tituloDe={nombreDelViaje} onClose={() => setVerSueltos(false)} onCambio={setSueltos} /> : null}
     </div>
   );
 }
