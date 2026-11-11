@@ -1,4 +1,4 @@
-import type { CamposDelTrato, HitoDelCrm, ItemDeInventario, PresupuestoDelCrm, ResumenDelAceptado } from "../../domain/fichaDelCrm";
+import { fechaLegible, type CamposDelTrato, type EventoDelTrato, type HitoDelCrm, type ItemDeInventario, type PresupuestoDelCrm, type ResumenDelAceptado } from "../../domain/fichaDelCrm";
 import { fechaCorta, fechaLarga } from "../../domain/oportunidadesVista";
 
 /**
@@ -218,7 +218,68 @@ export function TodosLosCampos({ campos }: { campos: CamposDelTrato }) {
   );
 }
 
-/** Las fechas que el propio trato guarda. No es el historial completo de Zoho (pide permisos que la app no tiene). */
+/**
+ * Los archivos subidos al trato en Zoho (el presupuesto o la hoja que se mandó por fuera de la app).
+ * Se abren desde aquí: así se puede ver qué se envió sin entrar a Zoho.
+ */
+export function ArchivosDelTrato({
+  eventos,
+  estado,
+  onAbrir,
+}: {
+  eventos: EventoDelTrato[];
+  /** Si la lista no se pudo leer: se dice, no se enseña «ningún archivo». */
+  estado: "cargando" | "ok" | "sin_leer";
+  onAbrir: (adjuntoId: string, nombre: string) => void;
+}) {
+  const archivos = eventos.filter((e) => e.tipo === "adjunto" && e.adjuntoId);
+  return (
+    <section className="opx-archivos" aria-label="Archivos del trato en el CRM">
+      <h4>Archivos subidos al trato en el CRM</h4>
+      {estado === "cargando" ? <p className="opx-muted">Leyendo el CRM…</p> : null}
+      {estado === "sin_leer" ? <p className="opx-muted">No se pudieron leer los archivos del trato (mira el aviso de arriba).</p> : null}
+      {estado === "ok" && archivos.length === 0 ? <p className="opx-muted">Nadie ha subido ningún archivo a este trato en Zoho.</p> : null}
+      {archivos.length > 0 ? (
+        <ul>
+          {archivos.map((a) => (
+            <li key={a.adjuntoId}>
+              <span className="opx-archivos__nom">
+                <b>{a.titulo}</b>
+                <small>{[a.detalle, a.quien ? `subido por ${a.quien}` : "", fechaLegible(a.cuando)].filter(Boolean).join(" · ")}</small>
+              </span>
+              <button type="button" className="opx-btn" onClick={() => onAbrir(a.adjuntoId as string, a.titulo)}>
+                Abrir
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+const ETIQUETA_DE_TIPO: Record<EventoDelTrato["tipo"], string> = { fase: "Fase", nota: "Nota", adjunto: "Archivo", correo: "Correo" };
+
+/** Todo lo que ha pasado en el trato según Zoho, del más reciente al más antiguo. */
+export function LineaDeTiempoDelTrato({ eventos }: { eventos: EventoDelTrato[] }) {
+  if (eventos.length === 0) return <p className="opx-muted">Zoho no tiene registros de este trato.</p>;
+  return (
+    <ol className="opx-tiempo">
+      {eventos.map((e, i) => (
+        <li key={i} className={`is-${e.tipo}`}>
+          <span className="opx-tiempo__tipo">{ETIQUETA_DE_TIPO[e.tipo]}</span>
+          <div>
+            <b>{e.titulo}</b>
+            {e.detalle ? <p>{e.detalle}</p> : null}
+            <small>{[fechaLegible(e.cuando), e.quien].filter(Boolean).join(" · ")}</small>
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** Las fechas que el propio trato guarda (si Zoho no deja leer su historial, es lo que hay). */
 export function HitosDelCrm({ hitos }: { hitos: HitoDelCrm[] }) {
   if (hitos.length === 0) return <p className="opx-muted">El CRM no guarda fechas de este trato.</p>;
   return (

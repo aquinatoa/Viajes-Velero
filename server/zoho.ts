@@ -111,7 +111,8 @@ export function getZohoAuthUrl() {
     // OAuth no válido» y settings.functions sola da OAUTH_SCOPE_MISMATCH
     // (probado el 13/10/2026). Las dos que tocan «Servicios Contratados» nos
     // las pasó Anthony a mano: ver server/serviciosContratados.ts.
-    "ZohoCRM.settings.functions.READ",
+    // (Sin «settings.functions.READ»: Zoho lo rechaza con «Ámbito de OAuth no válido»
+    // para este cliente; probado el 13/10 y otra vez el 11/11/2026 al reautorizar.)
     "ZohoCRM.settings.workflow_rules.READ",
     "ZohoCRM.settings.modules.READ",
     "ZohoCRM.settings.fields.READ",
@@ -123,8 +124,7 @@ export function getZohoAuthUrl() {
     "ZohoCRM.modules.READ",
     "ZohoCRM.modules.notes.READ",
     "ZohoCRM.modules.attachments.READ",
-    "ZohoCRM.modules.emails.READ",
-    "ZohoCRM.timeline.READ"
+    "ZohoCRM.modules.emails.READ"
   ].join(",");
 
   const params = new URLSearchParams({
@@ -1131,6 +1131,68 @@ export async function getZohoDealParaFicha(dealId: string): Promise<Record<strin
     { method: "GET" },
   );
   return result.data?.[0] ?? null;
+}
+
+/** Las listas del trato que la ficha enseña para poder actuar y corregir (Anthony, 11/11/2026). */
+export type ListaDelTrato = "Stage_History" | "Notes" | "Attachments" | "Emails";
+
+export interface LecturaDeLista {
+  lista: ListaDelTrato;
+  /** ok = leída · sin_permiso = el token no tiene el permiso (OAUTH_SCOPE_MISMATCH) · error = otra cosa */
+  estado: "ok" | "sin_permiso" | "error";
+  registros: Record<string, unknown>[];
+  /** Lo que dijo Zoho cuando no es ok, para poder arreglarlo. */
+  detalle?: string;
+}
+
+/** Qué campos se piden de cada lista: Zoho exige `fields` en las listas relacionadas. */
+const CAMPOS_DE_LISTA: Record<ListaDelTrato, string> = {
+  Stage_History: "Stage,Modified_By,Modified_Time,Duration,Moved_To",
+  Notes: "Note_Title,Note_Content,Created_By,Created_Time",
+  Attachments: "File_Name,Size,Created_By,Created_Time",
+  Emails: "",
+};
+
+/**
+ * Lee UNA lista relacionada del trato (historial de fases, notas, adjuntos o correos).
+ * Solo LEE. No usa `zohoRequest` a propósito: ahí un 401 por falta de permiso se
+ * convierte en «la autenticación ha expirado» y no se ve cuál es el problema real.
+ * Nunca lanza: devuelve el estado para que la ficha diga «sin permiso» en vez de romperse.
+ */
+export async function leerListaDelTrato(dealId: string, lista: ListaDelTrato): Promise<LecturaDeLista> {
+  try {
+    const auth = await getAccessToken();
+    const campos = CAMPOS_DE_LISTA[lista];
+    const url = `${auth.apiDomain}/crm/v8/${zohoConfig.dealsModule}/${encodeURIComponent(dealId)}/${lista}${campos ? `?fields=${campos}&per_page=200` : "?per_page=200"}`;
+    const response = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${auth.accessToken}` } });
+    if (response.status === 204) return { lista, estado: "ok", registros: [] };
+    const json = (await response.json().catch(() => ({}))) as { data?: Record<string, unknown>[]; code?: string; message?: string };
+    if (response.ok) return { lista, estado: "ok", registros: json.data ?? [] };
+    const detalle = `${json.code ?? response.status} ${json.message ?? ""}`.trim();
+    return { lista, estado: json.code === "OAUTH_SCOPE_MISMATCH" ? "sin_permiso" : "error", registros: [], detalle };
+  } catch (error) {
+    return { lista, estado: "error", registros: [], detalle: error instanceof Error ? error.message : "No se pudo leer." };
+  }
+}
+
+/** Un archivo adjunto de un trato, tal como lo guarda Zoho. Solo LEE. */
+export async function descargarAdjuntoDelTrato(
+  dealId: string,
+  adjuntoId: string,
+): Promise<{ datos: Buffer; tipo: string; nombre: string }> {
+  const MAXIMO = 25 * 1024 * 1024;
+  const auth = await getAccessToken();
+  const url = `${auth.apiDomain}/crm/v8/${zohoConfig.dealsModule}/${encodeURIComponent(dealId)}/Attachments/${encodeURIComponent(adjuntoId)}`;
+  const response = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${auth.accessToken}` } });
+  if (!response.ok) {
+    const json = (await response.json().catch(() => ({}))) as { code?: string; message?: string };
+    throw new Error(`No se pudo descargar el archivo de Zoho (${json.code ?? response.status}).`);
+  }
+  const datos = Buffer.from(await response.arrayBuffer());
+  if (datos.length > MAXIMO) throw new Error("El archivo es demasiado grande para abrirlo desde la app (más de 25 MB).");
+  const disposicion = response.headers.get("content-disposition") ?? "";
+  const nombre = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposicion)?.[1] ?? "archivo";
+  return { datos, tipo: response.headers.get("content-type") ?? "application/octet-stream", nombre: decodeURIComponent(nombre) };
 }
 
 export async function getZohoDealStage(dealId: string): Promise<string> {

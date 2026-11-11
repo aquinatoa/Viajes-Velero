@@ -17,6 +17,8 @@ import {
   getZohoAuthUrl,
   getZohoDealDetalle,
   getZohoDealParaFicha,
+  leerListaDelTrato,
+  descargarAdjuntoDelTrato,
   getZohoDealStages,
   listZohoDeals,
   listZohoDealsEntre,
@@ -641,6 +643,53 @@ app.get("/api/oportunidades/:dealId/crm", requireAuth, async (request, response)
     response.json({ ficha: fichaDelCrm(trato, { verEconomia }, await etiquetasDelTrato()) });
   } catch (error) {
     crmErrorResponse(error, response, "No se pudo leer la oportunidad en el CRM.");
+  }
+});
+
+// Lo que Zoho guarda del trato y la ficha necesita para actuar y corregir: historial de
+// fases, notas, archivos adjuntos y correos. Solo LEE. Cada lista dice si se pudo leer,
+// si falta el permiso de la conexión (hay que reautorizar) o si dio otro error.
+app.get("/api/oportunidades/:dealId/historial-crm", requireAuth, async (request, response) => {
+  try {
+    const user = (request as AuthedRequest).user;
+    const dealId = String(request.params.dealId);
+    const trato = await getZohoDealParaFicha(dealId);
+    const visible =
+      trato && (!user || tratosVisiblesPara(user, [{ department: departamentoDesdeCrm(trato.Departamento) }]).length > 0);
+    if (!trato || !visible) {
+      response.status(404).json({ error: "Esa oportunidad no existe o no es de tu departamento." });
+      return;
+    }
+    const listas = await Promise.all((["Stage_History", "Notes", "Attachments", "Emails"] as const).map((l) => leerListaDelTrato(dealId, l)));
+    response.json({ listas });
+  } catch (error) {
+    crmErrorResponse(error, response, "No se pudo leer el historial del trato en el CRM.");
+  }
+});
+
+// Un archivo adjunto del trato (el presupuesto o la hoja que se subió a mano a Zoho). Solo LEE.
+app.get("/api/oportunidades/:dealId/adjuntos/:adjuntoId", requireAuth, async (request, response) => {
+  try {
+    const user = (request as AuthedRequest).user;
+    const dealId = String(request.params.dealId);
+    const adjuntoId = String(request.params.adjuntoId);
+    if (!/^\d{6,30}$/.test(dealId) || !/^\d{6,30}$/.test(adjuntoId)) {
+      response.status(400).json({ error: "Identificador no válido." });
+      return;
+    }
+    const trato = await getZohoDealParaFicha(dealId);
+    const visible =
+      trato && (!user || tratosVisiblesPara(user, [{ department: departamentoDesdeCrm(trato.Departamento) }]).length > 0);
+    if (!trato || !visible) {
+      response.status(404).json({ error: "Esa oportunidad no existe o no es de tu departamento." });
+      return;
+    }
+    const archivo = await descargarAdjuntoDelTrato(dealId, adjuntoId);
+    response.type(archivo.tipo);
+    response.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(archivo.nombre)}`);
+    response.send(archivo.datos);
+  } catch (error) {
+    crmErrorResponse(error, response, "No se pudo abrir el archivo del trato.");
   }
 });
 

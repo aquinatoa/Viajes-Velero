@@ -378,11 +378,8 @@ export function inventarioDelTrato(trato: TratoCrudo): ItemDeInventario[] {
       : { texto: "Texto de opciones o descripción", estado: "na", detalle: "vacío" },
   );
 
-  items.push({
-    texto: "Archivos adjuntos, notas, correos e historial de fases",
-    estado: "aviso",
-    detalle: "la app no puede leerlos con el permiso que tiene hoy en Zoho: están en la ficha del trato en Zoho",
-  });
+  // Adjuntos, notas, correos e historial de fases se añaden aparte (`inventarioDeListas`): son listas
+  // relacionadas que se leen con otra llamada y pueden fallar sin que falle el resto de la ficha.
   return items;
 }
 
@@ -447,7 +444,7 @@ const GRUPOS: { titulo: string; campos: string[] }[] = [
   { titulo: "Quién", campos: ["Owner", "Created_By", "Modified_By"] },
 ];
 
-function fechaLegible(t: string): string {
+export function fechaLegible(t: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/.exec(t);
   if (!m) return t;
   return `${m[3]}/${m[2]}/${m[1]}${m[4] ? ` ${m[4]}:${m[5]}` : ""}`;
@@ -512,6 +509,174 @@ export function camposDelTratoConValor(
   if (!Array.isArray(trato.Servicios_Contratados) || trato.Servicios_Contratados.length === 0) vacios.unshift(etiquetaDe("Servicios_Contratados", etiquetas));
   return { grupos, vacios, rellenos: grupos.reduce((t, g) => t + g.campos.length, 0) };
 }
+
+// ── Historial, notas, adjuntos y correos del trato (listas relacionadas de Zoho) ──
+
+/** Lo que devuelve `GET /api/oportunidades/:id/historial-crm` por cada lista. */
+export interface ListaDelTratoLeida {
+  lista: "Stage_History" | "Notes" | "Attachments" | "Emails";
+  /** ok = leída · sin_permiso = falta el permiso de la conexión · error = otro fallo */
+  estado: "ok" | "sin_permiso" | "error";
+  registros: Record<string, unknown>[];
+  detalle?: string;
+}
+
+export type TipoDeEvento = "fase" | "nota" | "adjunto" | "correo";
+
+export interface EventoDelTrato {
+  tipo: TipoDeEvento;
+  /** Fecha y hora ISO tal como las da Zoho. */
+  cuando: string;
+  titulo: string;
+  detalle: string;
+  quien: string;
+  /** Para los adjuntos: el id con el que se descarga. */
+  adjuntoId?: string;
+}
+
+/** HTML de Zoho (notas, correos) → texto plano legible. */
+export function htmlATexto(html: unknown): string {
+  const t = texto(html);
+  if (!t) return "";
+  return sinEntidades(
+    t
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(p|div|li)>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      // Las menciones de Zoho llegan como crm[user#id#id]crm.
+      .replace(/crm\[user#\d+#\d+\]crm/g, "@mención"),
+  )
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n+/g, "\n")
+    .trim();
+}
+
+export function tamanoLegible(bytes: unknown): string {
+  const n = numero(bytes);
+  if (n === null || n <= 0) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
+}
+
+const tope = (t: string, max: number) => (t.length > max ? `${t.slice(0, max).trimEnd()}…` : t);
+
+/**
+ * Todo lo que ha pasado en el trato según Zoho, del más reciente al más antiguo:
+ * cambios de fase (con «de X a Y»), notas, archivos adjuntos y correos.
+ */
+export function eventosDelTrato(listas: ListaDelTratoLeida[]): EventoDelTrato[] {
+  const por = (l: ListaDelTratoLeida["lista"]) => listas.find((x) => x.lista === l && x.estado === "ok")?.registros ?? [];
+  const eventos: EventoDelTrato[] = [];
+
+  // Fases: cada registro dice a qué fase pasó; el «de» es la fase del registro anterior.
+  const fases = [...por("Stage_History")]
+    .map((r) => ({ cuando: texto(r.Modified_Time), fase: texto(r.Stage), quien: texto(r.Modified_By) }))
+    .filter((r) => r.cuando)
+    .sort((a, b) => (a.cuando < b.cuando ? -1 : a.cuando > b.cuando ? 1 : 0));
+  fases.forEach((r, i) => {
+    eventos.push({
+      tipo: "fase",
+      cuando: r.cuando,
+      titulo: i === 0 ? `Entró en «${r.fase}»` : `${fases[i - 1].fase} → ${r.fase}`,
+      detalle: "",
+      quien: r.quien,
+    });
+  });
+
+  for (const r of por("Notes")) {
+    const cuerpo = htmlATexto(r.Note_Content);
+    const titulo = texto(r.Note_Title) || tope(cuerpo.split("\n")[0] ?? "", 90) || "Nota";
+    eventos.push({
+      tipo: "nota",
+      cuando: texto(r.Created_Time),
+      titulo,
+      detalle: texto(r.Note_Title) ? tope(cuerpo, 700) : cuerpo.length > titulo.length ? tope(cuerpo, 700) : "",
+      quien: texto(r.Created_By),
+    });
+  }
+
+  for (const r of por("Attachments")) {
+    eventos.push({
+      tipo: "adjunto",
+      cuando: texto(r.Created_Time),
+      titulo: texto(r.File_Name) || "Archivo",
+      detalle: tamanoLegible(r.Size),
+      quien: texto(r.Created_By),
+      adjuntoId: texto(r.id),
+    });
+  }
+
+  for (const r of por("Emails")) {
+    const de = r.from && typeof r.from === "object" ? texto((r.from as Record<string, unknown>).email ?? (r.from as Record<string, unknown>).user_name) : texto(r.from);
+    eventos.push({
+      tipo: "correo",
+      cuando: texto(r.sent_time ?? r.time ?? r.Created_Time ?? r.sent),
+      titulo: texto(r.subject ?? r.Subject) || "Correo",
+      detalle: tope(htmlATexto(r.summary ?? r.content), 400),
+      quien: de,
+    });
+  }
+
+  return eventos.filter((e) => e.cuando).sort((a, b) => (a.cuando < b.cuando ? 1 : a.cuando > b.cuando ? -1 : 0));
+}
+
+/** Las comprobaciones de «qué tiene el trato» que dependen de las listas relacionadas. */
+export function inventarioDeListas(listas: ListaDelTratoLeida[]): ItemDeInventario[] {
+  const sinLeer = (l: ListaDelTratoLeida): ItemDeInventario | null =>
+    l.estado === "sin_permiso"
+      ? { texto: ROTULO_LISTA[l.lista], estado: "aviso", detalle: "falta el permiso de lectura en la conexión con Zoho (hay que reautorizar)" }
+      : l.estado === "error"
+        ? { texto: ROTULO_LISTA[l.lista], estado: "aviso", detalle: `no se pudo leer: ${l.detalle ?? "error de Zoho"}` }
+        : null;
+  const items: ItemDeInventario[] = [];
+  const orden: ListaDelTratoLeida["lista"][] = ["Attachments", "Stage_History", "Notes", "Emails"];
+  for (const nombre of orden) {
+    const l = listas.find((x) => x.lista === nombre);
+    if (!l) continue;
+    const mal = sinLeer(l);
+    if (mal) {
+      items.push(mal);
+      continue;
+    }
+    const n = l.registros.length;
+    const eventos = eventosDelTrato([l]);
+    if (nombre === "Attachments") {
+      items.push(
+        n > 0
+          ? { texto: ROTULO_LISTA[nombre], estado: "si", detalle: `${n}: ${eventos.map((e) => e.titulo).join(" · ")}` }
+          : { texto: ROTULO_LISTA[nombre], estado: "na", detalle: "ninguno subido al trato" },
+      );
+    } else if (nombre === "Stage_History") {
+      const ultimo = eventos[0];
+      items.push(
+        n > 0
+          ? { texto: ROTULO_LISTA[nombre], estado: "si", detalle: `${n} ${n === 1 ? "registro" : "registros"} · último: ${ultimo.titulo}, ${fechaLegible(ultimo.cuando)}${ultimo.quien ? ` por ${ultimo.quien}` : ""}` }
+          : { texto: ROTULO_LISTA[nombre], estado: "na", detalle: "sin registros" },
+      );
+    } else if (nombre === "Notes") {
+      items.push(
+        n > 0
+          ? { texto: ROTULO_LISTA[nombre], estado: "si", detalle: `${n} ${n === 1 ? "nota" : "notas"} · la última, ${fechaLegible(eventos[0].cuando)}` }
+          : { texto: ROTULO_LISTA[nombre], estado: "na", detalle: "ninguna" },
+      );
+    } else {
+      items.push(
+        n > 0
+          ? { texto: ROTULO_LISTA[nombre], estado: "si", detalle: `${n} ${n === 1 ? "correo" : "correos"}` }
+          : { texto: ROTULO_LISTA[nombre], estado: "na", detalle: "ninguno asociado al trato en el CRM" },
+      );
+    }
+  }
+  return items;
+}
+
+const ROTULO_LISTA: Record<ListaDelTratoLeida["lista"], string> = {
+  Attachments: "Archivos adjuntos del trato",
+  Stage_History: "Historial de fases en el CRM",
+  Notes: "Notas",
+  Emails: "Correos asociados en el CRM",
+};
 
 // ── Todo junto ───────────────────────────────────────────────────────────────
 

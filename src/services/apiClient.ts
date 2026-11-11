@@ -371,6 +371,40 @@ export function fichaDelCrmApi(dealId: string) {
   );
 }
 
+/** Historial de fases, notas, adjuntos y correos del trato en Zoho (cada lista dice si se pudo leer). */
+export function historialDelCrmApi(dealId: string) {
+  return getJson<{ listas: import("../domain/fichaDelCrm").ListaDelTratoLeida[] }>(
+    `/api/oportunidades/${encodeURIComponent(dealId)}/historial-crm`,
+    "No se pudo leer el historial del trato en el CRM.",
+  );
+}
+
+/**
+ * Abre un archivo adjunto del trato. Se descarga con la sesión en la cabecera y se abre
+ * desde memoria (como los PDF de propuesta): el token no acaba en la URL. Los PDF e
+ * imágenes se abren en pestaña; el resto (Excel, Word…) se descarga con su nombre.
+ */
+export async function abrirAdjuntoDelCrm(dealId: string, adjuntoId: string, nombre: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/oportunidades/${encodeURIComponent(dealId)}/adjuntos/${encodeURIComponent(adjuntoId)}`,
+    { headers: authHeaders() },
+  );
+  if (!response.ok) await parseErrorResponse(response, "No se pudo abrir el archivo.");
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  if (/\.(pdf|png|jpe?g|gif|webp)$/i.test(nombre)) {
+    window.open(url, "_blank", "noopener");
+  } else {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nombre;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 /** Un cambio de fase ya hecho, tal y como lo guarda la app. */
 export interface CambioDeFaseLeido {
   id: string;

@@ -14368,3 +14368,22 @@ button.hilo__adjunto:hover {
 .opx-campos-grupo + .opx-campos-grupo { margin-top: 8px; }
 .opx-campos-grupo h5 { margin: 10px 0 2px; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
 .opx-vacios { margin: 12px 0 0; padding-top: 10px; border-top: 1px dashed var(--border); color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+
+/* ── Oportunidades · archivos del trato y línea de tiempo de Zoho ── */
+.opx-archivos { margin-top: 14px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px 14px; }
+.opx-archivos h4 { margin: 0 0 8px; font-size: 14.5px; }
+.opx-archivos ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.opx-archivos li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 10px; background: var(--surface-2); border-radius: var(--radius); }
+.opx-archivos__nom { display: grid; gap: 1px; min-width: 0; }
+.opx-archivos__nom b { overflow-wrap: anywhere; }
+.opx-archivos__nom small { color: var(--muted); font-size: 12px; }
+
+.opx-tiempo { list-style: none; margin: 8px 0 0; padding: 0 0 0 4px; display: grid; gap: 0; border-left: 2px solid var(--border); }
+.opx-tiempo li { display: grid; grid-template-columns: 62px 1fr; gap: 10px; align-items: start; padding: 8px 0 8px 12px; position: relative; }
+.opx-tiempo li::before { content: ""; position: absolute; left: -7px; top: 14px; width: 10px; height: 10px; border-radius: 50%; background: var(--surface-2); border: 2px solid var(--border-strong); }
+.opx-tiempo li.is-fase::before { background: rgb(var(--c)); border-color: rgb(var(--c)); }
+.opx-tiempo li.is-adjunto::before { background: #6b7a90; border-color: #6b7a90; }
+.opx-tiempo__tipo { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding-top: 2px; }
+.opx-tiempo b { font-weight: 600; overflow-wrap: anywhere; }
+.opx-tiempo p { margin: 2px 0 0; white-space: pre-line; font-size: 13px; color: #35435a; }
+.opx-tiempo small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { cambiosDeFaseApi, fichaDelCrmApi, type CambioDeFaseLeido } from "../../services/apiClient";
+import { abrirAdjuntoDelCrm, cambiosDeFaseApi, fichaDelCrmApi, historialDelCrmApi, type CambioDeFaseLeido } from "../../services/apiClient";
 import type { OportunidadFila } from "../../domain/oportunidadUnificada";
-import type { FichaDelCrmCompleta } from "../../domain/fichaDelCrm";
+import { eventosDelTrato, inventarioDeListas, type FichaDelCrmCompleta, type ListaDelTratoLeida } from "../../domain/fichaDelCrm";
 import {
   diasHasta,
   estadoDe,
@@ -15,7 +15,15 @@ import {
 import { estiloDeFase, type ColoresDeFase } from "../../domain/colorDeFase";
 import { parseTrip } from "../confirm/ConfirmRequestsPanel";
 import { AvanceDeFase, pasosDeLaFase } from "./AvanceDeFase";
-import { HitosDelCrm, InventarioDelCrm, PresupuestosDelCrm, TarjetaDelAceptado, TodosLosCampos } from "./InfoDelCrm";
+import {
+  ArchivosDelTrato,
+  HitosDelCrm,
+  InventarioDelCrm,
+  LineaDeTiempoDelTrato,
+  PresupuestosDelCrm,
+  TarjetaDelAceptado,
+  TodosLosCampos,
+} from "./InfoDelCrm";
 import { MenuMas } from "./MenuMas";
 import { MoverDeFase } from "./MoverDeFase";
 import { comoTratoDeZoho } from "./tratoDeZoho";
@@ -69,6 +77,9 @@ export function FichaDeTrato({
   const [crm, setCrm] = useState<{ ficha: FichaDelCrmCompleta } | null>(null);
   const [leyendoElCrm, setLeyendoElCrm] = useState(false);
   const [errorDelCrm, setErrorDelCrm] = useState("");
+  // Historial de fases, notas, adjuntos y correos del trato en Zoho.
+  const [listas, setListas] = useState<ListaDelTratoLeida[] | null>(null);
+  const [errorListas, setErrorListas] = useState("");
 
   const estado = estadoDe(fila);
   const paso = siguientePaso(fila, hoy);
@@ -100,6 +111,21 @@ export function FichaDeTrato({
     };
   }, [fila.crmDealId, fila.fase]);
 
+  // Historial de fases, notas, archivos y correos del trato: otra lectura, aparte, para que si falla
+  // (permiso, Zoho lento) no se caiga el resto de la ficha.
+  useEffect(() => {
+    setListas(null);
+    setErrorListas("");
+    if (!fila.crmDealId) return;
+    let vivo = true;
+    historialDelCrmApi(fila.crmDealId)
+      .then((r) => vivo && setListas(r.listas))
+      .catch((e: unknown) => vivo && setErrorListas(e instanceof Error ? e.message : "No se pudo leer el historial del CRM."));
+    return () => {
+      vivo = false;
+    };
+  }, [fila.crmDealId, fila.fase]);
+
   // El historial de fase de la app solo se pide al abrir la pestaña.
   useEffect(() => {
     if (pestana !== "historial" || !fila.crmDealId || cambios !== null) return;
@@ -114,6 +140,20 @@ export function FichaDeTrato({
 
   const ficha = crm?.ficha ?? null;
   const opcionesTotal = Math.max(trip.options.length, trip.chosen ?? 0);
+  const eventos = useMemo(() => (listas ? eventosDelTrato(listas) : []), [listas]);
+  const inventario = useMemo(() => (ficha ? [...ficha.inventario, ...(listas ? inventarioDeListas(listas) : [])] : []), [ficha, listas]);
+  const sinPermiso = (listas ?? []).filter((l) => l.estado === "sin_permiso");
+  const estadoDeArchivos: "cargando" | "ok" | "sin_leer" = errorListas
+    ? "sin_leer"
+    : listas === null
+      ? "cargando"
+      : listas.find((l) => l.lista === "Attachments")?.estado === "ok"
+        ? "ok"
+        : "sin_leer";
+  const abrirArchivo = (adjuntoId: string, nombre: string) => {
+    if (!fila.crmDealId) return;
+    abrirAdjuntoDelCrm(fila.crmDealId, adjuntoId, nombre).catch((e: unknown) => onError(e instanceof Error ? e.message : "No se pudo abrir el archivo."));
+  };
 
   const copiarEnlace = async () => {
     try {
@@ -220,7 +260,7 @@ export function FichaDeTrato({
                 </p>
               ) : null}
 
-              {ficha ? <InventarioDelCrm items={ficha.inventario} /> : null}
+              {ficha ? <InventarioDelCrm items={inventario} /> : null}
               {ficha?.aceptado ? <TarjetaDelAceptado aceptado={ficha.aceptado} /> : null}
               {estado === "perdida" ? (
                 ficha?.motivoDePerdida ? (
@@ -267,6 +307,7 @@ export function FichaDeTrato({
                   </>
                 )
               )}
+              <ArchivosDelTrato eventos={eventos} estado={estadoDeArchivos} onAbrir={abrirArchivo} />
             </section>
           ) : null}
 
@@ -294,12 +335,16 @@ export function FichaDeTrato({
                 </ul>
               ) : null}
 
-              <h4 style={{ marginTop: 18 }}>Fechas del trato en el CRM</h4>
-              {ficha ? <HitosDelCrm hitos={ficha.hitos} /> : <p className="opx-muted">{leyendoElCrm ? "Leyendo el CRM…" : "No se pudo leer el CRM."}</p>}
-              <p className="opx-nota" style={{ marginTop: 12 }}>
-                El historial completo de fases y las notas de Zoho todavía no se pueden leer: la autorización actual de la app no tiene ese permiso.
-                Ampliarlo requiere volver a autorizar y cambiar el acceso en producción.
-              </p>
+              <h4 style={{ marginTop: 18 }}>Lo que Zoho guarda del trato</h4>
+              {listas === null ? <p className="opx-muted">{errorListas || "Leyendo el CRM…"}</p> : null}
+              {sinPermiso.length > 0 ? (
+                <p className="opx-nota">
+                  Zoho no deja leer {sinPermiso.map((l) => ({ Stage_History: "el historial de fases", Notes: "las notas", Attachments: "los archivos", Emails: "los correos" })[l.lista]).join(", ")}: a la
+                  conexión de la app le falta el permiso de lectura. Hay que volver a autorizarla (en producción, con Mateo).
+                </p>
+              ) : null}
+              {listas !== null ? <LineaDeTiempoDelTrato eventos={eventos} /> : null}
+              {listas === null && ficha ? <HitosDelCrm hitos={ficha.hitos} /> : null}
             </section>
           ) : null}
         </div>

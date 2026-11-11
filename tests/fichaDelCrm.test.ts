@@ -12,9 +12,14 @@ import assert from "node:assert/strict";
 import {
   camposDelTratoConValor,
   estaAceptadoEnElCrm,
+  eventosDelTrato,
   fichaDelCrm,
   hitosDelTrato,
+  htmlATexto,
+  inventarioDeListas,
   inventarioDelTrato,
+  tamanoLegible,
+  type ListaDelTratoLeida,
   presupuestosDelTrato,
   resumenDelAceptado,
   type EtiquetasDeCampos,
@@ -291,7 +296,7 @@ prueba("el inventario dice con todas las letras lo que falta: servicios, qué pr
   assert.equal(por("Cuál de los presupuestos").estado, "no");
   assert.equal(por("Proveedores").estado, "si");
   assert.equal(por("Proveedores").detalle, "Ayuntamiento de Torremolinos");
-  assert.equal(por("Archivos adjuntos").estado, "aviso", "lo que no se puede leer se avisa, no se calla");
+  assert.ok(!inv.some((i) => /adjuntos|Notas|Historial/.test(i.texto)), "las listas relacionadas se añaden aparte");
 });
 
 prueba("una salida anterior a la llegada se señala como error de año (en vez de dar «-353 noches» sin explicar)", () => {
@@ -378,6 +383,100 @@ prueba("la ficha entera trae inventario y campos", () => {
   assert.ok(f.inventario.length >= 7);
   assert.ok(f.campos.rellenos > 10);
   assert.equal(f.aceptado!.hayDetalle, false);
+});
+
+console.log("\nHistorial, notas, adjuntos y correos (datos con la forma de los reales de TORREMOLINOS BLOCK 2027)");
+
+const LISTAS: ListaDelTratoLeida[] = [
+  {
+    lista: "Stage_History", estado: "ok",
+    registros: [
+      { Stage: "Pendiente de pago resto", Modified_Time: "2026-07-22T12:37:55+02:00", Modified_By: { name: "Dept. Sports", id: "1" } },
+      { Stage: "Oportunidad Ganada", Modified_Time: "2026-07-22T12:37:50+02:00", Modified_By: { name: "Dept. Sports", id: "1" } },
+      { Stage: "Pendiente de deposito", Modified_Time: "2026-06-19T11:05:30+02:00", Modified_By: { name: "Ricard García Torrents", id: "2" } },
+      { Stage: "Seguimiento al Presupuesto", Modified_Time: "2026-06-17T10:11:24+02:00", Modified_By: { name: "Ricard García Torrents", id: "2" } },
+    ],
+  },
+  {
+    lista: "Notes", estado: "ok",
+    registros: [
+      { Created_Time: "2026-04-13T10:38:37+02:00", Note_Title: "Piscines torremolinos + Hotel Sandos Griegos", Note_Content: null, Created_By: { name: "Ricard García Torrents" } },
+      { Created_Time: "2026-06-17T15:54:04+02:00", Note_Title: null, Note_Content: "crm[user#734060000000967001#20101243826]crm PAGAT!", Created_By: { name: "Marisa Vidal" } },
+      { Created_Time: "2026-05-25T10:06:49+02:00", Note_Title: "DISPO REAL PISCINA", Note_Content: '<br><a href="https://x.example"><u>https://x.example</u></a><br>Salou &amp; Cambrils', Created_By: { name: "Ricard García Torrents" } },
+    ],
+  },
+  {
+    lista: "Attachments", estado: "ok",
+    registros: [
+      { id: "7340600000310", File_Name: "INFOSHEET 2027 - Pre reserva.pdf", Size: "905412", Created_Time: "2026-09-15T09:40:59+02:00", Created_By: { name: "Miguel Olmedo Montoya" } },
+      { id: "7340600000287", File_Name: "SPORTS INCOMING 19-3 1.xls", Size: "508928", Created_Time: "2026-08-07T13:17:06+02:00", Created_By: { name: "Ricard García Torrents" } },
+    ],
+  },
+  { lista: "Emails", estado: "ok", registros: [] },
+];
+
+prueba("la línea de tiempo une fases, notas y adjuntos, del más reciente al más antiguo", () => {
+  const e = eventosDelTrato(LISTAS);
+  assert.equal(e.length, 4 + 3 + 2);
+  const fechas = e.map((x) => x.cuando);
+  assert.deepEqual(fechas, [...fechas].sort().reverse());
+  assert.deepEqual([...new Set(e.map((x) => x.tipo))].sort(), ["adjunto", "fase", "nota"]);
+});
+
+prueba("cada cambio de fase dice de cuál a cuál y quién lo hizo", () => {
+  const f = eventosDelTrato(LISTAS).filter((x) => x.tipo === "fase");
+  assert.equal(f[0].titulo, "Oportunidad Ganada → Pendiente de pago resto");
+  assert.equal(f[0].quien, "Dept. Sports");
+  assert.equal(f[f.length - 1].titulo, "Entró en «Seguimiento al Presupuesto»");
+});
+
+prueba("las notas salen en texto plano: sin HTML, sin entidades y con las menciones de Zoho legibles", () => {
+  const n = eventosDelTrato(LISTAS).filter((x) => x.tipo === "nota");
+  const pagat = n.find((x) => x.titulo.includes("PAGAT"))!;
+  assert.equal(pagat.titulo, "@mención PAGAT!");
+  assert.equal(pagat.quien, "Marisa Vidal");
+  const dispo = n.find((x) => x.titulo === "DISPO REAL PISCINA")!;
+  assert.ok(!/[<>]/.test(dispo.detalle));
+  assert.match(dispo.detalle, /Salou & Cambrils/);
+});
+
+prueba("los adjuntos llevan nombre, tamaño legible, quién y el id con el que se descargan", () => {
+  const a = eventosDelTrato(LISTAS).filter((x) => x.tipo === "adjunto");
+  assert.equal(a[0].titulo, "INFOSHEET 2027 - Pre reserva.pdf");
+  assert.equal(a[0].detalle, "884 KB");
+  assert.equal(a[0].adjuntoId, "7340600000310");
+  assert.equal(a[0].quien, "Miguel Olmedo Montoya");
+});
+
+prueba("una lista sin permiso o con error NO aporta eventos y se avisa en el inventario", () => {
+  const mal: ListaDelTratoLeida[] = [
+    { lista: "Notes", estado: "sin_permiso", registros: [], detalle: "OAUTH_SCOPE_MISMATCH" },
+    { lista: "Attachments", estado: "error", registros: [], detalle: "INVALID_DATA" },
+    { lista: "Stage_History", estado: "ok", registros: [] },
+  ];
+  assert.deepEqual(eventosDelTrato(mal), []);
+  const inv = inventarioDeListas(mal);
+  assert.equal(inv.find((i) => i.texto.startsWith("Notas"))!.estado, "aviso");
+  assert.match(inv.find((i) => i.texto.startsWith("Notas"))!.detalle, /reautorizar/);
+  assert.match(inv.find((i) => i.texto.startsWith("Archivos"))!.detalle, /INVALID_DATA/);
+});
+
+prueba("el inventario de listas dice qué hay: adjuntos por nombre, último cambio de fase, notas y correos", () => {
+  const inv = inventarioDeListas(LISTAS);
+  const por = (t: string) => inv.find((i) => i.texto.startsWith(t))!;
+  assert.equal(por("Archivos adjuntos").estado, "si");
+  assert.match(por("Archivos adjuntos").detalle, /2: .*SPORTS INCOMING/);
+  assert.match(por("Historial de fases").detalle, /4 registros · último: Oportunidad Ganada → Pendiente de pago resto, 22\/07\/2026 12:37 por Dept\. Sports/);
+  assert.match(por("Notas").detalle, /3 notas/);
+  assert.equal(por("Correos").estado, "na");
+});
+
+prueba("htmlATexto y tamanoLegible", () => {
+  assert.equal(htmlATexto("<p>Hola &amp; adiós</p><p>Dos</p>"), "Hola & adiós\nDos");
+  assert.equal(htmlATexto(null), "");
+  assert.equal(tamanoLegible("508928"), "497 KB");
+  assert.equal(tamanoLegible(3 * 1024 * 1024), "3,0 MB");
+  assert.equal(tamanoLegible(null), "");
 });
 
 console.log(`\n${pasadas} pasadas, ${fallidas} fallidas`);
