@@ -289,7 +289,6 @@ prueba("el inventario dice con todas las letras lo que falta: servicios, qué pr
   assert.equal(por("Presupuesto línea a línea").estado, "no");
   assert.match(por("Presupuesto línea a línea").detalle, /VACÍO/);
   assert.equal(por("Cuál de los presupuestos").estado, "no");
-  assert.equal(por("Documento del presupuesto").estado, "no");
   assert.equal(por("Proveedores").estado, "si");
   assert.equal(por("Proveedores").detalle, "Ayuntamiento de Torremolinos");
   assert.equal(por("Archivos adjuntos").estado, "aviso", "lo que no se puede leer se avisa, no se calla");
@@ -311,20 +310,18 @@ prueba("los importes decimales sueltos salen con formato (4667.8 → 4.667,80)",
   assert.equal(todos.find((x) => x.etiqueta === "N mero de personas")!.valor, "30");
 });
 
-prueba("el inventario de un trato completo: todo en verde y con el enlace del documento", () => {
+prueba("el inventario de un trato completo: todo en verde", () => {
   const inv = inventarioDelTrato(ACEPTADO);
   const por = (t: string) => inv.find((i) => i.texto.startsWith(t))!;
   assert.equal(por("Presupuesto línea a línea").estado, "si");
   assert.match(por("Presupuesto línea a línea").detalle, /3 líneas en 2 presupuestos/);
   assert.equal(por("Cuál de los presupuestos").detalle, "el nº 2");
-  assert.equal(por("Documento del presupuesto").estado, "si");
-  assert.equal(por("Documento del presupuesto").enlace, "https://books.example/quotes/1");
+  assert.ok(!inv.some((i) => /Books|Documento del presupuesto/.test(i.texto)), "lo de Books no se comprueba");
 });
 
 prueba("en un trato que aún no está aceptado, lo vacío no es un fallo («na») y no se pregunta qué presupuesto aceptó", () => {
   const inv = inventarioDelTrato({ Stage: "Preparando Presupuesto", Servicios_Contratados: [], Amount: 5000 });
   assert.equal(inv.find((i) => i.texto.startsWith("Presupuesto línea a línea"))!.estado, "na");
-  assert.equal(inv.find((i) => i.texto.startsWith("Documento del presupuesto"))!.estado, "na");
   assert.equal(inv.some((i) => i.texto.startsWith("Cuál de los presupuestos")), false);
 });
 
@@ -360,7 +357,7 @@ prueba("los campos se agrupan (viaje, cobro, fase y fechas, quién) y lo vacío 
   assert.deepEqual(titulos.slice(0, 3), ["El viaje", "Cobro y presupuesto", "Fase y fechas"]);
   assert.ok(c.vacios.includes("Servicios Contratados"), "el subformulario vacío se dice el primero");
   assert.equal(c.vacios[0], "Servicios Contratados");
-  assert.ok(c.vacios.includes("Presupuesto Sugerido") || c.vacios.some((e) => /Presupuesto.Sugerido/.test(e)));
+  assert.ok(!c.vacios.some((e) => /Presupuesto.Sugerido/.test(e)), "el enlace de Books no se echa en falta");
 });
 
 prueba("costes y márgenes solo con economía", () => {

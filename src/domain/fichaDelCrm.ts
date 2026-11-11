@@ -361,17 +361,8 @@ export function inventarioDelTrato(trato: TratoCrudo): ItemDeInventario[] {
     );
   }
 
-  const enlace = texto(trato.Presupuesto_Sugerido);
-  items.push(
-    enlace
-      ? { texto: "Documento del presupuesto (enlace a Zoho Books)", estado: "si", detalle: texto(trato.ID_Presupuesto_Sugerido) || "enlazado", enlace }
-      : {
-          texto: "Documento del presupuesto (enlace a Zoho Books)",
-          estado: aceptado ? "no" : "na",
-          // En Zoho el campo se llama «Presupuesto (Enlace Books)»; la API lo expone como Presupuesto_Sugerido.
-          detalle: "el campo «Presupuesto (Enlace Books)» está vacío: el CRM no apunta a ningún documento",
-        },
-  );
+  // El enlace a Zoho Books («Presupuesto (Enlace Books)») NO se comprueba: Anthony (11/11/2026) dijo
+  // que el documento de Books no hace falta. Si el trato lo trae, la tarjeta de cobro lo enseña.
 
   const proveedores = texto(trato.Proveedores);
   items.push(
@@ -514,7 +505,9 @@ export function camposDelTratoConValor(
       campos: otros.map((api) => ({ etiqueta: etiquetaDe(api, etiquetas), valor: valorDeCampo(trato[api], etiquetas[api]?.tipo ?? "") })),
     });
   }
-  const vacios = claves.filter((api) => !lleno(api)).map((api) => etiquetaDe(api, etiquetas));
+  // Los campos del documento de Books no se echan en falta (no hacen falta).
+  const NO_SE_ECHAN_EN_FALTA = new Set(["Presupuesto_Sugerido", "ID_Presupuesto_Sugerido"]);
+  const vacios = claves.filter((api) => !lleno(api) && !NO_SE_ECHAN_EN_FALTA.has(api)).map((api) => etiquetaDe(api, etiquetas));
   // «Servicios Contratados» es de sistema para el listado, pero que esté vacío es lo que más importa saber.
   if (!Array.isArray(trato.Servicios_Contratados) || trato.Servicios_Contratados.length === 0) vacios.unshift(etiquetaDe("Servicios_Contratados", etiquetas));
   return { grupos, vacios, rellenos: grupos.reduce((t, g) => t + g.campos.length, 0) };

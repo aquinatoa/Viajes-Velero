@@ -114,7 +114,17 @@ export function getZohoAuthUrl() {
     "ZohoCRM.settings.functions.READ",
     "ZohoCRM.settings.workflow_rules.READ",
     "ZohoCRM.settings.modules.READ",
-    "ZohoCRM.settings.fields.READ"
+    "ZohoCRM.settings.fields.READ",
+    // Lo que la ficha de Oportunidades tiene que poder ver del trato para actuar y
+    // corregir (Anthony, 11/11/2026): el historial de fases, las notas, los archivos
+    // adjuntos (el presupuesto subido a mano) y los correos asociados. Solo LECTURA.
+    // Sin esto, esas listas dan OAUTH_SCOPE_MISMATCH (comprobado el 11/11/2026).
+    // Cambiar esta lista no amplía el token que ya hay: hay que volver a autorizar.
+    "ZohoCRM.modules.READ",
+    "ZohoCRM.modules.notes.READ",
+    "ZohoCRM.modules.attachments.READ",
+    "ZohoCRM.modules.emails.READ",
+    "ZohoCRM.timeline.READ"
   ].join(",");
 
   const params = new URLSearchParams({
