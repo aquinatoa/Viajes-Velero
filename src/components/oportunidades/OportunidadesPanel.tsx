@@ -7,7 +7,6 @@ import {
   type AuthUser,
   type BackendDepartment,
   type ProposalDelivery,
-  type ZohoDealSummary,
 } from "../../services/apiClient";
 import { DEPARTAMENTOS } from "../../domain/validacionDeLaPeticion";
 import {
@@ -17,10 +16,29 @@ import {
   rangoValido,
   type RangoDeViajes,
 } from "../../domain/rangoDeViajes";
-import { contarCarriles, nombreDelViaje, type Carril, type OportunidadFila } from "../../domain/oportunidadUnificada";
-import { ActionRail, ConfirmCalendar, DealDetail, Kpi, euro, norm, stageTone } from "../confirm/ConfirmRequestsPanel";
+import { nombreDelViaje, type OportunidadFila } from "../../domain/oportunidadUnificada";
+import {
+  ESTADOS,
+  filtrar,
+  eurosCorto,
+  fasesPresentes,
+  nombresRepetidos,
+  ordenar,
+  porCuenta,
+  porMes,
+  resumen,
+  VISTAS_GUARDADAS,
+  type FiltroDeEstado,
+  type OrdenDeOportunidades,
+} from "../../domain/oportunidadesVista";
+import { ConfirmCalendar } from "../confirm/ConfirmRequestsPanel";
 import { FichaPropuesta } from "../home/FichaPropuesta";
 import { CorreosSueltosPanel } from "../home/CorreosSueltosPanel";
+import { FichaDeTrato } from "./FichaDeTrato";
+import { ListaDeOportunidades } from "./ListaDeOportunidades";
+import { MoverDeFase } from "./MoverDeFase";
+import { TablaDeOportunidades, TableroDeOportunidades } from "./TablaYTablero";
+import { comoTratoDeZoho } from "./tratoDeZoho";
 
 /**
  * Oportunidades: una sola pantalla para gestionar cada viaje presentado, desde
@@ -30,19 +48,24 @@ import { CorreosSueltosPanel } from "../home/CorreosSueltosPanel";
  * con datos distintos (la base de la app y Zoho). Aquí hay una lista, que une las
  * dos fuentes en el servidor, y un detalle:
  *  - si la oportunidad salió de una propuesta de la app, el detalle es la ficha
- *    completa (embudo, opciones con desglose, siguiente paso, correo…);
- *  - si solo existe en Zoho, el detalle es el del trato, con su panel de acción.
+ *    completa (avance, opciones con desglose, siguiente paso, correo…);
+ *  - si solo existe en Zoho, el detalle es la ficha del trato.
+ *
+ * Un solo juego de estados que suma el total (antes había cuatro cuadros de
+ * Viajes y cinco botones de Propuestas que no cuadraban entre sí), una acción
+ * principal por ficha y la fase movible con constancia.
  *
  * Quién ve qué lo decide el servidor, como siempre. Aquí solo se elige el
  * departamento si se tiene acceso a los dos.
  */
 
 type Vista = "list" | "calendar";
+type Modo = "lista" | "tabla" | "tablero";
 type FiltroDepartamento = BackendDepartment | "TODOS";
-/** «zoho» = oportunidades que no salieron de una propuesta de la app. */
-type FiltroCarril = Carril | "zoho" | "";
+type Origen = "todas" | "app" | "zoho";
 
 const CLAVE_RANGO = "oravia.viajes.rango";
+const CLAVE_MODO = "oravia.oportunidades.modo";
 
 function rangoInicial(): RangoDeViajes {
   try {
@@ -54,95 +77,24 @@ function rangoInicial(): RangoDeViajes {
   return rangoPorDefecto();
 }
 
-const ETIQUETA_CARRIL: Record<Carril, string> = {
-  sin_enviar: "Sin enviar",
-  esperando: "Esperando respuesta",
-  aceptada: "Aceptadas, sin depósito",
-  cerrada: "Cerradas",
-};
-
-function diasHasta(iso: string | null): number | null {
-  if (!iso) return null;
-  const t = new Date(iso).getTime();
-  return Number.isNaN(t) ? null : Math.ceil((t - Date.now()) / 86_400_000);
-}
-
-function diasDesde(iso: string | null): number | null {
-  if (!iso) return null;
-  const t = new Date(iso).getTime();
-  return Number.isNaN(t) ? null : Math.floor((Date.now() - t) / 86_400_000);
-}
-
-/** Frase que explica por qué esta oportunidad está donde está. */
-function lineaDeEstado(f: OportunidadFila): string {
-  const e = f.entrega;
-  if (e) {
-    if (e.estado === "FAILED") return `No salió: ${e.motivoDelFallo ?? "el servidor de correo la rechazó"}`;
-    if (f.deposito.cobradoEl) return `Depósito cobrado, opción ${f.elegida}`;
-    if (f.elegida) {
-      const quedan = diasHasta(f.deposito.venceEl);
-      if (quedan === null) return `Aceptada la opción ${f.elegida}`;
-      if (quedan < 0) return `El depósito venció hace ${Math.abs(quedan)} días`;
-      return `Quedan ${quedan} días para el depósito`;
-    }
-    if (e.estado === "DRAFT") return "Preparada, sin enviar";
-    if (e.estado === "SIMULATED") return "Preparada, pendiente de la clave del buzón";
-    const enviada = diasDesde(e.enviadaEl);
-    if (e.vistas > 0) return `Abierta ${e.vistas} ${e.vistas === 1 ? "vez" : "veces"}, sin respuesta`;
-    if (enviada === null) return "Enviada";
-    if (enviada === 0) return "Enviada hoy";
-    return `Enviada hace ${enviada} ${enviada === 1 ? "día" : "días"}, sin abrir`;
+function modoInicial(): Modo {
+  try {
+    const guardado = window.localStorage.getItem(CLAVE_MODO);
+    if (guardado === "tabla" || guardado === "tablero" || guardado === "lista") return guardado;
+  } catch {
+    // sin almacenamiento
   }
-  if (f.detalleRestringido) return "Propuesta de otra persona";
-  return f.elegida ? `Opción ${f.elegida} aceptada · solo en Zoho` : "Solo en Zoho";
+  return "lista";
 }
 
-/** El plazo del depósito, visto. Un anillo que se vacía se entiende de un vistazo. */
-const PLAZO_DEPOSITO = 40;
-function AnilloDeposito({ dias }: { dias: number }) {
-  const radio = 18;
-  const vuelta = 2 * Math.PI * radio;
-  const parte = Math.max(0, Math.min(dias / PLAZO_DEPOSITO, 1));
-  const tono = dias <= 7 ? "now" : dias <= 21 ? "soon" : "calm";
-  return (
-    <span
-      className={`ring ring--${tono}`}
-      role="img"
-      aria-label={dias < 0 ? `Vencido hace ${Math.abs(dias)} días` : `Quedan ${dias} días para el depósito`}
-    >
-      <svg viewBox="0 0 44 44" aria-hidden="true">
-        <circle className="ring__track" cx="22" cy="22" r={radio} />
-        <circle className="ring__bar" cx="22" cy="22" r={radio} strokeDasharray={vuelta} strokeDashoffset={vuelta * (1 - parte)} />
-      </svg>
-      <span className="ring__txt" aria-hidden="true">
-        <b>{Math.abs(dias)}</b>
-        <small>{dias < 0 ? "pasados" : "días"}</small>
-      </span>
-    </span>
-  );
-}
-
-/** Lo que el detalle de Zoho necesita, a partir de una fila. */
-function comoTratoDeZoho(f: OportunidadFila): ZohoDealSummary {
-  return {
-    id: f.crmDealId ?? f.clave,
-    dealName: f.nombre,
-    stage: f.fase ?? "",
-    arrivalDate: f.llegada ?? "",
-    departureDate: f.salida ?? "",
-    amount: f.importe,
-    closingDate: f.cierre ?? "",
-    accountName: f.cuenta,
-    contactName: f.contacto,
-    description: f.crm?.description ?? "",
-    opcionesTexto: f.crm?.opcionesTexto ?? "",
-    nextStep: "",
-    createdTime: f.crm?.createdTime ?? "",
-    modifiedTime: f.crm?.modifiedTime ?? "",
-    dealUrl: f.dealUrl ?? "",
-    department: f.departamento,
-  };
-}
+const ORDENES: { id: OrdenDeOportunidades; nombre: string }[] = [
+  { id: "prisa", nombre: "Lo que corre prisa" },
+  { id: "llegada", nombre: "Llegada más próxima" },
+  { id: "cierre", nombre: "Cierre más próximo" },
+  { id: "importe", nombre: "Importe (mayor)" },
+  { id: "reciente", nombre: "Recientes" },
+  { id: "nombre", nombre: "Nombre" },
+];
 
 export function OportunidadesPanel({
   view = "list",
@@ -170,10 +122,28 @@ export function OportunidadesPanel({
     if (typeof window === "undefined") return "";
     return new URLSearchParams(window.location.search).get("buscar") ?? "";
   });
-  const [stageFilter, setStageFilter] = useState("");
-  const [carril, setCarril] = useState<FiltroCarril>("");
-  const [sortBy, setSortBy] = useState<"prisa" | "recent" | "closing" | "amount">("prisa");
+  const [estado, setEstado] = useState<FiltroDeEstado>("todas");
+  const [origen, setOrigen] = useState<Origen>("todas");
+  const [fase, setFase] = useState("");
+  const [orden, setOrden] = useState<OrdenDeOportunidades>("prisa");
+  const [vistaGuardada, setVistaGuardada] = useState("");
+  const [mes, setMes] = useState("");
+  const [agrupar, setAgrupar] = useState(false);
+  const [modo, setModoEstado] = useState<Modo>(() => modoInicial());
   const [seleccion, setSeleccion] = useState<string | null>(null);
+  /** En Tabla y Tablero la ficha se abre a un lado, como un cajón. */
+  const [cajon, setCajon] = useState(false);
+
+  const cambiarModo = (m: Modo) => {
+    setModoEstado(m);
+    setCajon(false);
+    try {
+      window.localStorage.setItem(CLAVE_MODO, m);
+    } catch {
+      // sin almacenamiento: vale para esta visita
+    }
+    if (view === "calendar") onNavigate?.("/oportunidades");
+  };
 
   const [rango, setRango] = useState<RangoDeViajes>(() => rangoInicial());
   const [borradorRango, setBorradorRango] = useState<RangoDeViajes>(rango);
@@ -190,8 +160,7 @@ export function OportunidadesPanel({
 
   /**
    * Trae la lista. Con `silencioso`, sin parpadeo: lo usa la ficha al avisar de
-   * que algo cambió, para que la lista de la izquierda no se vacíe mientras se
-   * trabaja en el detalle.
+   * que algo cambió, para que la lista no se vacíe mientras se trabaja en el detalle.
    */
   const cargar = useCallback(
     async (silencioso = false) => {
@@ -229,96 +198,117 @@ export function OportunidadesPanel({
   }, []);
 
   const entregaPorId = useMemo(() => new Map(entregas.map((e) => [e.id, e])), [entregas]);
+  const hoy = useMemo(() => new Date(), [todas]);
 
-  // Lo que se está mirando: un departamento o los dos. Todo lo de abajo sale de aquí.
-  const delDepartamento = useMemo(
-    () =>
-      departamento === "TODOS"
-        ? todas
-        : todas.filter((f) => f.departamento === departamento || f.departamento === null),
-    [todas, departamento],
+  // Lo que se está mirando, sin el estado: de aquí salen los números de las pestañas
+  // (así suman el total aunque haya otros filtros puestos).
+  const baseSinEstado = useMemo(
+    () => filtrar(todas, { origen, departamento, fase, q: query, vista: vistaGuardada, mes }, hoy),
+    [todas, origen, departamento, fase, query, vistaGuardada, mes, hoy],
   );
+  const res = useMemo(() => resumen(baseSinEstado, hoy), [baseSinEstado, hoy]);
+  const filas = useMemo(() => ordenar(filtrar(baseSinEstado, { estado }, hoy), orden, hoy), [baseSinEstado, estado, orden, hoy]);
 
-  const carriles = useMemo(() => contarCarriles(delDepartamento), [delDepartamento]);
-  const soloZoho = useMemo(() => delDepartamento.filter((f) => f.origen === "ZOHO").length, [delDepartamento]);
+  // Los números que no dependen de nada de lo anterior.
+  const delDepartamento = useMemo(() => filtrar(todas, { departamento }, hoy), [todas, departamento, hoy]);
+  const resTotal = useMemo(() => resumen(delDepartamento, hoy), [delDepartamento, hoy]);
+  const nApp = useMemo(() => filtrar(todas, { departamento, fase, q: query, vista: vistaGuardada, mes }, hoy).filter((f) => f.origen === "APP").length, [todas, departamento, fase, query, vistaGuardada, mes, hoy]);
+  const nTodasOrigen = useMemo(() => filtrar(todas, { departamento, fase, q: query, vista: vistaGuardada, mes }, hoy).length, [todas, departamento, fase, query, vistaGuardada, mes, hoy]);
+  const fases = useMemo(() => fasesPresentes(delDepartamento), [delDepartamento]);
+  const repetidos = useMemo(() => nombresRepetidos(todas), [todas]);
+  const carga = useMemo(() => porMes(baseSinEstado), [baseSinEstado]);
+  const cargaMaxima = Math.max(1, ...carga.map((m) => m.importe));
 
-  const fasesPresentes = useMemo(
-    () => [...new Set(delDepartamento.map((f) => f.fase).filter((s): s is string => Boolean(s)))],
-    [delDepartamento],
-  );
+  // El orden en el que se ve la lista (agrupada por cuenta cambia el orden).
+  const enOrdenVisible = useMemo(() => (agrupar ? porCuenta(filas).flatMap((g) => g.filas) : filas), [filas, agrupar]);
 
-  const filtradas = useMemo(() => {
-    const q = norm(query.trim());
-    const lista = delDepartamento.filter((f) => {
-      if (carril === "zoho") {
-        if (f.origen !== "ZOHO") return false;
-      } else if (carril && f.carril !== carril) return false;
-      if (stageFilter && f.fase !== stageFilter) return false;
-      if (q && !norm(`${f.nombre} ${f.cuenta} ${f.contacto} ${f.entrega?.reference ?? ""}`).includes(q)) return false;
-      return true;
-    });
-    return [...lista].sort((a, b) => {
-      if (sortBy === "amount") return (b.importe ?? 0) - (a.importe ?? 0);
-      if (sortBy === "closing") return (a.cierre || "9999").localeCompare(b.cierre || "9999");
-      if (sortBy === "recent") return (b.crm?.modifiedTime || "").localeCompare(a.crm?.modifiedTime || "");
-      return a.urgencia - b.urgencia;
-    });
-  }, [delDepartamento, query, stageFilter, carril, sortBy]);
-
-  // Mantener una selección válida.
+  // Mantener una selección válida en la lista.
   useEffect(() => {
-    if (loading) return;
-    if (seleccion && delDepartamento.some((f) => f.clave === seleccion)) return;
-    setSeleccion(filtradas[0]?.clave ?? delDepartamento[0]?.clave ?? null);
-  }, [loading, filtradas, delDepartamento, seleccion]);
+    if (loading || modo !== "lista") return;
+    if (seleccion && enOrdenVisible.some((f) => f.clave === seleccion)) return;
+    setSeleccion(enOrdenVisible[0]?.clave ?? null);
+  }, [loading, modo, enOrdenVisible, seleccion]);
 
-  // Los indicadores, sobre lo que se está mirando. «Importe en curso» es la suma de
-  // lo que sigue abierto; «ganado», la de lo ganado. No es facturación: es importe
-  // de oportunidad (Javier lo leía como «total facturado»).
-  const kpis = useMemo(() => {
-    let porConfirmar = 0;
-    let enviado = 0;
-    let ganadas = 0;
-    let importeGanado = 0;
-    let abiertos = 0;
-    let importeEnCurso = 0;
-    for (const f of delDepartamento) {
-      const s = norm(f.fase ?? "");
-      if (f.elegida == null && !/ganad|perdid|cerrad|finaliz/.test(s)) porConfirmar += 1;
-      if (/enviad/.test(s)) enviado += 1;
-      if (/ganad|finaliz/.test(s)) {
-        ganadas += 1;
-        importeGanado += f.importe ?? 0;
-      }
-      if (!/perdid|cerrad|finaliz/.test(s)) {
-        abiertos += 1;
-        importeEnCurso += f.importe ?? 0;
-      }
-    }
-    return { porConfirmar, enviado, ganadas, importeGanado, abiertos, importeEnCurso };
-  }, [delDepartamento]);
+  // Flechas ↑ ↓ para moverse por la lista.
+  useEffect(() => {
+    if (view !== "list" || modo !== "lista") return;
+    const alTeclear = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      const destino = e.target as HTMLElement | null;
+      if (destino && /^(input|textarea|select)$/i.test(destino.tagName)) return;
+      if (enOrdenVisible.length === 0) return;
+      e.preventDefault();
+      const i = enOrdenVisible.findIndex((f) => f.clave === seleccion);
+      const siguiente = e.key === "ArrowDown" ? Math.min(enOrdenVisible.length - 1, i + 1) : Math.max(0, i - 1);
+      setSeleccion(enOrdenVisible[siguiente].clave);
+      window.requestAnimationFrame(() => document.querySelector<HTMLElement>(".opx-fila.is")?.scrollIntoView({ block: "nearest" }));
+    };
+    window.addEventListener("keydown", alTeclear);
+    return () => window.removeEventListener("keydown", alTeclear);
+  }, [view, modo, enOrdenVisible, seleccion]);
 
-  const seleccionada = delDepartamento.find((f) => f.clave === seleccion) ?? null;
+  // Esc cierra el cajón.
+  useEffect(() => {
+    if (!cajon) return;
+    const alTeclear = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCajon(false);
+    };
+    window.addEventListener("keydown", alTeclear);
+    return () => window.removeEventListener("keydown", alTeclear);
+  }, [cajon]);
+
+  const seleccionada = todas.find((f) => f.clave === seleccion) ?? null;
 
   // El calendario lee los mismos datos: cada fila, como un trato con sus fechas.
   const paraElCalendario = useMemo(() => delDepartamento.map(comoTratoDeZoho), [delDepartamento]);
 
+  const elegirEstado = (id: FiltroDeEstado) => setEstado(estado === id && id !== "todas" ? "todas" : id);
+  const elegirVista = (id: string) => {
+    setVistaGuardada(vistaGuardada === id ? "" : id);
+    setEstado("todas");
+  };
+  const elegir = (clave: string) => {
+    setSeleccion(clave);
+    if (modo !== "lista") setCajon(true);
+  };
+
+  const detalle = seleccionada ? (
+    <DetalleDeLaOportunidad
+      fila={seleccionada}
+      entrega={seleccionada.entrega ? entregaPorId.get(seleccionada.entrega.id) : undefined}
+      stages={stages}
+      onCambio={() => void cargar(true)}
+      onBorrada={(resumenDeBorrado) => {
+        setSeleccion(null);
+        setCajon(false);
+        setInfo(resumenDeBorrado);
+        void cargar(true);
+      }}
+      onSaved={(msg) => {
+        setInfo(msg);
+        void cargar(true);
+      }}
+      onError={(msg) => setError(msg)}
+    />
+  ) : (
+    <p className="opx-vacia">Elige una oportunidad de la lista para ver su detalle.</p>
+  );
+
   return (
-    <div className="cw op">
-      <div className="cw__head">
+    <div className="opx">
+      <header className="opx-cab">
         <div>
           <h2>Oportunidades</h2>
-          <p>
+          <p className="opx-sub">
             {loading
               ? "Cargando oportunidades…"
-              : `${delDepartamento.length} oportunidades con llegada ${etiquetaDeRango(rango)}${
+              : `${resTotal.todas.n} oportunidades con llegada ${etiquetaDeRango(rango)}${
                   departamento === "TODOS" ? "" : ` · ${DEPARTAMENTOS[departamento]}`
-                }`}{" "}
-            · los importes son de este periodo.
+                } · los importes son de este periodo`}
           </p>
         </div>
-        <div className="cw__head-actions">
-          <div className="cw__rango" role="group" aria-label="Periodo de llegada">
+        <div className="opx-controles">
+          <div className="opx-campo" role="group" aria-label="Periodo de llegada">
             <span>Llegadas</span>
             <input
               type="date"
@@ -336,13 +326,13 @@ export function OportunidadesPanel({
               aria-label="Hasta"
             />
             {rango.desde !== rangoPorDefecto().desde || rango.hasta !== rangoPorDefecto().hasta ? (
-              <button type="button" className="cw__rango-reset" onClick={() => aplicarRango(rangoPorDefecto())}>
+              <button type="button" className="opx-btn" onClick={() => aplicarRango(rangoPorDefecto())}>
                 {rangoPorDefecto().desde.slice(0, 4)}
               </button>
             ) : null}
           </div>
           {eligeDepartamento ? (
-            <label className="cw__dept">
+            <label className="opx-campo">
               <span>Departamento</span>
               <select value={departamento} onChange={(e) => setDepartamento(e.target.value as FiltroDepartamento)}>
                 <option value="TODOS">Todos</option>
@@ -351,40 +341,30 @@ export function OportunidadesPanel({
               </select>
             </label>
           ) : null}
-          <div className="cw__viewtabs" role="tablist" aria-label="Vista">
-            <button
-              className={view === "list" ? "is" : ""}
-              role="tab"
-              aria-selected={view === "list"}
-              onClick={() => onNavigate?.("/oportunidades")}
-            >
-              Lista
-            </button>
-            <button
-              className={view === "calendar" ? "is" : ""}
-              role="tab"
-              aria-selected={view === "calendar"}
-              onClick={() => onNavigate?.("/oportunidades/calendario")}
-            >
+          <div className="opx-seg" role="tablist" aria-label="Vista">
+            {(["lista", "tabla", "tablero"] as const).map((m) => (
+              <button key={m} type="button" role="tab" aria-selected={view === "list" && modo === m} className={view === "list" && modo === m ? "is" : ""} onClick={() => cambiarModo(m)}>
+                {m === "lista" ? "Lista" : m === "tabla" ? "Tabla" : "Tablero"}
+              </button>
+            ))}
+            <button type="button" role="tab" aria-selected={view === "calendar"} className={view === "calendar" ? "is" : ""} onClick={() => onNavigate?.("/oportunidades/calendario")}>
               Calendario
             </button>
           </div>
-          <button type="button" className="cw__refresh" onClick={() => setVerSueltos(true)}>
+          <button type="button" className="opx-btn" onClick={() => setVerSueltos(true)}>
             Correos sin asignar
-            {sueltos > 0 ? <span className="op__badge">{sueltos}</span> : null}
+            {sueltos > 0 ? <b className="opx-pill">{sueltos}</b> : null}
           </button>
-          <button className="cw__refresh" onClick={() => void cargar()} disabled={loading}>
+          <button type="button" className="opx-btn" onClick={() => void cargar()} disabled={loading}>
             Actualizar
           </button>
         </div>
-      </div>
+      </header>
 
       {error ? <div className="cf__alert cf__alert--error">{error}</div> : null}
       {info && !error ? <div className="cf__alert cf__alert--ok">{info}</div> : null}
       {!zohoDisponible && !error ? (
-        <div className="cf__alert cf__alert--error">
-          Zoho no ha contestado: se enseña solo lo que sabe la app. Prueba a actualizar en un momento.
-        </div>
+        <div className="cf__alert cf__alert--error">Zoho no ha contestado: se enseña solo lo que sabe la app. Prueba a actualizar en un momento.</div>
       ) : null}
 
       {view === "calendar" ? (
@@ -399,160 +379,159 @@ export function OportunidadesPanel({
           inicio={mesInicialDelCalendario(rango)}
         />
       ) : (
-        <div className="op__grid">
-          {/* ===== Lista ===== */}
-          <div className="cw__col cw__col--list">
-            <div className="cw-kpis">
-              <Kpi n={kpis.porConfirmar} label="Sin confirmar" dot="w" />
-              <Kpi n={kpis.enviado} label="Propuesta enviada" dot="i" />
-              <Kpi n={kpis.ganadas} label="Ganadas" dot="ok" sub={`${euro(kpis.importeGanado)} ganados`} />
-              <Kpi
-                n={euro(kpis.importeEnCurso)}
-                label="Importe en curso"
-                dot="m"
-                sub={`${kpis.abiertos} oportunidad(es) abierta(s)`}
-              />
-            </div>
+        <>
+          <section className="opx-estados" aria-label="Estado">
+            {ESTADOS.map((e) => (
+              <button key={e.id} type="button" className={`opx-estado opx-c-${e.id}${estado === e.id ? " is" : ""}`} aria-pressed={estado === e.id} onClick={() => elegirEstado(e.id)}>
+                <span className="opx-estado__n">{res[e.id].n}</span>
+                <span className="opx-estado__nom">{e.nombre}</span>
+                <span className="opx-estado__imp">{eurosCorto(res[e.id].importe)}</span>
+              </button>
+            ))}
+          </section>
 
-            <div className="cw-list">
-              <div className="cw-list__head">
-                <div className="op__chips" role="group" aria-label="Estado">
-                  {(Object.keys(ETIQUETA_CARRIL) as Carril[]).map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      className={`op__chip${carril === c ? " is" : ""}`}
-                      aria-pressed={carril === c}
-                      onClick={() => setCarril(carril === c ? "" : c)}
-                    >
-                      {ETIQUETA_CARRIL[c]} <b>{carriles[c]}</b>
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className={`op__chip op__chip--zoho${carril === "zoho" ? " is" : ""}`}
-                    aria-pressed={carril === "zoho"}
-                    onClick={() => setCarril(carril === "zoho" ? "" : "zoho")}
-                    title="Oportunidades que no salieron de una propuesta de la app"
-                  >
-                    Sin propuesta de la app <b>{soloZoho}</b>
+          <p className="opx-resumen">
+            Abierto <b>{eurosCorto(res.abierto.importe)}</b> en {res.abierto.n} · Ganado <b>{eurosCorto(res.ganada.importe)}</b> en {res.ganada.n} · Perdido{" "}
+            <b>{eurosCorto(res.perdida.importe)}</b> en {res.perdida.n}
+            {res.aviso.vencidas > 0 || res.aviso.sinImporte > 0 ? (
+              <span className="opx-resumen__avisos">
+                {res.aviso.vencidas > 0 ? (
+                  <button type="button" className="opx-aviso" onClick={() => elegirVista("vencidas")}>
+                    ⚠ {res.aviso.vencidas} abiertas con el cierre vencido ({eurosCorto(res.aviso.importeVencidas)})
                   </button>
-                </div>
-                <div className="cf__search">
-                  <input
-                    placeholder="Buscar por nombre, cuenta, contacto o referencia…"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                  />
-                </div>
-                <div className="cw-list__filters">
-                  <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
-                    <option value="">Todas las fases</option>
-                    {(stages.length ? stages : fasesPresentes).map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                  <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)}>
-                    <option value="prisa">Lo que corre prisa</option>
-                    <option value="recent">Recientes</option>
-                    <option value="closing">Cierre próximo</option>
-                    <option value="amount">Importe (mayor)</option>
-                  </select>
-                </div>
-              </div>
+                ) : null}
+                {res.aviso.sinImporte > 0 ? (
+                  <button type="button" className="opx-aviso opx-aviso--suave" onClick={() => elegirVista("sin_importe")}>
+                    {res.aviso.sinImporte} abiertas sin importe
+                  </button>
+                ) : null}
+              </span>
+            ) : null}
+          </p>
 
-              <div className="cw-feed">
-                {loading ? (
-                  <p className="cf__empty">Cargando…</p>
-                ) : filtradas.length === 0 ? (
-                  <p className="cf__empty">
-                    {delDepartamento.length === 0
-                      ? "No hay oportunidades en este periodo."
-                      : "Ninguna oportunidad coincide con el filtro."}
-                  </p>
-                ) : (
-                  filtradas.map((f) => {
-                    const quedan = f.carril === "aceptada" ? diasHasta(f.deposito.venceEl) : null;
-                    const urgente = f.entrega?.estado === "FAILED" || (quedan !== null && quedan <= 7);
-                    return (
-                      <button
-                        key={f.clave}
-                        className={`cw-deal op-fila${seleccion === f.clave ? " is" : ""}${urgente ? " op-fila--ya" : ""}`}
-                        onClick={() => setSeleccion(f.clave)}
-                      >
-                        <div className="cw-deal__top">
-                          <span className="cw-deal__name">{f.nombre}</span>
-                          <span className="cw-deal__amt">{euro(f.importe)}</span>
-                        </div>
-                        <div className="cw-deal__sub">
-                          {f.fase ? (
-                            <span className={`cf-stage cf-stage--${stageTone(f.fase)}`}>{f.fase}</span>
-                          ) : (
-                            <span className="cf-stage cf-stage--muted">Sin oportunidad en el CRM aún</span>
-                          )}
-                          {f.departamento === "GROUPS" || f.departamento === "SPORTS" ? (
-                            <span className={`desk__dept desk__dept--${f.departamento.toLowerCase()}`}>
-                              {f.departamento === "SPORTS" ? "Sports" : "Groups"}
-                            </span>
-                          ) : null}
-                          <span className="cw-deal__people">
-                            {[f.cuenta, f.contacto].filter(Boolean).join(" · ") || "—"}
-                          </span>
-                        </div>
-                        <div className="op-fila__pie">
-                          <span className="op-fila__why">{lineaDeEstado(f)}</span>
-                          {quedan !== null ? <AnilloDeposito dias={quedan} /> : null}
-                          {f.entrega ? <span className="op-fila__ref">{f.entrega.reference}</span> : null}
-                        </div>
-                        {f.opcionContradictoria ? (
-                          <span className="op-fila__aviso">⚠ La opción aceptada no coincide entre la app y Zoho</span>
-                        ) : null}
-                      </button>
-                    );
-                  })
-                )}
-              </div>
+          <section className="opx-filtros">
+            <input type="search" placeholder="Buscar por nombre, cuenta, contacto o referencia…" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <div className="opx-seg" role="group" aria-label="Origen">
+              <span className="opx-seg__t">Origen</span>
+              {(
+                [
+                  ["todas", "Todas", nTodasOrigen],
+                  ["app", "De la app", nApp],
+                  ["zoho", "Solo Zoho", nTodasOrigen - nApp],
+                ] as const
+              ).map(([id, nombre, n]) => (
+                <button key={id} type="button" className={origen === id ? "is" : ""} aria-pressed={origen === id} onClick={() => setOrigen(id)}>
+                  {nombre} <b>{n}</b>
+                </button>
+              ))}
             </div>
+            <select value={fase} onChange={(e) => setFase(e.target.value)} aria-label="Fase">
+              <option value="">Todas las fases</option>
+              {fases.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+            <select value={orden} onChange={(e) => setOrden(e.target.value as OrdenDeOportunidades)} aria-label="Orden">
+              {ORDENES.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.nombre}
+                </option>
+              ))}
+            </select>
+            {modo === "lista" ? (
+              <label className="opx-chk">
+                <input type="checkbox" checked={agrupar} onChange={(e) => setAgrupar(e.target.checked)} /> Agrupar por cuenta
+              </label>
+            ) : null}
+          </section>
+
+          <div className="opx-extras" aria-label="Vistas guardadas">
+            <span className="opx-vg__t">Vistas rápidas</span>
+            {VISTAS_GUARDADAS.map((v) => (
+              <button key={v.id} type="button" className={`opx-vg${vistaGuardada === v.id ? " is" : ""}`} aria-pressed={vistaGuardada === v.id} onClick={() => elegirVista(v.id)}>
+                {v.nombre} <b>{filtrar(todas, { departamento, vista: v.id }, hoy).length}</b>
+              </button>
+            ))}
           </div>
 
-          {/* ===== Detalle ===== */}
-          <div className="op__detalle">
-            {seleccionada ? (
-              <DetalleDeLaOportunidad
-                fila={seleccionada}
-                entrega={seleccionada.entrega ? entregaPorId.get(seleccionada.entrega.id) : undefined}
-                stages={stages}
-                onCambio={() => void cargar(true)}
-                onBorrada={(resumen) => {
-                  setSeleccion(null);
-                  setInfo(resumen);
-                  void cargar(true);
-                }}
-                onSaved={(msg) => {
-                  setInfo(msg);
-                  void cargar(true);
-                }}
-                onError={(msg) => setError(msg)}
-              />
-            ) : (
-              <div className="cw-detail cw-detail--empty">
-                <p className="cf__empty">Elige una oportunidad de la lista para ver su detalle.</p>
+          {carga.length > 0 ? (
+            <details className="opx-carga">
+              <summary>Carga por mes de llegada (importe abierto)</summary>
+              <div className="opx-barras">
+                {carga.map((m) => (
+                  <button
+                    key={m.mes}
+                    type="button"
+                    className={`opx-barra${mes === m.mes ? " is" : ""}`}
+                    aria-pressed={mes === m.mes}
+                    title={`${m.nombre}: ${m.n} abiertas`}
+                    onClick={() => setMes(mes === m.mes ? "" : m.mes)}
+                  >
+                    <span className="opx-barra__imp">{eurosCorto(m.importe)}</span>
+                    <span className="opx-barra__b" style={{ height: `${Math.max(6, Math.round((m.importe / cargaMaxima) * 64))}px` }} />
+                    <span className="opx-barra__m">{m.nombre.slice(0, 3)}</span>
+                    <span className="opx-barra__n">{m.n}</span>
+                  </button>
+                ))}
               </div>
-            )}
-          </div>
-        </div>
+            </details>
+          ) : null}
+
+          {modo === "lista" ? (
+            <div className="opx-cuerpo">
+              <div>
+                <p className="opx-contador">
+                  {filas.length} de {res.todas.n} oportunidades
+                </p>
+                <div className="opx-lista" id="opx-lista">
+                  {loading ? (
+                    <p className="opx-vacia">Cargando…</p>
+                  ) : (
+                    <ListaDeOportunidades
+                      filas={filas}
+                      seleccion={seleccion}
+                      onSeleccionar={elegir}
+                      agrupar={agrupar}
+                      hoy={hoy}
+                      repetidos={repetidos}
+                      vacio={todas.length === 0 ? "No hay oportunidades en este periodo." : "Ninguna oportunidad coincide con los filtros."}
+                    />
+                  )}
+                </div>
+              </div>
+              <div className="opx-detalle">{detalle}</div>
+            </div>
+          ) : (
+            <>
+              <p className="opx-contador">
+                {filas.length} de {res.todas.n} oportunidades
+              </p>
+              {modo === "tabla" ? (
+                <TablaDeOportunidades filas={filas} seleccion={seleccion} onSeleccionar={elegir} orden={orden} onOrdenar={setOrden} hoy={hoy} />
+              ) : (
+                <TableroDeOportunidades filas={filas} seleccion={seleccion} onSeleccionar={elegir} hoy={hoy} />
+              )}
+              {cajon && seleccionada ? (
+                <>
+                  <div className="opx-cajon-fondo" onClick={() => setCajon(false)} aria-hidden="true" />
+                  <aside className="opx-cajon" aria-label="Detalle de la oportunidad">
+                    <p style={{ textAlign: "right", margin: "0 0 8px" }}>
+                      <button type="button" className="opx-btn" onClick={() => setCajon(false)}>
+                        Cerrar ✕
+                      </button>
+                    </p>
+                    {detalle}
+                  </aside>
+                </>
+              ) : null}
+            </>
+          )}
+        </>
       )}
 
-      {verSueltos ? (
-        <CorreosSueltosPanel
-          deliveries={entregas}
-          tituloDe={nombreDelViaje}
-          onClose={() => setVerSueltos(false)}
-          onCambio={setSueltos}
-        />
-      ) : null}
+      {verSueltos ? <CorreosSueltosPanel deliveries={entregas} tituloDe={nombreDelViaje} onClose={() => setVerSueltos(false)} onCambio={setSueltos} /> : null}
     </div>
   );
 }
@@ -589,32 +568,32 @@ function DetalleDeLaOportunidad({
     </div>
   ) : null;
 
-  // Con propuesta de la app: la ficha completa.
+  // Con propuesta de la app: la ficha completa y, si ya hay oportunidad en el CRM, el panel de fase.
   if (entrega && !fila.detalleRestringido) {
     return (
       <div className="op__ficha">
         {aviso}
-        <FichaPropuesta key={entrega.id} delivery={entrega} incrustada onCambio={onCambio} onBorrada={onBorrada} />
+        <FichaPropuesta
+          key={entrega.id}
+          delivery={entrega}
+          incrustada
+          onCambio={onCambio}
+          onBorrada={onBorrada}
+          aside={
+            fila.crmDealId ? (
+              <MoverDeFase fila={fila} fasesDelCrm={stages} onHecho={(m) => onSaved(m)} onError={onError} />
+            ) : null
+          }
+        />
       </div>
     );
   }
 
-  // Sin ella: el detalle del trato, con su panel de acción.
-  const trato = comoTratoDeZoho(fila);
+  // Sin ella: la ficha del trato.
   return (
     <div className="op__crm">
       {aviso}
-      <p className="op__nota">
-        {fila.detalleRestringido
-          ? "La propuesta de esta oportunidad es de otra persona de tu departamento: aquí ves lo que dice Zoho."
-          : "Esta oportunidad no salió de una propuesta de la app: se creó directamente en Zoho. Puedes moverla de fase, anotar y abrirla en el CRM."}
-      </p>
-      <div className="op__crm-cols">
-        <DealDetail deal={trato} />
-        <div className="op__crm-rail">
-          <ActionRail deal={trato} stages={stages} onSaved={onSaved} onError={onError} />
-        </div>
-      </div>
+      <FichaDeTrato fila={fila} stages={stages} onCambio={onSaved} onError={onError} />
     </div>
   );
 }

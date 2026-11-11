@@ -1,12 +1,13 @@
 import { ChangePanel } from "./ChangePanel";
 import { marcarOpcionApi, rehacerPropuestaApi, renombrarViajeApi, sendProposalDeliveryApi } from "../../services/apiClient";
 import { siguientePasoDelExpediente } from "../../domain/siguientePaso";
-import type { CSSProperties } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { fichaDelPresupuestoApi, type FichaPresupuesto } from "../../services/apiClient";
 import { CorreoPanel } from "./CorreoPanel";
 import { BorrarSolicitudPanel } from "./BorrarSolicitudPanel";
 import type { ProposalDelivery } from "../../services/apiClient";
+import { AvanceDeFase } from "../oportunidades/AvanceDeFase";
+import { MenuMas } from "../oportunidades/MenuMas";
 
 /**
  * La ficha de un presupuesto: todo lo que hace falta para seguirlo.
@@ -36,6 +37,8 @@ export interface FichaPropuestaProps {
   onCambio?: () => void;
   /** Se borró la solicitud entera: la ficha ya no tiene de qué hablar. */
   onBorrada?: (resumen: string) => void;
+  /** Algo más para la columna de la derecha (el panel de «Mover de fase»). */
+  aside?: ReactNode;
 }
 
 function fecha(iso: string | null): string {
@@ -59,7 +62,7 @@ function diasHasta(iso: string | null): number | null {
   return Math.ceil((t - Date.now()) / 86_400_000);
 }
 
-export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio, onBorrada }: FichaPropuestaProps) {
+export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio, onBorrada, aside }: FichaPropuestaProps) {
   const [ficha, setFicha] = useState<FichaPresupuesto | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
@@ -133,6 +136,18 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
     }
   }
 
+  /** «Rehacer la propuesta»: se abre en Nueva solicitud y sale como versión siguiente. */
+  async function rehacer() {
+    try {
+      const r = await rehacerPropuestaApi(delivery.id);
+      // Lo que no se pudo recuperar viaja con la dirección: el lienzo lo enseña al abrir.
+      const avisos = r.avisos.length ? `&avisos=${encodeURIComponent(r.avisos.join(" "))}` : "";
+      window.location.assign(`/solicitudes/nueva?borrador=${encodeURIComponent(r.borradorId)}${avisos}`);
+    } catch (e: unknown) {
+      setAvisoNombre(e instanceof Error ? e.message : "No se pudo preparar la propuesta para rehacerla.");
+    }
+  }
+
   const cargar = useCallback(async () => {
     try {
       setFicha(await fichaDelPresupuestoApi(delivery.id));
@@ -141,7 +156,7 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
       // quien contiene la ficha refresca su lista.
       onCambio?.();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "No se pudo cargar el presupuesto.");
+      setError(e instanceof Error ? e.message : "No se pudo cargar la propuesta.");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [delivery.id]);
@@ -153,7 +168,7 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
         if (vivo) setFicha(f);
       })
       .catch((e: unknown) => {
-        if (vivo) setError(e instanceof Error ? e.message : "No se pudo cargar el presupuesto.");
+        if (vivo) setError(e instanceof Error ? e.message : "No se pudo cargar la propuesta.");
       })
       .finally(() => {
         if (vivo) setCargando(false);
@@ -166,7 +181,7 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
   if (cargando) {
     return (
       <div className="ficha">
-        <p className="cv__empty">Cargando el presupuesto…</p>
+        <p className="cv__empty">Cargando la propuesta…</p>
       </div>
     );
   }
@@ -175,7 +190,7 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
     return (
       <div className="ficha">
         <div className="alert alert--error" role="alert">
-          {error || "No se pudo cargar el presupuesto."}
+          {error || "No se pudo cargar la propuesta."}
         </div>
         {onClose && !incrustada ? (
           <button type="button" className="cv__ghost" onClick={onClose}>
@@ -258,115 +273,136 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
             {ficha.viaje.centro ? ` · ${ficha.viaje.centro}` : ""}
           </p>
         </div>
+        {/* Una cosa a la vista (Conversación) y lo demás en «Más ⋯», con Borrar al
+            final y en rojo. Antes eran cinco botones del mismo peso y no se sabía
+            cuál era el importante: lo que toca hacer ahora va en «Lo siguiente». */}
         <div className="ficha__acciones">
           <button type="button" className="cv__ghost cv__ghost--sm" onClick={() => setCorreo(true)}>
             Conversación
             {ficha.correo.total > 0 ? <span className="ficha__pill">{ficha.correo.total}</span> : null}
           </button>
-          {ficha.pdf ? (
-            <a className="cv__ghost cv__ghost--sm" href={ficha.pdf} target="_blank" rel="noreferrer">
-              Ver el documento
-            </a>
-          ) : null}
-          {/* Recotizar desde aquí. Estaba solo en la lista de propuestas: si
-              entrabas a la ficha a ver qué había, tenías que salir para poder
-              cambiar algo. */}
-          <button type="button" className="cv__ghost cv__ghost--sm" onClick={() => setRecotizando(true)}>
-            Ha cambiado algo
-          </button>
-          {/* Cambiar un hotel o el programa de lo ya enviado (Ruth, 19/10/2026):
-              se abre en Nueva solicitud y sale como versión siguiente. */}
-          <button
-            type="button"
-            className="cv__ghost cv__ghost--sm"
-            onClick={async () => {
-              try {
-                const r = await rehacerPropuestaApi(delivery.id);
-                // Lo que no se pudo recuperar viaja con la dirección: el lienzo lo enseña al abrir.
-                const avisos = r.avisos.length ? `&avisos=${encodeURIComponent(r.avisos.join(" "))}` : "";
-                window.location.assign(`/solicitudes/nueva?borrador=${encodeURIComponent(r.borradorId)}${avisos}`);
-              } catch (e: unknown) {
-                setAvisoNombre(e instanceof Error ? e.message : "No se pudo preparar la propuesta para rehacerla.");
-              }
-            }}
-          >
-            Rehacer la propuesta
-          </button>
-          {ficha.crm.dealUrl ? (
-            <a className="cv__ghost cv__ghost--sm" href={ficha.crm.dealUrl} target="_blank" rel="noreferrer">
-              Abrir en el CRM
-            </a>
-          ) : null}
-          {/* Borrar la solicitud, con lo que arrastra. Estaba solo en la lista de propuestas. */}
-          <button
-            type="button"
-            className="cv__ghost cv__ghost--sm ficha__borrar"
-            title="Borrar la solicitud, sus propuestas y su oportunidad del CRM"
-            onClick={() => setBorrando(true)}
-          >
-            Borrar
-          </button>
+          <MenuMas
+            items={[
+              ...(ficha.pdf ? [{ texto: "Ver el documento", href: ficha.pdf }] : []),
+              // Recotizar desde aquí: si entrabas a la ficha a ver qué había, tenías que salir para cambiar algo.
+              { texto: "Ha cambiado algo", onClick: () => setRecotizando(true) },
+              // Cambiar un hotel o el programa de lo ya enviado (Ruth, 19/10/2026):
+              // se abre en Nueva solicitud y sale como versión siguiente.
+              { texto: "Rehacer la propuesta", onClick: () => void rehacer() },
+              ...(ficha.crm.dealUrl ? [{ texto: "Abrir en el CRM", href: ficha.crm.dealUrl }] : []),
+              // Borrar la solicitud, con lo que arrastra.
+              { texto: "Borrar la solicitud…", peligro: true, onClick: () => setBorrando(true) },
+            ]}
+          />
         </div>
       </header>
 
-      {/* Los datos del viaje. Lo que en el trato de Zoho cabe a duras penas. */}
-      <section className="ficha__datos">
-        {[
-          ["Destino", ficha.viaje.destino || "—"],
-          ["Fechas", `${fecha(ficha.viaje.dateFrom)} — ${fecha(ficha.viaje.dateTo)}`],
-          ["Participantes", ficha.viaje.participants ? String(ficha.viaje.participants) : "—"],
-          ["Profesores", ficha.viaje.teachers ? String(ficha.viaje.teachers) : "—"],
-          ["Contacto", ficha.contacto.email],
-        ].map(([k, v]) => (
-          <div key={k} className="ficha__dato">
-            <span className="ficha__k">{k}</span>
-            <span className="ficha__v">{v}</span>
-          </div>
-        ))}
+      {/* Lo que hay que hacer AHORA, arriba y de ancho completo. La ficha decía
+          dónde estaba el expediente y ahí se acababa: «estoy aquí y no sé cuál es
+          el próximo paso». Saber en qué fase estás no es saber qué hacer. Es la
+          ÚNICA acción destacada de la ficha. */}
+      <section className={`ficha__toca ficha__toca--banner ficha__toca--${paso.urgencia}`}>
+        <div>
+          <p className="ficha__tocal">Lo siguiente</p>
+          <p className="ficha__tocat">{paso.titulo}</p>
+          <p className="ficha__tocap">{paso.porque}</p>
+          {resultadoEnvio ? <p className="ficha__tocap">{resultadoEnvio}</p> : null}
+        </div>
+        <div className="ficha__tocab">
+          {paso.accion === "correo" ? (
+            <button type="button" className="cv__primary cv__primary--sm" onClick={() => setCorreo(true)}>
+              Abrir la conversación
+            </button>
+          ) : null}
+          {paso.accion === "enviar" ? (
+            <button
+              type="button"
+              className="cv__primary cv__primary--sm"
+              disabled={enviando}
+              onClick={() => void enviarAlColegio()}
+            >
+              {enviando ? "Enviando…" : "Enviar al colegio"}
+            </button>
+          ) : null}
+          {paso.accion === "documento" && ficha.pdf ? (
+            <a className="cv__primary cv__primary--sm" href={ficha.pdf} target="_blank" rel="noreferrer">
+              Ver el documento
+            </a>
+          ) : null}
+          {paso.accion === "crm" && ficha.crm.dealUrl ? (
+            <a className="cv__primary cv__primary--sm" href={ficha.crm.dealUrl} target="_blank" rel="noreferrer">
+              Abrir en el CRM
+            </a>
+          ) : null}
+        </div>
       </section>
 
-      {/* El embudo. Es lo que ata el presupuesto a la oportunidad: las fechas
-          las sabe la app, la casilla en la que está la dice el CRM. */}
+      {/* Los datos del viaje. Lo que no hay no ocupa un recuadro con «—»: se dice
+          en una línea. */}
+      {(() => {
+        const datos: [string, string][] = [
+          ["Destino", ficha.viaje.destino || ""],
+          [
+            "Fechas",
+            ficha.viaje.dateFrom || ficha.viaje.dateTo ? `${fecha(ficha.viaje.dateFrom)} — ${fecha(ficha.viaje.dateTo)}` : "",
+          ],
+          ["Participantes", ficha.viaje.participants ? String(ficha.viaje.participants) : ""],
+          ["Profesores", ficha.viaje.teachers ? String(ficha.viaje.teachers) : ""],
+          ["Contacto", ficha.contacto.email || ""],
+        ];
+        const faltan = datos.filter(([, v]) => !v).map(([k]) => k.toLowerCase());
+        return (
+          <>
+            <section className="ficha__datos">
+              {datos
+                .filter(([, v]) => v)
+                .map(([k, v]) => (
+                  <div key={k} className="ficha__dato">
+                    <span className="ficha__k">{k}</span>
+                    <span className="ficha__v">{v}</span>
+                  </div>
+                ))}
+            </section>
+            {faltan.length > 0 ? <p className="opx-faltan">Faltan datos: {faltan.join(", ")}.</p> : null}
+          </>
+        );
+      })()}
+
+      {/* El avance. Es lo que ata la propuesta a la oportunidad: las fechas las
+          sabe la app, la casilla en la que está la dice el CRM. */}
       <div className="ficha__cols">
         <div className="ficha__main">
       <section className="ficha__bloque">
         <div className="sec-head">
           <h2 className="ficha__h2">Por dónde va</h2>
-          <p className="ficha__nota">
-            {ficha.crm.dealId ? (
-              ficha.crm.respondio ? (
+          {ficha.crm.dealId ? (
+            <p className="ficha__nota">
+              {ficha.crm.respondio ? (
                 <>
                   En el CRM está en <b>{ficha.crm.fase || "sin fase"}</b>
                 </>
               ) : (
                 "El CRM no ha contestado; las fechas son las que sabe la app."
-              )
-            ) : (
-              "Esta propuesta todavía no tiene oportunidad en el CRM."
-            )}
-          </p>
+              )}
+            </p>
+          ) : null}
         </div>
 
-        <ol className="embudo">
-          {ficha.embudo.map((p) => (
-            <li
-              key={p.fase}
-              /* El color es el que esa fase tiene EN SU CRM, leído de Zoho. Va
-                 como variable para que lo usen el punto, el borde y el fondo
-                 sin repetirlo tres veces. Si el CRM no contesta o la fase no
-                 tiene color, no se pone nada y el CSS pinta con lo nuestro. */
-              style={p.color ? ({ "--fase": p.color } as CSSProperties) : undefined}
-              className={`embudo__p${p.hecho ? " is-hecho" : ""}${p.actual ? " is-actual" : ""}${
-                p.color ? " tiene-color" : ""
-              }`}
-            >
-              <span className="embudo__punto" aria-hidden="true" />
-              <span className="embudo__fase">{p.fase}</span>
-              {p.detalle ? <span className="embudo__det">{p.detalle}</span> : null}
-              {p.cuando ? <span className="embudo__cuando">{fechaCorta(p.cuando)}</span> : null}
-            </li>
-          ))}
-        </ol>
+        {/* El color de cada fase es el que tiene EN SU CRM, leído de Zoho. Si el
+            CRM no contesta o la fase no tiene color, se pinta con el nuestro, que
+            es lo honesto. */}
+        <AvanceDeFase
+          pasos={ficha.embudo.map((p) => ({
+            fase: p.fase,
+            hecho: p.hecho,
+            actual: p.actual,
+            detalle: p.detalle,
+            cuando: p.cuando ? fechaCorta(p.cuando) : null,
+            color: p.color,
+          }))}
+          fase={ficha.crm.fase}
+          sinCrm={!ficha.crm.dealId}
+        />
 
         {quedan !== null && !ficha.depositPaidAt ? (
           <p className={quedan < 0 ? "ficha__aviso ficha__aviso--tarde" : "ficha__aviso"}>
@@ -434,7 +470,10 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
               opción era el botón de la página pública. Contestaban por correo y
               no se enteraba nadie: ni arrancaba el plazo del depósito ni se
               movía la fase en el CRM. */}
-          {!ficha.elegida ? (
+          {/* Solo cuando la propuesta ya salió: apuntar que han aceptado algo que
+              todavía no se ha enviado no tiene sentido (se veía con «Falta
+              enviarla» justo al lado). */}
+          {!ficha.elegida && ficha.estado === "SENT" ? (
             <section className="ficha__elegir">
               <p className="ficha__tocal">Han aceptado una opción</p>
 
@@ -489,78 +528,47 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
             </section>
           ) : null}
 
-          {/* Lo que hay que hacer AHORA. La ficha decia donde esta el
-              expediente y ahi se acababa: «estoy aqui y no se cual es el
-              proximo paso que debo hacer». Saber en que fase estas no es saber
-              que hacer. */}
-          <section className={`ficha__toca ficha__toca--${paso.urgencia}`}>
-            <p className="ficha__tocal">Lo siguiente</p>
-            <p className="ficha__tocat">{paso.titulo}</p>
-            <p className="ficha__tocap">{paso.porque}</p>
-            {paso.accion === "correo" ? (
-              <button type="button" className="cv__primary cv__primary--sm" onClick={() => setCorreo(true)}>
-                Abrir la conversación
-              </button>
-            ) : null}
-            {paso.accion === "enviar" ? (
-              <button
-                type="button"
-                className="cv__primary cv__primary--sm"
-                disabled={enviando}
-                onClick={() => void enviarAlColegio()}
-              >
-                {enviando ? "Enviando…" : "Enviar al colegio"}
-              </button>
-            ) : null}
-            {resultadoEnvio ? <p className="ficha__tocap">{resultadoEnvio}</p> : null}
-            {paso.accion === "documento" && ficha.pdf ? (
-              <a className="cv__ghost cv__ghost--sm" href={ficha.pdf} target="_blank" rel="noreferrer">
-                Ver el documento
-              </a>
-            ) : null}
-            {paso.accion === "crm" && ficha.crm.dealUrl ? (
-              <a className="cv__ghost cv__ghost--sm" href={ficha.crm.dealUrl} target="_blank" rel="noreferrer">
-                Abrir en el CRM
-              </a>
-            ) : null}
-          </section>
+          {/* El panel de «Mover de fase», que pone la pantalla que contiene la ficha. */}
+          {aside}
 
           {/* Que hay relleno en la oportunidad. Se enseña TAMBIEN lo vacio:
               Ruth reporto que el trato salia con los campos sin rellenar, y
-              comprobarlo obligaba a abrir Zoho y mirar campo por campo. */}
-          <section className="ficha__crm">
-            <p className="ficha__tocal">
-              En el CRM
-              {ficha.crm.relleno ? (
-                <span className="ficha__crmn">
-                  {ficha.crm.relleno.rellenos} de {ficha.crm.relleno.total}
-                </span>
-              ) : null}
-            </p>
-
-            {!ficha.crm.dealId ? (
-              <p className="ficha__crmvacio">Este presupuesto no tiene oportunidad en el CRM.</p>
-            ) : !ficha.crm.respondio ? (
-              <p className="ficha__crmvacio">
-                Zoho no ha contestado. La ficha se abre igual; lo de aquí es lo último que se supo.
+              comprobarlo obligaba a abrir Zoho y mirar campo por campo. Si no
+              hay oportunidad en el CRM no se enseña nada: ya lo dice, una vez,
+              «Por dónde va». */}
+          {ficha.crm.dealId ? (
+            <section className="ficha__crm">
+              <p className="ficha__tocal">
+                En el CRM
+                {ficha.crm.relleno ? (
+                  <span className="ficha__crmn">
+                    {ficha.crm.relleno.rellenos} de {ficha.crm.relleno.total}
+                  </span>
+                ) : null}
               </p>
-            ) : (
-              <dl className="ficha__campos">
-                {(ficha.crm.campos ?? []).map((c) => (
-                  <div key={c.etiqueta} className={c.valor ? "ficha__campo" : "ficha__campo is-vacio"}>
-                    <dt>{c.etiqueta}</dt>
-                    <dd>{c.valor || (c.nota ? c.nota : "vacío")}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
 
-            {ficha.crm.dealUrl ? (
-              <a className="ficha__crmlink" href={ficha.crm.dealUrl} target="_blank" rel="noreferrer">
-                Abrir la oportunidad en Zoho →
-              </a>
-            ) : null}
-          </section>
+              {!ficha.crm.respondio ? (
+                <p className="ficha__crmvacio">
+                  Zoho no ha contestado. La ficha se abre igual; lo de aquí es lo último que se supo.
+                </p>
+              ) : (
+                <dl className="ficha__campos">
+                  {(ficha.crm.campos ?? []).map((c) => (
+                    <div key={c.etiqueta} className={c.valor ? "ficha__campo" : "ficha__campo is-vacio"}>
+                      <dt>{c.etiqueta}</dt>
+                      <dd>{c.valor || (c.nota ? c.nota : "vacío")}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+
+              {ficha.crm.dealUrl ? (
+                <a className="ficha__crmlink" href={ficha.crm.dealUrl} target="_blank" rel="noreferrer">
+                  Abrir la oportunidad en Zoho →
+                </a>
+              ) : null}
+            </section>
+          ) : null}
         </aside>
       </div>
 

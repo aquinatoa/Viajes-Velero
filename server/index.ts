@@ -15,6 +15,7 @@ import {
   exchangeZohoAuthCode,
   getZohoAuthStatus,
   getZohoAuthUrl,
+  getZohoDealDetalle,
   getZohoDealStages,
   listZohoDeals,
   listZohoDealsEntre,
@@ -130,8 +131,9 @@ import {
 } from "./auth";
 import { rangoValido } from "../src/domain/rangoDeViajes";
 import { adoptarOportunidad, listarOportunidades } from "./oportunidades";
-import { historialDeFase } from "./cambiosDeFase";
-import { tratosVisiblesPara } from "./tratosPorDepartamento";
+import { historialDeFase, registrarCambioDeFase } from "./cambiosDeFase";
+import { moverDeFase } from "./moverFase";
+import { departamentoDesdeCrm, tratosVisiblesPara } from "./tratosPorDepartamento";
 import { extractDocumentText, isNativelyReadable } from "./documentTextExtraction";
 import { analyzeDocumentText, AiAnalysisError } from "./aiDocumentAnalysis";
 import {
@@ -565,6 +567,55 @@ app.post("/api/oportunidades/:dealId/adoptar", requireAuth, async (request, resp
   } catch (error) {
     console.error("Error adoptando la oportunidad", error);
     response.status(500).json({ error: "No se pudo abrir la oportunidad para gestionarla." });
+  }
+});
+
+// Mover una oportunidad de fase, con constancia (quién, cuándo, de → a, motivo).
+// Retroceder, perder o pasar a lista de espera exige motivo; avanzar, no. Escribe
+// en el trato de Zoho (fase y una nota fechada) y deja una línea de historial.
+// La decisión vive en server/moverFase.ts y se prueba sin tocar el CRM.
+app.post("/api/oportunidades/:dealId/fase", requireAuth, async (request, response) => {
+  try {
+    const user = (request as AuthedRequest).user;
+    const body = (request.body ?? {}) as { fase?: unknown; motivo?: unknown; opcion?: unknown };
+    const opcion =
+      body.opcion === undefined ? undefined : body.opcion === null ? null : Number.isInteger(Number(body.opcion)) ? Number(body.opcion) : undefined;
+    const resultado = await moverDeFase(
+      {
+        dealId: String(request.params.dealId),
+        fase: typeof body.fase === "string" ? body.fase : undefined,
+        motivo: typeof body.motivo === "string" ? body.motivo : undefined,
+        opcion,
+      },
+      {
+        leerTrato: async (dealId) => {
+          const detalle = await getZohoDealDetalle(dealId);
+          if (!detalle) return null;
+          return { fase: String(detalle.Stage ?? ""), departamento: departamentoDesdeCrm(detalle.Departamento) };
+        },
+        fasesValidas: () => getZohoDealStages(),
+        puedeVer: (departamento) => !user || tratosVisiblesPara(user, [{ department: departamento }]).length > 0,
+        actualizar: async ({ dealId, fase, opcion: opcionElegida, nota }) => {
+          await updateZohoDeal({
+            dealId,
+            stage: fase,
+            chosenOption: opcionElegida,
+            note: nota,
+            noteDate: new Date().toISOString().slice(0, 10),
+          });
+        },
+        registrar: registrarCambioDeFase,
+        auditar: (detalle) => writeAudit({ user, action: "OPORTUNIDAD_FASE", entity: "crm", detail: detalle }),
+      },
+      { id: user?.id ?? null, nombre: user?.name ?? user?.email ?? null },
+    );
+    if (!resultado.ok) {
+      response.status(resultado.status).json({ error: resultado.error });
+      return;
+    }
+    response.json(resultado);
+  } catch (error) {
+    crmErrorResponse(error, response, "No se pudo cambiar la fase en Zoho.");
   }
 });
 

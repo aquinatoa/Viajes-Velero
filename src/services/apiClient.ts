@@ -357,6 +357,38 @@ export function listarOportunidadesApi(rango?: { desde: string; hasta: string })
   }>(`/api/oportunidades${consulta}`, "No se pudieron cargar las oportunidades.");
 }
 
+/** Un cambio de fase ya hecho, tal y como lo guarda la app. */
+export interface CambioDeFaseLeido {
+  id: string;
+  desde: string | null;
+  hasta: string;
+  motivo: string | null;
+  origen: "MANUAL" | "AUTOMATICO";
+  hito: string | null;
+  porNombre: string | null;
+  cuando: string;
+}
+
+/** El historial de fase de una oportunidad (del más reciente al más antiguo). */
+export function cambiosDeFaseApi(dealId: string) {
+  return getJson<{ cambios: CambioDeFaseLeido[] }>(
+    `/api/oportunidades/${encodeURIComponent(dealId)}/cambios`,
+    "No se pudo leer el historial de fase.",
+  );
+}
+
+/**
+ * Mover una oportunidad de fase con constancia. El servidor exige motivo al
+ * retroceder, perder o pasar a lista de espera. Escribe en Zoho.
+ */
+export function moverFaseApi(dealId: string, cambio: { fase?: string; motivo?: string; opcion?: number | null }) {
+  return postJson<{ ok: true; desde: string; hasta: string; cambioDeFase: boolean }>(
+    `/api/oportunidades/${encodeURIComponent(dealId)}/fase`,
+    cambio,
+    "No se pudo cambiar la fase.",
+  );
+}
+
 export function fetchZohoDealStagesApi() {
   return getJson<{ stages: string[] }>(
     "/api/crm/deal-stages",
