@@ -1,6 +1,13 @@
-import { useEffect, useState } from "react";
-import { rejillaDeActividad, rejillaDeAlojamiento } from "../../domain/rejillaDeTarifas";
-import { TablaDeTarifas } from "./TablaDeTarifas";
+import { Fragment, useEffect, useState } from "react";
+import {
+  agruparPorIdentidad,
+  canalesDelGrupo,
+  coincideConUbicacion,
+  opcionesDeUbicacion,
+  SIN_UBICACION,
+} from "../../domain/fichaDeCatalogo";
+import { EtiquetasDeCanal, FichaDeCatalogo } from "./FichaDeCatalogo";
+import { useClientesEspeciales } from "../useClientesEspeciales";
 import {
   tariffDepartmentLabels,
   type CatalogAccommodation,
@@ -10,6 +17,31 @@ import {
 } from "../../domain/documentImportTypes";
 import { getInventoryCatalogApi } from "../../services/apiClient";
 import { getErrorMessage } from "./inventoryFormatting";
+
+/** La ubicación en su propia columna. Si el documento no la trae, se dice: no se inventa. */
+function Ubicacion({ texto }: { texto?: string | null }) {
+  const limpio = texto?.trim();
+  return limpio ? (
+    <span className="cat-resumen__ubicacion">{limpio}</span>
+  ) : (
+    <span className="cat-resumen__ubicacion cat-resumen__ubicacion--falta" title="El documento no indica la ubicación">
+      Sin ubicación
+    </span>
+  );
+}
+
+/** Los títulos de las columnas, alineados con las filas de abajo. */
+function CabeceraDeColumnas({ proveedor }: { proveedor: boolean }) {
+  return (
+    <div className="cat-cabecera" aria-hidden="true">
+      <span>{proveedor ? "Actividad" : "Alojamiento"}</span>
+      <span>Ubicación</span>
+      <span>Para quién</span>
+      <span>Origen</span>
+      <span>Tarifas</span>
+    </div>
+  );
+}
 
 /**
  * Catálogo global del inventario operativo publicado: reúne TODOS los
@@ -27,6 +59,16 @@ export function InventoryCatalogView() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [departamento, setDepartamento] = useState<TariffDepartment | "">("");
+  // Una sola lista a todo el ancho, no dos columnas: la tabla de tarifas necesita
+  // sitio, y a medio ancho se cortaba y obligaba a desplazarla de lado.
+  const [seccion, setSeccion] = useState<"alojamientos" | "actividades">("alojamientos");
+  // Filtro por población (clave normalizada) de la pestaña que se está viendo.
+  const [ubicacion, setUbicacion] = useState("");
+  const cambiarSeccion = (nueva: "alojamientos" | "actividades") => {
+    setSeccion(nueva);
+    setUbicacion("");
+  };
+  const clientesEspeciales = useClientesEspeciales();
 
   async function loadCatalog() {
     setLoading(true);
@@ -62,10 +104,41 @@ export function InventoryCatalogView() {
   const delDepartamento = (item: { sourceDocumentDepartment?: TariffDepartment | null }) =>
     !departamento || !item.sourceDocumentDepartment || item.sourceDocumentDepartment === departamento;
 
-  const accommodations = (catalog?.accommodations ?? []).filter(
+  const accommodationRecords = (catalog?.accommodations ?? []).filter(
     (item) => matchesAccommodation(item) && delDepartamento(item),
   );
-  const activities = (catalog?.activities ?? []).filter((item) => matchesActivity(item) && delDepartamento(item));
+  const activityRecords = (catalog?.activities ?? []).filter((item) => matchesActivity(item) && delDepartamento(item));
+
+  // El mismo alojamiento cargado en dos documentos (el general y el del
+  // turoperador) se enseña como UNO, con una pestaña por canal. Agrupar es una
+  // forma de mirar el catálogo: en la base siguen siendo dos registros.
+  const alojamientosTodos = agruparPorIdentidad(accommodationRecords, (a) => a.accommodationName, (a) => a.locality);
+  const actividadesTodas = agruparPorIdentidad(activityRecords, (a) => a.activityName, (a) => a.supplierName);
+
+  // Filtro por ubicación. Las opciones salen de lo que hay ahora mismo (tras la
+  // búsqueda y el departamento), con cuántos hay en cada población.
+  const ubicacionesAloj = (g: (typeof alojamientosTodos)[number]) => [g.lugar];
+  const ubicacionesAct = (g: (typeof actividadesTodas)[number]) => g.miembros.map((m) => m.locationMain);
+  const opcionesAloj = opcionesDeUbicacion(alojamientosTodos.map(ubicacionesAloj));
+  const opcionesAct = opcionesDeUbicacion(actividadesTodas.map(ubicacionesAct));
+  const opcionesActuales = seccion === "alojamientos" ? opcionesAloj : opcionesAct;
+  // Si la búsqueda deja sin esa población, el filtro se ignora en vez de dejar la lista vacía.
+  const ubicacionVigente =
+    ubicacion === SIN_UBICACION
+      ? opcionesActuales.sinUbicacion > 0
+        ? ubicacion
+        : ""
+      : opcionesActuales.poblaciones.some((p) => p.clave === ubicacion)
+        ? ubicacion
+        : "";
+  const accommodations =
+    seccion === "alojamientos"
+      ? alojamientosTodos.filter((g) => coincideConUbicacion(ubicacionesAloj(g), ubicacionVigente))
+      : alojamientosTodos;
+  const activities =
+    seccion === "actividades"
+      ? actividadesTodas.filter((g) => coincideConUbicacion(ubicacionesAct(g), ubicacionVigente))
+      : actividadesTodas;
 
   const etiquetaDepartamento = (valor?: TariffDepartment | null) =>
     valor ? (
@@ -74,6 +147,17 @@ export function InventoryCatalogView() {
 
   const originLabel = (name?: string | null) =>
     name ? `Origen: ${name}` : "Origen: importado (Excel)";
+
+  /** Un documento: su nombre. Varios: cuántos, y el detalle va dentro de la ficha. */
+  const origenDelGrupo = (miembros: Array<{ sourceDocumentName?: string | null; sourceDocumentId?: string | null }>) => {
+    const documentos = new Map(miembros.map((m) => [m.sourceDocumentId ?? "", m.sourceDocumentName ?? null]));
+    if (documentos.size === 1) return originLabel([...documentos.values()][0]);
+    return `Origen: ${documentos.size} documentos`;
+  };
+  const departamentosDelGrupo = (miembros: Array<{ sourceDocumentDepartment?: TariffDepartment | null }>) =>
+    [...new Set(miembros.map((m) => m.sourceDocumentDepartment ?? null))].map((d) => (
+      <Fragment key={d ?? "ambos"}>{etiquetaDepartamento(d)}</Fragment>
+    ));
 
   return (
     <div className="catalog-view">
@@ -84,7 +168,7 @@ export function InventoryCatalogView() {
             {loading
               ? "Cargando catálogo..."
               : catalog
-                ? `${catalog.accommodationCount} alojamiento(s) y ${catalog.activityCount} actividad(es) en el inventario operativo.`
+                ? `${catalog.accommodationCount} alojamiento(s) y ${catalog.activityCount} actividad(es) en el inventario operativo. Lo que está cargado en varios documentos o para varios clientes se enseña junto, con una pestaña por cliente.`
                 : "Inventario operativo (todo lo publicado, de todos los documentos)."}
           </p>
         </div>
@@ -119,9 +203,54 @@ export function InventoryCatalogView() {
       ) : null}
 
       {catalog ? (
-        <div className="catalog-grid">
+        <div className="catalogo">
+          <div className="catalogo__secciones" role="tablist" aria-label="Qué ver">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={seccion === "alojamientos"}
+              className={seccion === "alojamientos" ? "is-active" : ""}
+              onClick={() => cambiarSeccion("alojamientos")}
+            >
+              Alojamientos <small>({accommodations.length})</small>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={seccion === "actividades"}
+              className={seccion === "actividades" ? "is-active" : ""}
+              onClick={() => cambiarSeccion("actividades")}
+            >
+              Actividades <small>({activities.length})</small>
+            </button>
+            <label className="catalogo__filtro">
+              <span>Ubicación</span>
+              <select
+                className="doc-search"
+                aria-label="Filtrar por ubicación"
+                value={ubicacionVigente}
+                onChange={(event) => setUbicacion(event.target.value)}
+              >
+                <option value="">Todas las ubicaciones</option>
+                {opcionesActuales.poblaciones.map((p) => (
+                  <option key={p.clave} value={p.clave}>
+                    {p.nombre} ({p.cantidad})
+                  </option>
+                ))}
+                {opcionesActuales.sinUbicacion > 0 ? (
+                  <option value={SIN_UBICACION}>Sin ubicación ({opcionesActuales.sinUbicacion})</option>
+                ) : null}
+              </select>
+              {ubicacionVigente ? (
+                <button type="button" className="catalogo__quitar" onClick={() => setUbicacion("")}>
+                  Quitar filtro
+                </button>
+              ) : null}
+            </label>
+          </div>
+
+          {seccion === "alojamientos" ? (
           <section>
-            <h4>Alojamientos ({accommodations.length})</h4>
             {accommodations.length === 0 ? (
               <p className="rate-table__empty">
                 {departamento
@@ -129,59 +258,43 @@ export function InventoryCatalogView() {
                   : "Sin alojamientos que coincidan."}
               </p>
             ) : (
+              <>
+              <CabeceraDeColumnas proveedor={false} />
               <ul className="published-list">
-                {accommodations.map((accommodation) => (
-                  <li key={accommodation.id} className="published-item">
-                    <details>
-                      <summary>
-                        <strong>{accommodation.accommodationName}</strong>
-                        {accommodation.locality ? (
-                          <span className="published-item__meta">{accommodation.locality}</span>
-                        ) : null}
-                        {accommodation.categoryType ? (
-                          <span className="published-item__meta">{accommodation.categoryType}</span>
-                        ) : null}
-                        <span className="origin-tag">{originLabel(accommodation.sourceDocumentName)}</span>
-                        {etiquetaDepartamento(accommodation.sourceDocumentDepartment)}
-                        <span className="published-item__count">
-                          {accommodation.rates.length} tarifa(s)
-                        </span>
-                      </summary>
-                      {(() => {
-                        const rejilla = rejillaDeAlojamiento(accommodation.rates);
-                        return rejilla ? (
-                          <TablaDeTarifas rejilla={rejilla} />
-                        ) : (
-                          <p className="rate-table__empty">Sin tarifas publicadas.</p>
-                        );
-                      })()}
-                      {/* Los suplementos que subió con el documento: individual,
-                          doble de profesores, sábados… (Ruth, 19/10/2026). */}
-                      {accommodation.suplementos && accommodation.suplementos.length > 0 ? (
-                        <div className="sup-pub">
-                          <p className="sup-pub__t">Suplementos ({accommodation.suplementos.length})</p>
-                          <ul>
-                            {accommodation.suplementos.map((s, i) => (
-                              <li key={i}>
-                                <span>{s.concepto}</span>
-                                {s.importe ? <b>{s.importe}</b> : null}
-                                {s.condicion ? <small>{s.condicion}</small> : null}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : (
-                        <p className="sup-pub__nada">Sin suplementos publicados.</p>
-                      )}
-                    </details>
-                  </li>
-                ))}
+                {accommodations.map((grupo) => {
+                  const canales = canalesDelGrupo(grupo, clientesEspeciales);
+                  const primero = grupo.miembros[0];
+                  return (
+                    <li key={grupo.clave} className="published-item">
+                      <details>
+                        <summary className="cat-resumen">
+                          <span className="cat-resumen__titulo">
+                            <strong>{grupo.nombre}</strong>
+                            {primero.categoryType ? (
+                              <span className="published-item__meta">{primero.categoryType}</span>
+                            ) : null}
+                          </span>
+                          <Ubicacion texto={grupo.lugar} />
+                          <span className="cat-resumen__chips">
+                            <EtiquetasDeCanal canales={canales} />
+                            {departamentosDelGrupo(grupo.miembros)}
+                          </span>
+                          <span className="origin-tag cat-resumen__origen">{origenDelGrupo(grupo.miembros)}</span>
+                          <span className="published-item__count">
+                            {canales.reduce((t, c) => t + c.tarifas.length, 0)} tarifa(s)
+                          </span>
+                        </summary>
+                        <FichaDeCatalogo grupo={grupo} canales={canales} clientes={clientesEspeciales} tipo="alojamiento" />
+                      </details>
+                    </li>
+                  );
+                })}
               </ul>
+              </>
             )}
           </section>
-
+          ) : (
           <section>
-            <h4>Actividades ({activities.length})</h4>
             {activities.length === 0 ? (
               <p className="rate-table__empty">
                 {departamento
@@ -189,38 +302,41 @@ export function InventoryCatalogView() {
                   : "Sin actividades que coincidan."}
               </p>
             ) : (
+              <>
+              <CabeceraDeColumnas proveedor />
               <ul className="published-list">
-                {activities.map((activity) => (
-                  <li key={activity.id} className="published-item">
-                    <details>
-                      <summary>
-                        <strong>{activity.activityName}</strong>
-                        {activity.locationMain ? (
-                          <span className="published-item__meta">{activity.locationMain}</span>
-                        ) : null}
-                        {activity.supplierName ? (
-                          <span className="published-item__meta">{activity.supplierName}</span>
-                        ) : null}
-                        <span className="origin-tag">{originLabel(activity.sourceDocumentName)}</span>
-                        {etiquetaDepartamento(activity.sourceDocumentDepartment)}
-                        <span className="published-item__count">
-                          {activity.rates.length} tarifa(s)
-                        </span>
-                      </summary>
-                      {(() => {
-                        const rejilla = rejillaDeActividad(activity.rates);
-                        return rejilla ? (
-                          <TablaDeTarifas rejilla={rejilla} />
-                        ) : (
-                          <p className="rate-table__empty">Sin tarifas publicadas.</p>
-                        );
-                      })()}
-                    </details>
-                  </li>
-                ))}
+                {activities.map((grupo) => {
+                  const canales = canalesDelGrupo(grupo, clientesEspeciales);
+                  return (
+                    <li key={grupo.clave} className="published-item">
+                      <details>
+                        <summary className="cat-resumen">
+                          <span className="cat-resumen__titulo">
+                            <strong>{grupo.nombre}</strong>
+                            {grupo.lugar ? (
+                              <span className="published-item__meta">Proveedor: {grupo.lugar}</span>
+                            ) : null}
+                          </span>
+                          <Ubicacion texto={grupo.miembros[0].locationMain} />
+                          <span className="cat-resumen__chips">
+                            <EtiquetasDeCanal canales={canales} />
+                            {departamentosDelGrupo(grupo.miembros)}
+                          </span>
+                          <span className="origin-tag cat-resumen__origen">{origenDelGrupo(grupo.miembros)}</span>
+                          <span className="published-item__count">
+                            {canales.reduce((t, c) => t + c.tarifas.length, 0)} tarifa(s)
+                          </span>
+                        </summary>
+                        <FichaDeCatalogo grupo={grupo} canales={canales} clientes={clientesEspeciales} tipo="actividad" />
+                      </details>
+                    </li>
+                  );
+                })}
               </ul>
+              </>
             )}
           </section>
+          )}
         </div>
       ) : null}
     </div>

@@ -13078,7 +13078,17 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 .tarifas__tabla th, .tarifas__tabla td { white-space: nowrap; }
 .tarifas__tabla .tarifas__grupo { text-align: center; border-bottom: 1px solid rgba(0, 0, 0, 0.12); }
 .tarifas__tabla .tarifas__columna { text-align: right; font-weight: 600; }
-.tarifas__tabla .tarifas__fila { text-align: left; font-weight: 600; }
+/* La etiqueta de la fila lleva periodo + condición («T. baja · ABRIL / MAYO… ·
+   Estancia de 2 o 3 noches»): se parte en líneas en vez de empujar los precios
+   fuera de la pantalla. Los importes siguen sin partirse. */
+.tarifas__tabla .tarifas__fila {
+  text-align: left;
+  font-weight: 600;
+  white-space: normal;
+  min-width: 220px;
+  max-width: 420px;
+  line-height: 1.35;
+}
 .tarifas__tabla .tarifas__precio { text-align: right; font-variant-numeric: tabular-nums; }
 .tarifas__tabla .tarifas__precio--ambiguo { color: var(--danger); font-weight: 600; }
 .tarifas__tabla .tarifas__vacia { text-align: right; color: var(--muted, inherit); }
@@ -13629,4 +13639,343 @@ button.hilo__adjunto:hover {
   background: var(--surface);
   color: var(--ink);
   font: inherit;
+}
+
+/* ── La ficha del catálogo: para quién es, qué incluye, cuándo vale (10/11/2026) ──
+   Una etiqueta por canal (con borde, para no confundirla con las del
+   departamento, que van rellenas), una tarjeta por canal y una pestaña por
+   canal más «Comparar». Solo tokens del sistema. */
+.canal-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 1px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.canal-tag b { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--muted); }
+.canal-tag--especial {
+  border-color: var(--accent);
+  background: var(--accent-050);
+  color: var(--accent);
+}
+.canal-tag--especial b { color: var(--accent); }
+
+/* Ojo: `.ficha` ya es de la ficha de propuesta (tope de 1100 px y mucho relleno).
+   La del catálogo se llama `.ficha-cat` para no heredar nada de aquella. */
+.ficha-cat { display: grid; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3) var(--sp-3); }
+.ficha__canales { display: grid; gap: var(--sp-2); grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.ficha__canal {
+  display: grid;
+  gap: var(--sp-2);
+  align-content: start;
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.ficha__canal header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.ficha__para { font-size: var(--fs-small); color: var(--ink-2); }
+.ficha__canal dl { display: grid; gap: var(--sp-1); margin: 0; font-size: var(--fs-small); }
+.ficha__par { display: flex; gap: var(--sp-3); align-items: baseline; }
+.ficha__canal dt { color: var(--muted); min-width: 64px; flex: 0 0 auto; }
+.ficha__canal dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+.ficha__hueco { color: var(--warn); font-weight: 600; }
+
+/* ── Detalle del alojamiento, más claro (11/11/2026) ─────────────────────────
+   1) Con un solo canal, la cabecera es UNA franja (no una tarjeta alta).
+   2) El hueco sin precio es un aviso, no letra pequeña.
+   3) La tabla se ajusta a su contenido: los precios junto al periodo.
+   4) Suplementos y tasas/depósitos en dos cajas; condiciones en bloques. */
+.ficha__canales--uno { grid-template-columns: 1fr; }
+.ficha__canales--uno .ficha__canal { padding: var(--sp-2) var(--sp-3); gap: var(--sp-1); }
+.ficha__canales--uno .ficha__canal header { gap: var(--sp-3); }
+.ficha__canales--uno .ficha__canal dl { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-5, 24px); }
+
+.ficha__sinprecio {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--warn);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: var(--warn-bg);
+  color: var(--ink);
+  font-size: var(--fs-small);
+  line-height: 1.45;
+}
+.ficha__sinprecio strong { color: var(--warn); }
+
+.ficha-cat .tarifas__comun { font-size: var(--fs-small); color: var(--ink-2); }
+.ficha-cat .tarifas__unidad { font-weight: 700; color: var(--ink); }
+.ficha-cat .table-wrap { width: fit-content; max-width: 100%; }
+.ficha-cat .tarifas__tabla { width: auto; }
+.ficha-cat .tarifas__tabla .tarifas__columna { min-width: 120px; padding-left: var(--sp-5, 24px); }
+
+/* Tabla a la izquierda (lo que ocupe) y suplementos/tasas a su lado (el resto).
+   Por debajo de 1100 px se apilan. Las dos cajas de la derecha miden lo mismo. */
+.ficha__cuerpo { display: grid; gap: var(--sp-3); grid-template-columns: minmax(0, auto) minmax(300px, 1fr); align-items: start; }
+.ficha__tabla { display: grid; gap: var(--sp-2); min-width: 0; }
+.ficha__extras { display: grid; gap: var(--sp-2); grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-items: stretch; }
+.ficha__extras .sup-pub { height: 100%; box-sizing: border-box; margin: 0; }
+@media (max-width: 1100px) {
+  .ficha__cuerpo { grid-template-columns: minmax(0, 1fr); }
+}
+.ficha-cat .sup-pub li small { font-size: var(--fs-small); color: var(--ink-2); }
+
+.cond { display: grid; gap: var(--sp-2); }
+.cond__t { margin: 0; font-size: var(--fs-small); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+/* En columnas que se reparten solas: cada tarjeta mide lo que su texto y la
+   siguiente sube a ocupar el hueco (antes, una fila de tarjetas de alturas
+   distintas dejaba espacio vacío debajo de las cortas). */
+.cond__bloques { column-width: 340px; column-gap: var(--sp-2); }
+.cond__bloque {
+  break-inside: avoid;
+  margin: 0 0 var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.cond__bloque h6 { margin: 0 0 var(--sp-1); font-size: var(--fs-small); font-weight: 700; color: var(--accent); }
+.cond__bloque ul { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--sp-1); }
+.cond__bloque li { font-size: var(--fs-small); line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; }
+.cond__bloque li b { color: var(--ink-2); }
+/* Lo que cambia lo que se paga, con un acento: gratuidades y mínimos. */
+.cond__bloque--gratuidades, .cond__bloque--minimos { border-color: var(--accent); background: var(--accent-050); }
+.cond__porcanal { display: grid; gap: var(--sp-2); }
+.cond__desplegable { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.cond__desplegable > summary { cursor: pointer; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-small); font-weight: 700; }
+.cond__desplegable[open] > summary { border-bottom: 1px solid var(--border); }
+.cond__desplegable > :not(summary) { margin: var(--sp-2) var(--sp-3); }
+
+.ficha__pestanas { display: flex; flex-wrap: wrap; gap: var(--sp-1); border-bottom: 1px solid var(--border); }
+.ficha__pestanas button {
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  cursor: pointer;
+}
+.ficha__pestanas button small { color: var(--muted); font-weight: 500; }
+.ficha__pestanas button:hover { background: var(--surface-2); }
+.ficha__pestanas button.is-active {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--accent);
+  margin-bottom: -1px;
+  padding-bottom: 7px;
+}
+.ficha__comparar { margin-left: auto; }
+
+/* ── Catálogo publicado: una lista a todo el ancho (11/11/2026) ──────────────
+   Antes eran dos columnas de medio ancho y la tabla de tarifas se cortaba.
+   Ahora: pestaña Alojamientos / Actividades y filas con el resumen en columnas
+   (nombre y lugar · etiquetas de canal · origen · nº de tarifas). */
+.catalogo { display: grid; gap: var(--sp-3); }
+.catalogo__secciones { display: flex; gap: var(--sp-1); border-bottom: 1px solid var(--border); }
+.catalogo__secciones button {
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.catalogo__secciones button small { color: var(--muted); font-weight: 500; }
+.catalogo__secciones button:hover { background: var(--surface-2); }
+.catalogo__secciones button.is-active {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--accent);
+  margin-bottom: -1px;
+  padding-bottom: 9px;
+}
+
+.published-item summary.cat-resumen {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) minmax(0, 1.6fr) minmax(0, 1.6fr) auto;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+}
+.cat-resumen__titulo { display: grid; gap: 1px; min-width: 0; }
+.cat-resumen__titulo strong { overflow-wrap: anywhere; }
+.cat-resumen__chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cat-resumen__origen { min-width: 0; overflow-wrap: anywhere; justify-self: start; }
+
+/* Buscador y departamento en una fila que no recorta el texto. */
+.catalog-view .actions-row { flex-wrap: wrap; align-items: center; }
+.catalog-view .actions-row input.doc-search { min-width: min(100%, 340px); }
+
+@media (max-width: 900px) {
+  .published-item summary.cat-resumen { grid-template-columns: 1fr auto; }
+  .cat-resumen__chips, .cat-resumen__origen { grid-column: 1 / -1; }
+}
+
+/* Columna «Ubicación» y títulos de columna (11/11/2026). Las cinco columnas
+   son las mismas en la cabecera y en cada fila. */
+.cat-cabecera,
+.published-item summary.cat-resumen {
+  grid-template-columns: minmax(220px, 2fr) minmax(130px, 1.1fr) minmax(0, 1.5fr) minmax(0, 1.5fr) 92px;
+}
+.cat-cabecera {
+  display: grid;
+  gap: var(--sp-2) var(--sp-3);
+  padding: 0 13px var(--sp-1);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.cat-cabecera span:last-child { justify-self: end; }
+.published-item summary.cat-resumen .published-item__count { justify-self: end; white-space: nowrap; }
+.cat-resumen__ubicacion { font-size: var(--fs-small); color: var(--ink); overflow-wrap: anywhere; }
+.cat-resumen__ubicacion--falta { color: var(--muted); font-style: italic; }
+@media (max-width: 900px) {
+  .cat-cabecera { display: none; }
+  .published-item summary.cat-resumen { grid-template-columns: 1fr auto; }
+  .cat-resumen__ubicacion { grid-column: 1 / -1; }
+}
+
+/* Filtro por ubicación, a la derecha de las pestañas del catálogo. */
+.catalogo__filtro {
+  margin-left: auto;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-1);
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+.catalogo__quitar {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--fs-small);
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+@media (max-width: 640px) {
+  .catalogo__secciones { flex-wrap: wrap; }
+  .catalogo__filtro { margin-left: 0; flex-basis: 100%; }
+}
+
+/* ── Color en las tablas de tarifas (11/11/2026) ─────────────────────────────
+   Solo fondos suaves y líneas, nunca colores plenos:
+     · cada RÉGIMEN, su tono: media pensión azul, pensión completa verde,
+       desayuno ámbar, solo alojamiento gris;
+     · cada TEMPORADA, una etiqueta y una barra a la izquierda de la fila:
+       baja azul, media ámbar, alta terracota.
+   Los colores son ternas «r, g, b» para poder dar la intensidad con rgba(). */
+.tarifas {
+  --c-sa: 100, 116, 139;
+  --c-ad: 196, 132, 14;
+  --c-mp: 46, 96, 170;
+  --c-pc: 31, 122, 77;
+  --c-x: 100, 116, 139;
+  --t-baja: 46, 96, 170;
+  --t-media: 196, 132, 14;
+  --t-alta: 190, 80, 52;
+  --td-baja: 31, 72, 140;
+  --td-media: 130, 85, 5;
+  --td-alta: 150, 55, 30;
+}
+.tarifas .reg--sa { --c: var(--c-sa); }
+.tarifas .reg--ad { --c: var(--c-ad); }
+.tarifas .reg--mp { --c: var(--c-mp); }
+.tarifas .reg--pc { --c: var(--c-pc); }
+.tarifas .reg--x { --c: var(--c-x); }
+.tarifas .temp--baja { --t: var(--t-baja); --td: var(--td-baja); }
+.tarifas .temp--media { --t: var(--t-media); --td: var(--td-media); }
+.tarifas .temp--alta { --t: var(--t-alta); --td: var(--td-alta); }
+
+/* Cabeceras: el régimen en una banda con su tono, y una línea gruesa debajo. */
+.tarifas__tabla th.tarifas__grupo {
+  background: rgba(var(--c), 0.16);
+  color: var(--ink);
+  font-weight: 700;
+  text-align: center;
+  border-top: 3px solid rgba(var(--c), 0.7);
+  border-bottom: 1px solid rgba(var(--c), 0.35);
+}
+.tarifas__tabla th.tarifas__columna {
+  background: rgba(var(--c), 0.09);
+  color: var(--ink-2);
+  border-bottom: 2px solid rgba(var(--c), 0.5);
+}
+/* Cada régimen empieza con una línea vertical: se ve dónde acaba uno y empieza otro. */
+.tarifas__tabla .tarifas__inicio { border-left: 2px solid rgba(var(--c), 0.45); }
+
+/* Celdas: un velo del tono de su régimen; las vacías, más tenues todavía. */
+.tarifas__tabla td.tarifas__precio { background: rgba(var(--c), 0.05); }
+.tarifas__tabla td.tarifas__vacia { background: rgba(var(--c), 0.025); color: var(--muted); opacity: 0.8; }
+.tarifas__tabla tbody tr { border-bottom: 1px solid var(--border); }
+.tarifas__tabla tbody tr:hover td.tarifas__precio { background: rgba(var(--c), 0.14); }
+.tarifas__tabla td.tarifas__precio--ambiguo { background: var(--warn-bg); }
+
+/* La fila: barra de color de su temporada, etiqueta y, debajo, el matiz pequeño. */
+.tarifas__tabla tbody th.tarifas__fila { background: var(--surface); vertical-align: middle; }
+.tarifas__tabla tbody th.tarifas__fila.temp--baja,
+.tarifas__tabla tbody th.tarifas__fila.temp--media,
+.tarifas__tabla tbody th.tarifas__fila.temp--alta { box-shadow: inset 4px 0 0 rgba(var(--t), 0.6); padding-left: var(--sp-4); }
+.tarifas__principal { display: block; font-weight: 600; line-height: 1.35; }
+.tarifas__detalle { display: block; margin-top: 2px; font-size: var(--fs-small); font-weight: 400; color: var(--muted); line-height: 1.35; }
+.tarifas__temporada {
+  display: inline-block;
+  margin-right: 2px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--t), 0.4);
+  background: rgba(var(--t), 0.12);
+  color: rgb(var(--td));
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Un régimen = una tabla (cuando son muchos y no caben): título con su tono. */
+.tarifas__regimen { display: grid; gap: 0; }
+.tarifas__regimen + .tarifas__regimen { margin-top: var(--sp-2); }
+.tarifas__regimen-t {
+  margin: 0;
+  padding: 6px var(--sp-3);
+  border-radius: 8px 8px 0 0;
+  border-left: 4px solid rgba(var(--c), 0.7);
+  background: rgba(var(--c), 0.16);
+  color: var(--ink);
+  font-size: var(--fs-small);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.tarifas__regimen .table-wrap { border-top-left-radius: 0; border-top-right-radius: 0; }
+
+/* En la línea de arriba, el régimen y la unidad como etiquetas. */
+.tarifas__ficha {
+  display: inline-block;
+  padding: 1px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--c), 0.4);
+  background: rgba(var(--c), 0.12);
+  color: var(--ink);
+  font-weight: 700;
 }

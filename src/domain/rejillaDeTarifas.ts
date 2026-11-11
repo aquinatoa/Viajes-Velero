@@ -83,14 +83,59 @@ export function fechaCorta(iso: string | null | undefined): string | null {
   return `${Number(m[3])} ${MESES[Number(m[2]) - 1] ?? m[2]}`;
 }
 
+/** Del 1 de enero al 31 de diciembre del mismo año. */
+export function cubreTodoElAnio(t: Pick<TarifaDeCatalogo, "dateFrom" | "dateTo">): boolean {
+  const d = /^(\d{4})-01-01/.exec(t.dateFrom ?? "");
+  const h = /^(\d{4})-12-31/.exec(t.dateTo ?? "");
+  return Boolean(d && h && d[1] === h[1]);
+}
+
+/** «T. Baja · 15/03/2027–31/05/2027» → «T. Baja». Solo quita un rango de fechas numérico. */
+function quitarFechasRepetidas(temporada: string): string {
+  return temporada
+    .replace(/\s*[·,;(\-–]*\s*\d{1,2}\/\d{1,2}\/\d{4}\s*(?:[–\-→]|\ba\b|\bal\b)\s*\d{1,2}\/\d{1,2}\/\d{4}\s*\)?/g, "")
+    .replace(/\s*[·,;\-–]+\s*$/, "")
+    .trim();
+}
+
+/**
+ * La unidad del precio dicha en palabras. Los documentos la escriben de seis
+ * maneras (`pax/noche`, `PER_PAX_DAY`, `por pax y noche`, `PPPN`…) y en pantalla
+ * eran letra pequeña y distinta cada vez. Lo que no se reconoce sale tal cual.
+ */
+export function unidadEnPalabras(unidad: string | null | undefined): string {
+  const original = (unidad ?? "").trim();
+  if (!original) return "";
+  const matiz = /\(([^)]+)\)/.exec(original)?.[1]?.trim();
+  const nucleo = original.replace(/\([^)]*\)/g, "").toLowerCase();
+  const tiempo = /noche|night|pppn/.test(nucleo) ? "noche" : /d[ií]a|day/.test(nucleo) ? "día" : null;
+  const objeto = /pax|persona|pppn|per_pax/.test(nucleo)
+    ? "persona"
+    : /apart|bungal|alojamiento|unidad|habitaci/.test(nucleo)
+      ? "apartamento"
+      : null;
+  if (!tiempo || !objeto) return original;
+  return `por ${objeto} y ${tiempo}${matiz ? ` (${matiz})` : ""}`;
+}
+
 /** La etiqueta de un periodo: temporada si la hay, y las fechas cortas. */
 export function etiquetaDePeriodo(t: TarifaDeCatalogo): string {
   const desde = fechaCorta(t.dateFrom);
   const hasta = fechaCorta(t.dateTo);
   const fechas = desde && hasta ? `${desde} → ${hasta}` : desde ? `desde ${desde}` : hasta ? `hasta ${hasta}` : null;
   const temporada = (t.seasonName ?? "").trim();
+  // De 1 de enero a 31 de diciembre es «todo el año», y una temporada llamada
+  // «General» no añade nada: así el canal suizo y el general dicen lo mismo
+  // cuando no tienen temporadas (antes, «GENERAL · 1 ene → 31 dic» frente a
+  // «Todo el año» parecían periodos distintos).
+  if (cubreTodoElAnio(t) && (!temporada || /^(general|todo el a[nñ]o)$/i.test(temporada))) return "Todo el año";
   // La temporada que ya es un rango de fechas ISO no aporta nada sobre las fechas.
-  const temporadaUtil = temporada && !/^\d{4}-\d{2}-\d{2}/.test(temporada) ? temporada : null;
+  // Y si el nombre de la temporada ya lleva las fechas escritas a mano
+  // («T. Baja · 15/03/2027–31/05/2027») se quitan: salían dos veces en la misma fila.
+  const temporadaUtil =
+    temporada && !/^\d{4}-\d{2}-\d{2}/.test(temporada)
+      ? (fechas ? quitarFechasRepetidas(temporada) : temporada) || null
+      : null;
   if (temporadaUtil && fechas) return `${temporadaUtil} · ${fechas}`;
   if (temporadaUtil) return temporadaUtil;
   if (fechas) return fechas;
@@ -105,6 +150,16 @@ export function etiquetaDeRegimen(codigo: string | null | undefined): string {
 
 function texto(v: unknown): string {
   return String(v ?? "").trim();
+}
+
+/**
+ * «DOBLE» → «Doble». Los documentos de MSH traen la ocupación en mayúsculas y
+ * en la tabla gritaba. Solo se toca lo que viene entero en mayúsculas.
+ */
+function legible(valor: string): string {
+  return valor.length > 3 && valor === valor.toUpperCase() && valor !== valor.toLowerCase()
+    ? valor[0] + valor.slice(1).toLowerCase()
+    : valor;
 }
 
 function unicos(valores: string[]): string[] {
@@ -135,12 +190,21 @@ interface Clasificada {
   t: TarifaDeCatalogo;
 }
 
+export interface OpcionesDeRejilla {
+  /** El canal en palabras («Turoperador suizo»); sin esto sale el código tal cual. */
+  nombreDelCanal?: (codigo: string) => string;
+}
+
+function decirCanal(codigo: string, opciones?: OpcionesDeRejilla): string {
+  return opciones?.nombreDelCanal ? `para ${opciones.nombreDelCanal(codigo)}` : `canal ${codigo}`;
+}
+
 /** Rejilla de un alojamiento: periodos × (régimen × ocupación / servicio). */
-export function rejillaDeAlojamiento(tarifas: TarifaDeCatalogo[]): Rejilla | null {
+export function rejillaDeAlojamiento(tarifas: TarifaDeCatalogo[], opciones?: OpcionesDeRejilla): Rejilla | null {
   if (tarifas.length === 0) return null;
 
   const regimenes = unicos(tarifas.map((t) => texto(t.boardType)));
-  const ocupaciones = unicos(tarifas.map((t) => texto(t.occupancyLabel)));
+  const ocupaciones = unicos(tarifas.map((t) => legible(texto(t.occupancyLabel))));
   const servicios = unicos(tarifas.map((t) => texto(t.includedService)));
   const canales = unicos(tarifas.map((t) => texto(t.clientSegment)));
 
@@ -149,21 +213,38 @@ export function rejillaDeAlojamiento(tarifas: TarifaDeCatalogo[]): Rejilla | nul
   if (regimenes.length === 1 && regimenes[0]) comun.push(etiquetaDeRegimen(regimenes[0]));
   if (ocupaciones.length === 1 && ocupaciones[0]) comun.push(ocupaciones[0]);
   if (servicios.length === 1 && servicios[0]) comun.push(servicios[0]);
-  if (canales.length === 1 && canales[0] && canales[0] !== "GENERIC") comun.push(`canal ${canales[0]}`);
-  const unidades = unicos(tarifas.map((t) => texto(t.tariffUnit))).filter(Boolean);
-  if (unidades.length === 1) comun.push(unidades[0]);
+  if (canales.length === 1 && canales[0] && canales[0] !== "GENERIC") comun.push(decirCanal(canales[0], opciones));
+  // La unidad, en palabras y sin repetir: «pax/noche» y «PER_PAX_NIGHT» son lo mismo.
+  const unidades = unicos(tarifas.map((t) => unidadEnPalabras(t.tariffUnit))).filter(Boolean);
+  if (unidades.length === 1) comun.push(`Precio ${unidades[0]}`);
   const noches = unicos(tarifas.map((t) => texto(t.minNights))).filter(Boolean);
   if (noches.length === 1) comun.push(`mínimo ${noches[0]} noche${noches[0] === "1" ? "" : "s"}`);
+  // Las noches mínimas solo son una COLUMNA si una misma fila tiene tramos de
+  // estancia distintos (el 4R: 1-2, 3 o 4+ noches en el mismo periodo). Si cada
+  // fila ya trae una sola cifra —y suele llevarla escrita en su etiqueta,
+  // «Estancia de 2 o 3 noches»—, hacerla columna triplica las columnas y deja
+  // la tabla llena de guiones (Camping Platja Cambrils: 8 columnas en lugar de 4).
+  const nochesPorFila = new Map<string, Set<string>>();
+  for (const t of tarifas) {
+    const fila = etiquetaDePeriodo(t);
+    const conjunto = nochesPorFila.get(fila) ?? new Set<string>();
+    conjunto.add(texto(t.minNights));
+    nochesPorFila.set(fila, conjunto);
+  }
+  const nochesDistinguen = noches.length > 1 && [...nochesPorFila.values()].some((c) => c.size > 1);
 
   const clasificadas: Clasificada[] = tarifas.map((t) => {
     const partesColumna: string[] = [];
-    if (ocupaciones.length > 1) partesColumna.push(texto(t.occupancyLabel) || "sin ocupación");
+    if (ocupaciones.length > 1) partesColumna.push(legible(texto(t.occupancyLabel)) || "sin ocupación");
     if (servicios.length > 1) partesColumna.push(texto(t.includedService) || "sin servicio");
     if (canales.length > 1) partesColumna.push(texto(t.clientSegment) || "sin canal");
+    // Si el mismo alojamiento cobra por persona y por apartamento, la unidad
+    // distingue columnas: mezclarlas en una celda sería un error de lectura.
+    if (unidades.length > 1) partesColumna.push(unidadEnPalabras(t.tariffUnit) || "sin unidad");
     // Los tramos por duración de la estancia: el 4R cobra distinto con 1-2
     // noches, 3 o 4 y más. Sin esto los tres precios caían en la misma celda y
     // parecía un error (Ruth, 19/10/2026).
-    if (noches.length > 1) {
+    if (nochesDistinguen) {
       const n = Number(texto(t.minNights)) || 1;
       partesColumna.push(`desde ${n} noche${n === 1 ? "" : "s"}`);
     }
@@ -195,7 +276,7 @@ const PERIODO = /periodo|temporada|^t\.\s*(baja|media|alta)/i;
  * por « · »: «Júnior/Primaria · Entrada · Periodo A». Filas: el primer trozo.
  * Columnas: el trozo de periodo. Grupo: lo que quede en medio.
  */
-export function rejillaDeActividad(tarifas: TarifaDeCatalogo[]): Rejilla | null {
+export function rejillaDeActividad(tarifas: TarifaDeCatalogo[], opciones?: OpcionesDeRejilla): Rejilla | null {
   if (tarifas.length === 0) return null;
 
   const clasificadas: Clasificada[] = tarifas.map((t) => {
@@ -219,9 +300,23 @@ export function rejillaDeActividad(tarifas: TarifaDeCatalogo[]): Rejilla | null 
   const duraciones = unicos(tarifas.map((t) => texto(t.durationText))).filter(Boolean);
   if (duraciones.length === 1) comun.push(duraciones[0]);
   const canales = unicos(tarifas.map((t) => texto(t.clientSegment))).filter(Boolean);
-  if (canales.length === 1 && canales[0] !== "GENERIC") comun.push(`canal ${canales[0]}`);
+  if (canales.length === 1 && canales[0] !== "GENERIC") comun.push(decirCanal(canales[0], opciones));
 
   return construir("Tramo", clasificadas, { comun });
+}
+
+const RANGO_DE_OCUPACION: Array<[RegExp, number]> = [
+  [/^m[uú]ltiple/i, 0],
+  [/^doble/i, 1],
+  [/^triple/i, 2],
+  [/^cu[aá]druple/i, 3],
+  [/^individual/i, 9],
+];
+
+/** Posición de una columna según su ocupación (el primer trozo antes de « · »). */
+function rangoDeColumna(columna: string): number {
+  const primero = columna.split("·")[0].trim();
+  return RANGO_DE_OCUPACION.find(([patron]) => patron.test(primero))?.[1] ?? 5;
 }
 
 function construir(
@@ -238,9 +333,17 @@ function construir(
 
   let nombresDeGrupo = unicos(clasificadas.map((c) => c.grupo));
   if (opciones.ordenarGrupos) nombresDeGrupo = opciones.ordenarGrupos(nombresDeGrupo);
+  // Un único orden de columnas para TODOS los grupos: si en media pensión van
+  // «Doble, Múltiple, Individual» y en pensión completa «Múltiple, Doble,
+  // Individual» (cada grupo seguía el orden de sus propios datos), comparar un
+  // régimen con otro era buscar. La ocupación va de menos a más gente; lo que no
+  // es una ocupación conocida conserva el orden en que llegó.
+  const ordenDeColumnas = unicos(clasificadas.map((c) => c.columna)).sort(
+    (a, b) => rangoDeColumna(a) - rangoDeColumna(b),
+  );
   const grupos: GrupoDeColumnas[] = nombresDeGrupo.map((nombre) => ({
     nombre,
-    columnas: unicos(clasificadas.filter((c) => c.grupo === nombre).map((c) => c.columna)),
+    columnas: ordenDeColumnas.filter((col) => clasificadas.some((c) => c.grupo === nombre && c.columna === col)),
   }));
 
   const celdas = new Map<string, Celda>();
