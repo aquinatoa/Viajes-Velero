@@ -1018,3 +1018,49 @@ model CorreoAdjunto {
 
   @@index([mensajeId])
 }
+
+/// El registro propio de la app para una oportunidad (un trato de Zoho).
+///
+/// Las oportunidades que nacen en la app ya tienen su solicitud y sus propuestas,
+/// y ahí viven la opción aceptada y el reloj del depósito. Las que nacieron
+/// directamente en Zoho no tenían dónde guardarlo: este registro es ese sitio.
+/// Se crea al «adoptarlas» (abrirlas por primera vez para gestionarlas), nunca en
+/// bloque.
+model Oportunidad {
+  id                 String    @id @default(cuid())
+  crmDealId          String    @unique
+  /// APP | ZOHO: dónde nació.
+  origen             String
+  adoptadaAt         DateTime  @default(now())
+  adoptadaPor        String?
+  chosenOptionNumber Int?
+  chosenAt           DateTime?
+  depositDueAt       DateTime?
+  depositPaidAt      DateTime?
+  updatedAt          DateTime  @updatedAt
+}
+
+/// Constancia de cada cambio de fase de una oportunidad.
+///
+/// La oportunidad es una gestión viva: la mueve el cliente a su ritmo (abre el
+/// enlace, elige opción) y la movemos nosotros, adelante o atrás. Cada cambio
+/// deja aquí quién, cuándo, de qué fase a cuál y por qué. Va por `crmDealId`
+/// porque la fase vive en Zoho, y no lleva clave ajena para que se pueda anotar
+/// también en oportunidades que la app todavía no ha adoptado.
+model CambioDeFase {
+  id         String   @id @default(cuid())
+  crmDealId  String
+  desde      String?
+  hasta      String
+  /// Obligatorio al retroceder, dar por perdida o pasar a lista de espera (lo exige quien llama).
+  motivo     String?
+  /// MANUAL: una persona. AUTOMATICO: un hecho (enviada, vista, aceptada…).
+  origen     String
+  /// Para los automáticos: el hito que lo provocó.
+  hito       String?
+  porUserId  String?
+  porNombre  String?
+  createdAt  DateTime @default(now())
+
+  @@index([crmDealId, createdAt])
+}

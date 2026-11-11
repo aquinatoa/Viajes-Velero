@@ -2545,7 +2545,7 @@ export function RequestCanvas({
       <div className="cv__main">
       <header className="cv__top">
         <div>
-          <p className="cv__crumb">Propuestas · nueva solicitud</p>
+          <p className="cv__crumb">Oportunidades · nueva solicitud</p>
           <h1 className="cv__title">{titulo}</h1>
         </div>
         <div className="cv__actions">

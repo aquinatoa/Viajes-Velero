@@ -129,6 +129,8 @@ import {
   writeAudit,
 } from "./auth";
 import { rangoValido } from "../src/domain/rangoDeViajes";
+import { adoptarOportunidad, listarOportunidades } from "./oportunidades";
+import { historialDeFase } from "./cambiosDeFase";
 import { tratosVisiblesPara } from "./tratosPorDepartamento";
 import { extractDocumentText, isNativelyReadable } from "./documentTextExtraction";
 import { analyzeDocumentText, AiAnalysisError } from "./aiDocumentAnalysis";
@@ -529,6 +531,50 @@ app.get("/api/crm/opportunities", async (request, response) => {
     response.json({ deals });
   } catch (error) {
     crmErrorResponse(error, response, "No se pudieron listar los tratos de Zoho.");
+  }
+});
+
+// ── Oportunidades: propuestas de la app y tratos de Zoho en una sola lista ───
+// Sustituye a la pareja /api/deliveries + /api/crm/opportunities en la pantalla
+// de Oportunidades. Las dos rutas antiguas siguen vivas hasta retirar las
+// pantallas viejas. La regla de la unión vive en src/domain/oportunidadUnificada.ts.
+app.get("/api/oportunidades", requireAuth, async (request, response) => {
+  try {
+    const user = (request as AuthedRequest).user;
+    const rango = { desde: String(request.query.desde ?? ""), hasta: String(request.query.hasta ?? "") };
+    response.json(await listarOportunidades(user, rangoValido(rango) ? rango : null));
+  } catch (error) {
+    console.error("Error listando oportunidades", error);
+    response.status(500).json({ error: "No se pudieron cargar las oportunidades." });
+  }
+});
+
+// La app «adopta» una oportunidad para poder gestionarla (idempotente, de una en una).
+app.post("/api/oportunidades/:dealId/adoptar", requireAuth, async (request, response) => {
+  try {
+    const user = (request as AuthedRequest).user;
+    const resultado = await adoptarOportunidad(String(request.params.dealId), user);
+    if (!resultado) {
+      response.status(404).json({ error: "Esa oportunidad no existe o no es de tu departamento." });
+      return;
+    }
+    if (!resultado.yaEstaba) {
+      await writeAudit({ user, action: "OPORTUNIDAD_ADOPTADA", entity: "crm", detail: resultado.crmDealId });
+    }
+    response.json(resultado);
+  } catch (error) {
+    console.error("Error adoptando la oportunidad", error);
+    response.status(500).json({ error: "No se pudo abrir la oportunidad para gestionarla." });
+  }
+});
+
+// El historial de cambios de fase de una oportunidad.
+app.get("/api/oportunidades/:dealId/cambios", requireAuth, async (request, response) => {
+  try {
+    response.json({ cambios: await historialDeFase(String(request.params.dealId)) });
+  } catch (error) {
+    console.error("Error leyendo el historial de fase", error);
+    response.status(500).json({ error: "No se pudo leer el historial." });
   }
 });
 

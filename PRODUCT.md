@@ -34,12 +34,16 @@ no personales. Fue obligado — Zoho solo vincula a la oportunidad los correos q
 pasan por la cuenta que tiene sincronizada. Por eso "cada uno ve lo suyo" se
 resuelve con departamento y gestor, nunca con la cuenta.
 
-## Las cuatro pantallas
+## Las tres pantallas
 
-1. **Propuestas** (inicio) · qué he mandado y qué está esperando.
+1. **Oportunidades** (inicio) · cada viaje presentado, de la solicitud al cobro: qué
+   he mandado, qué espera y en qué fase está. Lista y calendario. Es la misma
+   operativa que el CRM, con nuestras reglas y nuestro diseño.
 2. **Nueva solicitud** (el lienzo) · del mensaje del cliente a la propuesta enviada.
-3. **Viajes** · el estado de cada expediente, con su calendario.
-4. **Tarifas** · con qué precios puedo cotizar.
+3. **Tarifas** · con qué precios puedo cotizar.
+
+(Hasta el 05/11/2026 eran «Propuestas» y «Viajes», dos pantallas sobre lo mismo
+y con datos distintos. Se unifican en Oportunidades.)
 
 Más **Ajustes**, en el menú de usuario.
 
@@ -50,13 +54,19 @@ Fijado. No se usan sinónimos según la pantalla.
 | Palabra | Significa |
 |---|---|
 | Solicitud | Lo que pide el cliente, tal como llega |
-| Propuesta | Las opciones que le mandamos, con su referencia (ORV-2026-0184) |
-| Viaje | El expediente una vez aceptado |
+| Oportunidad | El viaje que se ha presentado, desde que se pide hasta que se cobra. Es la misma que la del CRM y se gestiona igual: fase, notas, opción aceptada, depósito |
+| Propuesta | Las opciones que le mandamos, con su referencia (ORV-2026-0184). Vive dentro de una oportunidad y puede tener varias versiones |
+| Fase | El punto del embudo en que está la oportunidad. La mueven los hechos (enviada, vista, aceptada) y también una persona, adelante o atrás; todo cambio deja constancia |
 | Tarifas | Los precios de hoteles y actividades |
 | Opción | Un hotel más su programa de actividades |
 
-Prohibido en la interfaz: *normalizar*, *oportunidad*, *registro*, *inventario
-documental*. Son palabras nuestras, no suyas.
+Una oportunidad puede haber nacido en la app o directamente en Zoho. Se muestran
+juntas y se gestionan desde la app; la ficha dice cuál es su origen y no deja
+huecos mudos donde falte información.
+
+Prohibido en la interfaz: *normalizar*, *registro*, *inventario documental*.
+Son palabras nuestras, no suyas. («Viaje» ya no es una sección: queda para los
+datos del viaje dentro de la oportunidad.)
 
 ## Reglas de producto que el diseño debe respetar
 
@@ -69,7 +79,11 @@ documental*. Son palabras nuestras, no suyas.
 - **Nada de datos de alumnos fuera de la app.** Ni en la página pública ni en el
   documento.
 - **La app escribe, Zoho archiva.** Un solo sentido, para que no haya dos
-  verdades.
+  verdades. Una acción, una vía: la opción aceptada, por ejemplo, se apunta de
+  una sola manera, que arranca el plazo del depósito y avisa al CRM.
+- **La oportunidad es una gestión viva.** El cliente la mueve a su ritmo y
+  nosotros también, adelante y atrás. Todo cambio de fase queda con quién, cuándo,
+  de qué a qué y por qué.
 
 ## Estado
 

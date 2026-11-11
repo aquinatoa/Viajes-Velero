@@ -49,12 +49,12 @@ type View = "list" | "calendar";
 /** Lo que se está mirando: un departamento, o los dos. */
 type FiltroDepartamento = BackendDepartment | "TODOS";
 
-function euro(n: number | null): string {
+export function euro(n: number | null): string {
   if (n === null || Number.isNaN(n)) return "—";
   return `${Math.round(n).toLocaleString("es-ES")} €`;
 }
 
-function norm(s: string): string {
+export function norm(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
@@ -73,7 +73,7 @@ function sinEntidades(texto: string): string {
 }
 
 /** Extrae datos legibles + fechas reales de la Descripción del flujo "Planificar". */
-function parseTrip(descripcionDeZoho: string) {
+export function parseTrip(descripcionDeZoho: string) {
   const description = sinEntidades(descripcionDeZoho);
   const get = (label: string) => {
     const m = description.match(new RegExp(`^${label}:\\s*(.+)$`, "im"));
@@ -106,7 +106,7 @@ function parseTrip(descripcionDeZoho: string) {
 }
 
 /** Tono de badge por fase (incluye fases reales del pipeline del backend). */
-function stageTone(stage: string): "info" | "warn" | "ok" | "lost" | "muted" {
+export function stageTone(stage: string): "info" | "warn" | "ok" | "lost" | "muted" {
   const s = norm(stage);
   if (!s) return "muted";
   if (/(ganad|finaliz|aprobad)/.test(s)) return "ok";
@@ -490,7 +490,7 @@ export function ConfirmRequestsPanel({
   );
 }
 
-function Kpi({
+export function Kpi({
   n,
   label,
   dot,
@@ -518,7 +518,7 @@ function Kpi({
 // Detalle del trato (columna central)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function DealDetail({ deal }: { deal: ZohoDealSummary }) {
+export function DealDetail({ deal }: { deal: ZohoDealSummary }) {
   const trip = useMemo(() => parseTrip(deal.opcionesTexto || deal.description), [deal.opcionesTexto, deal.description]);
   const [tab, setTab] = useState<"resumen" | "propuesta" | "historial">("resumen");
   const tone = stageTone(deal.stage);
@@ -648,7 +648,7 @@ function DealDetail({ deal }: { deal: ZohoDealSummary }) {
 // Panel de acción (columna derecha)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ActionRail({
+export function ActionRail({
   deal,
   stages,
   onSaved,
@@ -776,7 +776,7 @@ function ActionRail({
 // Calendario (dos lecturas: Viaje / Gestión)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ConfirmCalendar({
+export function ConfirmCalendar({
   deals,
   loading,
   onSelect,

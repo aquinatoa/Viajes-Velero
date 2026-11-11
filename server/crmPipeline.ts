@@ -25,6 +25,7 @@
  *      del CRM no puede impedir que salga un presupuesto.
  */
 import { getZohoDealStage, updateZohoDeal } from "./zoho";
+import { registrarCambioDeFase } from "./cambiosDeFase";
 
 /** Lo que ocurre en la app y que el CRM debería reflejar. */
 export type Hito =
@@ -171,6 +172,16 @@ export async function marcarHito(
     });
 
     console.info(`[crm] ${dealId}: «${decision.desde || "sin fase"}» → «${destino}» (${hito}).`);
+    // Constancia: lo que mueven los hechos también queda en el historial, para
+    // distinguirlo de lo que mueve una persona. No lanza.
+    await registrarCambioDeFase({
+      crmDealId: dealId,
+      desde: decision.desde || null,
+      hasta: destino,
+      motivo: nota ?? null,
+      origen: "AUTOMATICO",
+      hito,
+    });
     return { movido: true, desde: decision.desde, hasta: destino, motivo: decision.motivo };
   } catch (error) {
     const mensaje = error instanceof Error ? error.message : String(error);

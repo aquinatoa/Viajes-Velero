@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { fichaDelPresupuestoApi, type FichaPresupuesto } from "../../services/apiClient";
 import { CorreoPanel } from "./CorreoPanel";
+import { BorrarSolicitudPanel } from "./BorrarSolicitudPanel";
 import type { ProposalDelivery } from "../../services/apiClient";
 
 /**
@@ -23,7 +24,18 @@ import type { ProposalDelivery } from "../../services/apiClient";
 
 export interface FichaPropuestaProps {
   delivery: ProposalDelivery;
-  onClose: () => void;
+  /** Salir de la ficha. Sin él, la ficha no enseña el «Volver». */
+  onClose?: () => void;
+  /**
+   * La ficha vive dentro de otra pantalla (Oportunidades) en vez de ocupar la
+   * suya: no hay a dónde «volver», y quien la contiene tiene que enterarse de
+   * lo que cambia para refrescar su lista.
+   */
+  incrustada?: boolean;
+  /** Algo cambió (opción aceptada, envío, nombre, cotización). */
+  onCambio?: () => void;
+  /** Se borró la solicitud entera: la ficha ya no tiene de qué hablar. */
+  onBorrada?: (resumen: string) => void;
 }
 
 function fecha(iso: string | null): string {
@@ -47,11 +59,13 @@ function diasHasta(iso: string | null): number | null {
   return Math.ceil((t - Date.now()) / 86_400_000);
 }
 
-export function FichaPropuesta({ delivery, onClose }: FichaPropuestaProps) {
+export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio, onBorrada }: FichaPropuestaProps) {
   const [ficha, setFicha] = useState<FichaPresupuesto | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
   const [correo, setCorreo] = useState(false);
+  /** Está abierto el panel de borrar la solicitud. */
+  const [borrando, setBorrando] = useState(false);
   /** Se está apuntando una opción: evita el doble clic. */
   const [marcando, setMarcando] = useState(false);
   /** Está abierto el panel de recotizar. */
@@ -123,9 +137,13 @@ export function FichaPropuesta({ delivery, onClose }: FichaPropuestaProps) {
     try {
       setFicha(await fichaDelPresupuestoApi(delivery.id));
       setError("");
+      // Esto solo se llama tras una acción (apuntar opción, enviar, renombrar…):
+      // quien contiene la ficha refresca su lista.
+      onCambio?.();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "No se pudo cargar el presupuesto.");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [delivery.id]);
 
   useEffect(() => {
@@ -159,9 +177,11 @@ export function FichaPropuesta({ delivery, onClose }: FichaPropuestaProps) {
         <div className="alert alert--error" role="alert">
           {error || "No se pudo cargar el presupuesto."}
         </div>
-        <button type="button" className="cv__ghost" onClick={onClose}>
-          Volver
-        </button>
+        {onClose && !incrustada ? (
+          <button type="button" className="cv__ghost" onClick={onClose}>
+            Volver
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -190,9 +210,11 @@ export function FichaPropuesta({ delivery, onClose }: FichaPropuestaProps) {
     <div className="ficha">
       <header className="ficha__top">
         <div>
-          <button type="button" className="ficha__volver" onClick={onClose}>
-            ← Volver a las propuestas
-          </button>
+          {!incrustada && onClose ? (
+            <button type="button" className="ficha__volver" onClick={onClose}>
+              ← Volver a las oportunidades
+            </button>
+          ) : null}
           {renombrando === null ? (
             <h1 className="ficha__t">
               {ficha.viaje.nombre}
@@ -275,6 +297,15 @@ export function FichaPropuesta({ delivery, onClose }: FichaPropuestaProps) {
               Abrir en el CRM
             </a>
           ) : null}
+          {/* Borrar la solicitud, con lo que arrastra. Estaba solo en la lista de propuestas. */}
+          <button
+            type="button"
+            className="cv__ghost cv__ghost--sm ficha__borrar"
+            title="Borrar la solicitud, sus propuestas y su oportunidad del CRM"
+            onClick={() => setBorrando(true)}
+          >
+            Borrar
+          </button>
         </div>
       </header>
 
@@ -550,6 +581,18 @@ export function FichaPropuesta({ delivery, onClose }: FichaPropuestaProps) {
           delivery={delivery}
           titulo={ficha.viaje.nombre}
           onClose={() => setCorreo(false)}
+        />
+      ) : null}
+
+      {borrando ? (
+        <BorrarSolicitudPanel
+          delivery={delivery}
+          titulo={ficha.viaje.nombre}
+          onClose={() => setBorrando(false)}
+          onBorrada={(resumen) => {
+            setBorrando(false);
+            onBorrada?.(resumen);
+          }}
         />
       ) : null}
     </div>

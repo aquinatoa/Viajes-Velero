@@ -8,31 +8,12 @@ import { LoginPage } from "./components/LoginPage";
 import { UsersPanel } from "./components/admin/UsersPanel";
 import { AuditPanel } from "./components/admin/AuditPanel";
 import { MiCuentaPanel } from "./components/admin/MiCuentaPanel";
-import { ConfirmRequestsPanel } from "./components/confirm/ConfirmRequestsPanel";
-import { ProposalDesk } from "./components/home/ProposalDesk";
+import { OportunidadesPanel } from "./components/oportunidades/OportunidadesPanel";
 import { RequestCanvas } from "./components/request/RequestCanvas";
 import { PublicProposalPage } from "./components/public/PublicProposalPage";
 import { SectionCard } from "./components/SectionCard";
-import type { CurrentUser } from "./domain/types";
 import { exchangeZohoAuthCodeApi } from "./services/apiClient";
 import { type AuthUser, getAuthToken, logoutApi, meApi } from "./services/apiClient";
-
-/**
- * Puente al usuario de la pantalla inicial. Hoy se construye desde el usuario
- * autenticado del backend; el día que la app viva dentro de Zoho CRM, este es el
- * ÚNICO punto a cambiar (rellenar desde el SDK de Zoho). El rol del backend
- * (ADMIN/USER) se mapea al modelo de la portada (admin/operativo).
- */
-function toCurrentUser(user: AuthUser): CurrentUser {
-  // ADMIN y DEPT_ADMIN son perfiles administrativos; QUOTER/USER son operativos.
-  const isAdmin = user.role === "ADMIN" || user.role === "DEPT_ADMIN";
-  return {
-    id: user.id,
-    name: user.name ?? user.email,
-    email: user.email,
-    role: isAdmin ? "admin" : "operativo",
-  };
-}
 
 export function App() {
   // Se decide UNA vez, al cargar. Antes se recalculaba en cada render: al
@@ -275,9 +256,8 @@ export function App() {
   // Pantalla inicial (portada del widget): a pantalla completa, SIN sidebar ni
   // topbar, como el login y el callback de Zoho. Las cards entran al shell normal.
   const pageLabels: Record<Page, string> = {
-    home: "Propuestas",
+    home: "Oportunidades",
     canvas: "Nueva solicitud",
-    trips: "Viajes",
     rates: "Tarifas",
     users: "Usuarios",
     audit: "Actividad",
@@ -302,9 +282,10 @@ export function App() {
       />
       <main className="main-content">
         {currentPage === "home" ? (
-          <ProposalDesk
-            currentUser={toCurrentUser(currentUser)}
+          <OportunidadesPanel
+            view={currentPath.startsWith("/oportunidades/calendario") ? "calendar" : "list"}
             onNavigate={navigatePath}
+            usuario={currentUser}
           />
         ) : null}
 
@@ -319,14 +300,6 @@ export function App() {
               </p>
             </div>
           </header>
-        ) : null}
-
-        {currentPage === "trips" ? (
-          <ConfirmRequestsPanel
-            view={currentPath.startsWith("/viajes/calendario") ? "calendar" : "list"}
-            onNavigate={navigatePath}
-            usuario={currentUser}
-          />
         ) : null}
 
         {currentPage === "rates" ? (

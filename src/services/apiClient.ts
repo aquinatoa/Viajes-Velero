@@ -342,6 +342,21 @@ export function listZohoOpportunitiesApi(rango?: { desde: string; hasta: string 
   );
 }
 
+/**
+ * Las oportunidades: propuestas de la app y tratos de Zoho, ya unidos por el servidor.
+ * Es la única lista de la pantalla de Oportunidades.
+ */
+export function listarOportunidadesApi(rango?: { desde: string; hasta: string }) {
+  const consulta = rango
+    ? `?desde=${encodeURIComponent(rango.desde)}&hasta=${encodeURIComponent(rango.hasta)}`
+    : "";
+  return getJson<{
+    oportunidades: import("../domain/oportunidadUnificada").OportunidadFila[];
+    carriles: Record<import("../domain/oportunidadUnificada").Carril, number>;
+    zohoDisponible: boolean;
+  }>(`/api/oportunidades${consulta}`, "No se pudieron cargar las oportunidades.");
+}
+
 export function fetchZohoDealStagesApi() {
   return getJson<{ stages: string[] }>(
     "/api/crm/deal-stages",

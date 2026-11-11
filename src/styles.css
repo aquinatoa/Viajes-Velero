@@ -13979,3 +13979,107 @@ button.hilo__adjunto:hover {
   color: var(--ink);
   font-weight: 700;
 }
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Oportunidades (05/11/2026): Propuestas y Viajes en una sola pantalla.
+   Reutiliza el esqueleto de Viajes (.cw*) y la ficha; solo añade lo propio.
+   ══════════════════════════════════════════════════════════════════════════ */
+.op__grid {
+  display: grid;
+  grid-template-columns: 380px minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+  height: calc(100vh - 215px);
+  min-height: 560px;
+}
+
+.op__detalle {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border, #e2e8ec);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(15, 31, 42, 0.05), 0 8px 24px rgba(15, 31, 42, 0.05);
+}
+.op__detalle .cw-detail--empty { border: 0; box-shadow: none; min-height: 320px; }
+
+/* La ficha, dentro del panel en vez de ocupando la pantalla. */
+.op__ficha .ficha { max-width: none; padding: 18px 22px 32px; }
+
+.op__crm { padding: 16px 20px 24px; display: flex; flex-direction: column; gap: 14px; }
+.op__crm-cols { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+.op__crm-rail { display: flex; flex-direction: column; gap: 14px; }
+.op__crm .cw-detail { box-shadow: none; }
+@media (max-width: 1280px) {
+  .op__crm-cols { grid-template-columns: minmax(0, 1fr); }
+}
+
+.op__nota { font-size: 13px; color: var(--muted); margin: 0; }
+
+.op__aviso {
+  margin: 14px 20px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #8a5a12;
+  background: var(--warn-bg, #fdf3e2);
+  border: 1px solid #ecd6a8;
+}
+.op__crm .op__aviso { margin: 0; }
+
+/* Los estados, como filtros que se ven. */
+.op__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.op__chip {
+  border: 1px solid var(--border, #e2e8ec);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  background: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.op__chip b { font-weight: 700; color: var(--muted); }
+.op__chip:hover { border-color: #cdd9df; }
+.op__chip.is { border-color: var(--accent); background: var(--accent-050); color: var(--accent-700); }
+.op__chip.is b { color: var(--accent-700); }
+.op__chip--zoho { border-style: dashed; }
+
+.op__badge {
+  margin-left: 6px;
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  display: inline-block;
+  text-align: center;
+}
+
+/* Cada fila de la lista. */
+.op-fila--ya { border-left: 3px solid var(--danger, #b4452f); }
+.op-fila__pie { display: flex; align-items: center; gap: 8px; }
+.op-fila__why { flex: 1; min-width: 0; font-size: 12px; color: var(--ink-600, #4b5563); line-height: 1.3; }
+.op-fila__ref { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; color: var(--muted); }
+.op-fila .ring { flex: 0 0 auto; width: 34px; height: 34px; }
+.op-fila__aviso {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #8a5a12;
+  background: var(--warn-bg, #fdf3e2);
+  padding: 3px 8px;
+  border-radius: 8px;
+  align-self: flex-start;
+}
+
+.ficha__borrar { color: var(--danger, #b4452f); }

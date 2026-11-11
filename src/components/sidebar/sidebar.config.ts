@@ -76,25 +76,19 @@ export const sidebarSections: SidebarSection[] = [
     accent: "neutral",
     items: [
       {
-        id: "propuestas",
-        label: "Propuestas",
-        description: "Qué has mandado y qué espera",
-        icon: "home",
-        route: "/propuestas",
-        permissions: COMMERCIAL,
-        status: "active",
-      },
-      {
-        id: "viajes",
-        label: "Viajes",
-        description: "En qué punto está cada expediente",
+        // Propuestas y Viajes eran dos pantallas sobre lo mismo; desde el
+        // 05/11/2026 es una: cada viaje presentado, de la solicitud al cobro.
+        id: "oportunidades",
+        label: "Oportunidades",
+        description: "Cada viaje presentado, hasta el cobro",
         icon: "clipboard-check",
-        route: "/viajes",
+        route: "/oportunidades",
         permissions: COMMERCIAL,
         status: "active",
+        defaultOpen: true,
         children: [
-          { id: "viajes-lista", label: "Todos los viajes", route: "/viajes", permissions: COMMERCIAL },
-          { id: "viajes-calendario", label: "Calendario", route: "/viajes/calendario", permissions: COMMERCIAL },
+          { id: "oportunidades-lista", label: "Lista", route: "/oportunidades", permissions: COMMERCIAL },
+          { id: "oportunidades-calendario", label: "Calendario", route: "/oportunidades/calendario", permissions: COMMERCIAL },
         ],
       },
     ],

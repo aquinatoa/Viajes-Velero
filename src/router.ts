@@ -6,13 +6,13 @@
  * actual de la ruta.
  *
  * Los nombres siguen el idioma fijado en PRODUCT.md: solicitud, propuesta,
- * viaje, tarifas. Las rutas antiguas se mantienen redirigiendo, porque alguien
+ * oportunidad, tarifas. Desde el 05/11/2026 «Propuestas» y «Viajes» son una sola
+ * pantalla, Oportunidades. Las rutas antiguas se mantienen redirigiendo, porque alguien
  * las tendrá en favoritos.
  */
 export type Page =
   | "home"
   | "canvas"
-  | "trips"
   | "rates"
   | "users"
   | "audit"
@@ -20,10 +20,8 @@ export type Page =
 
 /** Prefijo de ruta → página interna. El primero que coincide gana. */
 const ROUTE_PREFIXES: { prefix: string; page: Page }[] = [
-  { prefix: "/propuestas", page: "home" },
-  { prefix: "/inicio", page: "home" },
+  { prefix: "/oportunidades", page: "home" },
   { prefix: "/solicitudes/nueva", page: "canvas" },
-  { prefix: "/viajes", page: "trips" },
   { prefix: "/tarifas", page: "rates" },
   { prefix: "/ajustes/usuarios", page: "users" },
   { prefix: "/ajustes/mi-cuenta", page: "profile" },
@@ -35,8 +33,13 @@ const ROUTE_PREFIXES: { prefix: string; page: Page }[] = [
  * guardados; el router redirige y la URL queda limpia.
  */
 const ROUTE_ALIASES: { prefix: string; target: string }[] = [
-  { prefix: "/confirmar/calendario", target: "/viajes/calendario" },
-  { prefix: "/confirmar", target: "/viajes" },
+  // Propuestas y Viajes se unieron en Oportunidades (05/11/2026).
+  { prefix: "/viajes/calendario", target: "/oportunidades/calendario" },
+  { prefix: "/viajes", target: "/oportunidades" },
+  { prefix: "/propuestas", target: "/oportunidades" },
+  { prefix: "/inicio", target: "/oportunidades" },
+  { prefix: "/confirmar/calendario", target: "/oportunidades/calendario" },
+  { prefix: "/confirmar", target: "/oportunidades" },
   { prefix: "/inventario/documentos-ia", target: "/tarifas/documentos" },
   { prefix: "/inventario", target: "/tarifas" },
   { prefix: "/admin/usuarios", target: "/ajustes/usuarios" },
@@ -44,14 +47,13 @@ const ROUTE_ALIASES: { prefix: string; target: string }[] = [
   { prefix: "/auditoria/acciones", target: "/ajustes/actividad" },
   { prefix: "/auditoria", target: "/ajustes/actividad" },
   { prefix: "/nuevo-registro", target: "/solicitudes/nueva" },
-  { prefix: "/existente", target: "/viajes" },
+  { prefix: "/existente", target: "/oportunidades" },
 ];
 
 /** Ruta canónica de cada página. */
 const PAGE_ROUTE: Record<Page, string> = {
-  home: "/propuestas",
+  home: "/oportunidades",
   canvas: "/solicitudes/nueva",
-  trips: "/viajes",
   rates: "/tarifas/documentos",
   users: "/ajustes/usuarios",
   audit: "/ajustes/actividad",

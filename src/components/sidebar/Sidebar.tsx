@@ -71,9 +71,9 @@ export function Sidebar({ user, currentPath, onNavigate, onLogout, ui }: Sidebar
           <button
             type="button"
             className="sb-brand__logo"
-            onClick={() => navigate("/propuestas")}
-            aria-label="Ir a Propuestas"
-            title="Propuestas"
+            onClick={() => navigate("/oportunidades")}
+            aria-label="Ir a Oportunidades"
+            title="Oportunidades"
           >
             <img src={isotipoBlanco} alt="" width={26} height={26} />
           </button>
