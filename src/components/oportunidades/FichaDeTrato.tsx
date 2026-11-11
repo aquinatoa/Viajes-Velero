@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { cambiosDeFaseApi, type CambioDeFaseLeido } from "../../services/apiClient";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { cambiosDeFaseApi, fichaDelCrmApi, type CambioDeFaseLeido, type CampoDelCrm } from "../../services/apiClient";
 import type { OportunidadFila } from "../../domain/oportunidadUnificada";
+import type { FichaDelCrm } from "../../domain/fichaDelCrm";
 import {
   diasHasta,
   estadoDe,
@@ -11,14 +12,19 @@ import {
   rangoLlegada,
   siguientePaso,
 } from "../../domain/oportunidadesVista";
+import { estiloDeFase, type ColoresDeFase } from "../../domain/colorDeFase";
 import { parseTrip } from "../confirm/ConfirmRequestsPanel";
 import { AvanceDeFase, pasosDeLaFase } from "./AvanceDeFase";
+import { CamposDelCrm, HitosDelCrm, PresupuestosDelCrm, TarjetaDelAceptado } from "./InfoDelCrm";
 import { MenuMas } from "./MenuMas";
 import { MoverDeFase } from "./MoverDeFase";
 import { comoTratoDeZoho } from "./tratoDeZoho";
 import { textoDelCierre } from "./textos";
 
 const DEPARTAMENTOS: Record<string, string> = { GROUPS: "Groups", SPORTS: "Sports", OTRO: "Otro" };
+
+/** Los datos del viaje que interesan en el resumen, de entre los campos del CRM. */
+const CAMPOS_DEL_RESUMEN = ["Nº de personas", "Profesores", "Edad de los participantes", "Idioma", "Contacto del grupo", "Propietario"];
 
 function Dato({ rotulo, valor, extra }: { rotulo: string; valor: string; extra?: ReactNode }) {
   return (
@@ -35,28 +41,37 @@ function Dato({ rotulo, valor, extra }: { rotulo: string; valor: string; extra?:
  * de la app): lo siguiente que hay que hacer, por dónde va, lo que se sabe y,
  * a un lado, el panel para moverla de fase con constancia.
  *
- * Sustituye al detalle de Viajes (título repetido tres veces, recuadros vacíos con
- * «—», fechas en formato ISO y un «Confirmar el viaje» que en realidad movía la
- * fase).
+ * Tres pestañas que ya no se repiten (Anthony, 11/11/2026: «Resumen e Historial
+ * tienen la misma información»):
+ *  - Resumen: cómo es la oportunidad hoy (datos, presupuesto aceptado, lo que hay
+ *    en el CRM).
+ *  - Presupuestos: las opciones que se enviaron, línea a línea, y cuál se aceptó.
+ *  - Historial: qué ha pasado (cambios de fase hechos desde la app y las fechas del trato).
  */
 export function FichaDeTrato({
   fila,
   stages,
+  colores,
   onCambio,
   onError,
 }: {
   fila: OportunidadFila;
   stages: string[];
+  /** Los colores de las fases, tal y como están en el CRM. */
+  colores: ColoresDeFase;
   onCambio: (mensaje: string) => void;
   onError: (mensaje: string) => void;
 }) {
   const hoy = useMemo(() => new Date(), [fila.clave]);
   const trato = useMemo(() => comoTratoDeZoho(fila), [fila]);
   const trip = useMemo(() => parseTrip(trato.opcionesTexto || trato.description), [trato.opcionesTexto, trato.description]);
-  const [pestana, setPestana] = useState<"resumen" | "propuesta" | "historial">("resumen");
+  const [pestana, setPestana] = useState<"resumen" | "presupuestos" | "historial">("resumen");
   const [cambios, setCambios] = useState<CambioDeFaseLeido[] | null>(null);
   const [errorHistorial, setErrorHistorial] = useState("");
   const [copiado, setCopiado] = useState(false);
+  const [crm, setCrm] = useState<{ campos: CampoDelCrm[]; ficha: FichaDelCrm } | null>(null);
+  const [leyendoElCrm, setLeyendoElCrm] = useState(false);
+  const [errorDelCrm, setErrorDelCrm] = useState("");
 
   const estado = estadoDe(fila);
   const paso = siguientePaso(fila, hoy);
@@ -64,6 +79,7 @@ export function FichaDeTrato({
   const dias = diasHasta(fila.cierre, hoy);
   const n = noches(fila);
   const rango = rangoLlegada(fila);
+  const estilo = estiloDeFase(fila.fase, colores) as CSSProperties | undefined;
 
   useEffect(() => {
     setPestana("resumen");
@@ -71,7 +87,23 @@ export function FichaDeTrato({
     setErrorHistorial("");
   }, [fila.clave]);
 
-  // El historial de fase solo se pide al abrir la pestaña.
+  // Lo que el CRM sabe del trato: al abrir la oportunidad (una lectura, sin escribir).
+  useEffect(() => {
+    setCrm(null);
+    setErrorDelCrm("");
+    if (!fila.crmDealId) return;
+    let vivo = true;
+    setLeyendoElCrm(true);
+    fichaDelCrmApi(fila.crmDealId)
+      .then((r) => vivo && setCrm(r))
+      .catch((e: unknown) => vivo && setErrorDelCrm(e instanceof Error ? e.message : "No se pudo leer el CRM."))
+      .finally(() => vivo && setLeyendoElCrm(false));
+    return () => {
+      vivo = false;
+    };
+  }, [fila.crmDealId, fila.fase]);
+
+  // El historial de fase de la app solo se pide al abrir la pestaña.
   useEffect(() => {
     if (pestana !== "historial" || !fila.crmDealId || cambios !== null) return;
     let vivo = true;
@@ -83,17 +115,9 @@ export function FichaDeTrato({
     };
   }, [pestana, fila.crmDealId, cambios]);
 
-  // Lo que Zoho cuenta del trato: creación, opción elegida, notas fechadas, última modificación.
-  const actividad = useMemo(() => {
-    const lista: { cuando: string; texto: string }[] = [];
-    if (trato.createdTime) lista.push({ cuando: trato.createdTime.slice(0, 10), texto: "Trato creado en Zoho." });
-    if (trip.chosen) lista.push({ cuando: "—", texto: `Opción ${trip.chosen} elegida por el cliente.` });
-    for (const nota of trip.notes) lista.push({ cuando: nota.date, texto: nota.text });
-    if (trato.modifiedTime) lista.push({ cuando: trato.modifiedTime.slice(0, 10), texto: `Última modificación · fase ${trato.stage || "—"}.` });
-    return lista;
-  }, [trato, trip]);
-
+  const ficha = crm?.ficha ?? null;
   const opcionesTotal = Math.max(trip.options.length, trip.chosen ?? 0);
+  const datosDelCrm = (crm?.campos ?? []).filter((c) => c.valor && CAMPOS_DEL_RESUMEN.includes(c.etiqueta));
 
   const copiarEnlace = async () => {
     try {
@@ -106,13 +130,15 @@ export function FichaDeTrato({
   };
 
   return (
-    <article className={`opx-ficha opx-c-${estado}`}>
+    <article className={`opx-ficha opx-c-${estado}`} style={estilo}>
       <header className="opx-ficha__cab">
         <div>
           <p className="opx-ficha__miga">{[fila.cuenta, fila.contacto].filter(Boolean).join(" · ") || "Sin cuenta"}</p>
           <h3>{fila.nombre || "(sin nombre)"}</h3>
           <p className="opx-ficha__meta">
-            <span className={`opx-pastilla opx-c-${estado}`}>{fila.fase ?? "—"}</span>
+            <span className={`opx-pastilla opx-c-${estado}`} style={estilo}>
+              {fila.fase ?? "—"}
+            </span>
             {fila.departamento ? (
               <span className={`opx-dept opx-dept--${fila.departamento.toLowerCase()}`}>{DEPARTAMENTOS[fila.departamento] ?? fila.departamento}</span>
             ) : null}
@@ -155,17 +181,26 @@ export function FichaDeTrato({
         ) : null}
       </section>
 
-      <AvanceDeFase pasos={pasosDeLaFase(fila.fase)} fase={fila.fase} estado={estado} />
+      <AvanceDeFase pasos={pasosDeLaFase(fila.fase, colores)} fase={fila.fase} estado={estado} estilo={estilo} />
 
       <div className="opx-ficha__cuerpo">
         <div>
           <nav className="opx-tabs" role="tablist" aria-label="Detalle">
-            {(["resumen", "propuesta", "historial"] as const).map((t) => (
-              <button key={t} type="button" role="tab" aria-selected={pestana === t} className={pestana === t ? "is" : ""} onClick={() => setPestana(t)}>
-                {t === "resumen" ? "Resumen" : t === "propuesta" ? "Propuesta" : "Historial"}
+            {(
+              [
+                ["resumen", "Resumen"],
+                ["presupuestos", ficha && ficha.presupuestos.length > 0 ? `Presupuestos (${ficha.presupuestos.length})` : "Presupuestos"],
+                ["historial", "Historial"],
+              ] as const
+            ).map(([id, etiqueta]) => (
+              <button key={id} type="button" role="tab" aria-selected={pestana === id} className={pestana === id ? "is" : ""} onClick={() => setPestana(id)}>
+                {etiqueta}
               </button>
             ))}
           </nav>
+
+          {errorDelCrm ? <p className="opx-nota">{errorDelCrm} Se enseña lo que ya sabía la app.</p> : null}
+          {leyendoElCrm && !crm ? <p className="opx-muted">Leyendo el CRM…</p> : null}
 
           {pestana === "resumen" ? (
             <>
@@ -178,10 +213,11 @@ export function FichaDeTrato({
                     extra={dias === null ? undefined : dias < 0 ? <em className="opx-vencido">vencido hace {-dias} d</em> : `en ${dias} días`}
                   />
                 ) : null}
-                {fila.importe !== null ? (
-                  <Dato rotulo="Importe estimado" valor={euros(fila.importe)} extra={trip.chosen ? `Opción ${trip.chosen} elegida` : undefined} />
-                ) : null}
+                {fila.importe !== null ? <Dato rotulo="Importe estimado" valor={euros(fila.importe)} /> : null}
                 {fila.departamento ? <Dato rotulo="Departamento" valor={DEPARTAMENTOS[fila.departamento] ?? fila.departamento} /> : null}
+                {datosDelCrm.map((c) => (
+                  <Dato key={c.etiqueta} rotulo={c.etiqueta} valor={c.valor} />
+                ))}
                 {trip.destino ? <Dato rotulo="Destino" valor={trip.destino} /> : null}
                 {trip.grupo ? <Dato rotulo="Grupo" valor={trip.grupo} /> : null}
               </div>
@@ -191,64 +227,67 @@ export function FichaDeTrato({
                 </p>
               ) : null}
 
-              {trip.options.length > 0 ? (
-                <section className="opx-bloque">
-                  <h4>Opciones de la propuesta</h4>
-                  <div className="opx-opts">
-                    {trip.options.map((o) => (
-                      <div key={o.n} className={`opx-opt${trip.chosen === o.n ? " is" : ""}`}>
-                        <small>
-                          Opción {o.n}
-                          {trip.chosen === o.n ? " · elegida ✓" : ""}
-                        </small>
-                        <div>{o.name}</div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
+              {ficha?.aceptado ? <TarjetaDelAceptado aceptado={ficha.aceptado} /> : null}
+              {ficha?.aceptado && ficha.presupuestos.length === 0 ? (
+                <p className="opx-faltan">
+                  <b>Ojo:</b> está en «{fila.fase}» pero el CRM no tiene servicios contratados cargados, así que no se sabe qué presupuesto aceptó.
+                </p>
+              ) : null}
+              {estado === "perdida" ? (
+                ficha?.motivoDePerdida ? (
+                  <p className="opx-nota">Motivo de pérdida: {ficha.motivoDePerdida}</p>
+                ) : crm ? (
+                  <p className="opx-faltan">El CRM no registra el motivo de pérdida de esta oportunidad.</p>
+                ) : null
               ) : null}
 
-              <section className="opx-bloque">
-                <h4>Actividad reciente</h4>
-                {actividad.length === 0 ? (
-                  <p className="opx-muted">Sin actividad registrada todavía.</p>
-                ) : (
-                  <ul className="opx-hist">
-                    {actividad.map((a, i) => (
-                      <li key={i}>
-                        <b>{a.texto}</b>
-                        <span>{a.cuando}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
+              {crm ? <CamposDelCrm campos={crm.campos} /> : null}
             </>
           ) : null}
 
-          {pestana === "propuesta" ? (
-            trato.description ? (
-              <section className="opx-bloque">
-                <h4>Lo que dice Zoho</h4>
-                <pre>{trato.description}</pre>
-              </section>
-            ) : (
-              <section className="opx-bloque">
-                <h4>Sin propuesta en la app</h4>
-                <p className="opx-muted">
-                  Esta oportunidad se creó directamente en Zoho. La propuesta (el documento con sus opciones) se hace desde «Nueva solicitud».
-                </p>
-              </section>
-            )
+          {pestana === "presupuestos" ? (
+            <section className="opx-bloque">
+              {ficha ? (
+                <>
+                  <PresupuestosDelCrm presupuestos={ficha.presupuestos} hayAceptado={Boolean(ficha.aceptado)} />
+                  {ficha.presupuestos.length === 0 && trip.options.length > 0 ? (
+                    <div className="opx-opts" style={{ marginTop: 12 }}>
+                      {trip.options.map((o) => (
+                        <div key={o.n} className={`opx-opt${trip.chosen === o.n ? " is" : ""}`}>
+                          <small>
+                            Opción {o.n}
+                            {trip.chosen === o.n ? " · elegida ✓" : ""}
+                          </small>
+                          <div>{o.name}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {ficha.textoLibre ? (
+                    <details className="opx-campos-wrap" open={ficha.presupuestos.length === 0}>
+                      <summary>Texto de «Opciones de presupuesto» en el CRM</summary>
+                      <pre>{ficha.textoLibre}</pre>
+                    </details>
+                  ) : null}
+                </>
+              ) : (
+                !leyendoElCrm && (
+                  <>
+                    <p className="opx-muted">No se pudo leer el CRM.</p>
+                    {trato.description ? <pre>{trato.description}</pre> : null}
+                  </>
+                )
+              )}
+            </section>
           ) : null}
 
           {pestana === "historial" ? (
             <section className="opx-bloque">
-              <h4>Cambios de fase</h4>
+              <h4>Cambios de fase hechos desde la app</h4>
               {errorHistorial ? <p className="opx-muted">{errorHistorial}</p> : null}
               {cambios === null && !errorHistorial ? <p className="opx-muted">Cargando…</p> : null}
               {cambios !== null && cambios.length === 0 ? (
-                <p className="opx-muted">Todavía no hay cambios de fase anotados desde la app. Los que se hagan aquí quedarán con quién, cuándo y por qué.</p>
+                <p className="opx-muted">Todavía ninguno. Los que se hagan desde aquí quedarán con quién, cuándo y por qué.</p>
               ) : null}
               {cambios && cambios.length > 0 ? (
                 <ul className="opx-hist">
@@ -265,15 +304,13 @@ export function FichaDeTrato({
                   ))}
                 </ul>
               ) : null}
-              <h4 style={{ marginTop: 16 }}>Actividad en Zoho</h4>
-              <ul className="opx-hist">
-                {actividad.map((a, i) => (
-                  <li key={i}>
-                    <b>{a.texto}</b>
-                    <span>{a.cuando}</span>
-                  </li>
-                ))}
-              </ul>
+
+              <h4 style={{ marginTop: 18 }}>Fechas del trato en el CRM</h4>
+              {ficha ? <HitosDelCrm hitos={ficha.hitos} /> : <p className="opx-muted">{leyendoElCrm ? "Leyendo el CRM…" : "No se pudo leer el CRM."}</p>}
+              <p className="opx-nota" style={{ marginTop: 12 }}>
+                El historial completo de fases y las notas de Zoho todavía no se pueden leer: la autorización actual de la app no tiene ese permiso.
+                Ampliarlo requiere volver a autorizar y cambiar el acceso en producción.
+              </p>
             </section>
           ) : null}
         </div>

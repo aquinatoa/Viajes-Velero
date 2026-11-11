@@ -1,0 +1,180 @@
+import type { CampoDelCrm } from "../../services/apiClient";
+import type { HitoDelCrm, PresupuestoDelCrm, ResumenDelAceptado } from "../../domain/fichaDelCrm";
+import { fechaCorta, fechaLarga } from "../../domain/oportunidadesVista";
+
+/**
+ * Lo que el CRM sabe de una oportunidad, para leerlo: el presupuesto aceptado, los
+ * presupuestos que se enviaron con sus líneas, los campos del trato y las fechas.
+ *
+ * Todo presentacional: recibe datos ya ordenados (`src/domain/fichaDelCrm.ts`) y los
+ * pinta. Los costes y márgenes solo se enseñan si llegan (el servidor solo los
+ * manda a los administradores).
+ */
+
+// «always»: con 4 cifras es-ES no pone el punto de miles por defecto.
+const DOS_DECIMALES = new Intl.NumberFormat("es-ES", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+  useGrouping: "always",
+} as unknown as Intl.NumberFormatOptions);
+const UN_DECIMAL = new Intl.NumberFormat("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+export function eur(n: number | null | undefined): string {
+  return n === null || n === undefined ? "—" : `${DOS_DECIMALES.format(n)} €`;
+}
+
+function Cifra({ rotulo, valor, apoyo }: { rotulo: string; valor: string; apoyo?: string }) {
+  return (
+    <div className="opx-cifra">
+      <small>{rotulo}</small>
+      <strong>{valor}</strong>
+      {apoyo ? <span>{apoyo}</span> : null}
+    </div>
+  );
+}
+
+/** El presupuesto que aceptó el cliente, con lo que el CRM dice del cobro. */
+export function TarjetaDelAceptado({ aceptado }: { aceptado: ResumenDelAceptado }) {
+  const hayEconomia = aceptado.coste !== null || aceptado.margen !== null;
+  return (
+    <section className="opx-aceptado" aria-label="Presupuesto aceptado">
+      <h4>
+        Presupuesto aceptado{aceptado.numero ? ` · nº ${aceptado.numero}` : ""} <span className="opx-marca-ok">✓ elegido por el cliente</span>
+      </h4>
+      <div className="opx-cifras">
+        <Cifra rotulo="Total" valor={eur(aceptado.total)} />
+        {aceptado.pvpPorViajero !== null ? <Cifra rotulo="Por viajero" valor={eur(aceptado.pvpPorViajero)} /> : null}
+        {aceptado.deposito !== null ? <Cifra rotulo="Depósito" valor={eur(aceptado.deposito)} apoyo={aceptado.formaDeCobro || undefined} /> : null}
+        {aceptado.pendiente !== null ? <Cifra rotulo="Pendiente" valor={eur(aceptado.pendiente)} /> : null}
+        {hayEconomia && aceptado.coste !== null ? <Cifra rotulo="Coste" valor={eur(aceptado.coste)} apoyo="solo administradores" /> : null}
+        {hayEconomia && aceptado.margen !== null ? <Cifra rotulo="Margen" valor={`${UN_DECIMAL.format(aceptado.margen)} %`} apoyo="solo administradores" /> : null}
+      </div>
+      <p className="opx-aceptado__pie">
+        {[
+          aceptado.tipoDePago ? `Tipo de pago: ${aceptado.tipoDePago}` : "",
+          aceptado.depositoCobrado ? `Depósito cobrado: ${aceptado.depositoCobrado}` : "",
+          `Cobrado al 100 %: ${aceptado.cobradoAl100 ? "sí" : "no"}`,
+          aceptado.fechaDeReserva ? `Reserva: ${fechaLarga(aceptado.fechaDeReserva)}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      </p>
+      {aceptado.enlace ? (
+        <a className="opx-btn" href={aceptado.enlace} target="_blank" rel="noreferrer">
+          Ver el presupuesto {aceptado.idPresupuesto ? `${aceptado.idPresupuesto} ` : ""}en Zoho Books ↗
+        </a>
+      ) : null}
+    </section>
+  );
+}
+
+/** Los presupuestos que se enviaron (las opciones), cada uno con sus líneas, y cuál se aceptó. */
+export function PresupuestosDelCrm({ presupuestos, hayAceptado }: { presupuestos: PresupuestoDelCrm[]; hayAceptado: boolean }) {
+  if (presupuestos.length === 0) {
+    return (
+      <p className="opx-muted">
+        Este trato no tiene servicios contratados cargados en el CRM. Las opciones, si las hay, suelen estar escritas en el texto de abajo.
+      </p>
+    );
+  }
+  return (
+    <div className="opx-presus">
+      {presupuestos.length > 1 ? (
+        <p className="opx-nota">
+          Se enviaron {presupuestos.length} presupuestos (opciones).
+          {hayAceptado ? " El que eligió el cliente va marcado." : " El cliente todavía no ha elegido ninguno en el CRM."}
+        </p>
+      ) : null}
+      {presupuestos.map((p) => (
+        <article key={p.numero} className={`opx-presu${p.aceptado ? " is-aceptado" : ""}`}>
+          <header>
+            <h4>
+              Presupuesto {p.numero}
+              {p.aceptado ? <span className="opx-marca-ok">✓ aceptado</span> : null}
+            </h4>
+            <span className="opx-presu__total">
+              {eur(p.total)}
+              {p.coste !== null && p.margen !== null ? (
+                <small>
+                  {" "}
+                  · coste {eur(p.coste)} · margen {UN_DECIMAL.format(p.margen)} %
+                </small>
+              ) : null}
+            </span>
+          </header>
+          <div className="opx-lineas-wrap">
+            <table className="opx-lineas">
+              <thead>
+                <tr>
+                  <th>Servicio</th>
+                  <th>Proveedor</th>
+                  <th>Fechas</th>
+                  <th className="is-num">Viajeros</th>
+                  <th className="is-num">Precio</th>
+                  <th className="is-num">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {p.lineas.map((l, i) => (
+                  <tr key={i}>
+                    <td>
+                      <b>{l.servicio || l.tipo || "—"}</b>
+                      <small>{[l.tipo && l.servicio ? l.tipo : "", l.regimen, l.comentarios].filter(Boolean).join(" · ")}</small>
+                    </td>
+                    <td>{l.proveedor || "—"}</td>
+                    <td>
+                      {l.entrada ? fechaCorta(l.entrada) : "—"}
+                      {l.salida && l.salida !== l.entrada ? ` → ${fechaCorta(l.salida)}` : ""}
+                    </td>
+                    <td className="is-num">{l.viajeros ?? "—"}</td>
+                    <td className="is-num">
+                      {eur(l.precio)}
+                      {l.unidad ? <small>{l.unidad}</small> : null}
+                    </td>
+                    <td className="is-num">{eur(l.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+/** Todos los campos del trato que la app conoce, también los vacíos: lo que falta es lo que hay que ver. */
+export function CamposDelCrm({ campos }: { campos: CampoDelCrm[] }) {
+  if (campos.length === 0) return null;
+  const rellenos = campos.filter((c) => c.valor).length;
+  return (
+    <details className="opx-campos-wrap">
+      <summary>
+        Todo lo que hay en el CRM <span className="opx-muted">({rellenos} de {campos.length} campos rellenos)</span>
+      </summary>
+      <dl className="opx-campos">
+        {campos.map((c) => (
+          <div key={c.etiqueta} className={c.valor ? "" : "is-vacio"}>
+            <dt>{c.etiqueta}</dt>
+            <dd>{c.valor || c.nota || "vacío"}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
+  );
+}
+
+/** Las fechas que el propio trato guarda. No es el historial completo de Zoho (pide permisos que la app no tiene). */
+export function HitosDelCrm({ hitos }: { hitos: HitoDelCrm[] }) {
+  if (hitos.length === 0) return <p className="opx-muted">El CRM no guarda fechas de este trato.</p>;
+  return (
+    <ul className="opx-hist">
+      {hitos.map((h, i) => (
+        <li key={i}>
+          <b>{h.texto}</b>
+          <span>{fechaLarga(h.cuando)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}

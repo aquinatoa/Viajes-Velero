@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { FASES_EN_ORDEN, FASES_LATERALES, estadoDe } from "../../domain/oportunidadesVista";
+import { claveDeFase, type ColoresDeFase } from "../../domain/colorDeFase";
 
 /**
  * Por dónde va una oportunidad: una línea fina con sus fases, no cinco cajas.
@@ -20,14 +21,18 @@ export interface PasoDeAvance {
   color?: string | null;
 }
 
-/** Los pasos del embudo completo a partir de la fase de Zoho (para las oportunidades sin propuesta de la app). */
-export function pasosDeLaFase(fase: string | null): PasoDeAvance[] {
+/**
+ * Los pasos del embudo completo a partir de la fase de Zoho (para las oportunidades
+ * sin propuesta de la app). Cada paso lleva el color que su fase tiene en el CRM.
+ */
+export function pasosDeLaFase(fase: string | null, colores: ColoresDeFase = {}): PasoDeAvance[] {
   const indice = (FASES_EN_ORDEN as readonly string[]).indexOf(fase ?? "");
   const lateral = (FASES_LATERALES as readonly string[]).includes(fase ?? "");
   return FASES_EN_ORDEN.map((f, i) => ({
     fase: f,
     hecho: !lateral && indice >= 0 && i < indice,
     actual: !lateral && i === indice,
+    color: colores[claveDeFase(f)] ?? null,
   }));
 }
 
@@ -36,25 +41,28 @@ export function AvanceDeFase({
   fase,
   sinCrm = false,
   estado,
+  estilo,
 }: {
   pasos: PasoDeAvance[];
   /** La fase en la que está ahora (para marcar «Lista de espera» / «Perdida»). */
   fase: string | null;
   /** Todavía no hay oportunidad en el CRM. */
   sinCrm?: boolean;
-  /** Para el color del trazo. */
+  /** Para el color del trazo cuando una fase no tiene color en el CRM. */
   estado?: ReturnType<typeof estadoDe>;
+  /** Los tonos de la fase actual en el CRM (variables CSS), para los avisos y las etiquetas. */
+  estilo?: CSSProperties;
 }) {
   const color = (estado ? `opx-c-${estado}` : "opx-c-todas") + (sinCrm ? " opx-avance--sin" : "");
   const actual = pasos.find((p) => p.actual);
   return (
-    <div className={`opx-avance ${color}`} style={{ "--pasos": pasos.length } as CSSProperties}>
+    <div className={`opx-avance ${color}`} style={{ "--pasos": pasos.length, ...(estilo ?? {}) } as CSSProperties}>
       <ol>
         {pasos.map((p) => (
           <li
             key={p.fase}
             className={`${p.hecho ? "is-hecho" : ""} ${p.actual ? "is-actual" : ""}`}
-            style={p.actual && p.color && !sinCrm ? ({ "--c": hexARgb(p.color) } as CSSProperties) : undefined}
+            style={p.color && !sinCrm ? ({ "--c": hexARgb(p.color) } as CSSProperties) : undefined}
             title={[p.detalle, p.cuando].filter(Boolean).join(" · ") || undefined}
           >
             <i />

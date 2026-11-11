@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   fetchZohoDealStagesApi,
   listarOportunidadesApi,
@@ -30,6 +30,7 @@ import {
   type FiltroDeEstado,
   type OrdenDeOportunidades,
 } from "../../domain/oportunidadesVista";
+import { FASES_DEL_ESTADO, estiloDeFase, indexarColores, type ColoresDeFase } from "../../domain/colorDeFase";
 import { ConfirmCalendar } from "../confirm/ConfirmRequestsPanel";
 import { FichaPropuesta } from "../home/FichaPropuesta";
 import { FichaDeTrato } from "./FichaDeTrato";
@@ -106,6 +107,8 @@ export function OportunidadesPanel({
   const [todas, setTodas] = useState<OportunidadFila[]>([]);
   const [entregas, setEntregas] = useState<ProposalDelivery[]>([]);
   const [stages, setStages] = useState<string[]>([]);
+  /** Las fases con el color que tienen en el CRM: se pinta cada una con el suyo. */
+  const [fasesDelCrm, setFasesDelCrm] = useState<{ nombre: string; color: string | null }[]>([]);
   const [zohoDisponible, setZohoDisponible] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -173,6 +176,7 @@ export function OportunidadesPanel({
         setZohoDisponible(lista.zohoDisponible);
         setEntregas(propuestas.deliveries);
         setStages(fases.stages);
+        setFasesDelCrm(lista.fases ?? []);
       } catch (err) {
         setError(err instanceof Error ? err.message : "No se pudieron cargar las oportunidades.");
       } finally {
@@ -186,6 +190,7 @@ export function OportunidadesPanel({
     void cargar();
   }, [cargar]);
 
+  const colores = useMemo(() => indexarColores(fasesDelCrm), [fasesDelCrm]);
   const entregaPorId = useMemo(() => new Map(entregas.map((e) => [e.id, e])), [entregas]);
   const hoy = useMemo(() => new Date(), [todas]);
 
@@ -266,6 +271,7 @@ export function OportunidadesPanel({
       fila={seleccionada}
       entrega={seleccionada.entrega ? entregaPorId.get(seleccionada.entrega.id) : undefined}
       stages={stages}
+      colores={colores}
       onCambio={() => void cargar(true)}
       onBorrada={(resumenDeBorrado) => {
         setSeleccion(null);
@@ -367,10 +373,18 @@ export function OportunidadesPanel({
         <>
           <section className="opx-estados" aria-label="Estado">
             {ESTADOS.map((e) => (
-              <button key={e.id} type="button" className={`opx-estado opx-c-${e.id}${estado === e.id ? " is" : ""}`} aria-pressed={estado === e.id} onClick={() => elegirEstado(e.id)}>
+              <button key={e.id} type="button" className={`opx-estado opx-c-${e.id}${estado === e.id ? " is" : ""}`} style={e.id === "todas" ? undefined : (estiloDeFase(FASES_DEL_ESTADO[e.id][0], colores) as CSSProperties | undefined)} aria-pressed={estado === e.id} onClick={() => elegirEstado(e.id)}>
                 <span className="opx-estado__n">{res[e.id].n}</span>
                 <span className="opx-estado__nom">{e.nombre}</span>
                 <span className="opx-estado__imp">{eurosCorto(res[e.id].importe)}</span>
+                {e.id !== "todas" ? (
+                  <span className="opx-puntos" aria-hidden="true" title={FASES_DEL_ESTADO[e.id].join(" · ")}>
+                    {FASES_DEL_ESTADO[e.id].map((f) => {
+                      const t = estiloDeFase(f, colores);
+                      return <i key={f} style={t ? { background: `rgb(${t["--c"]})` } : undefined} />;
+                    })}
+                  </span>
+                ) : null}
               </button>
             ))}
           </section>
@@ -478,6 +492,7 @@ export function OportunidadesPanel({
                       filas={filas}
                       seleccion={seleccion}
                       onSeleccionar={elegir}
+                      colores={colores}
                       agrupar={agrupar}
                       hoy={hoy}
                       repetidos={repetidos}
@@ -494,9 +509,9 @@ export function OportunidadesPanel({
                 {filas.length} de {res.todas.n} oportunidades
               </p>
               {modo === "tabla" ? (
-                <TablaDeOportunidades filas={filas} seleccion={seleccion} onSeleccionar={elegir} orden={orden} onOrdenar={setOrden} hoy={hoy} />
+                <TablaDeOportunidades filas={filas} seleccion={seleccion} onSeleccionar={elegir} orden={orden} onOrdenar={setOrden} hoy={hoy} colores={colores} />
               ) : (
-                <TableroDeOportunidades filas={filas} seleccion={seleccion} onSeleccionar={elegir} hoy={hoy} />
+                <TableroDeOportunidades filas={filas} seleccion={seleccion} onSeleccionar={elegir} hoy={hoy} colores={colores} />
               )}
               {cajon && seleccionada ? (
                 <>
@@ -528,6 +543,7 @@ function DetalleDeLaOportunidad({
   fila,
   entrega,
   stages,
+  colores,
   onCambio,
   onBorrada,
   onSaved,
@@ -536,6 +552,7 @@ function DetalleDeLaOportunidad({
   fila: OportunidadFila;
   entrega: ProposalDelivery | undefined;
   stages: string[];
+  colores: ColoresDeFase;
   onCambio: () => void;
   onBorrada: (resumen: string) => void;
   onSaved: (msg: string) => void;
@@ -577,7 +594,7 @@ function DetalleDeLaOportunidad({
   return (
     <div className="op__crm">
       {aviso}
-      <FichaDeTrato fila={fila} stages={stages} onCambio={onSaved} onError={onError} />
+      <FichaDeTrato fila={fila} stages={stages} colores={colores} onCambio={onSaved} onError={onError} />
     </div>
   );
 }

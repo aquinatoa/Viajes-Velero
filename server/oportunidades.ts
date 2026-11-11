@@ -11,6 +11,7 @@ import {
   type OportunidadFila,
 } from "../src/domain/oportunidadUnificada";
 import { rangoValido } from "../src/domain/rangoDeViajes";
+import { fasesDelEmbudoConColor } from "./coloresDelEmbudo";
 
 /**
  * Las oportunidades: propuestas de la app y tratos de Zoho en una sola lista.
@@ -28,6 +29,8 @@ export interface RespuestaDeOportunidades {
   oportunidades: OportunidadFila[];
   carriles: Record<Carril, number>;
   zohoDisponible: boolean;
+  /** Las fases del CRM con su color: la pantalla pinta cada una con el suyo. */
+  fases: { nombre: string; color: string | null }[];
 }
 
 export async function listarOportunidades(
@@ -66,7 +69,7 @@ export async function listarOportunidades(
     rango,
   });
 
-  return { oportunidades, carriles: contarCarriles(oportunidades), zohoDisponible };
+  return { oportunidades, carriles: contarCarriles(oportunidades), zohoDisponible, fases: await fasesDelEmbudoConColor() };
 }
 
 export interface ResultadoDeAdopcion {

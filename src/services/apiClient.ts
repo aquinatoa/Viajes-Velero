@@ -354,7 +354,29 @@ export function listarOportunidadesApi(rango?: { desde: string; hasta: string })
     oportunidades: import("../domain/oportunidadUnificada").OportunidadFila[];
     carriles: Record<import("../domain/oportunidadUnificada").Carril, number>;
     zohoDisponible: boolean;
+    /** Las fases del CRM con su color (hexadecimal); vacío si Zoho no contestó. */
+    fases: { nombre: string; color: string | null }[];
   }>(`/api/oportunidades${consulta}`, "No se pudieron cargar las oportunidades.");
+}
+
+/** Un campo del trato de Zoho, relleno o vacío (lo vacío también se enseña). */
+export interface CampoDelCrm {
+  etiqueta: string;
+  valor: string;
+  loPoneLaApp: boolean;
+  nota?: string;
+}
+
+/**
+ * Lo que el CRM sabe de una oportunidad: sus campos, los presupuestos que se
+ * enviaron (línea a línea) y cuál aceptó el cliente, y las fechas del trato.
+ * Los costes y márgenes solo llegan a los administradores.
+ */
+export function fichaDelCrmApi(dealId: string) {
+  return getJson<{ campos: CampoDelCrm[]; ficha: import("../domain/fichaDelCrm").FichaDelCrm }>(
+    `/api/oportunidades/${encodeURIComponent(dealId)}/crm`,
+    "No se pudo leer la oportunidad en el CRM.",
+  );
 }
 
 /** Un cambio de fase ya hecho, tal y como lo guarda la app. */

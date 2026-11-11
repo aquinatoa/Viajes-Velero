@@ -14303,3 +14303,47 @@ button.hilo__adjunto:hover {
   .opx-estados { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .opx-ficha__cuerpo { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ── Oportunidades · lo que el CRM sabe del trato (presupuestos, aceptado, campos) ── */
+
+/* Puntos de color bajo cada estado: una fase del CRM = un punto con su color. */
+.opx-puntos { display: flex; gap: 4px; margin-top: 4px; }
+.opx-puntos i { width: 9px; height: 9px; border-radius: 50%; background: rgb(var(--c)); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12); }
+
+/* Presupuesto aceptado */
+.opx-aceptado { display: grid; gap: 10px; padding: 14px 16px; background: rgba(var(--c), 0.07); border: 1px solid rgba(var(--c), 0.4); border-left: 5px solid rgb(var(--c)); border-radius: var(--radius-lg); }
+.opx-aceptado h4 { margin: 0; font-size: 15px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.opx-aceptado__pie { margin: 0; color: var(--muted); font-size: 12.5px; }
+.opx-marca-ok { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: rgb(var(--c)); color: #fff; }
+.opx-cifras { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.opx-cifra { display: grid; gap: 1px; padding: 8px 10px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); }
+.opx-cifra small { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.opx-cifra strong { font: 700 17px/1.2 "Space Grotesk", sans-serif; font-variant-numeric: tabular-nums; }
+.opx-cifra span { color: var(--muted); font-size: 11.5px; }
+
+/* Los presupuestos que se enviaron (opciones) */
+.opx-presus { display: grid; gap: 10px; }
+.opx-presu { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.opx-presu > header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 10px 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.opx-presu > header h4 { margin: 0; font-size: 14.5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.opx-presu__total { font: 700 16px/1.2 "Space Grotesk", sans-serif; font-variant-numeric: tabular-nums; }
+.opx-presu__total small { font: 400 12px/1.2 inherit; color: var(--muted); }
+.opx-presu.is-aceptado { border-color: rgba(var(--c), 0.55); box-shadow: 0 0 0 2px rgba(var(--c), 0.25); }
+.opx-presu.is-aceptado > header { background: rgba(var(--c), 0.1); }
+.opx-lineas-wrap { overflow-x: auto; }
+.opx-lineas { width: 100%; border-collapse: collapse; font-size: 13px; }
+.opx-lineas th { text-align: left; padding: 7px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border-bottom: 1px solid var(--border-strong); white-space: nowrap; }
+.opx-lineas td { padding: 7px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.opx-lineas tbody tr:nth-child(even) { background: rgba(0, 0, 0, 0.018); }
+.opx-lineas tbody tr:last-child td { border-bottom: 0; }
+.opx-lineas .is-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.opx-lineas td small { display: block; color: var(--muted); font-size: 11.5px; }
+
+/* Todos los campos del CRM, también los vacíos */
+.opx-campos-wrap { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 10px 14px; }
+.opx-campos-wrap > summary { cursor: pointer; font-weight: 600; }
+.opx-campos { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 14px; margin: 10px 0 0; }
+.opx-campos > div { display: grid; gap: 1px; padding: 5px 0; border-bottom: 1px dashed var(--border); }
+.opx-campos dt { color: var(--muted); font-size: 11.5px; }
+.opx-campos dd { margin: 0; overflow-wrap: anywhere; }
+.opx-campos .is-vacio dd { color: var(--muted); font-style: italic; }

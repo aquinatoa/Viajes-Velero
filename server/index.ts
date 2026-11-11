@@ -16,6 +16,7 @@ import {
   getZohoAuthStatus,
   getZohoAuthUrl,
   getZohoDealDetalle,
+  getZohoDealParaFicha,
   getZohoDealStages,
   listZohoDeals,
   listZohoDealsEntre,
@@ -113,6 +114,7 @@ import {
 } from "./commercialDb";
 import { saveInventoryDocumentFile } from "./documentStorage";
 import {
+  ADMIN_ROLES,
   type AuthedRequest,
   changeOwnPassword,
   createUser,
@@ -133,6 +135,8 @@ import { rangoValido } from "../src/domain/rangoDeViajes";
 import { adoptarOportunidad, listarOportunidades } from "./oportunidades";
 import { historialDeFase, registrarCambioDeFase } from "./cambiosDeFase";
 import { moverDeFase } from "./moverFase";
+import { camposDelTrato } from "./camposDelTrato";
+import { fichaDelCrm } from "../src/domain/fichaDelCrm";
 import { departamentoDesdeCrm, tratosVisiblesPara } from "./tratosPorDepartamento";
 import { extractDocumentText, isNativelyReadable } from "./documentTextExtraction";
 import { analyzeDocumentText, AiAnalysisError } from "./aiDocumentAnalysis";
@@ -616,6 +620,27 @@ app.post("/api/oportunidades/:dealId/fase", requireAuth, async (request, respons
     response.json(resultado);
   } catch (error) {
     crmErrorResponse(error, response, "No se pudo cambiar la fase en Zoho.");
+  }
+});
+
+// Lo que el CRM sabe de la oportunidad: campos (rellenos y vacíos), presupuestos
+// (las opciones enviadas, línea a línea) y cuál aceptó el cliente, y las fechas del
+// trato. Solo LEE. Los costes y los márgenes solo salen para los administradores.
+app.get("/api/oportunidades/:dealId/crm", requireAuth, async (request, response) => {
+  try {
+    const user = (request as AuthedRequest).user;
+    const trato = await getZohoDealParaFicha(String(request.params.dealId));
+    const visible =
+      trato && (!user || tratosVisiblesPara(user, [{ department: departamentoDesdeCrm(trato.Departamento) }]).length > 0);
+    if (!trato || !visible) {
+      // Misma respuesta si no existe o no es suyo: no se revela cuál de las dos.
+      response.status(404).json({ error: "Esa oportunidad no existe o no es de tu departamento." });
+      return;
+    }
+    const verEconomia = Boolean(user && ADMIN_ROLES.includes(user.role));
+    response.json({ campos: camposDelTrato(trato), ficha: fichaDelCrm(trato, { verEconomia }) });
+  } catch (error) {
+    crmErrorResponse(error, response, "No se pudo leer la oportunidad en el CRM.");
   }
 });
 

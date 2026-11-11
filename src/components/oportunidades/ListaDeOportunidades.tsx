@@ -11,6 +11,8 @@ import {
   rangoLlegada,
   siguientePaso,
 } from "../../domain/oportunidadesVista";
+import type { CSSProperties } from "react";
+import { estiloDeFase, type ColoresDeFase } from "../../domain/colorDeFase";
 import { lineaDeEstado } from "./textos";
 
 const DEPARTAMENTOS: Record<string, string> = { GROUPS: "Groups", SPORTS: "Sports", OTRO: "Otro" };
@@ -42,12 +44,14 @@ export function FilaDeOportunidad({
   onSeleccionar,
   hoy,
   repetidos,
+  colores,
 }: {
   f: OportunidadFila;
   seleccionada: boolean;
   onSeleccionar: () => void;
   hoy: Date;
   repetidos: Set<string>;
+  colores: ColoresDeFase;
 }) {
   const est = estadoDe(f);
   const paso = siguientePaso(f, hoy);
@@ -62,6 +66,8 @@ export function FilaDeOportunidad({
       type="button"
       className={`opx-fila opx-c-${est}${seleccionada ? " is" : ""}${urgente ? " opx-fila--ya" : ""}`}
       onClick={onSeleccionar}
+      // El color de la fase es el que tiene en el CRM; sin él (propuesta aún sin trato), el del estado.
+      style={estiloDeFase(f.fase, colores) as CSSProperties | undefined}
       data-clave={f.clave}
       aria-pressed={seleccionada}
     >
@@ -105,6 +111,7 @@ export function ListaDeOportunidades({
   hoy,
   repetidos,
   vacio,
+  colores,
 }: {
   filas: OportunidadFila[];
   seleccion: string | null;
@@ -113,10 +120,11 @@ export function ListaDeOportunidades({
   hoy: Date;
   repetidos: Set<string>;
   vacio: string;
+  colores: ColoresDeFase;
 }) {
   if (filas.length === 0) return <p className="opx-vacia">{vacio}</p>;
   const fila = (f: OportunidadFila) => (
-    <FilaDeOportunidad key={f.clave} f={f} seleccionada={seleccion === f.clave} onSeleccionar={() => onSeleccionar(f.clave)} hoy={hoy} repetidos={repetidos} />
+    <FilaDeOportunidad key={f.clave} f={f} seleccionada={seleccion === f.clave} onSeleccionar={() => onSeleccionar(f.clave)} hoy={hoy} repetidos={repetidos} colores={colores} />
   );
   if (!agrupar) return <>{filas.map(fila)}</>;
   return (

@@ -10,6 +10,8 @@ import {
   siguientePaso,
   type OrdenDeOportunidades,
 } from "../../domain/oportunidadesVista";
+import type { CSSProperties } from "react";
+import { estiloDeFase, type ColoresDeFase } from "../../domain/colorDeFase";
 import { ChipDeDepartamento, textoDeFase } from "./ListaDeOportunidades";
 
 /** La tabla: mucha información por pantalla y columnas que se ordenan al pulsar. */
@@ -20,6 +22,7 @@ export function TablaDeOportunidades({
   orden,
   onOrdenar,
   hoy,
+  colores,
 }: {
   filas: OportunidadFila[];
   seleccion: string | null;
@@ -27,6 +30,7 @@ export function TablaDeOportunidades({
   orden: OrdenDeOportunidades;
   onOrdenar: (orden: OrdenDeOportunidades) => void;
   hoy: Date;
+  colores: ColoresDeFase;
 }) {
   const cabecera = (id: OrdenDeOportunidades, nombre: string, numerica = false) => (
     <th className={`${orden === id ? "is" : ""} ${numerica ? "is-num" : ""}`} aria-sort={orden === id ? "descending" : "none"}>
@@ -58,6 +62,7 @@ export function TablaDeOportunidades({
               <tr
                 key={f.clave}
                 className={`opx-c-${estadoDe(f)}${seleccion === f.clave ? " is" : ""}`}
+                style={estiloDeFase(f.fase, colores) as CSSProperties | undefined}
                 onClick={() => onSeleccionar(f.clave)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") onSeleccionar(f.clave);
@@ -99,11 +104,13 @@ export function TableroDeOportunidades({
   seleccion,
   onSeleccionar,
   hoy,
+  colores,
 }: {
   filas: OportunidadFila[];
   seleccion: string | null;
   onSeleccionar: (clave: string) => void;
   hoy: Date;
+  colores: ColoresDeFase;
 }) {
   const sinCrm = filas.filter((f) => !f.fase);
   const columnas = [
@@ -116,7 +123,7 @@ export function TableroDeOportunidades({
         const est = c.filas.length ? estadoDe(c.filas[0]) : "todas";
         const importe = c.filas.reduce((t, f) => t + (f.importe ?? 0), 0);
         return (
-          <section key={c.nombre} className={`opx-col opx-c-${est}`}>
+          <section key={c.nombre} className={`opx-col opx-c-${est}`} style={estiloDeFase(c.nombre, colores) as CSSProperties | undefined}>
             <header>
               <b>{c.nombre}</b>
               <span>

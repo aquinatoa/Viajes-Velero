@@ -63,7 +63,26 @@ export async function coloresDelEmbudo(): Promise<Record<string, string>> {
   }
 }
 
+let cacheDeFases: { cuando: number; fases: { nombre: string; color: string | null }[] } | null = null;
+
+/**
+ * Las fases con su color, tal cual están en el CRM, para que la pantalla de
+ * Oportunidades pinte cada fase con el suyo. Cacheadas una hora (es configuración).
+ * Si Zoho no contesta: lo último que se supo, y si no, nada (no se inventa).
+ */
+export async function fasesDelEmbudoConColor(): Promise<{ nombre: string; color: string | null }[]> {
+  if (cacheDeFases && Date.now() - cacheDeFases.cuando < CUANTO_DURA) return cacheDeFases.fases;
+  try {
+    const fases = await getZohoDealStagesConColor();
+    cacheDeFases = { cuando: Date.now(), fases };
+    return fases;
+  } catch {
+    return cacheDeFases?.fases ?? [];
+  }
+}
+
 /** Para las pruebas y para cuando alguien cambie los colores en Zoho. */
 export function olvidarLosColores(): void {
   cache = null;
+  cacheDeFases = null;
 }
