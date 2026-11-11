@@ -135,7 +135,7 @@ import { rangoValido } from "../src/domain/rangoDeViajes";
 import { adoptarOportunidad, listarOportunidades } from "./oportunidades";
 import { historialDeFase, registrarCambioDeFase } from "./cambiosDeFase";
 import { moverDeFase } from "./moverFase";
-import { camposDelTrato } from "./camposDelTrato";
+import { etiquetasDelTrato } from "./etiquetasDelCrm";
 import { fichaDelCrm } from "../src/domain/fichaDelCrm";
 import { departamentoDesdeCrm, tratosVisiblesPara } from "./tratosPorDepartamento";
 import { extractDocumentText, isNativelyReadable } from "./documentTextExtraction";
@@ -638,7 +638,7 @@ app.get("/api/oportunidades/:dealId/crm", requireAuth, async (request, response)
       return;
     }
     const verEconomia = Boolean(user && ADMIN_ROLES.includes(user.role));
-    response.json({ campos: camposDelTrato(trato), ficha: fichaDelCrm(trato, { verEconomia }) });
+    response.json({ ficha: fichaDelCrm(trato, { verEconomia }, await etiquetasDelTrato()) });
   } catch (error) {
     crmErrorResponse(error, response, "No se pudo leer la oportunidad en el CRM.");
   }

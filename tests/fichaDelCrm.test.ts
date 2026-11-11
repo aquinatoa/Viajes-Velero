@@ -10,12 +10,14 @@
 import assert from "node:assert/strict";
 
 import {
-  CAMPOS_PARA_LA_FICHA,
+  camposDelTratoConValor,
   estaAceptadoEnElCrm,
   fichaDelCrm,
   hitosDelTrato,
+  inventarioDelTrato,
   presupuestosDelTrato,
   resumenDelAceptado,
+  type EtiquetasDeCampos,
   type TratoCrudo,
 } from "../src/domain/fichaDelCrm";
 
@@ -209,11 +211,176 @@ prueba("la ficha vacía no revienta", () => {
   assert.deepEqual([f.presupuestos, f.hitos, f.aceptado, f.textoLibre, f.motivoDePerdida], [[], [], null, "", ""]);
 });
 
-prueba("la lista de campos que se piden a Zoho incluye lo que se lee y no repite ninguno", () => {
-  for (const c of ["Servicios_Contratados", "N_Presupuesto_Subformulario", "Stage", "Total_Servicios_Contratados_Presupuesto", "Importe_Dep_sito_New", "Stage_Modified_Time"]) {
-    assert.ok((CAMPOS_PARA_LA_FICHA as readonly string[]).includes(c), c);
-  }
-  assert.equal(new Set(CAMPOS_PARA_LA_FICHA).size, CAMPOS_PARA_LA_FICHA.length);
+// ── Un trato REAL sin presupuesto cargado: «TORREMOLINOS BLOCK 2027» (11/11/2026) ──
+// Aceptado y cobrado, pero con «Servicios Contratados» vacío, totales a 0 y sin enlace a ningún documento.
+const SIN_PRESUPUESTO: TratoCrudo = {
+  id: "734060000022757132",
+  Deal_Name: "TORREMOLINOS BLOCK 2027",
+  Stage: "Pendiente de pago resto",
+  Owner: { name: "Pablo Jimenez", id: "1" },
+  Account_Name: { name: "DREIFRANKEN TOURS", id: "2" },
+  Amount: 10000,
+  Importe_por_Viajero: 333.33,
+  Importe_Dep_sito_New: 5332.2,
+  Imp_Pendiente: 4667.8,
+  Forma_de_Cobro: "Deposito 30%",
+  Deposito_Cobrado: "Si",
+  Cobrado_al_100: false,
+  Masiva: false,
+  Total_Servicios_Contratados_Presupuesto: 0,
+  Costes_Totales_Presupuesto_Aceptado: 0,
+  Margen_Beneficio_Presupuesto_Aceptado: 0,
+  Coste_por_viajero: 0,
+  N_Presupuesto_Subformulario: 1,
+  Servicios_Contratados: [],
+  Presupuesto_Sugerido: null,
+  ID_Presupuesto_Sugerido: null,
+  Description: null,
+  Opciones_de_Presupuesto: null,
+  Proveedores: [{ id: "9", Proveedores: { name: "Ayuntamiento de Torremolinos", id: "8" } }],
+  Pa_s_de_Destino: ["España"],
+  Fecha_llegada_actividad: "2027-03-19",
+  Fecha_salida_actividad: "2026-03-31", // error de año real del CRM
+  Modified_Time: "2026-10-16T09:57:40+02:00",
+  ID_Zoho_Projects: "268817000002131003",
+  $currency_symbol: "€",
+  Locked__s: false,
+};
+const ETIQUETAS: EtiquetasDeCampos = {
+  Deal_Name: { etiqueta: "Nombre de la oportunidad", tipo: "text" },
+  Amount: { etiqueta: "Importe", tipo: "currency" },
+  Importe_Dep_sito_New: { etiqueta: "Importe del depósito", tipo: "currency" },
+  Cobrado_al_100: { etiqueta: "Cobrado al 100 %", tipo: "boolean" },
+  Fecha_llegada_actividad: { etiqueta: "Fecha de llegada", tipo: "date" },
+  Modified_Time: { etiqueta: "Hora de modificación", tipo: "datetime" },
+  Servicios_Contratados: { etiqueta: "Servicios Contratados", tipo: "subform" },
+  Costes_Totales_Presupuesto_Aceptado: { etiqueta: "Costes totales", tipo: "currency" },
+};
+
+console.log("\nUn trato aceptado SIN presupuesto cargado (lo que enseñaba mal: «nº 1 · 0,00 €»)");
+
+prueba("no se inventa un presupuesto aceptado: sin líneas no hay número, total, coste ni margen", () => {
+  const a = resumenDelAceptado(SIN_PRESUPUESTO, { verEconomia: true })!;
+  assert.equal(a.hayDetalle, false);
+  assert.equal(a.numero, null, "N_Presupuesto_Subformulario vale 1 por defecto");
+  assert.equal(a.total, null, "el total del CRM es 0, no «0,00 €»");
+  assert.equal(a.coste, null);
+  assert.equal(a.margen, null);
+  assert.equal(a.costePorViajero, null);
+});
+
+prueba("lo que el CRM SÍ tiene del cobro se conserva: importe por viajero, depósito, pendiente y forma de cobro", () => {
+  const a = resumenDelAceptado(SIN_PRESUPUESTO)!;
+  assert.equal(a.pvpPorViajero, 333.33);
+  assert.equal(a.deposito, 5332.2);
+  assert.equal(a.pendiente, 4667.8);
+  assert.equal(a.formaDeCobro, "Deposito 30%");
+});
+
+prueba("con presupuesto cargado, el aceptado sí tiene detalle", () => {
+  assert.equal(resumenDelAceptado(ACEPTADO)!.hayDetalle, true);
+});
+
+prueba("el inventario dice con todas las letras lo que falta: servicios, qué presupuesto aceptó y documento", () => {
+  const inv = inventarioDelTrato(SIN_PRESUPUESTO);
+  const por = (t: string) => inv.find((i) => i.texto.startsWith(t))!;
+  assert.equal(por("Importe del trato").estado, "si");
+  assert.equal(por("Condiciones de cobro").estado, "si");
+  assert.equal(por("Presupuesto línea a línea").estado, "no");
+  assert.match(por("Presupuesto línea a línea").detalle, /VACÍO/);
+  assert.equal(por("Cuál de los presupuestos").estado, "no");
+  assert.equal(por("Documento del presupuesto").estado, "no");
+  assert.equal(por("Proveedores").estado, "si");
+  assert.equal(por("Proveedores").detalle, "Ayuntamiento de Torremolinos");
+  assert.equal(por("Archivos adjuntos").estado, "aviso", "lo que no se puede leer se avisa, no se calla");
+});
+
+prueba("una salida anterior a la llegada se señala como error de año (en vez de dar «-353 noches» sin explicar)", () => {
+  const f = inventarioDelTrato(SIN_PRESUPUESTO).find((i) => i.texto === "Fechas del viaje")!;
+  assert.equal(f.estado, "no");
+  assert.match(f.detalle, /31\/03\/2026.*anterior a la llegada.*19\/03\/2027/);
+  const bien = inventarioDelTrato({ Stage: "Nueva", Fecha_llegada_actividad: "2027-03-19", Fecha_salida_actividad: "2027-03-31" }).find((i) => i.texto === "Fechas del viaje")!;
+  assert.equal(bien.estado, "si");
+  assert.equal(bien.detalle, "19/03/2027 → 31/03/2027");
+  assert.equal(inventarioDelTrato({ Stage: "Nueva" }).find((i) => i.texto === "Fechas del viaje")!.estado, "no");
+});
+
+prueba("los importes decimales sueltos salen con formato (4667.8 → 4.667,80)", () => {
+  const todos = camposDelTratoConValor({ Imp_Pendiente: 4667.8, N_mero_de_personas: 30 }).grupos.flatMap((g) => g.campos);
+  assert.equal(todos.find((x) => x.etiqueta === "Imp Pendiente")!.valor, "4.667,80");
+  assert.equal(todos.find((x) => x.etiqueta === "N mero de personas")!.valor, "30");
+});
+
+prueba("el inventario de un trato completo: todo en verde y con el enlace del documento", () => {
+  const inv = inventarioDelTrato(ACEPTADO);
+  const por = (t: string) => inv.find((i) => i.texto.startsWith(t))!;
+  assert.equal(por("Presupuesto línea a línea").estado, "si");
+  assert.match(por("Presupuesto línea a línea").detalle, /3 líneas en 2 presupuestos/);
+  assert.equal(por("Cuál de los presupuestos").detalle, "el nº 2");
+  assert.equal(por("Documento del presupuesto").estado, "si");
+  assert.equal(por("Documento del presupuesto").enlace, "https://books.example/quotes/1");
+});
+
+prueba("en un trato que aún no está aceptado, lo vacío no es un fallo («na») y no se pregunta qué presupuesto aceptó", () => {
+  const inv = inventarioDelTrato({ Stage: "Preparando Presupuesto", Servicios_Contratados: [], Amount: 5000 });
+  assert.equal(inv.find((i) => i.texto.startsWith("Presupuesto línea a línea"))!.estado, "na");
+  assert.equal(inv.find((i) => i.texto.startsWith("Documento del presupuesto"))!.estado, "na");
+  assert.equal(inv.some((i) => i.texto.startsWith("Cuál de los presupuestos")), false);
+});
+
+console.log("\nTodos los campos con valor");
+
+prueba("salen TODOS los que tienen valor, con el nombre que ven en Zoho, y ninguno de sistema", () => {
+  const c = camposDelTratoConValor(SIN_PRESUPUESTO, ETIQUETAS);
+  const todos = c.grupos.flatMap((g) => g.campos);
+  const etiquetas = todos.map((x) => x.etiqueta);
+  assert.ok(etiquetas.includes("Nombre de la oportunidad"));
+  assert.ok(etiquetas.includes("Proveedores"), "un multi-lookup se lee por el nombre anidado");
+  assert.ok(etiquetas.includes("Pa s de Destino") || etiquetas.some((e) => /Pa.s de Destino/.test(e)));
+  assert.ok(etiquetas.includes("ID Zoho Projects"), "sin etiqueta conocida, el nombre técnico legible");
+  for (const mal of ["id", "Locked  s", "Locked__s", "$currency_symbol", "Servicios Contratados"]) assert.ok(!etiquetas.includes(mal), mal);
+  assert.equal(c.rellenos, todos.length);
+});
+
+prueba("los valores salen legibles: euros, fechas dd/mm/aaaa, sí/no y nombres de personas", () => {
+  const todos = camposDelTratoConValor(SIN_PRESUPUESTO, ETIQUETAS).grupos.flatMap((g) => g.campos);
+  const v = (e: string) => todos.find((x) => x.etiqueta === e)?.valor;
+  assert.equal(v("Importe"), "10.000,00 €");
+  assert.equal(v("Importe del depósito"), "5.332,20 €");
+  assert.equal(v("Fecha de llegada"), "19/03/2027");
+  assert.equal(v("Hora de modificación"), "16/10/2026 09:57");
+  assert.equal(v("Cobrado al 100 %"), "No", "un «no» es un dato: no se esconde");
+  assert.equal(v("Propietario") ?? v("Owner"), "Pablo Jimenez");
+  assert.equal(v("Pa s de Destino") ?? todos.find((x) => /Pa.s de Destino/.test(x.etiqueta))?.valor, "España");
+});
+
+prueba("los campos se agrupan (viaje, cobro, fase y fechas, quién) y lo vacío se lista aparte", () => {
+  const c = camposDelTratoConValor(SIN_PRESUPUESTO, ETIQUETAS);
+  const titulos = c.grupos.map((g) => g.titulo);
+  assert.deepEqual(titulos.slice(0, 3), ["El viaje", "Cobro y presupuesto", "Fase y fechas"]);
+  assert.ok(c.vacios.includes("Servicios Contratados"), "el subformulario vacío se dice el primero");
+  assert.equal(c.vacios[0], "Servicios Contratados");
+  assert.ok(c.vacios.includes("Presupuesto Sugerido") || c.vacios.some((e) => /Presupuesto.Sugerido/.test(e)));
+});
+
+prueba("costes y márgenes solo con economía", () => {
+  const sin = camposDelTratoConValor(SIN_PRESUPUESTO, ETIQUETAS, { verEconomia: false });
+  assert.ok(!sin.grupos.flatMap((g) => g.campos).some((x) => x.etiqueta === "Costes totales"));
+  assert.ok(!sin.vacios.includes("Costes totales"));
+  const con = camposDelTratoConValor(SIN_PRESUPUESTO, ETIQUETAS, { verEconomia: true });
+  assert.ok(con.grupos.flatMap((g) => g.campos).some((x) => x.etiqueta === "Costes totales" && x.valor === "0,00 €"));
+});
+
+prueba("sin etiquetas (Zoho no contestó) sigue funcionando con los nombres técnicos", () => {
+  const c = camposDelTratoConValor({ Deal_Name: "X", Amount: 5 });
+  assert.deepEqual(c.grupos.flatMap((g) => g.campos).map((x) => x.etiqueta), ["Deal Name", "Amount"]);
+});
+
+prueba("la ficha entera trae inventario y campos", () => {
+  const f = fichaDelCrm(SIN_PRESUPUESTO, { verEconomia: false }, ETIQUETAS);
+  assert.ok(f.inventario.length >= 7);
+  assert.ok(f.campos.rellenos > 10);
+  assert.equal(f.aceptado!.hayDetalle, false);
 });
 
 console.log(`\n${pasadas} pasadas, ${fallidas} fallidas`);

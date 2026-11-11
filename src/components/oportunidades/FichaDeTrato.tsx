@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { cambiosDeFaseApi, fichaDelCrmApi, type CambioDeFaseLeido, type CampoDelCrm } from "../../services/apiClient";
+import { cambiosDeFaseApi, fichaDelCrmApi, type CambioDeFaseLeido } from "../../services/apiClient";
 import type { OportunidadFila } from "../../domain/oportunidadUnificada";
-import type { FichaDelCrm } from "../../domain/fichaDelCrm";
+import type { FichaDelCrmCompleta } from "../../domain/fichaDelCrm";
 import {
   diasHasta,
   estadoDe,
@@ -15,16 +15,13 @@ import {
 import { estiloDeFase, type ColoresDeFase } from "../../domain/colorDeFase";
 import { parseTrip } from "../confirm/ConfirmRequestsPanel";
 import { AvanceDeFase, pasosDeLaFase } from "./AvanceDeFase";
-import { CamposDelCrm, HitosDelCrm, PresupuestosDelCrm, TarjetaDelAceptado } from "./InfoDelCrm";
+import { HitosDelCrm, InventarioDelCrm, PresupuestosDelCrm, TarjetaDelAceptado, TodosLosCampos } from "./InfoDelCrm";
 import { MenuMas } from "./MenuMas";
 import { MoverDeFase } from "./MoverDeFase";
 import { comoTratoDeZoho } from "./tratoDeZoho";
 import { textoDelCierre } from "./textos";
 
 const DEPARTAMENTOS: Record<string, string> = { GROUPS: "Groups", SPORTS: "Sports", OTRO: "Otro" };
-
-/** Los datos del viaje que interesan en el resumen, de entre los campos del CRM. */
-const CAMPOS_DEL_RESUMEN = ["Nº de personas", "Profesores", "Edad de los participantes", "Idioma", "Contacto del grupo", "Propietario"];
 
 function Dato({ rotulo, valor, extra }: { rotulo: string; valor: string; extra?: ReactNode }) {
   return (
@@ -69,7 +66,7 @@ export function FichaDeTrato({
   const [cambios, setCambios] = useState<CambioDeFaseLeido[] | null>(null);
   const [errorHistorial, setErrorHistorial] = useState("");
   const [copiado, setCopiado] = useState(false);
-  const [crm, setCrm] = useState<{ campos: CampoDelCrm[]; ficha: FichaDelCrm } | null>(null);
+  const [crm, setCrm] = useState<{ ficha: FichaDelCrmCompleta } | null>(null);
   const [leyendoElCrm, setLeyendoElCrm] = useState(false);
   const [errorDelCrm, setErrorDelCrm] = useState("");
 
@@ -117,7 +114,6 @@ export function FichaDeTrato({
 
   const ficha = crm?.ficha ?? null;
   const opcionesTotal = Math.max(trip.options.length, trip.chosen ?? 0);
-  const datosDelCrm = (crm?.campos ?? []).filter((c) => c.valor && CAMPOS_DEL_RESUMEN.includes(c.etiqueta));
 
   const copiarEnlace = async () => {
     try {
@@ -205,7 +201,7 @@ export function FichaDeTrato({
           {pestana === "resumen" ? (
             <>
               <div className="opx-datos">
-                {rango ? <Dato rotulo="Llegada" valor={rango} extra={n !== null ? `${n} noches` : undefined} /> : null}
+                {rango ? <Dato rotulo="Llegada" valor={rango} extra={n !== null && n > 0 ? `${n} noches` : n !== null ? <em className="opx-vencido">salida anterior a la llegada</em> : undefined} /> : null}
                 {fila.cierre ? (
                   <Dato
                     rotulo="Cierre previsto"
@@ -215,24 +211,17 @@ export function FichaDeTrato({
                 ) : null}
                 {fila.importe !== null ? <Dato rotulo="Importe estimado" valor={euros(fila.importe)} /> : null}
                 {fila.departamento ? <Dato rotulo="Departamento" valor={DEPARTAMENTOS[fila.departamento] ?? fila.departamento} /> : null}
-                {datosDelCrm.map((c) => (
-                  <Dato key={c.etiqueta} rotulo={c.etiqueta} valor={c.valor} />
-                ))}
                 {trip.destino ? <Dato rotulo="Destino" valor={trip.destino} /> : null}
                 {trip.grupo ? <Dato rotulo="Grupo" valor={trip.grupo} /> : null}
               </div>
-              {faltan.length > 0 ? (
+              {!ficha && faltan.length > 0 ? (
                 <p className="opx-faltan">
                   <b>Faltan datos:</b> {faltan.join(", ")}. Se rellenan en Zoho.
                 </p>
               ) : null}
 
+              {ficha ? <InventarioDelCrm items={ficha.inventario} /> : null}
               {ficha?.aceptado ? <TarjetaDelAceptado aceptado={ficha.aceptado} /> : null}
-              {ficha?.aceptado && ficha.presupuestos.length === 0 ? (
-                <p className="opx-faltan">
-                  <b>Ojo:</b> está en «{fila.fase}» pero el CRM no tiene servicios contratados cargados, así que no se sabe qué presupuesto aceptó.
-                </p>
-              ) : null}
               {estado === "perdida" ? (
                 ficha?.motivoDePerdida ? (
                   <p className="opx-nota">Motivo de pérdida: {ficha.motivoDePerdida}</p>
@@ -241,7 +230,7 @@ export function FichaDeTrato({
                 ) : null
               ) : null}
 
-              {crm ? <CamposDelCrm campos={crm.campos} /> : null}
+              {ficha ? <TodosLosCampos campos={ficha.campos} /> : null}
             </>
           ) : null}
 

@@ -1,5 +1,4 @@
-import type { CampoDelCrm } from "../../services/apiClient";
-import type { HitoDelCrm, PresupuestoDelCrm, ResumenDelAceptado } from "../../domain/fichaDelCrm";
+import type { CamposDelTrato, HitoDelCrm, ItemDeInventario, PresupuestoDelCrm, ResumenDelAceptado } from "../../domain/fichaDelCrm";
 import { fechaCorta, fechaLarga } from "../../domain/oportunidadesVista";
 
 /**
@@ -33,16 +32,28 @@ function Cifra({ rotulo, valor, apoyo }: { rotulo: string; valor: string; apoyo?
   );
 }
 
-/** El presupuesto que aceptó el cliente, con lo que el CRM dice del cobro. */
+/**
+ * El cobro del trato aceptado. Con el presupuesto cargado en el CRM, es «Presupuesto
+ * aceptado nº N»; sin él, es solo «Cobro acordado» con los importes que el CRM sí tiene:
+ * no se afirma un presupuesto que no existe ni se enseñan totales a 0.
+ */
 export function TarjetaDelAceptado({ aceptado }: { aceptado: ResumenDelAceptado }) {
   const hayEconomia = aceptado.coste !== null || aceptado.margen !== null;
   return (
-    <section className="opx-aceptado" aria-label="Presupuesto aceptado">
+    <section className={`opx-aceptado${aceptado.hayDetalle ? "" : " is-sin-detalle"}`} aria-label={aceptado.hayDetalle ? "Presupuesto aceptado" : "Cobro acordado"}>
       <h4>
-        Presupuesto aceptado{aceptado.numero ? ` · nº ${aceptado.numero}` : ""} <span className="opx-marca-ok">✓ elegido por el cliente</span>
+        {aceptado.hayDetalle ? (
+          <>
+            Presupuesto aceptado{aceptado.numero ? ` · nº ${aceptado.numero}` : ""} <span className="opx-marca-ok">✓ elegido por el cliente</span>
+          </>
+        ) : (
+          <>
+            Cobro acordado <span className="opx-muted">· importes que el CRM tiene; el presupuesto línea a línea no está cargado</span>
+          </>
+        )}
       </h4>
       <div className="opx-cifras">
-        <Cifra rotulo="Total" valor={eur(aceptado.total)} />
+        {aceptado.total !== null ? <Cifra rotulo="Total" valor={eur(aceptado.total)} /> : null}
         {aceptado.pvpPorViajero !== null ? <Cifra rotulo="Por viajero" valor={eur(aceptado.pvpPorViajero)} /> : null}
         {aceptado.deposito !== null ? <Cifra rotulo="Depósito" valor={eur(aceptado.deposito)} apoyo={aceptado.formaDeCobro || undefined} /> : null}
         {aceptado.pendiente !== null ? <Cifra rotulo="Pendiente" valor={eur(aceptado.pendiente)} /> : null}
@@ -73,7 +84,8 @@ export function PresupuestosDelCrm({ presupuestos, hayAceptado }: { presupuestos
   if (presupuestos.length === 0) {
     return (
       <p className="opx-muted">
-        Este trato no tiene servicios contratados cargados en el CRM. Las opciones, si las hay, suelen estar escritas en el texto de abajo.
+        Este trato no tiene presupuesto cargado en el CRM: el subformulario «Servicios Contratados» está vacío. Las opciones, si las hay, suelen estar escritas en el
+        texto de abajo.
       </p>
     );
   }
@@ -143,24 +155,66 @@ export function PresupuestosDelCrm({ presupuestos, hayAceptado }: { presupuestos
   );
 }
 
-/** Todos los campos del trato que la app conoce, también los vacíos: lo que falta es lo que hay que ver. */
-export function CamposDelCrm({ campos }: { campos: CampoDelCrm[] }) {
-  if (campos.length === 0) return null;
-  const rellenos = campos.filter((c) => c.valor).length;
+const MARCA: Record<ItemDeInventario["estado"], string> = { si: "✓", no: "✗", aviso: "!", na: "–" };
+
+/** Qué tiene esta oportunidad en el CRM y qué le falta, de un vistazo. */
+export function InventarioDelCrm({ items }: { items: ItemDeInventario[] }) {
   return (
-    <details className="opx-campos-wrap">
-      <summary>
-        Todo lo que hay en el CRM <span className="opx-muted">({rellenos} de {campos.length} campos rellenos)</span>
-      </summary>
-      <dl className="opx-campos">
-        {campos.map((c) => (
-          <div key={c.etiqueta} className={c.valor ? "" : "is-vacio"}>
-            <dt>{c.etiqueta}</dt>
-            <dd>{c.valor || c.nota || "vacío"}</dd>
-          </div>
+    <section className="opx-inv" aria-label="Qué tiene esta oportunidad en el CRM">
+      <h4>Qué tiene esta oportunidad en el CRM</h4>
+      <ul>
+        {items.map((it) => (
+          <li key={it.texto} className={`is-${it.estado}`}>
+            <span className="opx-inv__marca" aria-hidden="true">
+              {MARCA[it.estado]}
+            </span>
+            <span className="opx-inv__txt">
+              <b>{it.texto}</b>
+              <small>
+                {it.detalle}
+                {it.enlace ? (
+                  <>
+                    {" · "}
+                    <a href={it.enlace} target="_blank" rel="noreferrer">
+                      abrir ↗
+                    </a>
+                  </>
+                ) : null}
+              </small>
+            </span>
+          </li>
         ))}
-      </dl>
-    </details>
+      </ul>
+    </section>
+  );
+}
+
+/** Todos los campos del trato que tienen valor, con los nombres de Zoho, y la lista de los vacíos. */
+export function TodosLosCampos({ campos }: { campos: CamposDelTrato }) {
+  return (
+    <section className="opx-campos-wrap" aria-label="Todo lo que hay en el CRM">
+      <h4>
+        Todo lo que hay en el CRM <span className="opx-muted">({campos.rellenos} campos con valor)</span>
+      </h4>
+      {campos.grupos.map((g) => (
+        <div key={g.titulo} className="opx-campos-grupo">
+          <h5>{g.titulo}</h5>
+          <dl className="opx-campos">
+            {g.campos.map((c) => (
+              <div key={c.etiqueta}>
+                <dt>{c.etiqueta}</dt>
+                <dd>{c.valor}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ))}
+      {campos.vacios.length > 0 ? (
+        <p className="opx-vacios">
+          <b>Sin rellenar ({campos.vacios.length}):</b> {campos.vacios.join(" · ")}
+        </p>
+      ) : null}
+    </section>
   );
 }
 

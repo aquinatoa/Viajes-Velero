@@ -58,7 +58,13 @@ export interface PresupuestoDelCrm {
 }
 
 export interface ResumenDelAceptado {
-  /** El número del presupuesto aceptado, si el CRM lo dice. */
+  /**
+   * ¿El CRM tiene el presupuesto línea a línea («Servicios Contratados»)? Sin él, el
+   * número, el total, el coste y el margen no significan nada: `N_Presupuesto_Subformulario`
+   * vale 1 por defecto y los totales valen 0 (visto el 11/11 en «TORREMOLINOS BLOCK 2027»).
+   */
+  hayDetalle: boolean;
+  /** El número del presupuesto aceptado, si el CRM lo dice y hay detalle que lo respalde. */
   numero: number | null;
   total: number | null;
   pvpPorViajero: number | null;
@@ -105,7 +111,14 @@ function texto(v: unknown): string {
   if (typeof v === "object") {
     // Cuenta, usuario y propietario llegan como { id, name }; el id no dice nada.
     const o = v as Record<string, unknown>;
-    return String(o.name ?? o.display_value ?? o.full_name ?? "").trim();
+    const directo = String(o.name ?? o.display_value ?? o.full_name ?? "").trim();
+    if (directo) return directo;
+    // Los multi-lookup («Proveedores») llegan como { id, Proveedores: { name, id } }.
+    for (const [clave, hijo] of Object.entries(o)) {
+      if (clave === "id" || !hijo || typeof hijo !== "object") continue;
+      const t = texto(hijo);
+      if (t) return t;
+    }
   }
   return "";
 }
@@ -201,9 +214,11 @@ export function resumenDelAceptado(
   opciones: { verEconomia: boolean } = { verEconomia: false },
 ): ResumenDelAceptado | null {
   if (!estaAceptadoEnElCrm(texto(trato.Stage))) return null;
+  const hayDetalle = Array.isArray(trato.Servicios_Contratados) && trato.Servicios_Contratados.length > 0;
   return {
-    numero: entero(trato.N_Presupuesto_Subformulario),
-    total: numero(trato.Total_Servicios_Contratados_Presupuesto),
+    hayDetalle,
+    numero: hayDetalle ? entero(trato.N_Presupuesto_Subformulario) : null,
+    total: hayDetalle ? numero(trato.Total_Servicios_Contratados_Presupuesto) : null,
     pvpPorViajero: numero(trato.Importe_por_Viajero),
     deposito: numero(trato.Importe_Dep_sito_New),
     formaDeCobro: texto(trato.Forma_de_Cobro),
@@ -214,9 +229,9 @@ export function resumenDelAceptado(
     fechaDeReserva: texto(trato.Fecha_de_Reserva),
     enlace: texto(trato.Presupuesto_Sugerido),
     idPresupuesto: texto(trato.ID_Presupuesto_Sugerido),
-    coste: opciones.verEconomia ? numero(trato.Costes_Totales_Presupuesto_Aceptado) : null,
-    margen: opciones.verEconomia ? numero(trato.Margen_Beneficio_Presupuesto_Aceptado) : null,
-    costePorViajero: opciones.verEconomia ? numero(trato.Coste_por_viajero) : null,
+    coste: opciones.verEconomia && hayDetalle ? numero(trato.Costes_Totales_Presupuesto_Aceptado) : null,
+    margen: opciones.verEconomia && hayDetalle ? numero(trato.Margen_Beneficio_Presupuesto_Aceptado) : null,
+    costePorViajero: opciones.verEconomia && hayDetalle ? numero(trato.Coste_por_viajero) : null,
   };
 }
 
@@ -250,9 +265,273 @@ export function hitosDelTrato(trato: TratoCrudo): HitoDelCrm[] {
   return hitos.sort((a, b) => (a.cuando < b.cuando ? 1 : a.cuando > b.cuando ? -1 : 0));
 }
 
+// ── Qué tiene y qué no tiene el trato en el CRM ──────────────────────────────
+
+export type EstadoDeInventario = "si" | "no" | "aviso" | "na";
+
+export interface ItemDeInventario {
+  /** Lo que se mira: «Presupuesto línea a línea», «Enlace al documento»… */
+  texto: string;
+  /** si = está · no = falta y debería estar · aviso = no se puede saber · na = vacío pero aún no toca */
+  estado: EstadoDeInventario;
+  detalle: string;
+  /** Enlace para abrirlo, si lo hay. */
+  enlace?: string;
+}
+
+const EUROS = new Intl.NumberFormat("es-ES", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+  useGrouping: "always",
+} as unknown as Intl.NumberFormatOptions);
+const eurosDe = (n: number | null): string => (n === null ? "" : `${EUROS.format(n)} €`);
+
+/**
+ * Una lista de comprobación de lo que el CRM tiene de verdad en este trato.
+ *
+ * Nace de una observación de Anthony (11/11/2026, «TORREMOLINOS BLOCK 2027»): la ficha
+ * le enseñaba datos pero «no termino de ver realmente qué tiene esa oportunidad»: el
+ * subformulario de servicios estaba vacío, no había enlace a ningún documento y la
+ * pantalla lo disimulaba con «Presupuesto aceptado nº 1 · 0,00 €». Aquí lo que falta se
+ * dice con todas las letras, y lo que no se puede saber también.
+ */
+export function inventarioDelTrato(trato: TratoCrudo): ItemDeInventario[] {
+  const aceptado = estaAceptadoEnElCrm(texto(trato.Stage));
+  const lineas = Array.isArray(trato.Servicios_Contratados) ? trato.Servicios_Contratados.filter((f) => f && typeof f === "object") : [];
+  const numeros = new Set((lineas as Record<string, unknown>[]).map((f) => entero(f.N_Presupuesto) ?? 1));
+  const items: ItemDeInventario[] = [];
+
+  const importe = numero(trato.Amount);
+  items.push(
+    importe !== null && importe > 0
+      ? { texto: "Importe del trato", estado: "si", detalle: eurosDe(importe) }
+      : { texto: "Importe del trato", estado: "no", detalle: "sin importe en el CRM" },
+  );
+
+  // Un error de año en el CRM («llegada 19/03/2027, salida 31/03/2026») da noches negativas y descuadra el calendario.
+  const llegada = texto(trato.Fecha_llegada_actividad).slice(0, 10);
+  const salida = texto(trato.Fecha_salida_actividad).slice(0, 10);
+  if (llegada && salida) {
+    items.push(
+      salida < llegada
+        ? {
+            texto: "Fechas del viaje",
+            estado: "no",
+            detalle: `la salida (${fechaLegible(salida)}) es anterior a la llegada (${fechaLegible(llegada)}): parece un error de año en el CRM`,
+          }
+        : { texto: "Fechas del viaje", estado: "si", detalle: `${fechaLegible(llegada)} → ${fechaLegible(salida)}` },
+    );
+  } else {
+    items.push({ texto: "Fechas del viaje", estado: "no", detalle: llegada ? "falta la fecha de salida" : salida ? "falta la fecha de llegada" : "sin fechas de llegada ni de salida" });
+  }
+
+  const cobro = [
+    texto(trato.Forma_de_Cobro),
+    numero(trato.Importe_Dep_sito_New) !== null ? `depósito ${eurosDe(numero(trato.Importe_Dep_sito_New))}` : "",
+    numero(trato.Imp_Pendiente) !== null ? `pendiente ${eurosDe(numero(trato.Imp_Pendiente))}` : "",
+  ].filter(Boolean);
+  items.push(
+    cobro.length > 0
+      ? { texto: "Condiciones de cobro", estado: "si", detalle: cobro.join(" · ") }
+      : { texto: "Condiciones de cobro", estado: aceptado ? "no" : "na", detalle: aceptado ? "aceptada y sin forma de cobro ni depósito" : "todavía sin rellenar" },
+  );
+
+  items.push(
+    lineas.length > 0
+      ? {
+          texto: "Presupuesto línea a línea («Servicios Contratados»)",
+          estado: "si",
+          detalle: `${lineas.length} ${lineas.length === 1 ? "línea" : "líneas"} en ${numeros.size} ${numeros.size === 1 ? "presupuesto" : "presupuestos"}`,
+        }
+      : {
+          texto: "Presupuesto línea a línea («Servicios Contratados»)",
+          estado: aceptado ? "no" : "na",
+          detalle: aceptado
+            ? "VACÍO: el trato está aceptado pero el CRM no tiene los servicios del presupuesto"
+            : "vacío: todavía no se ha cargado ningún presupuesto en el CRM",
+        },
+  );
+
+  if (aceptado) {
+    const n = entero(trato.N_Presupuesto_Subformulario);
+    items.push(
+      lineas.length > 0 && n !== null
+        ? { texto: "Cuál de los presupuestos aceptó el cliente", estado: "si", detalle: `el nº ${n}` }
+        : { texto: "Cuál de los presupuestos aceptó el cliente", estado: "no", detalle: "no se sabe: sin servicios cargados no hay presupuesto que señalar" },
+    );
+  }
+
+  const enlace = texto(trato.Presupuesto_Sugerido);
+  items.push(
+    enlace
+      ? { texto: "Documento del presupuesto (enlace a Zoho Books)", estado: "si", detalle: texto(trato.ID_Presupuesto_Sugerido) || "enlazado", enlace }
+      : {
+          texto: "Documento del presupuesto (enlace a Zoho Books)",
+          estado: aceptado ? "no" : "na",
+          // En Zoho el campo se llama «Presupuesto (Enlace Books)»; la API lo expone como Presupuesto_Sugerido.
+          detalle: "el campo «Presupuesto (Enlace Books)» está vacío: el CRM no apunta a ningún documento",
+        },
+  );
+
+  const proveedores = texto(trato.Proveedores);
+  items.push(
+    proveedores
+      ? { texto: "Proveedores", estado: "si", detalle: proveedores }
+      : { texto: "Proveedores", estado: "na", detalle: "ninguno enlazado" },
+  );
+
+  const libre = texto(trato.Opciones_de_Presupuesto) || texto(trato.Description);
+  items.push(
+    libre
+      ? { texto: "Texto de opciones o descripción", estado: "si", detalle: `${libre.length} caracteres` }
+      : { texto: "Texto de opciones o descripción", estado: "na", detalle: "vacío" },
+  );
+
+  items.push({
+    texto: "Archivos adjuntos, notas, correos e historial de fases",
+    estado: "aviso",
+    detalle: "la app no puede leerlos con el permiso que tiene hoy en Zoho: están en la ficha del trato en Zoho",
+  });
+  return items;
+}
+
+// ── Todos los campos con valor ───────────────────────────────────────────────
+
+export interface EtiquetaDeCampo {
+  etiqueta: string;
+  /** El `data_type` de Zoho: currency, date, datetime, boolean, lookup… */
+  tipo: string;
+}
+export type EtiquetasDeCampos = Record<string, EtiquetaDeCampo>;
+
+export interface CampoRelleno {
+  etiqueta: string;
+  valor: string;
+}
+export interface GrupoDeCampos {
+  titulo: string;
+  campos: CampoRelleno[];
+}
+export interface CamposDelTrato {
+  grupos: GrupoDeCampos[];
+  /** Los nombres de los campos que existen pero están vacíos. */
+  vacios: string[];
+  /** Cuántos campos tienen valor. */
+  rellenos: number;
+}
+
+/** Campos de sistema o duplicados: no dicen nada a quien mira la ficha. */
+const CAMPOS_DE_SISTEMA = new Set([
+  "id", "Locked__s", "Record_Status__s", "Change_Log_Time__s", "Exchange_Rate", "Currency", "Tag",
+  "Servicios_Contratados", "Territory", "Lead_Conversion_Time", "leadchain0__Social_Lead_ID",
+]);
+/** Solo para administradores. */
+const CAMPOS_DE_ECONOMIA = new Set(["Costes_Totales_Presupuesto_Aceptado", "Margen_Beneficio_Presupuesto_Aceptado", "Coste_por_viajero"]);
+
+const GRUPOS: { titulo: string; campos: string[] }[] = [
+  {
+    titulo: "El viaje",
+    campos: [
+      "Deal_Name", "Account_Name", "Contact_Name", "Contacto_grupo", "Departamento", "Idioma", "Fecha_llegada_actividad",
+      "Fecha_salida_actividad", "N_mero_de_personas", "Profesor_entrenador", "Edad_participantes", "Choferes_extras",
+      "Pa_s_de_Destino", "Proveedores", "Nro_de_Oportunidad", "Localizador_Dispongo",
+    ],
+  },
+  {
+    titulo: "Cobro y presupuesto",
+    campos: [
+      "Amount", "Forma_de_Cobro", "Tipo_de_Pago", "Importe_Dep_sito_New", "Importe_por_Viajero", "Imp_Pendiente", "Deposito_Cobrado",
+      "Cobrado_al_100", "Actualizar_Importe_Deposito", "Fecha_de_Reserva", "Total_Servicios_Contratados_Presupuesto",
+      "N_Presupuesto_Subformulario", "Presupuesto_Sugerido", "ID_Presupuesto_Sugerido", "Costes_Totales_Presupuesto_Aceptado",
+      "Margen_Beneficio_Presupuesto_Aceptado", "Coste_por_viajero",
+    ],
+  },
+  {
+    titulo: "Fase y fechas",
+    campos: [
+      "Stage", "Closing_Date", "Stage_Modified_Time", "Created_Time", "Modified_Time", "Last_Activity_Time", "Fecha",
+      "Fecha_Proximo_Contacto", "Overall_Sales_Duration", "Sales_Cycle_Duration", "Conversi_n_Prediction", "Fase_update", "Ultimo_Refresco",
+    ],
+  },
+  { titulo: "Quién", campos: ["Owner", "Created_By", "Modified_By"] },
+];
+
+function fechaLegible(t: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/.exec(t);
+  if (!m) return t;
+  return `${m[3]}/${m[2]}/${m[1]}${m[4] ? ` ${m[4]}:${m[5]}` : ""}`;
+}
+
+function valorDeCampo(bruto: unknown, tipo: string): string {
+  if (typeof bruto === "boolean") return bruto ? "Sí" : "No";
+  const t = texto(bruto);
+  if (t === "") return "";
+  if (tipo === "currency" && numero(bruto) !== null) return eurosDe(numero(bruto));
+  if (tipo === "percent" && numero(bruto) !== null) return `${numero(bruto)} %`;
+  // Importes que Zoho guarda como «decimal» (PVP por viajero, pendiente…): 4667.8 → 4.667,80
+  if (typeof bruto === "number" && !Number.isInteger(bruto)) return EUROS.format(bruto);
+  if (tipo === "date" || tipo === "datetime" || /^\d{4}-\d{2}-\d{2}/.test(t)) return fechaLegible(t);
+  return sinEntidades(t);
+}
+
+function etiquetaDe(api: string, etiquetas: EtiquetasDeCampos): string {
+  return etiquetas[api]?.etiqueta || api.replace(/_/g, " ").trim();
+}
+
+/**
+ * TODO lo que el trato tiene en Zoho, con los nombres que ven allí, agrupado, más la
+ * lista de lo que existe pero está vacío. Los costes y márgenes solo con `verEconomia`.
+ */
+export function camposDelTratoConValor(
+  trato: TratoCrudo,
+  etiquetas: EtiquetasDeCampos = {},
+  opciones: { verEconomia: boolean } = { verEconomia: false },
+): CamposDelTrato {
+  const visible = (api: string) => !api.startsWith("$") && !CAMPOS_DE_SISTEMA.has(api) && (opciones.verEconomia || !CAMPOS_DE_ECONOMIA.has(api));
+  const claves = Object.keys(trato).filter(visible);
+  const lleno = (api: string) => valorDeCampo(trato[api], etiquetas[api]?.tipo ?? "") !== "";
+
+  const yaUsados = new Set<string>();
+  const grupos: GrupoDeCampos[] = [];
+  const ordenar = (lista: string[], base: string[]) => [...lista].sort((a, b) => base.indexOf(a) - base.indexOf(b));
+  for (const g of GRUPOS) {
+    const presentes = ordenar(
+      g.campos.filter((api) => claves.includes(api) && lleno(api)),
+      g.campos,
+    );
+    presentes.forEach((api) => yaUsados.add(api));
+    if (presentes.length) {
+      grupos.push({
+        titulo: g.titulo,
+        campos: presentes.map((api) => ({ etiqueta: etiquetaDe(api, etiquetas), valor: valorDeCampo(trato[api], etiquetas[api]?.tipo ?? "") })),
+      });
+    }
+  }
+  const otros = claves.filter((api) => !yaUsados.has(api) && lleno(api));
+  if (otros.length) {
+    grupos.push({
+      titulo: "Otros datos",
+      campos: otros.map((api) => ({ etiqueta: etiquetaDe(api, etiquetas), valor: valorDeCampo(trato[api], etiquetas[api]?.tipo ?? "") })),
+    });
+  }
+  const vacios = claves.filter((api) => !lleno(api)).map((api) => etiquetaDe(api, etiquetas));
+  // «Servicios Contratados» es de sistema para el listado, pero que esté vacío es lo que más importa saber.
+  if (!Array.isArray(trato.Servicios_Contratados) || trato.Servicios_Contratados.length === 0) vacios.unshift(etiquetaDe("Servicios_Contratados", etiquetas));
+  return { grupos, vacios, rellenos: grupos.reduce((t, g) => t + g.campos.length, 0) };
+}
+
 // ── Todo junto ───────────────────────────────────────────────────────────────
 
-export function fichaDelCrm(trato: TratoCrudo, opciones: { verEconomia: boolean } = { verEconomia: false }): FichaDelCrm {
+export interface FichaDelCrmCompleta extends FichaDelCrm {
+  inventario: ItemDeInventario[];
+  campos: CamposDelTrato;
+}
+
+export function fichaDelCrm(
+  trato: TratoCrudo,
+  opciones: { verEconomia: boolean } = { verEconomia: false },
+  etiquetas: EtiquetasDeCampos = {},
+): FichaDelCrmCompleta {
   const libre = texto(trato.Opciones_de_Presupuesto) || texto(trato.Description);
   return {
     presupuestos: presupuestosDelTrato(trato, opciones),
@@ -261,18 +540,7 @@ export function fichaDelCrm(trato: TratoCrudo, opciones: { verEconomia: boolean 
     textoLibre: sinEntidades(libre),
     motivoDePerdida: texto(trato.Motivo_de_p_rdida),
     economiaVisible: opciones.verEconomia,
+    inventario: inventarioDelTrato(trato),
+    campos: camposDelTratoConValor(trato, etiquetas, opciones),
   };
 }
-
-/** Los campos de Zoho que hay que pedir para montar la ficha. */
-export const CAMPOS_PARA_LA_FICHA = [
-  "Deal_Name", "Stage", "Account_Name", "Contact_Name", "Contacto_grupo", "Departamento", "Idioma",
-  "Fecha_llegada_actividad", "Fecha_salida_actividad", "Closing_Date", "N_mero_de_personas", "Profesor_entrenador",
-  "Edad_participantes", "Amount", "Forma_de_Cobro", "Importe_Dep_sito_New", "Tipo_de_Pago", "Owner",
-  "Servicios_Contratados", "N_Presupuesto_Subformulario", "Costes_Totales_Presupuesto_Aceptado",
-  "Margen_Beneficio_Presupuesto_Aceptado", "Total_Servicios_Contratados_Presupuesto", "Importe_por_Viajero",
-  "Coste_por_viajero", "Imp_Pendiente", "Deposito_Cobrado", "Cobrado_al_100", "Fecha_de_Reserva",
-  "Presupuesto_Sugerido", "ID_Presupuesto_Sugerido", "Motivo_de_p_rdida", "Opciones_de_Presupuesto", "Description",
-  "Created_Time", "Modified_Time", "Created_By", "Modified_By", "Stage_Modified_Time", "Last_Activity_Time",
-  "Fecha_Proximo_Contacto", "Fecha",
-] as const;

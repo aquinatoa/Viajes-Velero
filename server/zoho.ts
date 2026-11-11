@@ -1,5 +1,4 @@
 ﻿import { CAMPOS_QUE_SE_PIDEN } from "./camposDelTrato";
-import { CAMPOS_PARA_LA_FICHA } from "../src/domain/fichaDelCrm";
 import "./loadEnv";
 import { departamentoDesdeCrm, type DepartamentoDelTrato } from "./tratosPorDepartamento";
 // El embudo vive en `crmPipeline`, que a su vez importa de aquí dos funciones.
@@ -1111,13 +1110,14 @@ export async function getZohoDealDetalle(dealId: string): Promise<Record<string,
 }
 
 /**
- * El trato con todo lo que la ficha de Oportunidades enseña: los campos del viaje
- * y del cobro, el subformulario «Servicios Contratados» (los presupuestos, línea
- * a línea) y las fechas del propio trato. Solo LEE.
+ * El trato ENTERO tal cual está en Zoho (todos sus campos, también el subformulario
+ * «Servicios Contratados»). La ficha de Oportunidades tiene que enseñar lo que de
+ * verdad hay, no una selección: con una lista fija se perdían Proveedores, el nº de
+ * oportunidad o el país (Anthony, 11/11/2026). Solo LEE.
  */
 export async function getZohoDealParaFicha(dealId: string): Promise<Record<string, unknown> | null> {
   const result = await zohoRequest<ZohoRecordResponse<Record<string, unknown>>>(
-    `${zohoConfig.dealsModule}/${dealId}?fields=${CAMPOS_PARA_LA_FICHA.join(",")}`,
+    `${zohoConfig.dealsModule}/${dealId}`,
     { method: "GET" },
   );
   return result.data?.[0] ?? null;

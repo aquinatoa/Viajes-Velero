@@ -14347,3 +14347,24 @@ button.hilo__adjunto:hover {
 .opx-campos dt { color: var(--muted); font-size: 11.5px; }
 .opx-campos dd { margin: 0; overflow-wrap: anywhere; }
 .opx-campos .is-vacio dd { color: var(--muted); font-style: italic; }
+
+/* ── Oportunidades · qué tiene y qué no tiene el trato en el CRM ── */
+.opx-inv { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px 14px; }
+.opx-inv h4 { margin: 0 0 8px; font-size: 14.5px; }
+.opx-inv ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.opx-inv li { display: grid; grid-template-columns: 26px 1fr; gap: 8px; align-items: start; padding: 6px 8px; border-radius: var(--radius); }
+.opx-inv__marca { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-weight: 700; font-size: 13px; background: var(--surface-2); color: var(--muted); }
+.opx-inv__txt { display: grid; gap: 1px; }
+.opx-inv__txt b { font-weight: 600; }
+.opx-inv__txt small { color: var(--muted); font-size: 12.5px; }
+.opx-inv li.is-si .opx-inv__marca { background: rgba(15, 118, 110, 0.14); color: #0b5a54; }
+.opx-inv li.is-no { background: rgba(178, 58, 72, 0.07); }
+.opx-inv li.is-no .opx-inv__marca { background: rgba(178, 58, 72, 0.18); color: #8f2a38; }
+.opx-inv li.is-no .opx-inv__txt small { color: #8f2a38; font-weight: 500; }
+.opx-inv li.is-aviso .opx-inv__marca { background: rgba(196, 138, 20, 0.2); color: #7a5410; }
+.opx-aceptado.is-sin-detalle { background: var(--surface-2); border-color: var(--border); border-left-color: rgba(var(--c), 0.6); }
+.opx-aceptado.is-sin-detalle h4 .opx-muted { font-weight: 400; font-size: 12.5px; }
+.opx-campos-wrap h4 { margin: 0 0 6px; font-size: 14.5px; }
+.opx-campos-grupo + .opx-campos-grupo { margin-top: 8px; }
+.opx-campos-grupo h5 { margin: 10px 0 2px; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.opx-vacios { margin: 12px 0 0; padding-top: 10px; border-top: 1px dashed var(--border); color: var(--muted); font-size: 12.5px; line-height: 1.5; }

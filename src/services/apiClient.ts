@@ -359,21 +359,13 @@ export function listarOportunidadesApi(rango?: { desde: string; hasta: string })
   }>(`/api/oportunidades${consulta}`, "No se pudieron cargar las oportunidades.");
 }
 
-/** Un campo del trato de Zoho, relleno o vacío (lo vacío también se enseña). */
-export interface CampoDelCrm {
-  etiqueta: string;
-  valor: string;
-  loPoneLaApp: boolean;
-  nota?: string;
-}
-
 /**
- * Lo que el CRM sabe de una oportunidad: sus campos, los presupuestos que se
- * enviaron (línea a línea) y cuál aceptó el cliente, y las fechas del trato.
- * Los costes y márgenes solo llegan a los administradores.
+ * Lo que el CRM sabe de una oportunidad: qué tiene y qué no, todos sus campos con
+ * valor, los presupuestos que se enviaron (línea a línea) y cuál aceptó el cliente, y
+ * las fechas del trato. Los costes y márgenes solo llegan a los administradores.
  */
 export function fichaDelCrmApi(dealId: string) {
-  return getJson<{ campos: CampoDelCrm[]; ficha: import("../domain/fichaDelCrm").FichaDelCrm }>(
+  return getJson<{ ficha: import("../domain/fichaDelCrm").FichaDelCrmCompleta }>(
     `/api/oportunidades/${encodeURIComponent(dealId)}/crm`,
     "No se pudo leer la oportunidad en el CRM.",
   );
