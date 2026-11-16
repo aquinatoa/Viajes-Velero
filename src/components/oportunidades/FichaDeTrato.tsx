@@ -34,7 +34,7 @@ const DEPARTAMENTOS: Record<string, string> = { GROUPS: "Groups", SPORTS: "Sport
 type Carpeta = "presupuesto" | "actividad" | "archivos" | "campos";
 
 /** Una de las cinco cajas de la cabecera: en rojo lo que falta o está vencido, en verde lo que va bien. */
-function Caja({ rotulo, valor, nota, tono = "" }: { rotulo: string; valor: ReactNode; nota?: ReactNode; tono?: "" | "mal" | "bien" }) {
+export function Caja({ rotulo, valor, nota, tono = "" }: { rotulo: string; valor: ReactNode; nota?: ReactNode; tono?: "" | "mal" | "bien" }) {
   return (
     <div className={`opc-caja${tono ? ` is-${tono}` : ""}`}>
       <small>{rotulo}</small>
@@ -45,7 +45,7 @@ function Caja({ rotulo, valor, nota, tono = "" }: { rotulo: string; valor: React
 }
 
 /** Un bloque con peso: color propio, letra y título, y dentro lo importante en grande. */
-function Bloque({ letra, color, titulo, extra, children }: { letra: string; color: string; titulo: string; extra?: ReactNode; children: ReactNode }) {
+export function Bloque({ letra, color, titulo, extra, children }: { letra: string; color: string; titulo: string; extra?: ReactNode; children: ReactNode }) {
   return (
     <section className="opc-bloque" style={{ "--b": color } as CSSProperties}>
       <header>
@@ -60,7 +60,7 @@ function Bloque({ letra, color, titulo, extra, children }: { letra: string; colo
   );
 }
 
-function Par({ rotulo, children }: { rotulo: string; children: ReactNode }) {
+export function Par({ rotulo, children }: { rotulo: string; children: ReactNode }) {
   if (children === null || children === undefined || children === "" || children === false) return null;
   return (
     <>

@@ -14408,6 +14408,18 @@ button.hilo__adjunto:hover {
 .opc-serv tfoot td { font-weight: 700; background: var(--surface-2); border-bottom: 0; }
 .opc-carp__c { flex: 1; min-width: 0; padding: 16px 20px; overflow: auto; }
 .opc-carp__h { margin: 20px 0 6px; font-size: 14px; }
+/* La misma ficha para las propuestas hechas en la app (16/11/2026): no trae el color
+   de la fase del CRM en la cabecera, y a «lo siguiente» le acompañan la conversación y «Más ⋯». */
+.opc--app .opc-cab { border-top-color: var(--highlight); border-top: 6px solid var(--highlight); }
+.opc--app .opc-fase { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.opc--app .opc-sig { max-width: 720px; }
+.opc-sig__b { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.opc-renombrar { border: 1px solid rgba(255, 255, 255, 0.35); background: none; color: rgba(255, 255, 255, 0.85); border-radius: 999px; padding: 2px 10px; font: 500 12px/1.5 "IBM Plex Sans", sans-serif; cursor: pointer; }
+.opc-renombrar:hover { background: rgba(255, 255, 255, 0.12); }
+.opc-cab__aviso { margin: 6px 0 0; color: #ffc9ce; font-size: 13px; }
+.opc-moverd > summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+.opc-moverd .opc-mover { grid-template-columns: minmax(0, 520px); margin-top: 10px; }
+.opc-carp__c .ficha__ops { margin-top: 0; }
 @media (max-width: 1250px) {
   .opc-cab, .opc-cuerpo { grid-template-columns: minmax(0, 1fr); }
   .opc-cajas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
