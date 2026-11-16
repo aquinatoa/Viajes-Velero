@@ -14392,6 +14392,20 @@ button.hilo__adjunto:hover {
 .opc-carp > nav button { display: flex; justify-content: space-between; gap: 10px; border: 0; background: none; text-align: left; padding: 9px 12px; border-radius: 9px; font: inherit; font-weight: 600; color: var(--ink-2); cursor: pointer; }
 .opc-carp > nav button b { font-weight: 600; color: var(--muted); }
 .opc-carp > nav button.is { background: #fff; color: var(--brand); box-shadow: var(--shadow-panel); }
+/* Sin el recuadro del foco al pulsar: parecía un marco superpuesto sobre la carpeta (16/11/2026).
+   Con el teclado se sigue viendo dónde está el foco, pero por dentro y fino. */
+.opc-carp > nav button:focus, .opc-carp > nav button:focus-visible { outline: none; }
+.opc-carp > nav button:focus-visible:not(.is) { background: rgba(255, 255, 255, 0.6); }
+/* El subformulario «Servicios Contratados», como en la ficha del trato en Zoho. */
+.opc-serv h4 { margin: 0 0 10px; font-size: 15px; }
+.opc-serv__wrap { border: 1px solid var(--border); border-radius: var(--radius); overflow: auto; }
+.opc-serv table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.opc-serv th { text-align: left; padding: 9px 10px; background: var(--surface-2); border-bottom: 2px solid var(--border-strong); font-size: 11.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.opc-serv td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.opc-serv .is-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.opc-serv tr.is-aceptado td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
+.opc-serv__vacia td { text-align: center; color: var(--muted); padding: 26px 10px; border-bottom: 0; }
+.opc-serv tfoot td { font-weight: 700; background: var(--surface-2); border-bottom: 0; }
 .opc-carp__c { flex: 1; min-width: 0; padding: 16px 20px; overflow: auto; }
 .opc-carp__h { margin: 20px 0 6px; font-size: 14px; }
 @media (max-width: 1250px) {
