@@ -17,6 +17,7 @@ import {
   getZohoAuthUrl,
   getZohoDealDetalle,
   getZohoDealParaFicha,
+  leerClienteDelTrato,
   leerListaDelTrato,
   descargarAdjuntoDelTrato,
   getZohoDealStages,
@@ -139,6 +140,7 @@ import { historialDeFase, registrarCambioDeFase } from "./cambiosDeFase";
 import { moverDeFase } from "./moverFase";
 import { etiquetasDelTrato } from "./etiquetasDelCrm";
 import { fichaDelCrm } from "../src/domain/fichaDelCrm";
+import { contactoDelCliente, cuentaDelCliente, tratosDeLaCuenta } from "../src/domain/clienteDelTrato";
 import { departamentoDesdeCrm, tratosVisiblesPara } from "./tratosPorDepartamento";
 import { extractDocumentText, isNativelyReadable } from "./documentTextExtraction";
 import { analyzeDocumentText, AiAnalysisError } from "./aiDocumentAnalysis";
@@ -664,6 +666,34 @@ app.get("/api/oportunidades/:dealId/historial-crm", requireAuth, async (request,
     response.json({ listas });
   } catch (error) {
     crmErrorResponse(error, response, "No se pudo leer el historial del trato en el CRM.");
+  }
+});
+
+/**
+ * Quién es el cliente de la oportunidad: su cuenta y su contacto en el CRM, y
+ * cuántas oportunidades tiene esa cuenta (16/11/2026). Solo lectura, y con la
+ * misma comprobación de departamento que la ficha.
+ */
+app.get("/api/oportunidades/:dealId/cliente", requireAuth, async (request, response) => {
+  try {
+    const user = (request as AuthedRequest).user;
+    const trato = await getZohoDealParaFicha(String(request.params.dealId));
+    const visible =
+      trato && (!user || tratosVisiblesPara(user, [{ department: departamentoDesdeCrm(trato.Departamento) }]).length > 0);
+    if (!trato || !visible) {
+      response.status(404).json({ error: "Esa oportunidad no existe o no es de tu departamento." });
+      return;
+    }
+    const leido = await leerClienteDelTrato(trato);
+    response.json({
+      cliente: {
+        contacto: contactoDelCliente(leido.contacto),
+        cuenta: cuentaDelCliente(leido.cuenta),
+        tratos: tratosDeLaCuenta(leido.porFase),
+      },
+    });
+  } catch (error) {
+    crmErrorResponse(error, response, "No se pudo leer el cliente de la oportunidad en el CRM.");
   }
 });
 

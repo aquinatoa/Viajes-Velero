@@ -87,8 +87,11 @@ export const sidebarSections: SidebarSection[] = [
         status: "active",
         defaultOpen: true,
         children: [
-          { id: "oportunidades-lista", label: "Lista", route: "/oportunidades", permissions: COMMERCIAL },
+          { id: "oportunidades-lista", label: "Lista y kanban", route: "/oportunidades", permissions: COMMERCIAL },
           { id: "oportunidades-calendario", label: "Calendario", route: "/oportunidades/calendario", permissions: COMMERCIAL },
+          // Las cifras del periodo (estados, avisos, carga por mes) tienen su sitio:
+          // en el listado quitaban media pantalla (Anthony, 16/11/2026).
+          { id: "oportunidades-resumen", label: "Resumen", route: "/oportunidades/resumen", permissions: COMMERCIAL },
         ],
       },
     ],

@@ -14154,7 +14154,7 @@ button.hilo__adjunto:hover {
 .opx-barra__m { font-size: 11.5px; font-weight: 600; text-transform: capitalize; }
 
 .opx-cuerpo { display: grid; grid-template-columns: minmax(430px, 490px) minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
-.opx-lista { max-height: calc(100vh - 360px); min-height: 420px; overflow: auto; display: grid; gap: var(--sp-2); align-content: start; padding: 2px 6px 6px 2px; }
+.opx-lista { max-height: calc(100vh - 280px); min-height: 420px; overflow: auto; display: grid; gap: var(--sp-2); align-content: start; padding: 2px 6px 6px 2px; }
 .opx-detalle { position: sticky; top: 72px; max-height: calc(100vh - 88px); overflow: auto; }
 .opx-vacia { padding: 24px; text-align: center; color: var(--muted); background: #fff; border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); }
 
@@ -14263,7 +14263,7 @@ button.hilo__adjunto:hover {
 .opx-opcion button.is { background: var(--brand); color: #fff; border-color: var(--brand); }
 
 /* Tabla y tablero. */
-.opx-tabla-wrap { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: auto; max-height: calc(100vh - 330px); box-shadow: var(--shadow-panel); }
+.opx-tabla-wrap { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: auto; max-height: calc(100vh - 230px); box-shadow: var(--shadow-panel); }
 .opx-tabla { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .opx-tabla thead th { position: sticky; top: 0; z-index: 2; background: var(--surface-2); text-align: left; padding: 0; border-bottom: 2px solid var(--border-strong); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); white-space: nowrap; }
 .opx-tabla thead th > button { display: block; width: 100%; padding: 10px 12px; border: 0; background: none; font: inherit; text-align: inherit; text-transform: inherit; letter-spacing: inherit; color: inherit; cursor: pointer; }
@@ -14274,13 +14274,155 @@ button.hilo__adjunto:hover {
 .opx-tabla tbody tr { cursor: pointer; box-shadow: inset 4px 0 0 rgb(var(--c)); }
 .opx-tabla tbody tr:hover { background: #fbfcfe; }
 .opx-tabla tbody tr.is { background: var(--brand-050); }
-.opx-t-nom b { display: block; font-weight: 600; }
+.opx-t-nom { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opx-t-nom b { font-weight: 600; margin-right: 6px; }
 .opx-t-nom small { color: var(--muted); }
+.opx-t-corta { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opx-t-fecha { white-space: nowrap; }
+.opx-tabla tbody tr.opx-tabla__vacia { cursor: default; box-shadow: none; }
+.opx-tabla__vacia td { text-align: center; color: var(--muted); padding: 28px; }
 .opx-t-imp { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.opx-tablero { display: grid; grid-auto-flow: column; grid-auto-columns: 272px; gap: var(--sp-3); overflow-x: auto; padding-bottom: 12px; align-items: start; }
-.opx-col { background: #e9eef5; border-radius: var(--radius-lg); padding: 8px; display: grid; gap: 8px; align-content: start; border-top: 4px solid rgb(var(--c)); max-height: calc(100vh - 340px); overflow-y: auto; }
-.opx-col > header { display: grid; padding: 4px 6px; }
-.opx-col > header span { color: var(--muted); font-size: 12.5px; }
+/* Kanban, a imagen del CRM (16/11/2026): la cabecera lleva el color de la fase,
+   cuántas hay y cuánto suman; solo se desplazan las tarjetas, la cabecera se queda. */
+.opx-tablero { display: grid; grid-auto-flow: column; grid-auto-columns: 286px; gap: var(--sp-3); overflow-x: auto; padding-bottom: 12px; align-items: start; }
+.opx-col { background: #e9eef5; border-radius: var(--radius-lg); display: flex; flex-direction: column; max-height: calc(100vh - 240px); overflow: hidden; }
+.opx-col > header { display: grid; gap: 2px; padding: 10px 12px; background: rgb(var(--c)); color: #fff; }
+.opx-col.opx-c-sin_enviar > header { color: #1a2233; }
+.opx-col__t { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.opx-col__t b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.opx-col__t i { font-style: normal; font-size: 11.5px; font-weight: 700; padding: 0 7px; border-radius: 999px; background: rgba(255, 255, 255, 0.4); }
+.opx-col__imp { font: 700 15px/1.2 "Space Grotesk", sans-serif; font-variant-numeric: tabular-nums; }
+.opx-col__lista { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-content: start; padding: 8px; overflow-y: auto; }
+.opx-tarjeta__meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+/* El texto de la tarjeta no se corta (Anthony, 16/11/2026). Las tarjetas son
+   botones y la regla general `button { white-space: nowrap }` impedía partir el
+   nombre: se salía de la tarjeta y el importe quedaba fuera. Ahora el nombre y la
+   cuenta bajan a otra línea, y el importe salta debajo de la fecha si no cabe. */
+.opx-tarjeta { white-space: normal; min-width: 0; }
+.opx-tarjeta b, .opx-tarjeta small { overflow-wrap: anywhere; }
+.opx-tarjeta .opx-tarjeta__pie { flex-wrap: wrap; }
+.opx-tarjeta .opx-tarjeta__pie > span { white-space: nowrap; }
+/* El filtro de fase, con cada fase en su color del CRM (16/11/2026). Es un
+   desplegable propio porque las opciones de un <select> no se pueden pintar. */
+.opx-fase { position: relative; }
+.opx-fase__btn { display: inline-flex; align-items: center; gap: 8px; height: 36px; min-width: 210px; padding: 0 10px 0 12px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: #fff; font: inherit; color: var(--ink); cursor: pointer; }
+.opx-fase__btn:hover { background: var(--surface-2); }
+.opx-fase__btn.is { border-color: var(--accent); }
+.opx-fase__flecha { margin-left: auto; color: var(--muted); font-size: 11px; }
+.opx-fase__menu { position: absolute; left: 0; top: calc(100% + 4px); z-index: 12; min-width: 100%; width: max-content; max-height: 60vh; overflow: auto; display: grid; gap: 1px; padding: 6px; background: #fff; border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-raised); }
+.opx-fase__menu > button { display: flex; align-items: center; gap: 12px; text-align: left; background: none; border: 0; padding: 7px 10px; border-radius: 6px; font: inherit; color: var(--ink); cursor: pointer; }
+.opx-fase__menu > button:hover, .opx-fase__menu > button:focus-visible { background: var(--surface-2); }
+.opx-fase__menu > button.is { background: var(--brand-050); }
+.opx-fase__menu em { margin-left: auto; padding-left: 16px; font-style: normal; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.opx-fase__todas { font-weight: 600; }
+
+/* ── Ficha de la oportunidad, diseño «C2» (16/11/2026) ──
+   Elegido por Anthony sobre maqueta: cabecera en el azul de la marca con cinco
+   cajas (rojo = falta o vencido, verde = va bien), barra de fases que se pulsa,
+   cuatro bloques con color propio y, a la derecha, las carpetas.
+   Prefijo opc- para no tropezar con la ficha anterior (opx-ficha). */
+.opc { display: grid; gap: var(--sp-3); }
+.opc-cab { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px 24px; align-items: center; padding: 20px 24px; border-radius: var(--radius-lg); background: var(--brand); color: #fff; border-top: 6px solid rgb(var(--c)); box-shadow: var(--shadow-panel); }
+.opc-cab__t p { margin: 0 0 2px; color: rgba(255, 255, 255, 0.72); font-size: 13px; }
+.opc-cab__t h3 { margin: 0; font-size: 28px; line-height: 1.12; color: #fff; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; overflow-wrap: anywhere; }
+.opc-fase { display: inline-block; padding: 3px 12px; border-radius: 999px; background: rgb(var(--c)); color: #fff; font: 700 12.5px/1.5 "IBM Plex Sans", sans-serif; white-space: nowrap; }
+.opc-sig { display: flex; gap: 16px; align-items: center; max-width: 540px; padding: 12px 14px 12px 16px; border-radius: 12px; background: #fffaf0; border: 1px solid rgba(252, 187, 55, 0.7); color: var(--ink); }
+.opc-sig small { display: block; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.opc-sig strong { display: block; font: 600 16px/1.25 "Space Grotesk", sans-serif; }
+.opc-sig span { display: block; font-size: 12.5px; color: var(--ink-2); }
+.opc-sig .opx-btn { height: 40px; white-space: nowrap; text-decoration: none; }
+.opc-cajas { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.opc-caja { display: grid; gap: 2px; align-content: start; padding: 12px 14px; border-radius: 12px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.16); }
+.opc-caja small { font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: rgba(255, 255, 255, 0.7); }
+.opc-caja strong { font: 700 18px/1.2 "Space Grotesk", sans-serif; overflow-wrap: anywhere; }
+.opc-caja span { font-size: 12.5px; color: rgba(255, 255, 255, 0.72); }
+.opc-caja.is-mal { background: rgba(255, 120, 130, 0.2); border-color: rgba(255, 140, 150, 0.5); }
+.opc-caja.is-mal strong, .opc-caja.is-mal span { color: #ffc9ce; }
+.opc-caja.is-bien { background: rgba(120, 230, 170, 0.16); border-color: rgba(140, 235, 180, 0.4); }
+.opc-caja.is-bien strong { color: #a8f0c6; }
+/* La barra de fases: se pulsa la de destino. */
+.opc-fases { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 24px 14px; box-shadow: var(--shadow-panel); display: grid; gap: 10px; }
+.opc-fases__t { display: flex; justify-content: space-between; gap: 12px; }
+.opc-fases__t small, .opc-fases__lat small { font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+.opc-fases ol { display: grid; grid-template-columns: repeat(var(--n, 6), minmax(0, 1fr)); gap: 5px; list-style: none; margin: 0; padding: 0; }
+.opc-fases li button { display: grid; gap: 7px; width: 100%; padding: 0; border: 0; background: none; text-align: left; font: inherit; font-size: 12px; color: var(--muted); white-space: normal; cursor: pointer; }
+.opc-fases li button:disabled { cursor: default; opacity: 1; }
+.opc-fases li i { display: block; height: 9px; border-radius: 5px; background: var(--border-strong); }
+.opc-fases li.is-hecho i { background: rgba(var(--c), 0.45); }
+.opc-fases li.is-hecho span::before { content: "✓ "; color: var(--ok); }
+.opc-fases li.is-actual i { background: rgb(var(--c)); box-shadow: 0 0 0 3px rgba(var(--c), 0.25); }
+.opc-fases li.is-actual span { color: var(--ink); font-weight: 700; }
+.opc-fases li button:not(:disabled):hover span, .opc-fases li button[aria-pressed="true"] span { color: var(--accent); text-decoration: underline; }
+.opc-fases li button[aria-pressed="true"] i { box-shadow: 0 0 0 2px var(--accent); }
+.opc-fases__lat { display: flex; gap: 8px; align-items: center; margin: 0; flex-wrap: wrap; }
+.opc-fases__lat .opx-atajo.is { background: var(--surface-2); font-weight: 600; }
+.opc-mover { display: grid; grid-template-columns: minmax(0, 520px) auto; gap: 12px; align-items: start; padding-top: 10px; border-top: 1px dashed var(--border-strong); }
+/* Bloques y carpetas. */
+.opc-cuerpo { display: grid; grid-template-columns: minmax(330px, 0.72fr) minmax(0, 1.5fr); gap: var(--sp-3); align-items: start; }
+.opc-bloques { display: grid; gap: var(--sp-3); }
+.opc-bloque { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-panel); overflow: hidden; }
+.opc-bloque > header { display: flex; gap: 10px; align-items: center; padding: 12px 18px; background: rgba(var(--b), 0.1); border-bottom: 1px solid rgba(var(--b), 0.25); }
+.opc-bloque > header h4 { margin: 0; font-size: 15px; }
+.opc-bloque > header small { margin-left: auto; color: var(--muted); }
+.opc-bloque__ic { width: 30px; height: 30px; border-radius: 9px; background: rgb(var(--b)); color: #fff; display: grid; place-items: center; font: 700 15px "Space Grotesk", sans-serif; }
+.opc-bloque__c { display: grid; gap: 12px; padding: 14px 18px 16px; }
+.opc-grande { margin: 0; font: 700 20px/1.2 "Space Grotesk", sans-serif; overflow-wrap: anywhere; }
+.opc-grande.is-mal { color: var(--danger); }
+.opc-dl { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 5px 12px; margin: 0; }
+.opc-dl:empty { display: none; }
+.opc-dl dt { color: var(--muted); }
+.opc-dl dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+.opc-sub { display: grid; gap: 8px; padding-top: 10px; border-top: 1px dashed var(--border-strong); }
+.opc-sub > small { font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+.opc-mini { display: flex; gap: 6px; flex-wrap: wrap; margin: 0; }
+.opc-mini i { font-style: normal; font-size: 12px; padding: 1px 9px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--ink-2); }
+.opc-opcion { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.opc-opcion.is { border-color: var(--ok); background: var(--ok-bg); }
+.opc-opcion small { display: block; color: var(--muted); }
+.opc-sello { margin-left: 8px; padding: 1px 9px; border-radius: 999px; background: var(--ok); color: #fff; font-size: 11px; font-weight: 700; }
+.opc-medidor { height: 10px; border-radius: 5px; background: var(--border-strong); overflow: hidden; }
+.opc-medidor i { display: block; height: 100%; background: var(--ok); }
+.opc-medidor__t { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); }
+.opc-aviso { margin: 0; padding: 8px 12px; border-radius: 9px; background: var(--danger-bg); color: var(--danger); font-weight: 600; font-size: 13px; }
+.opc-prov { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+.opc-prov:last-child { border-bottom: 0; }
+.opc-prov small { display: block; color: var(--muted); }
+.opc-carp { display: flex; min-height: 440px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-panel); overflow: hidden; }
+.opc-carp > nav { display: grid; align-content: start; gap: 2px; min-width: 200px; padding: 12px 8px; background: var(--brand-050); }
+.opc-carp > nav button { display: flex; justify-content: space-between; gap: 10px; border: 0; background: none; text-align: left; padding: 9px 12px; border-radius: 9px; font: inherit; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+.opc-carp > nav button b { font-weight: 600; color: var(--muted); }
+.opc-carp > nav button.is { background: #fff; color: var(--brand); box-shadow: var(--shadow-panel); }
+.opc-carp__c { flex: 1; min-width: 0; padding: 16px 20px; overflow: auto; }
+.opc-carp__h { margin: 20px 0 6px; font-size: 14px; }
+@media (max-width: 1250px) {
+  .opc-cab, .opc-cuerpo { grid-template-columns: minmax(0, 1fr); }
+  .opc-cajas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .opc-carp { flex-direction: column; }
+  .opc-carp > nav { display: flex; flex-wrap: wrap; min-width: 0; }
+}
+/* La ficha a pantalla completa. */
+.opx-pagina { display: grid; gap: var(--sp-3); }
+.opx-pagina__barra { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
+.opx-pagina__pos { margin-left: auto; color: var(--muted); font-size: 12.5px; }
+.opx-pagina__barra .opx-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+/* Barras de desplazamiento de Oportunidades (16/11/2026): no se esconden, se
+   afinan. Una píldora estrecha del azul de la marca, sin flechas ni carril, que
+   sube de tono al pasar el ratón por la zona y al cogerla. Mismo criterio que la
+   del menú lateral (.sb-nav), en claro. En Chromium mandan los pseudoelementos;
+   las propiedades estándar se dejan solo para los navegadores que no los tienen,
+   porque si se ponen las dos, Chromium ignora los pseudoelementos. */
+@supports selector(::-webkit-scrollbar) {
+  .opx ::-webkit-scrollbar { width: 10px; height: 10px; }
+  .opx ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+  .opx ::-webkit-scrollbar-track, .opx ::-webkit-scrollbar-corner { background: transparent; }
+  .opx ::-webkit-scrollbar-thumb { background-color: rgba(19, 46, 93, 0.18); border: 3px solid transparent; background-clip: padding-box; border-radius: 999px; min-height: 44px; min-width: 44px; }
+  .opx :hover::-webkit-scrollbar-thumb { background-color: rgba(19, 46, 93, 0.32); }
+  .opx ::-webkit-scrollbar-thumb:hover { background-color: rgba(19, 46, 93, 0.5); }
+  .opx ::-webkit-scrollbar-thumb:active { background-color: rgba(19, 46, 93, 0.64); }
+}
+@supports not selector(::-webkit-scrollbar) {
+  .opx * { scrollbar-width: thin; scrollbar-color: rgba(19, 46, 93, 0.3) transparent; }
+}
 .opx-tarjeta { display: grid; gap: 2px; text-align: left; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 9px 11px; box-shadow: var(--shadow-panel); font: inherit; color: inherit; cursor: pointer; }
 .opx-tarjeta:hover { box-shadow: var(--shadow-raised); }
 .opx-tarjeta.is { outline: 2px solid var(--brand); }
@@ -14309,6 +14451,37 @@ button.hilo__adjunto:hover {
 /* Puntos de color bajo cada estado: una fase del CRM = un punto con su color. */
 .opx-puntos { display: flex; gap: 4px; margin-top: 4px; }
 .opx-puntos i { width: 9px; height: 9px; border-radius: 50%; background: rgb(var(--c)); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12); }
+
+/* ── Oportunidades · listado compacto y sección «Resumen» (16/11/2026) ──
+   Las tarjetas de estado, los importes, las vistas rápidas y la carga por mes
+   ocupaban media pantalla encima del listado. Ahora viven en «Resumen»; en el
+   listado queda una tira de estados de una línea y una fila de filtros. */
+.opx-seg__sep { width: 1px; height: 18px; background: var(--border-strong); margin: 0 4px; }
+.opx-tira { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.opx-tira__e { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--border); border-radius: 999px; background: #fff; font: inherit; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+.opx-tira__e i { width: 9px; height: 9px; border-radius: 50%; background: rgb(var(--c)); }
+.opx-tira__e b { font-variant-numeric: tabular-nums; color: rgb(var(--ci)); }
+.opx-tira__e:hover { background: rgba(var(--c), 0.06); }
+.opx-tira__e.is { background: rgba(var(--c), 0.13); border-color: rgba(var(--c), 0.6); color: var(--ink); font-weight: 600; }
+.opx-tira__fin { margin-left: auto; display: inline-flex; gap: 10px; align-items: center; color: var(--muted); font-size: 12.5px; }
+.opx-enlace { border: 0; background: none; padding: 0; font: inherit; font-size: 12.5px; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.opx-chip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 4px 0 12px; border-radius: 999px; background: var(--brand-050); color: var(--brand); border: 1px solid var(--border-strong); font-size: 12.5px; font-weight: 600; }
+.opx-chip button { border: 0; background: none; cursor: pointer; color: inherit; font: inherit; padding: 0 6px; }
+.opx-filtros--compacto input[type="search"] { width: 300px; }
+.opx-panel { display: grid; gap: var(--sp-4); }
+.opx-panel__bloque { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px 20px; display: grid; gap: var(--sp-3); align-content: start; box-shadow: var(--shadow-panel); }
+.opx-panel__bloque h3 { margin: 0; font-size: 15px; }
+.opx-panel__nota { margin: 0; color: var(--muted); font-size: 12.5px; }
+.opx-panel__dos { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
+.opx-vgs { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--sp-2); }
+.opx-vgc { display: grid; gap: 2px; text-align: left; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); font: inherit; color: inherit; cursor: pointer; }
+.opx-vgc:hover { border-color: var(--accent); background: var(--brand-050); }
+.opx-vgc strong { font: 700 20px/1.1 "Space Grotesk", sans-serif; font-variant-numeric: tabular-nums; }
+.opx-vgc span { font-size: 12.5px; color: var(--ink-2); }
+.opx-barras--panel { min-height: 150px; }
+@media (max-width: 1250px) {
+  .opx-panel__dos { grid-template-columns: minmax(0, 1fr); }
+}
 
 /* Presupuesto aceptado */
 .opx-aceptado { display: grid; gap: 10px; padding: 14px 16px; background: rgba(var(--c), 0.07); border: 1px solid rgba(var(--c), 0.4); border-left: 5px solid rgb(var(--c)); border-radius: var(--radius-lg); }

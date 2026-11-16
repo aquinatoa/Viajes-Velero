@@ -283,7 +283,20 @@ export function App() {
       <main className="main-content">
         {currentPage === "home" ? (
           <OportunidadesPanel
-            view={currentPath.startsWith("/oportunidades/calendario") ? "calendar" : "list"}
+            view={
+              currentPath.startsWith("/oportunidades/calendario")
+                ? "calendar"
+                : currentPath.startsWith("/oportunidades/resumen")
+                  ? "summary"
+                  : currentPath.startsWith("/oportunidades/ficha/")
+                    ? "detail"
+                    : "list"
+            }
+            fichaClave={
+              currentPath.startsWith("/oportunidades/ficha/")
+                ? decodeURIComponent(currentPath.slice("/oportunidades/ficha/".length).split(/[?#]/)[0])
+                : null
+            }
             onNavigate={navigatePath}
             usuario={currentUser}
           />

@@ -24,12 +24,15 @@ export function MoverDeFase({
   fila,
   fasesDelCrm,
   opciones,
+  destino,
   onHecho,
   onError,
 }: {
   fila: Pick<OportunidadFila, "crmDealId" | "fase" | "carril">;
   /** Las fases que existen en Zoho (para el desplegable). */
   fasesDelCrm: string[];
+  /** La fase que se ha pulsado en la barra de fases de la ficha: llega ya elegida. */
+  destino?: string;
   /** Si la oportunidad tiene opciones en Zoho: cuántas y cuál está elegida. */
   opciones?: { total: number; elegida: number | null };
   onHecho: (mensaje: string) => void;
@@ -46,6 +49,11 @@ export function MoverDeFase({
     setMotivo("");
     setOpcion(opciones?.elegida ?? null);
   }, [fila.crmDealId, fila.fase, opciones?.elegida]);
+
+  // La fase pulsada en la barra de la ficha llega elegida; el motivo y el botón siguen siendo de aquí.
+  useEffect(() => {
+    if (destino && destino !== fila.fase) setNueva(destino);
+  }, [destino, fila.fase]);
 
   const lista = useMemo(() => {
     const conocidas: string[] = [...FASES_EN_ORDEN, ...FASES_LATERALES];

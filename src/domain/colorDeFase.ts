@@ -98,3 +98,29 @@ export const FASES_DEL_ESTADO: Record<EstadoDeOportunidad, string[]> = {
 export function faseDelColorDelEstado(estado: EstadoDeOportunidad): string {
   return FASES_DEL_ESTADO[estado][0];
 }
+
+/**
+ * El estado de la pantalla al que pertenece una fase, para darle color cuando el
+ * CRM no le pone ninguno (p. ej. «Nueva»). Null si la fase no está en ningún estado.
+ */
+export function estadoDeLaFase(fase: string | null | undefined): EstadoDeOportunidad | null {
+  const clave = claveDeFase(fase);
+  if (!clave) return null;
+  for (const [estado, fases] of Object.entries(FASES_DEL_ESTADO) as [EstadoDeOportunidad, string[]][]) {
+    if (fases.some((f) => claveDeFase(f) === clave)) return estado;
+  }
+  return null;
+}
+
+/**
+ * Las fases en el orden en que las tiene el CRM, para que el kanban y el filtro
+ * de fase salgan igual que allí. Las que el CRM no lista (una fase retirada, p.
+ * ej.) van al final, en el orden en que venían.
+ */
+export function enElOrdenDelCrm(fases: string[], ordenDelCrm: string[]): string[] {
+  const sitio = new Map(ordenDelCrm.map((nombre, i) => [claveDeFase(nombre), i]));
+  return fases
+    .map((nombre, i) => ({ nombre, puesto: sitio.get(claveDeFase(nombre)) ?? 1000 + i }))
+    .sort((a, b) => a.puesto - b.puesto)
+    .map((x) => x.nombre);
+}

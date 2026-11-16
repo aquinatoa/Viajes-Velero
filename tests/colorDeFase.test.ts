@@ -8,6 +8,8 @@ import assert from "node:assert/strict";
 import {
   FASES_DEL_ESTADO,
   claveDeFase,
+  enElOrdenDelCrm,
+  estadoDeLaFase,
   estiloDeFase,
   faseDelColorDelEstado,
   indexarColores,
@@ -98,6 +100,25 @@ prueba("cada estado de la pantalla toma el color de su fase principal", () => {
 prueba("las fases de cada estado no se repiten entre estados", () => {
   const todas = Object.values(FASES_DEL_ESTADO).flat();
   assert.equal(new Set(todas).size, todas.length);
+});
+
+prueba("una fase sabe a qué estado de la pantalla pertenece, aunque cambien tildes o mayúsculas", () => {
+  assert.equal(estadoDeLaFase("Nueva"), "sin_enviar");
+  assert.equal(estadoDeLaFase("pendiente de depósito"), "aceptada");
+  assert.equal(estadoDeLaFase("Oportunidad Perdida"), "perdida");
+  assert.equal(estadoDeLaFase("Fase que no existe"), null);
+  assert.equal(estadoDeLaFase(""), null);
+  assert.equal(estadoDeLaFase(null), null);
+});
+
+prueba("las fases salen en el orden del CRM y las que el CRM no lista van al final", () => {
+  const crm = ["Preparando Presupuesto", "Presupuesto Enviado", "Pendiente de deposito", "Oportunidad Ganada", "Pendiente de pago resto"];
+  assert.deepEqual(
+    enElOrdenDelCrm(["Nueva", "Pendiente de pago resto", "Oportunidad Ganada", "Preparando Presupuesto", "Otra rara"], crm),
+    ["Preparando Presupuesto", "Oportunidad Ganada", "Pendiente de pago resto", "Nueva", "Otra rara"],
+  );
+  assert.deepEqual(enElOrdenDelCrm(["B", "A"], []), ["B", "A"], "sin orden del CRM, se queda como venía");
+  assert.deepEqual(enElOrdenDelCrm(["presupuesto enviado"], crm), ["presupuesto enviado"], "no cambia cómo está escrita");
 });
 
 console.log(`\n${pasadas} pasadas, ${fallidas} fallidas`);

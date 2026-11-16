@@ -68,6 +68,7 @@ export interface TratoEntrada {
   closingDate: string;
   accountName: string;
   contactName: string;
+  ownerName?: string;
   description: string;
   opcionesTexto: string;
   createdTime?: string;
@@ -96,6 +97,8 @@ export interface OportunidadFila {
   nombre: string;
   cuenta: string;
   contacto: string;
+  /** El propietario del trato en el CRM. Null si aún no hay trato o Zoho no lo dice. */
+  propietario?: string | null;
   departamento: DepartamentoDeOportunidad;
   /** La fase del CRM. Null si la propuesta aún no tiene trato (se crea al enviar). */
   fase: string | null;
@@ -315,6 +318,7 @@ export function unirOportunidades(entrada: UnionEntrada): OportunidadFila[] {
       nombre: nombreDelViaje(principal),
       cuenta: trato?.accountName || principal.recipientName || "",
       contacto: trato?.contactName || principal.recipientEmail,
+      propietario: trato?.ownerName || null,
       departamento: principal.department ?? trato?.department ?? null,
       fase: trato?.stage || null,
       importe: trato?.amount ?? null,
@@ -366,6 +370,7 @@ export function unirOportunidades(entrada: UnionEntrada): OportunidadFila[] {
       nombre: trato.dealName || "(sin nombre)",
       cuenta: trato.accountName,
       contacto: trato.contactName,
+      propietario: trato.ownerName || null,
       departamento: trato.department,
       fase: trato.stage || null,
       importe: trato.amount,

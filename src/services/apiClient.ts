@@ -379,6 +379,14 @@ export function historialDelCrmApi(dealId: string) {
   );
 }
 
+/** La cuenta y el contacto del trato en Zoho, y cuántas oportunidades tiene esa cuenta. */
+export function clienteDelTratoApi(dealId: string) {
+  return getJson<{ cliente: import("../domain/clienteDelTrato").ClienteDelTrato }>(
+    `/api/oportunidades/${encodeURIComponent(dealId)}/cliente`,
+    "No se pudo leer el cliente de la oportunidad en el CRM.",
+  );
+}
+
 /**
  * Abre un archivo adjunto del trato. Se descarga con la sesión en la cabecera y se abre
  * desde memoria (como los PDF de propuesta): el token no acaba en la URL. Los PDF e

@@ -927,6 +927,8 @@ export type ZohoDealSummary = {
   closingDate: string;
   accountName: string;
   contactName: string;
+  /** El propietario del trato en el CRM. Vacío si Zoho no lo devuelve. */
+  ownerName?: string;
   description: string;
   nextStep: string;
   /** El detalle de las tres opciones, tal como se escribió en el CRM. */
@@ -956,6 +958,8 @@ const CAMPOS_DE_VIAJES = [
   // Las fechas del grupo. El calendario las sacaba del texto que escribe la
   // app, así que un trato hecho a mano en el CRM no salía (Javier, 08/10/2026).
   "Fecha_llegada_actividad", "Fecha_salida_actividad",
+  // El propietario: la lista de Oportunidades lo enseña en su columna, como el CRM (16/11/2026).
+  "Owner",
 ].join(",");
 
 /** Lista los tratos del módulo Deals (los más recientes primero). */
@@ -1012,6 +1016,7 @@ function resumenDeTrato(deal: Record<string, unknown>): ZohoDealSummary {
       closingDate: String(deal.Closing_Date ?? ""),
       accountName: lookupName(deal.Account_Name),
       contactName: lookupName(deal.Contact_Name),
+      ownerName: lookupName(deal.Owner),
       description: String(deal.Description ?? ""),
       // El detalle del presupuesto. Los tratos anteriores al 25/09/2026 lo
       // tienen dentro de la Descripción, así que se cae ahí cuando falta.
@@ -1173,6 +1178,56 @@ export async function leerListaDelTrato(dealId: string, lista: ListaDelTrato): P
   } catch (error) {
     return { lista, estado: "error", registros: [], detalle: error instanceof Error ? error.message : "No se pudo leer." };
   }
+}
+
+/**
+ * La cuenta y el contacto de un trato, y cuántos tratos tiene esa cuenta en cada
+ * fase (16/11/2026). Solo lectura. Cada lectura va por su cuenta: si una falla
+ * (permiso, registro borrado), devuelve null en ese hueco y la ficha enseña el resto.
+ */
+export async function leerClienteDelTrato(trato: Record<string, unknown>): Promise<{
+  contacto: Record<string, unknown> | null;
+  cuenta: Record<string, unknown> | null;
+  porFase: { fase: string; n: number }[] | null;
+}> {
+  const idDe = (v: unknown) => (v && typeof v === "object" && "id" in v ? String((v as { id: unknown }).id) : "");
+  const idContacto = idDe(trato.Contact_Name);
+  const idCuenta = idDe(trato.Account_Name);
+  const auth = await getAccessToken();
+  const cabeceras = { Authorization: `Zoho-oauthtoken ${auth.accessToken}` };
+  const registro = async (modulo: string, id: string): Promise<Record<string, unknown> | null> => {
+    if (!/^\d+$/.test(id)) return null;
+    try {
+      const r = await fetch(`${auth.apiDomain}/crm/v8/${modulo}/${id}`, { headers: cabeceras });
+      if (!r.ok || r.status === 204) return null;
+      const j = (await r.json().catch(() => ({}))) as { data?: Record<string, unknown>[] };
+      return j.data?.[0] ?? null;
+    } catch {
+      return null;
+    }
+  };
+  const contar = async (): Promise<{ fase: string; n: number }[] | null> => {
+    if (!/^\d+$/.test(idCuenta)) return null;
+    try {
+      const r = await fetch(`${auth.apiDomain}/crm/v8/coql`, {
+        method: "POST",
+        headers: { ...cabeceras, "Content-Type": "application/json" },
+        body: JSON.stringify({ select_query: `select Stage, COUNT(id) from ${zohoConfig.dealsModule} where Account_Name = ${idCuenta} group by Stage` }),
+      });
+      if (r.status === 204) return [];
+      if (!r.ok) return null;
+      const j = (await r.json().catch(() => ({}))) as { data?: Record<string, unknown>[] };
+      return (j.data ?? []).map((x) => ({ fase: String(x.Stage ?? ""), n: Number(x["COUNT(id)"] ?? 0) }));
+    } catch {
+      return null;
+    }
+  };
+  const [contacto, cuenta, porFase] = await Promise.all([
+    registro(zohoConfig.contactsModule, idContacto),
+    registro(zohoConfig.accountsModule, idCuenta),
+    contar(),
+  ]);
+  return { contacto, cuenta, porFase };
 }
 
 /** Un archivo adjunto de un trato, tal como lo guarda Zoho. Solo LEE. */
