@@ -283,8 +283,9 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
           {avisoNombre ? <p className="opc-cab__aviso">{avisoNombre}</p> : null}
         </div>
 
-        {/* Lo que hay que hacer AHORA y, a su lado, la conversación y el resto de acciones. */}
-        <div className="opc-sig">
+        {/* Lo que hay que hacer AHORA y, a su lado, la conversación y el resto de acciones.
+            El color sigue diciendo la urgencia, como en el aviso de antes. */}
+        <div className={`opc-sig opc-sig--${paso.urgencia}`}>
           <div>
             <small>Lo siguiente</small>
             <strong>{paso.titulo}</strong>
@@ -352,6 +353,22 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
           <Caja rotulo="Contacto" valor={ficha.contacto.email} nota={ficha.contacto.email ? "" : "sin correo"} tono={ficha.contacto.email ? "" : "mal"} />
         </div>
       </header>
+
+      {/* Lo que falta se sigue diciendo en una línea, como antes de cambiar el diseño. */}
+      {(() => {
+        const faltan = (
+          [
+            ["destino", ficha.viaje.destino],
+            ["fechas", ficha.viaje.dateFrom || ficha.viaje.dateTo],
+            ["participantes", ficha.viaje.participants],
+            ["profesores", ficha.viaje.teachers],
+            ["contacto", ficha.contacto.email],
+          ] as [string, unknown][]
+        )
+          .filter(([, v]) => !v)
+          .map(([k]) => k);
+        return faltan.length > 0 ? <p className="opx-faltan">Faltan datos: {faltan.join(", ")}.</p> : null;
+      })()}
 
       {/* El avance. Las fechas las sabe la app; la casilla en la que está la dice el CRM.
           El color de cada fase es el que tiene EN SU CRM; si no contesta, el nuestro. */}

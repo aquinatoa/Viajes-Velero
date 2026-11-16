@@ -14414,6 +14414,11 @@ button.hilo__adjunto:hover {
 .opc--app .opc-fase { background: rgba(255, 255, 255, 0.16); color: #fff; }
 .opc--app .opc-sig { max-width: 720px; }
 .opc-sig__b { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+/* La urgencia de «lo siguiente», con los mismos tres tonos que tenía el aviso de la ficha anterior. */
+.opc-sig--urgente { background: #fdecee; border-color: rgba(178, 58, 72, 0.55); }
+.opc-sig--urgente strong { color: var(--danger); }
+.opc-sig--hecho { background: #eaf6ef; border-color: rgba(31, 122, 77, 0.4); }
+.opc-sig--hecho strong { color: var(--ok); }
 .opc-renombrar { border: 1px solid rgba(255, 255, 255, 0.35); background: none; color: rgba(255, 255, 255, 0.85); border-radius: 999px; padding: 2px 10px; font: 500 12px/1.5 "IBM Plex Sans", sans-serif; cursor: pointer; }
 .opc-renombrar:hover { background: rgba(255, 255, 255, 0.12); }
 .opc-cab__aviso { margin: 6px 0 0; color: #ffc9ce; font-size: 13px; }
