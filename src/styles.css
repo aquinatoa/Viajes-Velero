@@ -14406,6 +14406,18 @@ button.hilo__adjunto:hover {
 .opc-serv tr.is-aceptado td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
 .opc-serv__vacia td { text-align: center; color: var(--muted); padding: 26px 10px; border-bottom: 0; }
 .opc-serv tfoot td { font-weight: 700; background: var(--surface-2); border-bottom: 0; }
+.opc-serv td small { display: block; color: var(--muted); font-size: 11.5px; }
+/* Lo contratado con cada proveedor: sus servicios con pasajeros, cantidad, precio y total. */
+.opc-provd { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.opc-provd > header { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.opc-provd > header small { color: var(--muted); }
+.opc-provd ul { list-style: none; margin: 0; padding: 0; }
+.opc-provd li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; border-bottom: 1px dashed var(--border); }
+.opc-provd li:last-child { border-bottom: 0; }
+.opc-provd li small { display: block; color: var(--muted); font-size: 12px; }
+.opc-provd li b { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.opc-provd--fuera { border-style: dashed; border-color: rgba(252, 187, 55, 0.8); }
+.opc-provd--fuera > header { background: var(--warn-bg); }
 .opc-carp__c { flex: 1; min-width: 0; padding: 16px 20px; overflow: auto; }
 .opc-carp__h { margin: 20px 0 6px; font-size: 14px; }
 /* La misma ficha para las propuestas hechas en la app (16/11/2026): no trae el color

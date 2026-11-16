@@ -9,6 +9,9 @@ import type { ProposalDelivery } from "../../services/apiClient";
 import { AvanceDeFase } from "../oportunidades/AvanceDeFase";
 import { MenuMas } from "../oportunidades/MenuMas";
 import { Bloque, Caja, Par } from "../oportunidades/FichaDeTrato";
+import { fichaDelCrmApi } from "../../services/apiClient";
+import type { FichaDelCrmCompleta } from "../../domain/fichaDelCrm";
+import { ProveedoresDeLaTabla, TablaDeServicios } from "../oportunidades/TablaDeServicios";
 
 /**
  * La ficha de un presupuesto: todo lo que hace falta para seguirlo.
@@ -40,6 +43,8 @@ export interface FichaPropuestaProps {
   onBorrada?: (resumen: string) => void;
   /** Algo más para la columna de la derecha (el panel de «Mover de fase»). */
   aside?: ReactNode;
+  /** El trato de Zoho de esta propuesta, si ya existe: de él se lee la tabla «Servicios Contratados». */
+  crmDealId?: string | null;
 }
 
 function fecha(iso: string | null): string {
@@ -63,9 +68,22 @@ function diasHasta(iso: string | null): number | null {
   return Math.ceil((t - Date.now()) / 86_400_000);
 }
 
-export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio, onBorrada, aside }: FichaPropuestaProps) {
+export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio, onBorrada, aside, crmDealId = null }: FichaPropuestaProps) {
   /** La carpeta abierta a la derecha de la ficha. */
-  const [carpeta, setCarpeta] = useState<"propuesta" | "crm">("propuesta");
+  const [carpeta, setCarpeta] = useState<"propuesta" | "servicios" | "crm">("propuesta");
+  /** Lo que el CRM tiene del trato: de aquí salen la tabla de servicios y lo contratado con cada proveedor. */
+  const [crmFicha, setCrmFicha] = useState<FichaDelCrmCompleta | null>(null);
+  useEffect(() => {
+    setCrmFicha(null);
+    if (!crmDealId) return;
+    let vivo = true;
+    fichaDelCrmApi(crmDealId)
+      .then((x) => vivo && setCrmFicha(x.ficha))
+      .catch(() => undefined);
+    return () => {
+      vivo = false;
+    };
+  }, [crmDealId]);
   const [ficha, setFicha] = useState<FichaPresupuesto | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
@@ -468,27 +486,50 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
           <Bloque letra="P" color="216, 148, 18" titulo="Proveedores">
             {(() => {
               const vistas = ficha.opciones.filter((o) => o.elegida || !ficha.elegida);
-              const nombres = [...new Set(vistas.map((o) => o.alojamiento).filter(Boolean))];
-              const actividades = [...new Set(vistas.flatMap((o) => o.actividades.map((a) => a.nombre)))];
-              if (nombres.length === 0 && actividades.length === 0) return <p className="opx-muted">Sin alojamientos ni actividades en la propuesta.</p>;
+              const enLaTabla = (crmFicha?.presupuestos ?? []).flatMap((x) => x.lineas);
+              const texto = enLaTabla.map((x) => `${x.servicio} ${x.proveedor} ${x.comentarios}`.toLowerCase()).join(" | ");
+              // Lo de la propuesta que NO está en la tabla del CRM: se enseña, para que no parezca que no existe.
+              const fuera = vistas.flatMap((o) => o.actividades.map((a) => ({ ...a, opcion: o.optionNumber }))).filter((a) => !texto.includes(a.nombre.toLowerCase()));
+              const alojamientos = enLaTabla.length === 0 ? vistas : [];
+              if (enLaTabla.length === 0 && alojamientos.length === 0 && fuera.length === 0) return <p className="opx-muted">Sin alojamientos ni actividades en la propuesta.</p>;
               return (
                 <>
-                  {nombres.map((nombre) => (
-                    <div key={nombre} className="opc-prov">
-                      <div>
-                        <b>{nombre}</b>
-                        <small>Alojamiento</small>
-                      </div>
+                  {enLaTabla.length > 0 ? <ProveedoresDeLaTabla presupuestos={crmFicha?.presupuestos ?? []} vacio="" /> : null}
+                  {alojamientos.map((o) => (
+                    <div key={o.optionNumber} className="opc-provd">
+                      <header>
+                        <b>{o.alojamiento}</b>
+                        <b>{o.totalPvpText}</b>
+                      </header>
+                      <ul>
+                        <li>
+                          <span>
+                            Alojamiento · opción {o.optionNumber}
+                            <small>{[o.regimen, o.noches ? `${o.noches} noches` : null, o.desglose].filter(Boolean).join(" · ")}</small>
+                          </span>
+                        </li>
+                      </ul>
                     </div>
                   ))}
-                  {actividades.map((nombre) => (
-                    <div key={nombre} className="opc-prov">
-                      <div>
-                        <b>{nombre}</b>
-                        <small>Actividad</small>
-                      </div>
+                  {fuera.length > 0 ? (
+                    <div className="opc-provd opc-provd--fuera">
+                      <header>
+                        <b>Actividades de la propuesta</b>
+                        <small>{crmDealId ? "no están en la tabla del CRM" : "aún sin oportunidad en el CRM"}</small>
+                      </header>
+                      <ul>
+                        {fuera.map((a, i) => (
+                          <li key={`${a.opcion}-${i}`}>
+                            <span>
+                              {a.nombre}
+                              {ficha.elegida ? null : <small>opción {a.opcion}</small>}
+                            </span>
+                            <b>{a.precio}</b>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                  ))}
+                  ) : null}
                 </>
               );
             })()}
@@ -499,6 +540,9 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
           <nav role="tablist" aria-label="Carpetas">
             <button type="button" role="tab" aria-selected={carpeta === "propuesta"} className={carpeta === "propuesta" ? "is" : ""} onClick={() => setCarpeta("propuesta")}>
               Propuesta <b>{ficha.opciones.length}</b>
+            </button>
+            <button type="button" role="tab" aria-selected={carpeta === "servicios"} className={carpeta === "servicios" ? "is" : ""} onClick={() => setCarpeta("servicios")}>
+              Presupuesto en Zoho {crmFicha ? <b>{crmFicha.presupuestos.reduce((t, x) => t + x.lineas.length, 0)}</b> : null}
             </button>
             <button type="button" role="tab" aria-selected={carpeta === "crm"} className={carpeta === "crm" ? "is" : ""} onClick={() => setCarpeta("crm")}>
               En el CRM {ficha.crm.relleno ? <b>{ficha.crm.relleno.rellenos} de {ficha.crm.relleno.total}</b> : null}
@@ -595,6 +639,14 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
                   </ul>
                 )}
               </>
+            ) : null}
+
+            {carpeta === "servicios" ? (
+              crmFicha ? (
+                <TablaDeServicios presupuestos={crmFicha.presupuestos} verCoste={crmFicha.economiaVisible} />
+              ) : (
+                <p className="opx-muted">{crmDealId ? "Leyendo el CRM…" : "Todavía no hay oportunidad en el CRM: se crea al enviar la propuesta."}</p>
+              )
             ) : null}
 
             {/* Qué hay relleno en la oportunidad. Se enseña TAMBIÉN lo vacío: Ruth reportó que

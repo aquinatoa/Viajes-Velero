@@ -29,6 +29,7 @@ import { MoverDeFase } from "./MoverDeFase";
 import { tintaSobre } from "./TablaYTablero";
 import { comoTratoDeZoho } from "./tratoDeZoho";
 import { textoDelCierre } from "./textos";
+import { ProveedoresDeLaTabla, TablaDeServicios } from "./TablaDeServicios";
 
 const DEPARTAMENTOS: Record<string, string> = { GROUPS: "Groups", SPORTS: "Sports", OTRO: "Otro" };
 type Carpeta = "presupuesto" | "actividad" | "archivos" | "campos";
@@ -461,22 +462,7 @@ export function FichaDeTrato({
           </Bloque>
 
           <Bloque letra="P" color="216, 148, 18" titulo="Proveedores" extra={proveedores.length > 0 ? String(proveedores.length) : undefined}>
-            {proveedores.length > 0 ? (
-              proveedores.map(([nombre, p]) => (
-                <div key={nombre} className="opc-prov">
-                  <div>
-                    <b>{nombre}</b>
-                    <small>
-                      {p.servicios} {p.servicios === 1 ? "servicio" : "servicios"}
-                      {p.tipos.size > 0 ? ` · ${[...p.tipos].join(", ")}` : ""}
-                    </small>
-                  </div>
-                  <b>{eur(p.total)}</b>
-                </div>
-              ))
-            ) : (
-              <p className="opx-muted">{leyendoElCrm ? "Leyendo el CRM…" : "Aparecerán aquí cuando se rellene la tabla de servicios del presupuesto en Zoho."}</p>
-            )}
+            <ProveedoresDeLaTabla presupuestos={presupuestos} vacio={leyendoElCrm ? "Leyendo el CRM…" : "Aparecerán aquí cuando se rellene la tabla de servicios del presupuesto en Zoho."} />
           </Bloque>
         </div>
 
@@ -492,75 +478,7 @@ export function FichaDeTrato({
           <div className="opc-carp__c">
             {carpeta === "presupuesto" ? (
               ficha ? (
-                // El subformulario «Servicios Contratados» tal como está en la ficha del trato en
-                // Zoho: mismas columnas, una fila por servicio. Si está vacío, se dice que está
-                // vacío y nada más (Anthony, 16/11/2026: nada de textos que no ha pedido).
-                <div className="opc-serv">
-                  <h4>Servicios Contratados</h4>
-                  <div className="opc-serv__wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th title="Número de presupuesto">Nº</th>
-                          <th title="Validado">V.</th>
-                          <th>Servicio</th>
-                          <th>Proveedor</th>
-                          <th>Comentarios</th>
-                          <th>Fecha entrada</th>
-                          <th>Fecha salida</th>
-                          <th className="is-num">Pasajeros</th>
-                          <th className="is-num">Cantidad</th>
-                          <th>Unidad</th>
-                          <th className="is-num">Precio</th>
-                          <th className="is-num">Total</th>
-                          {ficha.economiaVisible ? <th className="is-num">Coste</th> : null}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {lineas.length === 0 ? (
-                          <tr className="opc-serv__vacia">
-                            <td colSpan={ficha.economiaVisible ? 13 : 12}>No se encontraron datos.</td>
-                          </tr>
-                        ) : null}
-                        {presupuestos.flatMap((p) =>
-                          p.lineas.map((l, i) => (
-                            <tr key={`${p.numero}-${i}`} className={p.aceptado ? "is-aceptado" : ""}>
-                              <td>{p.numero}</td>
-                              <td>{l.validado ? "✓" : ""}</td>
-                              <td>
-                                <b>{l.servicio || "—"}</b>
-                              </td>
-                              <td>{l.proveedor}</td>
-                              <td>{l.comentarios}</td>
-                              <td className="opx-t-fecha">{l.entrada ? fechaLarga(l.entrada) : ""}</td>
-                              <td className="opx-t-fecha">{l.salida ? fechaLarga(l.salida) : ""}</td>
-                              <td className="is-num">{l.viajeros ?? ""}</td>
-                              <td className="is-num">{l.cantidad ?? ""}</td>
-                              <td>{l.unidad}</td>
-                              <td className="is-num">{l.precio != null ? eur(l.precio) : ""}</td>
-                              <td className="is-num">{l.total != null ? eur(l.total) : ""}</td>
-                              {ficha.economiaVisible ? <td className="is-num">{l.coste != null ? eur(l.coste) : ""}</td> : null}
-                            </tr>
-                          )),
-                        )}
-                      </tbody>
-                      {lineas.length > 0 ? (
-                        <tfoot>
-                          {presupuestos.map((p) => (
-                            <tr key={p.numero}>
-                              <td colSpan={11}>
-                                Total del presupuesto {p.numero}
-                                {p.aceptado ? " · aceptado" : ""}
-                              </td>
-                              <td className="is-num">{eur(p.total)}</td>
-                              {ficha.economiaVisible ? <td className="is-num">{p.coste != null ? eur(p.coste) : ""}</td> : null}
-                            </tr>
-                          ))}
-                        </tfoot>
-                      ) : null}
-                    </table>
-                  </div>
-                </div>
+                <TablaDeServicios presupuestos={ficha.presupuestos} verCoste={ficha.economiaVisible} />
               ) : (
                 <p className="opx-muted">{leyendoElCrm ? "Leyendo el CRM…" : "No se pudo leer el CRM."}</p>
               )

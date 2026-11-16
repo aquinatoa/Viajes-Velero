@@ -617,6 +617,7 @@ function DetalleDeLaOportunidad({
         <FichaPropuesta
           key={entrega.id}
           delivery={entrega}
+          crmDealId={fila.crmDealId}
           incrustada
           onCambio={onCambio}
           onBorrada={onBorrada}
