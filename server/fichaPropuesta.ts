@@ -23,6 +23,7 @@ import { PrismaClient } from "@prisma/client";
 import { FASES, FASE_DE_HITO } from "./crmPipeline";
 import { getZohoDealDetalle, getZohoDealStage } from "./zoho";
 import { tituloDelViaje } from "../src/domain/tituloDelViaje";
+import { totalDeLaActividad, totalDeLaOpcion, type ActividadDeLaPropuesta } from "../src/domain/actividadesContratadas";
 
 const prisma = new PrismaClient();
 
@@ -212,6 +213,8 @@ export async function fichaDeLaPropuesta(deliveryId: string, visibilidad: Record
       regimen: o.boardType,
       noches: o.nights,
       totalPvpText: o.totalPvpText,
+      // El total de la opción con SUS actividades sumadas (Oravia, 16/11/2026).
+      ...totalesConActividades(o, delivery.proposal),
       desglose: o.priceBreakdownText,
       gratuidades: o.freePolicyText,
       condiciones: o.conditionsText,
@@ -224,6 +227,10 @@ export async function fichaDeLaPropuesta(deliveryId: string, visibilidad: Record
           proveedor: a.providerSnapshot,
           duracion: a.durationSnapshot,
           precio: a.pvpSnapshot,
+          // Lo que cuesta al grupo entero, que es lo que suma al total.
+          totalText: enEuros(
+            totalDeLaActividad(a, grupoDe(o, delivery.proposal).alumnos, grupoDe(o, delivery.proposal).profesores),
+          ),
         })),
     })),
 
@@ -272,6 +279,41 @@ export async function fichaDeLaPropuesta(deliveryId: string, visibilidad: Record
     pdf: delivery.pdfPath ? `/api/deliveries/${delivery.id}/pdf` : null,
     publicToken: delivery.publicToken,
   };
+}
+
+const enEuros = (importe: number | null): string | null =>
+  importe === null
+    ? null
+    : new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", minimumFractionDigits: 2, useGrouping: "always" }).format(importe);
+
+type ConGrupo = { participants?: number | null; teachers?: number | null };
+
+/** El grupo de la opción; si no lo trae (solo actividades), el de la solicitud. */
+function grupoDe(opcion: object, proposal: { tripRequest?: ConGrupo | null }): { alumnos: number; profesores: number } {
+  const o = opcion as ConGrupo;
+  return {
+    alumnos: o.participants ?? proposal.tripRequest?.participants ?? 0,
+    profesores: o.teachers ?? proposal.tripRequest?.teachers ?? 0,
+  };
+}
+
+/**
+ * El total de una opción con sus actividades: «8.322,38 €», y de qué está
+ * hecho. Nulos cuando no hay actividades con precio: entonces el total es el
+ * de siempre y no hay nada que desglosar.
+ */
+function totalesConActividades(
+  opcion: { optionNumber: number; accommodationNameSnapshot: string | null; totalPvpText: string | null },
+  proposal: { tripRequest?: ConGrupo | null; activityOptions: Array<ActividadDeLaPropuesta & { optionNumber: number }> },
+): { totalConActividades: string | null; totalAlojamiento: string | null; totalActividades: string | null } {
+  const nada = { totalConActividades: null, totalAlojamiento: null, totalActividades: null };
+  // «Solo actividades» ya trae en su total lo que suman: no hay alojamiento que añadir.
+  if (opcion.accommodationNameSnapshot === "Solo actividades") return nada;
+  const suyas = proposal.activityOptions.filter((a) => a.optionNumber === opcion.optionNumber);
+  const { alumnos, profesores } = grupoDe(opcion, proposal);
+  const t = totalDeLaOpcion(opcion.totalPvpText, suyas, alumnos, profesores);
+  if (!(t.actividades > 0) || t.alojamiento === null) return nada;
+  return { totalConActividades: enEuros(t.total), totalAlojamiento: enEuros(t.alojamiento), totalActividades: enEuros(t.actividades) };
 }
 
 /** «7.206,40 €»: lo que suman las actividades para el grupo, de sus líneas. */

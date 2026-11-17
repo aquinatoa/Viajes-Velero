@@ -1,5 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { desgloseDeLaOpcion } from "../src/domain/desgloseDeOpcion";
+import { filasDeLasActividades, lineasDeLaActividad, type FilaDeActividad } from "../src/domain/actividadesContratadas";
+import { MARCA_GRATUIDAD } from "../src/domain/lineasDeActividad";
 import {
   buscarIdPorNombre,
   buscarPorNombreParecido,
@@ -410,7 +412,8 @@ export async function contratarEnElCrm(deliveryId: string, optionNumber: number)
         proposal: {
           include: {
             accommodationOptions: true,
-            tripRequest: { select: { crmDealId: true } },
+            activityOptions: true,
+            tripRequest: { select: { crmDealId: true, dateFrom: true, participants: true, teachers: true } },
           },
         },
       },
@@ -420,35 +423,80 @@ export async function contratarEnElCrm(deliveryId: string, optionNumber: number)
       console.info(`[crm] ${deliveryId}: sin trato en el CRM, no hay dónde escribir lo contratado.`);
       return null;
     }
-    // Solo actividades (Ruth, 02/11/2026): no hay alojamiento que contratar.
-    // Las actividades no se escriben aquí, tampoco con hotel; la aceptación sí.
-    if (delivery.proposal.accommodationOptions.length === 0) {
-      console.info(`[crm] ${delivery.reference}: propuesta solo de actividades, sin alojamiento que poner en Servicios Contratados.`);
-      await updateZohoDeal({ dealId, chosenOption: optionNumber });
-      return null;
-    }
-    const opcion = delivery.proposal.accommodationOptions.find((o) => o.optionNumber === optionNumber);
-    if (!opcion) {
+    // Con o sin hotel, las actividades de la opción también se contratan
+    // (Oravia, 16/11/2026: «las actividades no suben»). Solo actividades
+    // (Ruth, 02/11/2026): no hay alojamiento, pero sí sus filas.
+    const soloActividades = delivery.proposal.accommodationOptions.length === 0;
+    const opcion = delivery.proposal.accommodationOptions.find((o) => o.optionNumber === optionNumber) ?? null;
+    if (!soloActividades && !opcion) {
       console.error(`[crm] ${delivery.reference}: la opción ${optionNumber} no existe en la propuesta.`);
       return null;
     }
-    const plan = filasDeLaOpcion(opcion);
+    const plan = opcion ? filasDeLaOpcion(opcion) : { filas: [], total: 0 };
     if (!plan) {
-      console.error(`[crm] ${delivery.reference}: no se pudo leer el desglose de la opción ${optionNumber}: «${opcion.priceBreakdownText}».`);
+      console.error(`[crm] ${delivery.reference}: no se pudo leer el desglose de la opción ${optionNumber}: «${opcion?.priceBreakdownText}».`);
       return null;
     }
 
-    const tarifas = await tarifasDelHotel(opcion);
+    const delPrograma = await actividadesParaContratar(delivery.proposal, opcion, optionNumber, soloActividades);
+    if (delPrograma.sinPrecio.length) {
+      console.info(`[crm] ${delivery.reference}: actividades sin precio, fuera de Servicios Contratados: ${delPrograma.sinPrecio.join(", ")}.`);
+    }
+    if (plan.filas.length === 0 && delPrograma.filas.length === 0) {
+      console.info(`[crm] ${delivery.reference}: nada con precio que poner en Servicios Contratados.`);
+      await updateZohoDeal({ dealId, chosenOption: optionNumber });
+      return null;
+    }
+
+    const tarifas = opcion ? await tarifasDelHotel(opcion) : [];
     const existentes = await leerServiciosContratados(dealId);
     const { conservar, borrar, numero } = planDelSubformulario(existentes, delivery.reference);
 
     const creados: string[] = [];
-    const proveedor = await idDeProveedor(plan.filas[0].proveedor, creados);
+    const proveedor = plan.filas.length ? await idDeProveedor(plan.filas[0].proveedor, creados) : { id: "", nuevo: false };
     const categoria = delivery.department === "SPORTS" ? "Turismo Deportivo" : "Grupos";
 
     const filas = [];
     let sinCoste = 0;
+
+    // Las actividades: cada una con SU proveedor (el del alojamiento no vale).
+    const proveedoresDeActividad = new Map<string, { id: string; nuevo: boolean }>();
+    for (const f of delPrograma.filas) {
+      let suProveedor: { id: string; nuevo: boolean } | null = null;
+      if (f.proveedor) {
+        suProveedor = proveedoresDeActividad.get(f.proveedor) ?? null;
+        if (!suProveedor) {
+          suProveedor = await idDeProveedor(f.proveedor, creados);
+          proveedoresDeActividad.set(f.proveedor, suProveedor);
+        }
+      }
+      if (f.coste === null) sinCoste += 1;
+      const productoId = await idDeProductoDeActividad(f, suProveedor?.id ?? null, categoria, delivery.reference, creados);
+      const avisos = [
+        ...(!suProveedor ? ["sin proveedor en la propuesta: ponerlo"] : suProveedor.nuevo ? ["proveedor nuevo en el CRM: revisar"] : []),
+        ...(f.coste === null ? ["falta el coste: poner Coste y marcar Validado"] : []),
+      ];
+      filas.push({
+        N_Presupuesto: numero,
+        Servicio: { id: productoId },
+        ...(suProveedor ? { Proveedor: { id: suProveedor.id } } : {}),
+        Viajeros: f.pax,
+        Precio: f.precio,
+        Coste: f.coste,
+        Cantidad: f.cantidad,
+        // La misma fecha en entrada y salida, como las rellenan ellos: su
+        // función pone en Cantidad las noches entre las dos cuando es P.Pax.
+        Fecha_Entrada: f.fecha,
+        Fecha_Salida: f.fecha,
+        Unidad_de_uso: f.unidad,
+        Tipo_de_Servicio: "Actividad",
+        Comentarios: [f.comentario, delivery.reference, ...avisos].join(" · "),
+        Validado: f.coste !== null,
+      });
+    }
+
     for (const f of plan.filas) {
+      if (!opcion) break;
       const coste = costeDeLaFila(f, opcion, tarifas);
       if (coste === null) sinCoste += 1;
       const productoId = await idDeProducto(f, coste, proveedor.id, categoria, delivery.reference, creados);
@@ -476,19 +524,22 @@ export async function contratarEnElCrm(deliveryId: string, optionNumber: number)
       });
     }
 
-    await escribirServiciosContratados(dealId, [...borrar.map((id) => ({ id, _delete: null })), ...filas], numero, plan.total);
+    // El importe del trato: el alojamiento MÁS las actividades de la opción.
+    const total =
+      plan.total == null && delPrograma.total === 0 ? plan.total : Math.round(((plan.total ?? 0) + delPrograma.total) * 100) / 100;
+    await escribirServiciosContratados(dealId, [...borrar.map((id) => ({ id, _delete: null })), ...filas], numero, total);
     // Y la línea de opción elegida, la misma que escribe el botón de Viajes.
     await updateZohoDeal({ dealId, chosenOption: optionNumber });
 
     console.info(
       `[crm] ${delivery.reference}: ${filas.length} fila(s) en Servicios Contratados (presupuesto ${numero}` +
         (conservar.length ? `, ${conservar.length} fila(s) ajenas conservadas` : "") +
-        `), importe ${plan.total ?? "?"}` +
+        `), importe ${total ?? "?"} (${delPrograma.filas.length} de actividades, ${delPrograma.total})` +
         (sinCoste ? `, ${sinCoste} sin coste: sin validar` : "") +
         (creados.length ? `, creados: ${creados.join(", ")}` : "") +
         ".",
     );
-    return { dealId, filas: filas.length, total: plan.total, sinCoste, presupuesto: numero, conservadas: conservar.length, creados };
+    return { dealId, filas: filas.length, total, sinCoste, presupuesto: numero, conservadas: conservar.length, creados };
   } catch (error) {
     console.error("[crm] no se pudo escribir lo contratado", error);
     return null;
@@ -517,6 +568,95 @@ async function idDeProveedor(nombreCorto: string, creados: string[]): Promise<{ 
   const id = await crearRegistro("Vendors", { Vendor_Name: nombre });
   creados.push(`proveedor «${nombre}»`);
   return { id, nuevo: true };
+}
+
+/**
+ * Las filas de las actividades de la opción elegida, con la unidad y el coste
+ * de cada tarifa del catálogo y el día de la visita que se guardó al cotizar.
+ */
+async function actividadesParaContratar(
+  proposal: {
+    stayJson?: unknown;
+    activityOptions: Array<{
+      optionNumber: number;
+      activityId: string | null;
+      activityNameSnapshot: string;
+      providerSnapshot: string | null;
+      pvpSnapshot: string | null;
+      linesJson: string | null;
+      amountTotal: unknown;
+      unitCostAmount: unknown;
+    }>;
+    tripRequest: { dateFrom?: Date | string | null; participants?: number | null; teachers?: number | null } | null;
+  },
+  opcion: { dateFrom?: Date | string | null; participants?: number | null; teachers?: number | null } | null,
+  optionNumber: number,
+  soloActividades: boolean,
+): Promise<{ filas: FilaDeActividad[]; total: number; sinPrecio: string[] }> {
+  // Solo con actividades no hay opciones de hotel: van todas.
+  const actividades = proposal.activityOptions.filter((a) => soloActividades || a.optionNumber === optionNumber);
+  if (actividades.length === 0) return { filas: [], total: 0, sinPrecio: [] };
+
+  const ids = [
+    ...new Set(
+      actividades
+        .flatMap((a) => lineasDeLaActividad(a).map((l) => l.rateId.replace(MARCA_GRATUIDAD, "")))
+        .filter((id) => id && !id.startsWith("#")),
+    ),
+  ];
+  const tarifas = ids.length
+    ? await prisma.activityRate.findMany({ where: { id: { in: ids } }, select: { id: true, rateUnit: true, costNetAmount: true } })
+    : [];
+
+  let fechasDeVisita: Record<string, string> = {};
+  try {
+    const guardado = typeof proposal.stayJson === "string" ? JSON.parse(proposal.stayJson) : proposal.stayJson;
+    fechasDeVisita = ((guardado as { fechasDeVisita?: Record<string, string> } | null)?.fechasDeVisita) ?? {};
+  } catch {
+    fechasDeVisita = {};
+  }
+  const dia = (valor: Date | string | null | undefined): string | null => {
+    if (!valor) return null;
+    const texto = valor instanceof Date ? valor.toISOString() : String(valor);
+    return /^\d{4}-\d{2}-\d{2}/.test(texto) ? texto.slice(0, 10) : null;
+  };
+
+  return filasDeLasActividades(actividades, {
+    alumnos: opcion?.participants ?? proposal.tripRequest?.participants ?? 0,
+    profesores: opcion?.teachers ?? proposal.tripRequest?.teachers ?? 0,
+    tarifas: Object.fromEntries(tarifas.map((t) => [t.id, t])),
+    fechasDeVisita,
+    fechaPorDefecto: dia(opcion?.dateFrom) ?? dia(proposal.tripRequest?.dateFrom),
+  });
+}
+
+/**
+ * El producto del CRM para una actividad. Por nombre exacto (los suyos ya
+ * existen: «1 DIA AQUOPOLIS 2026 SOLO ENTRADA»); si no, se crea de tipo
+ * «Actividad», con su unidad, su precio y su proveedor, y la fila lo dice.
+ */
+async function idDeProductoDeActividad(
+  f: FilaDeActividad,
+  proveedorId: string | null,
+  categoria: string,
+  referencia: string,
+  creados: string[],
+): Promise<string> {
+  const existente = await buscarIdPorNombre("Products", "Product_Name", f.producto);
+  if (existente) return existente;
+  const id = await crearRegistro("Products", {
+    Product_Name: f.producto,
+    ...(proveedorId ? { Vendor_Name: { id: proveedorId } } : {}),
+    Product_Active: true,
+    Tipo_de_Servicio: "Actividad",
+    Product_Category: categoria,
+    Usage_Unit: f.unidad,
+    Unit_Price: Math.max(0, f.precio),
+    ...(f.coste !== null ? { Precio_de_coste: f.coste } : {}),
+    Description: `Creado por la consola al contratar la propuesta ${referencia}.`,
+  });
+  creados.push(`producto «${f.producto}»`);
+  return id;
 }
 
 /**

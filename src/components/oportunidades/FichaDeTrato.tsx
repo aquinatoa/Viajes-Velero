@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   abrirAdjuntoDelCrm,
   cambiosDeFaseApi,
@@ -46,9 +46,13 @@ export function Caja({ rotulo, valor, nota, tono = "" }: { rotulo: string; valor
 }
 
 /** Un bloque con peso: color propio, letra y título, y dentro lo importante en grande. */
-export function Bloque({ letra, color, titulo, extra, children }: { letra: string; color: string; titulo: string; extra?: ReactNode; children: ReactNode }) {
+/**
+ * Un bloque de la ficha, entero: es lo que se despliega al pulsar su tarjeta de la franja.
+ * Con `ancho` reparte su contenido en columnas cuando tiene sitio (el de Proveedores).
+ */
+export function Bloque({ letra, color, titulo, extra, ancho, children }: { letra: string; color: string; titulo: string; extra?: ReactNode; ancho?: boolean; children: ReactNode }) {
   return (
-    <section className="opc-bloque" style={{ "--b": color } as CSSProperties}>
+    <section className={ancho ? "opc-bloque opc-bloque--ancho" : "opc-bloque"} style={{ "--b": color } as CSSProperties}>
       <header>
         <span className="opc-bloque__ic" aria-hidden="true">
           {letra}
@@ -58,6 +62,83 @@ export function Bloque({ letra, color, titulo, extra, children }: { letra: strin
       </header>
       <div className="opc-bloque__c">{children}</div>
     </section>
+  );
+}
+
+/** Lo principal de un bloque, para su tarjeta de la franja. */
+export interface ResumenDeBloque {
+  id: string;
+  letra: string;
+  color: string;
+  titulo: string;
+  valor: ReactNode;
+  nota?: ReactNode;
+  mal?: boolean;
+}
+
+/**
+ * La franja: cliente, viaje, dinero y proveedores arriba y en horizontal, una línea cada uno
+ * (Javier, 16/11/2026: «¿el menú vertical podría ser horizontal arriba de todo?»). Los bloques enteros
+ * ocupaban media pantalla y escondían las carpetas; así la tabla del presupuesto se ve sin bajar.
+ *
+ * Pulsar una tarjeta despliega SOLO su bloque, flotando por encima: no empuja las carpetas ni abre los
+ * demás (Anthony, 17/11/2026, maqueta «H1»). Se cierra pulsando otra vez, pulsando fuera o con Esc.
+ * `detalles` trae el bloque entero de cada tarjeta, por su `id`.
+ */
+export function FranjaDeBloques({ bloques, detalles }: { bloques: ResumenDeBloque[]; detalles: Record<string, ReactNode> }) {
+  const [abierto, setAbierto] = useState<string | null>(null);
+  /** La tarjeta abierta con su desplegable: lo que quede fuera de ella, cierra. */
+  const caja = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!abierto) return;
+    const alPulsarFuera = (e: MouseEvent) => {
+      if (caja.current && !caja.current.contains(e.target as Node)) setAbierto(null);
+    };
+    const alTeclear = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAbierto(null);
+    };
+    document.addEventListener("mousedown", alPulsarFuera);
+    document.addEventListener("keydown", alTeclear);
+    return () => {
+      document.removeEventListener("mousedown", alPulsarFuera);
+      document.removeEventListener("keydown", alTeclear);
+    };
+  }, [abierto]);
+
+  return (
+    <div className="opc-franja" role="group" aria-label="Cliente, viaje, dinero y proveedores">
+      {bloques.map((b, i) => {
+        const esta = abierto === b.id;
+        return (
+          <div key={b.id} className="opc-res__w" ref={esta ? caja : undefined}>
+            <button
+              type="button"
+              className={`opc-res${esta ? " is" : ""}${b.mal ? " is-mal" : ""}`}
+              style={{ "--b": b.color } as CSSProperties}
+              aria-expanded={esta}
+              title={esta ? "Cerrar el detalle" : `Ver el detalle de «${b.titulo}»`}
+              onClick={() => setAbierto(esta ? null : b.id)}
+            >
+              <span className="opc-bloque__ic" aria-hidden="true">
+                {b.letra}
+              </span>
+              <span className="opc-res__t">
+                <small>{b.titulo}</small>
+                <strong>{b.valor || "—"}</strong>
+                {b.nota ? <span>{b.nota}</span> : null}
+              </span>
+              <em>{esta ? "Cerrar ▴" : "Detalle ▾"}</em>
+            </button>
+            {esta ? (
+              // Las dos últimas tarjetas despliegan hacia la izquierda, para no salirse de la pantalla.
+              <div className={`opc-flota${i >= bloques.length - 2 ? " opc-flota--der" : ""}`} role="dialog" aria-label={`Detalle de «${b.titulo}»`}>
+                {detalles[b.id]}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -251,6 +332,48 @@ export function FichaDeTrato({
   const cuenta = cliente?.cuenta ?? null;
   const contacto = cliente?.contacto ?? null;
 
+  // La franja: lo principal de cada bloque en una línea.
+  const franja: ResumenDeBloque[] = [
+    {
+      id: "cliente",
+      letra: "C",
+      color: "27, 61, 117",
+      titulo: "El cliente",
+      valor: cuenta?.nombre || fila.cuenta || "Sin cuenta",
+      nota: [contacto?.nombre || fila.contacto, contacto?.movil || contacto?.telefono].filter(Boolean).join(" · ") || "sin contacto",
+    },
+    {
+      id: "viaje",
+      letra: "V",
+      color: "22, 138, 239",
+      titulo: "El viaje",
+      valor: rango || "Sin fecha de llegada",
+      nota:
+        n !== null && n < 0
+          ? "las fechas no cuadran en el CRM"
+          : [n !== null && n > 0 ? `${n} ${n === 1 ? "noche" : "noches"}` : null, personas ? `${personas} personas` : null, trip.destino || campo("País de Destino")].filter(Boolean).join(" · ") ||
+            "faltan datos del viaje",
+      mal: n !== null && n < 0,
+    },
+    {
+      id: "dinero",
+      letra: "€",
+      color: "31, 122, 77",
+      titulo: "El dinero",
+      valor: total ? eur(total) : "Sin importe",
+      nota: total ? `Cobrado ${porcentaje} %${pendiente != null ? ` · pendiente ${eur(pendiente)}` : ""}` : "falta en el CRM",
+      mal: !total,
+    },
+    {
+      id: "prov",
+      letra: "P",
+      color: "216, 148, 18",
+      titulo: "Proveedores",
+      valor: proveedores.length > 0 ? `${proveedores.length} ${proveedores.length === 1 ? "proveedor" : "proveedores"}` : "Sin proveedores",
+      nota: proveedores.length > 0 ? proveedores.map(([nombre]) => nombre).join(" · ") : leyendoElCrm ? "leyendo el CRM…" : "saldrán al rellenar el presupuesto",
+    },
+  ];
+
   return (
     <article className={`opc opx-c-${estado}`} style={estilo}>
       <header className="opc-cab">
@@ -349,122 +472,131 @@ export function FichaDeTrato({
       </section>
 
       <div className="opc-cuerpo">
-        <div className="opc-bloques">
-          <Bloque letra="C" color="27, 61, 117" titulo="El cliente" extra={cuenta?.tipo}>
-            <p className="opc-grande">{cuenta?.nombre || fila.cuenta || "Sin cuenta"}</p>
-            <dl className="opc-dl">
-              <Par rotulo="Teléfono">{cuenta?.telefono}</Par>
-              <Par rotulo="Web">{cuenta?.web ? <a href={cuenta.web} target="_blank" rel="noreferrer">{webCorta(cuenta.web)}</a> : null}</Par>
-              <Par rotulo="Ciudad">{cuenta?.ciudad}</Par>
-              <Par rotulo="Correo">{cuenta?.correo ? <a href={`mailto:${cuenta.correo}`}>{cuenta.correo}</a> : null}</Par>
-            </dl>
-            <div className="opc-sub">
-              <small>Contacto</small>
-              <dl className="opc-dl">
-                <Par rotulo="Nombre">
-                  <b>{contacto?.nombre || fila.contacto || "—"}</b>
-                  {contacto?.cargo ? ` · ${contacto.cargo}` : ""}
-                </Par>
-                <Par rotulo="Correo">{contacto?.correo ? <a href={`mailto:${contacto.correo}`}>{contacto.correo}</a> : null}</Par>
-                <Par rotulo="Móvil">{contacto?.movil}</Par>
-                <Par rotulo="Teléfono">{contacto?.telefono}</Par>
-                <Par rotulo="Idioma">{contacto?.idioma}</Par>
-              </dl>
-            </div>
-            {cliente?.tratos ? (
-              <div className="opc-sub">
-                <small>
-                  {cliente.tratos.total} oportunidades con esta cuenta · {cliente.tratos.abiertas} abiertas
-                </small>
-                <p className="opc-mini">
-                  {cliente.tratos.porFase.map((t) => (
-                    <i key={t.fase}>
-                      {t.fase} {t.n}
-                    </i>
-                  ))}
-                </p>
-              </div>
-            ) : null}
-          </Bloque>
-
-          <Bloque letra="V" color="22, 138, 239" titulo="El viaje" extra={campo("Nro de Oportunidad")}>
-            <p className={`opc-grande${n !== null && n < 0 ? " is-mal" : ""}`}>{rango || "Sin fecha de llegada"}</p>
-            {n !== null && n < 0 ? <p className="opc-aviso">Las fechas no cuadran en el CRM: la salida es anterior a la llegada.</p> : null}
-            <dl className="opc-dl">
-              <Par rotulo="Noches">{n !== null && n > 0 ? n : null}</Par>
-              <Par rotulo="Personas">{personas}</Par>
-              <Par rotulo="Destino">{trip.destino || campo("País de Destino")}</Par>
-              <Par rotulo="Grupo">{trip.grupo}</Par>
-              <Par rotulo="Idioma">{campo("Idioma")}</Par>
-            </dl>
-            <div className="opc-sub">
-              <small>Lo que se ofreció{hayAceptado || trip.chosen ? " · ya han elegido" : ""}</small>
-              {presupuestos.length > 0 ? (
-                presupuestos.map((p) => (
-                  <div key={p.numero} className={`opc-opcion${p.aceptado ? " is" : ""}`}>
-                    <div>
-                      <b>Presupuesto {p.numero}</b>
-                      {p.aceptado ? <span className="opc-sello">ACEPTADO</span> : null}
-                      <small>{[...new Set(p.lineas.map((l) => l.tipo || l.servicio))].join(" · ")}</small>
-                    </div>
-                    <b>{eur(p.total)}</b>
-                  </div>
-                ))
-              ) : trip.options.length > 0 ? (
-                trip.options.map((o) => (
-                  <div key={o.n} className={`opc-opcion${trip.chosen === o.n ? " is" : ""}`}>
-                    <div>
-                      <b>Opción {o.n}</b>
-                      {trip.chosen === o.n ? <span className="opc-sello">ELEGIDA</span> : null}
-                      <small>{o.name}</small>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="opx-muted">{leyendoElCrm ? "Leyendo el CRM…" : "Ningún presupuesto cargado en el CRM todavía."}</p>
-              )}
-            </div>
-          </Bloque>
-
-          <Bloque letra="€" color="31, 122, 77" titulo="El dinero" extra={aceptado?.formaDeCobro || campo("Forma de Cobro")}>
-            <p className={`opc-grande${total ? "" : " is-mal"}`}>{total ? eur(total) : "Sin importe en el CRM"}</p>
-            {total ? (
-              <div>
-                <div className="opc-medidor">
-                  <i style={{ width: `${porcentaje}%` }} />
-                </div>
-                <p className="opc-medidor__t">
-                  Cobrado {eur(cobrado)} ({porcentaje} %){pendiente != null ? ` · pendiente ${eur(pendiente)}` : ""}
-                </p>
-              </div>
-            ) : (
-              <p className="opc-aviso">Sin importe no se puede calcular el depósito ni lo pendiente.</p>
-            )}
-            <dl className="opc-dl">
-              {aceptado ? (
-                <Par rotulo="Depósito">
-                  {eur(aceptado.deposito)} · <b className={aceptado.depositoCobrado === "Si" ? "opx-t-ok" : "opx-vencido"}>{aceptado.depositoCobrado === "Si" ? "cobrado" : "sin cobrar"}</b>
-                </Par>
-              ) : null}
-              <Par rotulo="Tipo de pago">{aceptado?.tipoDePago || campo("Tipo de pago")}</Par>
-              <Par rotulo="PVP por viajero">{aceptado?.pvpPorViajero ? eur(aceptado.pvpPorViajero) : null}</Par>
-              <Par rotulo="Reserva">{aceptado?.fechaDeReserva ? fechaLarga(aceptado.fechaDeReserva) : null}</Par>
-            </dl>
-            {ficha?.economiaVisible && aceptado?.coste != null ? (
-              <div className="opc-sub">
-                <small>Solo administradores</small>
+        <FranjaDeBloques
+          key={fila.clave}
+          bloques={franja}
+          detalles={{
+            cliente: (
+              <Bloque letra="C" color="27, 61, 117" titulo="El cliente" extra={cuenta?.tipo}>
+                <p className="opc-grande">{cuenta?.nombre || fila.cuenta || "Sin cuenta"}</p>
                 <dl className="opc-dl">
-                  <Par rotulo="Coste">{eur(aceptado.coste)}</Par>
-                  <Par rotulo="Margen">{aceptado.margen != null ? `${String(Math.round(aceptado.margen * 100) / 100).replace(".", ",")} %` : null}</Par>
+                  <Par rotulo="Teléfono">{cuenta?.telefono}</Par>
+                  <Par rotulo="Web">{cuenta?.web ? <a href={cuenta.web} target="_blank" rel="noreferrer">{webCorta(cuenta.web)}</a> : null}</Par>
+                  <Par rotulo="Ciudad">{cuenta?.ciudad}</Par>
+                  <Par rotulo="Correo">{cuenta?.correo ? <a href={`mailto:${cuenta.correo}`}>{cuenta.correo}</a> : null}</Par>
                 </dl>
-              </div>
-            ) : null}
-          </Bloque>
-
-          <Bloque letra="P" color="216, 148, 18" titulo="Proveedores" extra={proveedores.length > 0 ? String(proveedores.length) : undefined}>
-            <ProveedoresDeLaTabla presupuestos={presupuestos} vacio={leyendoElCrm ? "Leyendo el CRM…" : "Aparecerán aquí cuando se rellene la tabla de servicios del presupuesto en Zoho."} />
-          </Bloque>
-        </div>
+                <div className="opc-sub">
+                  <small>Contacto</small>
+                  <dl className="opc-dl">
+                    <Par rotulo="Nombre">
+                      <b>{contacto?.nombre || fila.contacto || "—"}</b>
+                      {contacto?.cargo ? ` · ${contacto.cargo}` : ""}
+                    </Par>
+                    <Par rotulo="Correo">{contacto?.correo ? <a href={`mailto:${contacto.correo}`}>{contacto.correo}</a> : null}</Par>
+                    <Par rotulo="Móvil">{contacto?.movil}</Par>
+                    <Par rotulo="Teléfono">{contacto?.telefono}</Par>
+                    <Par rotulo="Idioma">{contacto?.idioma}</Par>
+                  </dl>
+                </div>
+                {cliente?.tratos ? (
+                  <div className="opc-sub">
+                    <small>
+                      {cliente.tratos.total} oportunidades con esta cuenta · {cliente.tratos.abiertas} abiertas
+                    </small>
+                    <p className="opc-mini">
+                      {cliente.tratos.porFase.map((t) => (
+                        <i key={t.fase}>
+                          {t.fase} {t.n}
+                        </i>
+                      ))}
+                    </p>
+                  </div>
+                ) : null}
+              </Bloque>
+            ),
+            viaje: (
+              <Bloque letra="V" color="22, 138, 239" titulo="El viaje" extra={campo("Nro de Oportunidad")}>
+                <p className={`opc-grande${n !== null && n < 0 ? " is-mal" : ""}`}>{rango || "Sin fecha de llegada"}</p>
+                {n !== null && n < 0 ? <p className="opc-aviso">Las fechas no cuadran en el CRM: la salida es anterior a la llegada.</p> : null}
+                <dl className="opc-dl">
+                  <Par rotulo="Noches">{n !== null && n > 0 ? n : null}</Par>
+                  <Par rotulo="Personas">{personas}</Par>
+                  <Par rotulo="Destino">{trip.destino || campo("País de Destino")}</Par>
+                  <Par rotulo="Grupo">{trip.grupo}</Par>
+                  <Par rotulo="Idioma">{campo("Idioma")}</Par>
+                </dl>
+                <div className="opc-sub">
+                  <small>Lo que se ofreció{hayAceptado || trip.chosen ? " · ya han elegido" : ""}</small>
+                  {presupuestos.length > 0 ? (
+                    presupuestos.map((p) => (
+                      <div key={p.numero} className={`opc-opcion${p.aceptado ? " is" : ""}`}>
+                        <div>
+                          <b>Presupuesto {p.numero}</b>
+                          {p.aceptado ? <span className="opc-sello">ACEPTADO</span> : null}
+                          <small>{[...new Set(p.lineas.map((l) => l.tipo || l.servicio))].join(" · ")}</small>
+                        </div>
+                        <b>{eur(p.total)}</b>
+                      </div>
+                    ))
+                  ) : trip.options.length > 0 ? (
+                    trip.options.map((o) => (
+                      <div key={o.n} className={`opc-opcion${trip.chosen === o.n ? " is" : ""}`}>
+                        <div>
+                          <b>Opción {o.n}</b>
+                          {trip.chosen === o.n ? <span className="opc-sello">ELEGIDA</span> : null}
+                          <small>{o.name}</small>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="opx-muted">{leyendoElCrm ? "Leyendo el CRM…" : "Ningún presupuesto cargado en el CRM todavía."}</p>
+                  )}
+                </div>
+              </Bloque>
+            ),
+            dinero: (
+              <Bloque letra="€" color="31, 122, 77" titulo="El dinero" extra={aceptado?.formaDeCobro || campo("Forma de Cobro")}>
+                <p className={`opc-grande${total ? "" : " is-mal"}`}>{total ? eur(total) : "Sin importe en el CRM"}</p>
+                {total ? (
+                  <div>
+                    <div className="opc-medidor">
+                      <i style={{ width: `${porcentaje}%` }} />
+                    </div>
+                    <p className="opc-medidor__t">
+                      Cobrado {eur(cobrado)} ({porcentaje} %){pendiente != null ? ` · pendiente ${eur(pendiente)}` : ""}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="opc-aviso">Sin importe no se puede calcular el depósito ni lo pendiente.</p>
+                )}
+                <dl className="opc-dl">
+                  {aceptado ? (
+                    <Par rotulo="Depósito">
+                      {eur(aceptado.deposito)} · <b className={aceptado.depositoCobrado === "Si" ? "opx-t-ok" : "opx-vencido"}>{aceptado.depositoCobrado === "Si" ? "cobrado" : "sin cobrar"}</b>
+                    </Par>
+                  ) : null}
+                  <Par rotulo="Tipo de pago">{aceptado?.tipoDePago || campo("Tipo de pago")}</Par>
+                  <Par rotulo="PVP por viajero">{aceptado?.pvpPorViajero ? eur(aceptado.pvpPorViajero) : null}</Par>
+                  <Par rotulo="Reserva">{aceptado?.fechaDeReserva ? fechaLarga(aceptado.fechaDeReserva) : null}</Par>
+                </dl>
+                {ficha?.economiaVisible && aceptado?.coste != null ? (
+                  <div className="opc-sub">
+                    <small>Solo administradores</small>
+                    <dl className="opc-dl">
+                      <Par rotulo="Coste">{eur(aceptado.coste)}</Par>
+                      <Par rotulo="Margen">{aceptado.margen != null ? `${String(Math.round(aceptado.margen * 100) / 100).replace(".", ",")} %` : null}</Par>
+                    </dl>
+                  </div>
+                ) : null}
+              </Bloque>
+            ),
+            prov: (
+              <Bloque ancho letra="P" color="216, 148, 18" titulo="Proveedores" extra={proveedores.length > 0 ? String(proveedores.length) : undefined}>
+                <ProveedoresDeLaTabla presupuestos={presupuestos} vacio={leyendoElCrm ? "Leyendo el CRM…" : "Aparecerán aquí cuando se rellene la tabla de servicios del presupuesto en Zoho."} />
+              </Bloque>
+            ),
+          }}
+        />
 
         <section className="opc-carp" aria-label="Carpetas de la oportunidad">
           <nav role="tablist" aria-label="Carpetas">

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import isotipo from "../../assets/oravia-isotipo.png";
+import { fechaEnIdioma, idiomaDelDocumento, texto, type ClaveDeTexto } from "../../domain/idiomaDelDocumento";
 
 /**
  * Página pública de la propuesta: lo que abre el colegio desde el enlace del
@@ -29,6 +30,8 @@ interface OpcionDelDocumento {
   optionNumber: number;
   nombre: string;
   total: string | null;
+  /** De qué está hecho el total cuando suma actividades. */
+  totalDetalle?: string | null;
   detalles: string[];
   porAlumno: string | null;
   otrosPrecios: string[];
@@ -85,19 +88,14 @@ interface PublicProposal {
   chosenOptionNumber: number | null;
   depositDueAt: string | null;
   documento: DocumentoDelCliente;
+  /** El idioma en que el servidor manda el documento: los rótulos de la página van en el mismo. */
+  idioma?: string | null;
 }
 
 // Mismo origen: en dev lo resuelve el proxy de Vite (`/api` -> :8787) y en
 // produccion nginx hace de proxy al Node. VITE_API_BASE_URL solo hace falta
 // si algun dia el backend vive en otro dominio.
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
-
-function formatDate(iso: string | null): string {
-  if (!iso) return "";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "long", year: "numeric" }).format(date);
-}
 
 function Condiciones({ titulo, lista }: { titulo: string; lista: Condicion[] }) {
   if (!lista.length) return null;
@@ -187,6 +185,10 @@ export function PublicProposalPage({ token }: { token: string }) {
   if (!proposal) return null;
 
   const brandName = proposal.department === "SPORTS" ? "Oravia Sports" : "Oravia Travel Group";
+  // Todo lo que se lee va en el idioma de la solicitud (castellano, catalán, inglés o francés).
+  const idioma = idiomaDelDocumento(proposal.idioma);
+  const T = (clave: ClaveDeTexto, valores?: Record<string, string | number>) => texto(idioma, clave, valores);
+  const formatDate = (iso: string | null) => fechaEnIdioma(iso, idioma);
   const chosen = proposal.chosenOptionNumber;
   const { opciones, actividades, resumen } = proposal.documento;
   // Solo actividades (Ruth, 02/11/2026): no hay entre qué elegir, se acepta la propuesta.
@@ -207,13 +209,13 @@ export function PublicProposalPage({ token }: { token: string }) {
         <ul className="pp__facts">
           {proposal.destination ? (
             <li>
-              <span>Destino</span>
+              <span>{T("destino")}</span>
               <strong>{proposal.destination}</strong>
             </li>
           ) : null}
           {proposal.dateFrom || proposal.dateTo ? (
             <li>
-              <span>Fechas</span>
+              <span>{T("fechas")}</span>
               <strong>
                 {formatDate(proposal.dateFrom)}
                 {proposal.dateTo ? ` - ${formatDate(proposal.dateTo)}` : ""}
@@ -222,13 +224,13 @@ export function PublicProposalPage({ token }: { token: string }) {
           ) : null}
           {proposal.participants ? (
             <li>
-              <span>Participantes</span>
+              <span>{T("participantes")}</span>
               <strong>{proposal.participants}</strong>
             </li>
           ) : null}
           {proposal.teachers ? (
             <li>
-              <span>Profesores</span>
+              <span>{T(proposal.department === "SPORTS" ? "entrenadores" : "profesores")}</span>
               <strong>{proposal.teachers}</strong>
             </li>
           ) : null}
@@ -236,18 +238,18 @@ export function PublicProposalPage({ token }: { token: string }) {
 
         {chosen ? (
           <div className="pp__done" role="status">
-            <strong>{sinAlojamiento ? "Habéis aceptado la propuesta" : `Habéis elegido la opción ${chosen}`}</strong>
+            <strong>{sinAlojamiento ? T("habeisAceptado") : T("habeisElegido", { n: chosen })}</strong>
             <p>
-              Nos ponemos con ello. Para reservar en firme hace falta el depósito
-              {proposal.depositDueAt ? ` antes del ${formatDate(proposal.depositDueAt)}` : ""}; os
-              escribimos con los datos del pago.
+              {T("haceFaltaElDeposito", { antes: proposal.depositDueAt ? T("antesDel", { fecha: formatDate(proposal.depositDueAt) }) : "" })}
+
+
             </p>
           </div>
         ) : (
           <p className="pp__lead">
             {sinAlojamiento
-              ? "Esta es la propuesta que hemos preparado. Si os encaja, aceptadla y seguimos adelante."
-              : "Estas son las opciones que hemos preparado. Elegid la que prefiráis y seguimos adelante."}
+              ? T("estaEsLaPropuesta")
+              : T("estasSonLasOpciones")}
           </p>
         )}
 
@@ -259,8 +261,8 @@ export function PublicProposalPage({ token }: { token: string }) {
 
         {sinAlojamiento ? null : (
         <section className="pp__sec">
-          <h2 className="pp__sectitle">1 · Los alojamientos</h2>
-          <p className="pp__secintro">Elegid una de estas opciones. El precio incluye las noches del grupo completo.</p>
+          <h2 className="pp__sectitle">1 · {T("alojamientos")}</h2>
+          <p className="pp__secintro">{T("elegidUna")}</p>
           <div className="pp__options">
             {opciones.map((opcion) => {
               const isChosen = chosen === opcion.optionNumber;
@@ -271,11 +273,16 @@ export function PublicProposalPage({ token }: { token: string }) {
                   key={opcion.optionNumber}
                 >
                   <div className="pp__opthead">
-                    <span className="pp__optnum">Opción {opcion.optionNumber}</span>
+                    <span className="pp__optnum">{T("opcion", { n: opcion.optionNumber })}</span>
                     {opcion.total ? <span className="pp__opttotal">{opcion.total}</span> : null}
                   </div>
                   <h3 className="pp__optname">{opcion.nombre}</h3>
                   {opcion.detalles.length ? <p className="pp__optmeta">{opcion.detalles.join("  ·  ")}</p> : null}
+                  {opcion.totalDetalle ? (
+                    <p className="pp__optmeta pp__optsuma">
+                      {T("totalDeLaOpcion")}: <b>{opcion.total}</b> · {opcion.totalDetalle}
+                    </p>
+                  ) : null}
                   {opcion.porAlumno ? (
                     <div className="pp__optper">
                       <p className="pp__optprice">{opcion.porAlumno}</p>
@@ -288,7 +295,7 @@ export function PublicProposalPage({ token }: { token: string }) {
 
                   {opcion.desglose.length || opcion.desgloseTexto ? (
                     <div className="pp__block">
-                      <p className="pp__label">Desglose</p>
+                      <p className="pp__label">{T("desglose")}</p>
                       {opcion.desgloseTexto ? <p className="pp__optdetail">{opcion.desgloseTexto}</p> : null}
                       {opcion.desglose.map((tramo, i) => (
                         <div className="pp__optdetail" key={i}>
@@ -305,16 +312,16 @@ export function PublicProposalPage({ token }: { token: string }) {
 
                   {opcion.gratuidades ? (
                     <div className="pp__free">
-                      <p className="pp__label">Gratuidades</p>
+                      <p className="pp__label">{T("gratuidades")}</p>
                       <p>{opcion.gratuidades}</p>
                     </div>
                   ) : null}
 
-                  <Condiciones titulo="Qué incluye y condiciones" lista={opcion.condiciones} />
-                  <Condiciones titulo="Observaciones" lista={opcion.observaciones} />
+                  <Condiciones titulo={T("condiciones")} lista={opcion.condiciones} />
+                  <Condiciones titulo={T("observaciones")} lista={opcion.observaciones} />
 
                   {isChosen ? (
-                    <p className="pp__chosen">Es la que habéis elegido</p>
+                    <p className="pp__chosen">{T("esLaElegida")}</p>
                   ) : chosen ? null : (
                     <button
                       type="button"
@@ -322,7 +329,7 @@ export function PublicProposalPage({ token }: { token: string }) {
                       onClick={() => choose(opcion.optionNumber)}
                       disabled={choosing !== null}
                     >
-                      {choosing === opcion.optionNumber ? "Guardando…" : "Elegir esta"}
+                      {choosing === opcion.optionNumber ? T("guardando") : T("elegirEsta")}
                     </button>
                   )}
                 </article>
@@ -334,7 +341,7 @@ export function PublicProposalPage({ token }: { token: string }) {
 
         {actividades ? (
           <section className="pp__sec">
-            <h2 className="pp__sectitle">{sinAlojamiento ? "1" : "2"} · Las actividades</h2>
+            <h2 className="pp__sectitle">{sinAlojamiento ? "1" : "2"} · {T("actividades")}</h2>
             <p className="pp__secintro">{actividades.intro}</p>
             <div className="pp__acts">
               {actividades.lista.map((actividad, i) => (
@@ -361,7 +368,7 @@ export function PublicProposalPage({ token }: { token: string }) {
                 </article>
               ))}
               <div className="pp__acttotal">
-                <strong>Total de las actividades</strong>
+                <strong>{T("totalDeLasActividades")}</strong>
                 <div>
                   <strong className="pp__acttotalnum">{actividades.total}</strong>
                   {actividades.totalDetalle ? <span>{actividades.totalDetalle}</span> : null}
@@ -370,10 +377,10 @@ export function PublicProposalPage({ token }: { token: string }) {
             </div>
             {sinAlojamiento ? (
               chosen ? (
-                <p className="pp__chosen">Es la que habéis aceptado</p>
+                <p className="pp__chosen">{T("esLaAceptada")}</p>
               ) : (
                 <button type="button" className="pp__choose" onClick={() => choose(1)} disabled={choosing !== null}>
-                  {choosing === 1 ? "Guardando…" : "Aceptar la propuesta"}
+                  {choosing === 1 ? T("guardando") : T("aceptarLaPropuesta")}
                 </button>
               )
             ) : null}
@@ -382,15 +389,15 @@ export function PublicProposalPage({ token }: { token: string }) {
 
         {resumen ? (
           <section className="pp__sec">
-            <h2 className="pp__sectitle">{actividades ? "3" : "2"} · Resumen del viaje</h2>
+            <h2 className="pp__sectitle">{actividades ? "3" : "2"} · {T("resumen")}</h2>
             <div className="pp__sumwrap">
               <table className="pp__sum">
                 <thead>
                   <tr>
-                    <th>Opción</th>
-                    <th>Alojamiento</th>
-                    <th>Actividades</th>
-                    <th>Total del viaje</th>
+                    <th>{T("columnaOpcion")}</th>
+                    <th>{T("columnaAlojamiento")}</th>
+                    <th>{T("columnaActividades")}</th>
+                    <th>{T("columnaTotal")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -416,7 +423,7 @@ export function PublicProposalPage({ token }: { token: string }) {
 
         {proposal.documento.notas ? (
           <section className="pp__sec">
-            <h2 className="pp__sectitle">Notas</h2>
+            <h2 className="pp__sectitle">{T("notas")}</h2>
             <p className="pp__notas">{proposal.documento.notas}</p>
           </section>
         ) : null}
@@ -424,8 +431,8 @@ export function PublicProposalPage({ token }: { token: string }) {
 
       <footer className="pp__foot">
         <p>
-          ¿Alguna duda? Respondednos al correo con el que os llegó esta propuesta, indicando la
-          referencia {proposal.reference}.
+          {T("algunaDuda", { ref: proposal.reference })}
+
         </p>
       </footer>
     </div>

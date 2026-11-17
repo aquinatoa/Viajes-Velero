@@ -651,6 +651,48 @@ prueba("el desglose escribe el bloque en palabras, sin abreviaturas", () => {
   assert.match(conBloquesPdf, /El resto de los alumnos va en otra habitación o con otra pensión/);
 });
 
+// ── El documento en el idioma de la solicitud (17/11/2026) ──
+const enIngles = await textoDe(
+  await buildProposalPdf({
+    ...DATOS_NOTAS,
+    reference: "ORV-2026-9987",
+    notes: NOTAS,
+    publicUrl: "https://app.oravia.test/p/abc",
+    idioma: "en",
+  }),
+);
+const enCatalan = await textoDe(await buildProposalPdf({ ...DATOS_NOTAS, reference: "ORV-2026-9986", idioma: "ca" }));
+const despues = await textoDe(await buildProposalPdf({ ...DATOS_NOTAS, reference: "ORV-2026-9985" }));
+
+console.log("\nEl documento en el idioma de la solicitud");
+
+prueba("en inglés, los rótulos, las fechas y el pie salen en inglés", () => {
+  assert.match(enIngles, /Group travel proposal/);
+  assert.match(enIngles, /DESTINATION/);
+  assert.match(enIngles, /18 May 2027 - 22 May 2027/);
+  assert.match(enIngles, /1 · ACCOMMODATION/);
+  assert.match(enIngles, /OPTION 1/);
+  assert.match(enIngles, /TRIP SUMMARY/);
+  assert.match(enIngles, /To accept an option/);
+  assert.match(enIngles, /Go to https:\/\/app\.oravia\.test\/p\/abc and click the one you prefer\./);
+  assert.match(enIngles, /Prepared by Oravia Travel Group/);
+  assert.match(enIngles, /Page 1 of \d/);
+  assert.doesNotMatch(enIngles, /Propuesta de viaje|RESUMEN DEL VIAJE|Página 1/);
+});
+
+prueba("en catalán, también", () => {
+  assert.match(enCatalan, /Proposta de viatge de grup/);
+  assert.match(enCatalan, /OPCIÓ 1/);
+  assert.match(enCatalan, /RESUM DEL VIATGE/);
+  assert.match(enCatalan, /Pàgina 1 de \d/);
+});
+
+prueba("y el siguiente documento sin idioma vuelve a salir en castellano", () => {
+  assert.match(despues, /Propuesta de viaje de grupo/);
+  assert.match(despues, /OPCIÓN 1/);
+  assert.match(despues, /Página 1 de \d/);
+});
+
 rmSync(ALMACEN, { recursive: true, force: true });
 
 console.log(`\n${pasadas} pasadas, ${fallidas} fallidas\n`);

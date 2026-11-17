@@ -62,21 +62,28 @@ function emptyDraft(): NormalizedRequestDraft {
   };
 }
 
-function detectLanguage(text: string) {
+/**
+ * El idioma en que escribe el cliente: castellano, catalán, inglés o francés.
+ *
+ * Hasta el 17/11/2026 solo distinguía castellano de inglés, y un correo en catalán
+ * («Hola, som un grup de…») salía como castellano por el «hola». Ahora cuenta las
+ * palabras propias de cada idioma y gana el que más tiene; con empate, castellano.
+ * De aquí sale el idioma del presupuesto, que se puede corregir en la ventana
+ * «Lo que hemos entendido».
+ */
+export function detectLanguage(text: string) {
   const lower = text.toLowerCase();
-  const spanishSignals = ["hola", "necesitamos", "grupo", "colegio", "profesores", "pensión"];
-  // Lo que escriben los clubes y turoperadores de Deportivo (27/10/2026).
-  const englishSignals = ["hello", "school", "teachers", "students", "half board", "request", "players", "team", "coaches", "please", "full board", "we are"];
-
-  if (spanishSignals.some((signal) => lower.includes(signal))) {
-    return "Español";
-  }
-
-  if (englishSignals.some((signal) => lower.includes(signal))) {
-    return "Inglés";
-  }
-
-  return "";
+  const cuenta = (palabras: string[]) =>
+    palabras.filter((p) => new RegExp(`(?<!\\p{L})${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?!\\p{L})`, "u").test(lower)).length;
+  const puntos: Array<[string, number]> = [
+    ["Español", cuenta(["necesitamos", "somos", "colegio", "alumnos", "profesores", "pensión", "noches", "gracias", "quisiéramos", "queremos", "buenos días", "un saludo", "estamos", "presupuesto"])],
+    // Lo que escriben los clubes y turoperadores de Deportivo (27/10/2026).
+    ["Inglés", cuenta(["hello", "dear", "school", "teachers", "students", "half board", "request", "players", "team", "coaches", "please", "full board", "we are", "nights", "regards", "would like", "thank you", "quote"])],
+    ["Catalán", cuenta(["bon dia", "bona tarda", "som", "necessitem", "voldríem", "volem", "alumnes", "professors", "pensió", "nits", "gràcies", "amb", "estem", "pressupost", "salutacions", "escola", "institut", "dies"])],
+    ["Francés", cuenta(["bonjour", "nous", "sommes", "élèves", "professeurs", "enseignants", "pension complète", "demi-pension", "nuits", "merci", "séjour", "devis", "cordialement", "voudrions", "souhaitons", "s'il vous plaît", "joueurs", "équipe"])],
+  ];
+  const mejor = puntos.reduce((a, b) => (b[1] > a[1] ? b : a));
+  return mejor[1] > 0 ? mejor[0] : "";
 }
 
 function findDestination(text: string) {

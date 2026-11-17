@@ -48,6 +48,11 @@ prueba("el texto dice quién eligió, qué opción, el alojamiento, la fase y el
   assert.match(t, /la propuesta la hiciste tú/);
 });
 
+prueba("con actividades, el total es el del viaje y dice de qué está hecho", () => {
+  const { texto } = componerAvisoDeDeposito({ ...DATOS, total: "6.002,00 €", detalleDelTotal: "alojamiento 5.616 € + actividades 386,00 €" });
+  assert.match(texto, /Alojamiento: Apartaments Pins Platja \(Cambrils\) · total del viaje 6\.002,00 € \(alojamiento 5\.616 € \+ actividades 386,00 €\)\./);
+});
+
 prueba("si lo apuntó alguien desde la app, se dice quién", () => {
   const t = componerAvisoDeDeposito({ ...DATOS, apuntadoPor: "Javier" }).texto;
   assert.match(t, /\(lo ha apuntado Javier desde la app\)/);

@@ -270,9 +270,14 @@ function entregaPrincipal(delViaje: EntregaEntrada[]): {
 } {
   const porFecha = [...delViaje].sort((a, b) => (iso(b.createdAt) ?? "").localeCompare(iso(a.createdAt) ?? ""));
   const ultima = porFecha[0];
-  // La aceptada manda sobre la última: esconderla escondería el depósito que corre.
+  // La aceptada manda sobre un borrador posterior: esconderla escondería el depósito que corre.
   const aceptada = porFecha.find((e) => e.chosenOptionNumber != null);
-  const principal = aceptada ?? ultima;
+  // Pero una versión ENVIADA después de la aceptada la sustituye: la oferta ha cambiado y el cliente tiene
+  // que volver a aceptarla (Anthony, 17/11/2026). El depósito de la anterior deja de contar.
+  const sustituta = aceptada
+    ? porFecha.find((e) => e.status === "SENT" && (iso(e.createdAt) ?? "") > (iso(aceptada.createdAt) ?? ""))
+    : undefined;
+  const principal = sustituta ?? aceptada ?? ultima;
   const nueva =
     principal.id !== ultima.id && (ultima.status === "DRAFT" || ultima.status === "SIMULATED");
   return { principal, versiones: delViaje.length, versionNuevaSinEnviar: nueva };

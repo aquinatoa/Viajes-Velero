@@ -1,4 +1,4 @@
-import { ChangePanel } from "./ChangePanel";
+import { RehacerPanel } from "./RehacerPanel";
 import { marcarOpcionApi, rehacerPropuestaApi, renombrarViajeApi, sendProposalDeliveryApi } from "../../services/apiClient";
 import { siguientePasoDelExpediente } from "../../domain/siguientePaso";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -8,7 +8,7 @@ import { BorrarSolicitudPanel } from "./BorrarSolicitudPanel";
 import type { ProposalDelivery } from "../../services/apiClient";
 import { AvanceDeFase } from "../oportunidades/AvanceDeFase";
 import { MenuMas } from "../oportunidades/MenuMas";
-import { Bloque, Caja, Par } from "../oportunidades/FichaDeTrato";
+import { Bloque, Caja, FranjaDeBloques, Par, type ResumenDeBloque } from "../oportunidades/FichaDeTrato";
 import { fichaDelCrmApi } from "../../services/apiClient";
 import type { FichaDelCrmCompleta } from "../../domain/fichaDelCrm";
 import { ProveedoresDeLaTabla, TablaDeServicios } from "../oportunidades/TablaDeServicios";
@@ -242,6 +242,52 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
     new Date(),
   );
 
+  // La franja: lo principal de cada bloque en una línea (la misma que en la ficha de los tratos del CRM).
+  const opcionElegida = ficha.opciones.find((o) => o.elegida) ?? null;
+  const opcionesVistas = ficha.opciones.filter((o) => o.elegida || !ficha.elegida);
+  const lineasDelCrm = (crmFicha?.presupuestos ?? []).flatMap((x) => x.lineas);
+  const nombresDeProveedor = [
+    ...new Set(
+      [
+        ...(lineasDelCrm.length > 0 ? lineasDelCrm.map((l) => l.proveedor) : opcionesVistas.map((o) => o.alojamiento)),
+        ...opcionesVistas.flatMap((o) => o.actividades.map((a) => a.proveedor)),
+      ].filter((x): x is string => Boolean(x)),
+    ),
+  ];
+  const deposito = ficha.depositPaidAt ? "depósito cobrado" : quedan !== null ? (quedan < 0 ? `depósito vencido hace ${Math.abs(quedan)} días` : `quedan ${quedan} días para el depósito`) : "";
+  const franja: ResumenDeBloque[] = [
+    { id: "cliente", letra: "C", color: "27, 61, 117", titulo: "El cliente", valor: ficha.viaje.centro || ficha.viaje.nombre, nota: ficha.contacto.email || ficha.reference },
+    {
+      id: "viaje",
+      letra: "V",
+      color: "22, 138, 239",
+      titulo: "El viaje",
+      valor: ficha.viaje.dateFrom || ficha.viaje.dateTo ? `${fecha(ficha.viaje.dateFrom)} — ${fecha(ficha.viaje.dateTo)}` : "Sin fechas",
+      nota: [ficha.viaje.destino, ficha.viaje.participants ? `${ficha.viaje.participants} participantes` : null, ficha.viaje.teachers ? `${ficha.viaje.teachers} profesores` : null].filter(Boolean).join(" · "),
+    },
+    {
+      id: "dinero",
+      letra: "€",
+      color: "31, 122, 77",
+      titulo: "El dinero",
+      valor: opcionElegida
+        ? (opcionElegida.totalConActividades ?? opcionElegida.totalPvpText)
+        : ficha.opciones.length > 0
+          ? `${ficha.opciones.length} ${ficha.opciones.length === 1 ? "opción ofrecida" : "opciones ofrecidas"}`
+          : "Sin opciones",
+      nota: opcionElegida ? [`Opción ${opcionElegida.optionNumber} aceptada`, deposito].filter(Boolean).join(" · ") : ficha.opciones.length > 0 ? "todavía no han elegido" : "",
+      mal: ficha.opciones.length === 0,
+    },
+    {
+      id: "prov",
+      letra: "P",
+      color: "216, 148, 18",
+      titulo: "Proveedores",
+      valor: nombresDeProveedor.length > 0 ? `${nombresDeProveedor.length} ${nombresDeProveedor.length === 1 ? "proveedor" : "proveedores"}` : "Sin proveedores",
+      nota: nombresDeProveedor.length > 0 ? nombresDeProveedor.join(" · ") : "sin alojamientos ni actividades",
+    },
+  ];
+
   return (
     <div className="opc opc--app">
       {/* Mismo diseño que la ficha de las oportunidades de Zoho («C2», Anthony,
@@ -340,11 +386,11 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
             <MenuMas
               items={[
                 ...(ficha.pdf ? [{ texto: "Ver el documento", href: ficha.pdf }] : []),
-                // Recotizar desde aquí: si entrabas a la ficha a ver qué había, tenías que salir para cambiar algo.
-                { texto: "Ha cambiado algo", onClick: () => setRecotizando(true) },
-                // Cambiar un hotel o el programa de lo ya enviado (Ruth, 19/10/2026):
-                // se abre en Nueva solicitud y sale como versión siguiente.
-                { texto: "Rehacer la propuesta", onClick: () => void rehacer() },
+                // Rehacer sin salir de la oportunidad (Anthony, 17/11/2026): un panel lateral, como la
+                // conversación, donde se indican los cambios, se rehace el documento y se envía. Sustituye
+                // a «Ha cambiado algo» y al salto al cotizador, que queda dentro del panel para cambiar
+                // un hotel o una actividad (Ruth, 19/10/2026).
+                ...(delivery.proposalId ? [{ texto: "Rehacer la propuesta", onClick: () => setRecotizando(true) }] : []),
                 ...(ficha.crm.dealUrl ? [{ texto: "Abrir en Zoho ↗", href: ficha.crm.dealUrl }] : []),
                 // Borrar la solicitud, con lo que arrastra.
                 { texto: "Borrar la solicitud…", peligro: true, onClick: () => setBorrando(true) },
@@ -423,118 +469,133 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
       </section>
 
       <div className="opc-cuerpo">
-        <div className="opc-bloques">
-          <Bloque letra="C" color="27, 61, 117" titulo="El cliente">
-            <p className="opc-grande">{ficha.viaje.centro || ficha.viaje.nombre}</p>
-            <dl className="opc-dl">
-              <Par rotulo="Correo">{ficha.contacto.email ? <a href={`mailto:${ficha.contacto.email}`}>{ficha.contacto.email}</a> : null}</Par>
-              <Par rotulo="Referencia">{ficha.reference}</Par>
-            </dl>
-          </Bloque>
-
-          <Bloque letra="V" color="22, 138, 239" titulo="El viaje" extra={ficha.viaje.destino}>
-            <p className="opc-grande">
-              {ficha.viaje.dateFrom || ficha.viaje.dateTo ? `${fecha(ficha.viaje.dateFrom)} — ${fecha(ficha.viaje.dateTo)}` : "Sin fechas"}
-            </p>
-            <dl className="opc-dl">
-              <Par rotulo="Destino">{ficha.viaje.destino}</Par>
-              <Par rotulo="Participantes">{ficha.viaje.participants ? String(ficha.viaje.participants) : null}</Par>
-              <Par rotulo="Profesores">{ficha.viaje.teachers ? String(ficha.viaje.teachers) : null}</Par>
-            </dl>
-            <div className="opc-sub">
-              <small>Lo que se ofreció · {ficha.elegida ? `eligieron la opción ${ficha.elegida}` : "todavía no han elegido"}</small>
-              {ficha.opciones.length === 0 ? <p className="opx-muted">Esta propuesta no tiene opciones guardadas.</p> : null}
-              {ficha.opciones.map((o) => (
-                <div key={o.optionNumber} className={`opc-opcion${o.elegida ? " is" : ""}`}>
-                  <div>
-                    <b>Opción {o.optionNumber}</b>
-                    {o.elegida ? <span className="opc-sello">ELEGIDA</span> : null}
-                    <small>
-                      {o.alojamiento}
-                      {o.actividades.length > 0 ? ` · ${o.actividades.length} ${o.actividades.length === 1 ? "actividad" : "actividades"}` : ""}
-                    </small>
-                  </div>
-                  <b>{o.totalPvpText}</b>
-                </div>
-              ))}
-            </div>
-          </Bloque>
-
-          <Bloque letra="€" color="31, 122, 77" titulo="El dinero">
-            {(() => {
-              const elegida = ficha.opciones.find((o) => o.elegida);
-              return (
-                <>
-                  <p className="opc-grande">{elegida ? elegida.totalPvpText : ficha.opciones.length > 0 ? `${ficha.opciones.length} ${ficha.opciones.length === 1 ? "opción ofrecida" : "opciones ofrecidas"}` : "Sin opciones"}</p>
-                  <dl className="opc-dl">
-                    {elegida ? <Par rotulo="Aceptada">Opción {elegida.optionNumber} · {elegida.alojamiento}</Par> : ficha.opciones.map((o) => <Par key={o.optionNumber} rotulo={`Opción ${o.optionNumber}`}>{o.totalPvpText}</Par>)}
-                    <Par rotulo="Depósito">
-                      {ficha.depositPaidAt ? (
-                        <b className="opx-t-ok">cobrado</b>
-                      ) : quedan !== null ? (
-                        <b className={quedan < 0 ? "opx-vencido" : ""}>{quedan < 0 ? `venció hace ${Math.abs(quedan)} días` : `quedan ${quedan} días`}</b>
-                      ) : (
-                        "empieza a contar cuando elijan opción"
-                      )}
-                    </Par>
-                  </dl>
-                </>
-              );
-            })()}
-          </Bloque>
-
-          <Bloque letra="P" color="216, 148, 18" titulo="Proveedores">
-            {(() => {
-              const vistas = ficha.opciones.filter((o) => o.elegida || !ficha.elegida);
-              const enLaTabla = (crmFicha?.presupuestos ?? []).flatMap((x) => x.lineas);
-              const texto = enLaTabla.map((x) => `${x.servicio} ${x.proveedor} ${x.comentarios}`.toLowerCase()).join(" | ");
-              // Lo de la propuesta que NO está en la tabla del CRM: se enseña, para que no parezca que no existe.
-              const fuera = vistas.flatMap((o) => o.actividades.map((a) => ({ ...a, opcion: o.optionNumber }))).filter((a) => !texto.includes(a.nombre.toLowerCase()));
-              const alojamientos = enLaTabla.length === 0 ? vistas : [];
-              if (enLaTabla.length === 0 && alojamientos.length === 0 && fuera.length === 0) return <p className="opx-muted">Sin alojamientos ni actividades en la propuesta.</p>;
-              return (
-                <>
-                  {enLaTabla.length > 0 ? <ProveedoresDeLaTabla presupuestos={crmFicha?.presupuestos ?? []} vacio="" /> : null}
-                  {alojamientos.map((o) => (
-                    <div key={o.optionNumber} className="opc-provd">
-                      <header>
-                        <b>{o.alojamiento}</b>
-                        <b>{o.totalPvpText}</b>
-                      </header>
-                      <ul>
-                        <li>
-                          <span>
-                            Alojamiento · opción {o.optionNumber}
-                            <small>{[o.regimen, o.noches ? `${o.noches} noches` : null, o.desglose].filter(Boolean).join(" · ")}</small>
-                          </span>
-                        </li>
-                      </ul>
+        <FranjaDeBloques
+          key={ficha.reference}
+          bloques={franja}
+          detalles={{
+            cliente: (
+              <Bloque letra="C" color="27, 61, 117" titulo="El cliente">
+                <p className="opc-grande">{ficha.viaje.centro || ficha.viaje.nombre}</p>
+                <dl className="opc-dl">
+                  <Par rotulo="Correo">{ficha.contacto.email ? <a href={`mailto:${ficha.contacto.email}`}>{ficha.contacto.email}</a> : null}</Par>
+                  <Par rotulo="Referencia">{ficha.reference}</Par>
+                </dl>
+              </Bloque>
+            ),
+            viaje: (
+              <Bloque letra="V" color="22, 138, 239" titulo="El viaje" extra={ficha.viaje.destino}>
+                <p className="opc-grande">
+                  {ficha.viaje.dateFrom || ficha.viaje.dateTo ? `${fecha(ficha.viaje.dateFrom)} — ${fecha(ficha.viaje.dateTo)}` : "Sin fechas"}
+                </p>
+                <dl className="opc-dl">
+                  <Par rotulo="Destino">{ficha.viaje.destino}</Par>
+                  <Par rotulo="Participantes">{ficha.viaje.participants ? String(ficha.viaje.participants) : null}</Par>
+                  <Par rotulo="Profesores">{ficha.viaje.teachers ? String(ficha.viaje.teachers) : null}</Par>
+                </dl>
+                <div className="opc-sub">
+                  <small>Lo que se ofreció · {ficha.elegida ? `eligieron la opción ${ficha.elegida}` : "todavía no han elegido"}</small>
+                  {ficha.opciones.length === 0 ? <p className="opx-muted">Esta propuesta no tiene opciones guardadas.</p> : null}
+                  {ficha.opciones.map((o) => (
+                    <div key={o.optionNumber} className={`opc-opcion${o.elegida ? " is" : ""}`}>
+                      <div>
+                        <b>Opción {o.optionNumber}</b>
+                        {o.elegida ? <span className="opc-sello">ELEGIDA</span> : null}
+                        <small>
+                          {o.alojamiento}
+                          {o.actividades.length > 0 ? ` · ${o.actividades.length} ${o.actividades.length === 1 ? "actividad" : "actividades"}` : ""}
+                        </small>
+                      </div>
+                      <b>{o.totalConActividades ?? o.totalPvpText}</b>
                     </div>
                   ))}
-                  {fuera.length > 0 ? (
-                    <div className="opc-provd opc-provd--fuera">
-                      <header>
-                        <b>Actividades de la propuesta</b>
-                        <small>{crmDealId ? "no están en la tabla del CRM" : "aún sin oportunidad en el CRM"}</small>
-                      </header>
-                      <ul>
-                        {fuera.map((a, i) => (
-                          <li key={`${a.opcion}-${i}`}>
-                            <span>
-                              {a.nombre}
-                              {ficha.elegida ? null : <small>opción {a.opcion}</small>}
-                            </span>
-                            <b>{a.precio}</b>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                </>
-              );
-            })()}
-          </Bloque>
-        </div>
+                </div>
+              </Bloque>
+            ),
+            dinero: (
+              <Bloque letra="€" color="31, 122, 77" titulo="El dinero">
+                {(() => {
+                  const elegida = ficha.opciones.find((o) => o.elegida);
+                  return (
+                    <>
+                      <p className="opc-grande">{elegida ? (elegida.totalConActividades ?? elegida.totalPvpText) : ficha.opciones.length > 0 ? `${ficha.opciones.length} ${ficha.opciones.length === 1 ? "opción ofrecida" : "opciones ofrecidas"}` : "Sin opciones"}</p>
+                      <dl className="opc-dl">
+                        {elegida ? <Par rotulo="Aceptada">Opción {elegida.optionNumber} · {elegida.alojamiento}</Par> : ficha.opciones.map((o) => <Par key={o.optionNumber} rotulo={`Opción ${o.optionNumber}`}>{o.totalConActividades ?? o.totalPvpText}</Par>)}
+                        {elegida?.totalConActividades ? <Par rotulo="Alojamiento">{elegida.totalAlojamiento}</Par> : null}
+                        {elegida?.totalConActividades ? <Par rotulo="Actividades">{elegida.totalActividades}</Par> : null}
+                        <Par rotulo="Depósito">
+                          {ficha.depositPaidAt ? (
+                            <b className="opx-t-ok">cobrado</b>
+                          ) : quedan !== null ? (
+                            <b className={quedan < 0 ? "opx-vencido" : ""}>{quedan < 0 ? `venció hace ${Math.abs(quedan)} días` : `quedan ${quedan} días`}</b>
+                          ) : (
+                            "empieza a contar cuando elijan opción"
+                          )}
+                        </Par>
+                      </dl>
+                    </>
+                  );
+                })()}
+              </Bloque>
+            ),
+            prov: (
+              <Bloque ancho letra="P" color="216, 148, 18" titulo="Proveedores">
+                {(() => {
+                  const vistas = ficha.opciones.filter((o) => o.elegida || !ficha.elegida);
+                  const enLaTabla = (crmFicha?.presupuestos ?? []).flatMap((x) => x.lineas);
+                  const texto = enLaTabla.map((x) => `${x.servicio} ${x.proveedor} ${x.comentarios}`.toLowerCase()).join(" | ");
+                  // Lo de la propuesta que NO está en la tabla del CRM: se enseña, para que no parezca que no existe.
+                  const fuera = vistas.flatMap((o) => o.actividades.map((a) => ({ ...a, opcion: o.optionNumber }))).filter((a) => !texto.includes(a.nombre.toLowerCase()));
+                  const alojamientos = enLaTabla.length === 0 ? vistas : [];
+                  if (enLaTabla.length === 0 && alojamientos.length === 0 && fuera.length === 0) return <p className="opx-muted">Sin alojamientos ni actividades en la propuesta.</p>;
+                  return (
+                    <>
+                      {enLaTabla.length > 0 ? <ProveedoresDeLaTabla presupuestos={crmFicha?.presupuestos ?? []} vacio="" /> : null}
+                      {alojamientos.map((o) => (
+                        <div key={o.optionNumber} className="opc-provd">
+                          <header>
+                            <b>{o.alojamiento}</b>
+                            <b>{o.totalPvpText}</b>
+                          </header>
+                          <ul>
+                            <li>
+                              <span>
+                                Alojamiento · opción {o.optionNumber}
+                                <small>{[o.regimen, o.noches ? `${o.noches} noches` : null, o.desglose].filter(Boolean).join(" · ")}</small>
+                              </span>
+                            </li>
+                          </ul>
+                        </div>
+                      ))}
+                      {fuera.length > 0 ? (
+                        <div className="opc-provd opc-provd--fuera">
+                          <header>
+                            <b>Actividades de la propuesta</b>
+                            <small>{crmDealId ? "no están en la tabla del CRM" : "aún sin oportunidad en el CRM"}</small>
+                          </header>
+                          <ul>
+                            {fuera.map((a, i) => (
+                              <li key={`${a.opcion}-${i}`}>
+                                <span>
+                                  {a.nombre}
+                                  <small>
+                                    {[a.proveedor || "sin proveedor", ficha.elegida ? null : `opción ${a.opcion}`, a.precio ? `${a.precio} por alumno` : null]
+                                      .filter(Boolean)
+                                      .join(" · ")}
+                                  </small>
+                                </span>
+                                <b>{a.totalText ?? a.precio}</b>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </>
+                  );
+                })()}
+              </Bloque>
+            ),
+          }}
+        />
 
         <section className="opc-carp" aria-label="Carpetas de la oportunidad">
           <nav role="tablist" aria-label="Carpetas">
@@ -611,7 +672,14 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
                       <li key={o.optionNumber} className={o.elegida ? "ficha__op is-elegida" : "ficha__op"}>
                         <div className="ficha__opcab">
                           <span className="ficha__opn">Opción {o.optionNumber}</span>
-                          <span className="ficha__optotal">{o.totalPvpText}</span>
+                          <span className="ficha__optotal">
+                            {o.totalConActividades ?? o.totalPvpText}
+                            {o.totalConActividades ? (
+                              <small className="ficha__opsuma">
+                                alojamiento {o.totalAlojamiento} + actividades {o.totalActividades}
+                              </small>
+                            ) : null}
+                          </span>
                         </div>
                         <div className="ficha__opnom">{o.alojamiento}</div>
                         <div className="ficha__opdet">
@@ -679,14 +747,14 @@ export function FichaPropuesta({ delivery, onClose, incrustada = false, onCambio
       </div>
 
       {recotizando && delivery.proposalId ? (
-        <ChangePanel
+        <RehacerPanel
           proposalId={delivery.proposalId}
           tituloViaje={ficha.viaje.nombre}
+          destinatario={ficha.contacto.email}
+          actual={{ participants: ficha.viaje.participants, teachers: ficha.viaje.teachers, dateFrom: ficha.viaje.dateFrom, dateTo: ficha.viaje.dateTo }}
           onClose={() => setRecotizando(false)}
-          onApplied={() => {
-            setRecotizando(false);
-            void cargar();
-          }}
+          onCambio={() => void cargar()}
+          onCotizador={() => void rehacer()}
         />
       ) : null}
 

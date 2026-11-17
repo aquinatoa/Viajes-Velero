@@ -123,6 +123,31 @@ prueba("si una versión anterior está aceptada, manda ella: lleva el reloj del 
   assert.equal(fila.deposito.venceEl, "2026-12-01T00:00:00.000Z");
 });
 
+prueba("una versión ENVIADA después de la aceptada la sustituye: hay que volver a aceptar", () => {
+  const aceptada = entrega({
+    id: "e1",
+    createdAt: "2026-10-20T10:00:00Z",
+    chosenOptionNumber: 2,
+    depositDueAt: "2026-12-01T00:00:00Z",
+  });
+  const rehecha = entrega({ id: "e2", createdAt: "2026-10-25T10:00:00Z", status: "SENT", sentAt: "2026-10-25T11:00:00Z" });
+  const [fila] = unirOportunidades({ entregas: [aceptada, rehecha], tratos: [], registros: sinRegistros, ahora: AHORA });
+  assert.equal(fila.entrega?.id, "e2");
+  assert.equal(fila.carril, "esperando");
+  assert.equal(fila.entrega?.versiones, 2);
+  assert.equal(fila.entrega?.versionNuevaSinEnviar, false);
+  assert.equal(fila.deposito.venceEl, null);
+});
+
+prueba("y si aceptan la versión nueva, manda la nueva con su reloj del depósito", () => {
+  const primera = entrega({ id: "e1", createdAt: "2026-10-20T10:00:00Z", chosenOptionNumber: 2, depositDueAt: "2026-12-01T00:00:00Z" });
+  const segunda = entrega({ id: "e2", createdAt: "2026-10-25T10:00:00Z", status: "SENT", chosenOptionNumber: 1, depositDueAt: "2026-12-06T00:00:00Z" });
+  const [fila] = unirOportunidades({ entregas: [primera, segunda], tratos: [], registros: sinRegistros, ahora: AHORA });
+  assert.equal(fila.entrega?.id, "e2");
+  assert.equal(fila.carril, "aceptada");
+  assert.equal(fila.deposito.venceEl, "2026-12-06T00:00:00.000Z");
+});
+
 prueba("un trato sin propuesta de la app entra como ZOHO, con el carril deducido de la fase", () => {
   const filas = unirOportunidades({
     entregas: [],

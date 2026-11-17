@@ -2993,3 +2993,115 @@ Anthony vio tres fallos: (1) los colores de las fases no eran los del CRM; (2) R
   · Punto de retorno: `refs/respaldo/oportunidades-ficha-c2`.
 - Deshacer todo lo del 16/11: `git checkout -- .` en el worktree (vuelve a c58a250); volver solo al paso del resumen: `git checkout refs/respaldo/oportunidades-resumen-aparte -- src`.
 - Pendiente: su impresión de las dos vistas y de la ficha, commit local con su sí, y lo de antes (prueba real de cambio de fase —hay trato de prueba «TEST» 734060000027937003 en el Zoho de Oravia—, fase 6, costes y márgenes solo ADMIN/DEPT_ADMIN).
+
+## 16/11, noche — Ajustes del feedback de Javier HECHOS EN LOCAL (rama `ajustes-cierre`, SIN commit y SIN subir)
+
+Orden de Anthony: «procede con todos los cambios y muéstramelos en local». Worktree `wt-oportunidades`, rama nueva
+`ajustes-cierre` desde `24f9a64` (= producción). Puntos de retorno: `refs/respaldo/antes-de-ajustes-cierre` (24f9a64),
+`ajustes-1-buscador-destino`, `ajustes-2-total-actividades`, `ajustes-3-todo` (stash con todo). `tsc -b` limpio y
+`npm test` exit 0 (1.114 pruebas; 29 nuevas). API local reiniciada a las 22:31 UTC (tarea en segundo plano de esta sesión).
+
+Hecho:
+1. **Buscador de alojamientos** (`src/domain/aliasDeProveedor.ts`): entiende «med 1/2/3», «med3», «cambrils par»,
+   «Cambrils Park MED 1», palabras en cualquier orden. Pruebas en `tests/destinoDelAlojamiento.test.ts`.
+2. **Filtro por destino** (`src/domain/destinoDelAlojamiento.ts` + `RequestCanvas.tsx`): la lista enseña solo los del
+   destino pedido; botón «Ver también los de cerca (N)»; lo elegido y lo metido a mano no se esconde; el buscador mira en todos.
+3. **«Ordenar por» en actividades** (`src/domain/ordenDeActividades.ts`): recomendadas, nombre, precio, lugar, proveedor.
+4. **Ficha** (las dos, CSS + prop `ancho` de `Bloque`): cliente, viaje y dinero en una fila arriba; Proveedores debajo a
+   todo el ancho, un proveedor por columna; carpetas debajo a todo el ancho.
+5. **El total de la opción suma las actividades** (`src/domain/actividadesContratadas.ts`): cabecera de cada opción en el
+   PDF y en la página del cliente (`documentoParaElCliente`, con «Alojamiento X + actividades Y»), ficha interna
+   (`fichaPropuesta.ts`: `totalConActividades`, y proveedor y total de cada actividad) e importe del trato al crearlo
+   (`crmService.ts`; de ahí sale el depósito del 30 %). `totalPvpText` NO cambia de significado (sigue siendo el alojamiento).
+6. **Actividades a «Servicios Contratados»** (`serviciosContratados.ts`): una fila por tarifa, tipo «Actividad», misma
+   fecha de entrada y salida, «P.Pax» si es por persona (pasajeros = cantidad, cantidad 1) y «P.Neto» si es por grupo
+   (leído de su Zoho: la lista de unidades es P.Pax · P.Neto); gratuidad en su fila a 0 €; cada actividad con SU
+   proveedor; el importe del trato pasa a alojamiento + actividades; también en propuestas solo de actividades.
+   **SIN PROBAR contra el Zoho real**: hace falta su «tienes mi permiso» y un trato de prueba. No aceptar opciones en
+   local sobre tratos reales: escribiría en el CRM de Oravia.
+7. **«Jugadores y entrenadores» en Sports** (`src/domain/vocabularioDelGrupo.ts`): se traduce al final en
+   `documentoParaElCliente` (PDF y página pública), sin tocar lo guardado; las notas de quien cotiza no se traducen.
+   Las pantallas internas del cotizador siguen diciendo alumnos/profesores (~290 apariciones, sin tocar).
+
+Sin hacer: **idiomas** (CAT/ENG/FR, bloque grande, sin empezar); **Cambrils Park** (espera a Javier; además sus dos
+Excel del 10/11 siguen sin publicar); el correo interno «pendiente de depósito» sigue dando el total solo del
+alojamiento (`server/avisoDeDeposito.ts`); `applyChange` (cambios del cliente) no recalcula actividades; respuesta a Ruth.
+Correo para Javier: borrador dado en el chat (lo envía Anthony).
+
+- **17/11: Anthony eligió «H1+H2» y está montada en las DOS fichas** (rama `ajustes-cierre`, sin commit). Con los
+  bloques enteros en fila (lo del 16/11 por la noche) las carpetas quedaban por debajo de la pantalla y no le
+  convenció: el objetivo de la ficha es el menor scroll posible. Ahora: arriba, una franja con una tarjeta de una
+  línea por bloque (cliente, viaje, dinero, proveedores); debajo, las carpetas con el menú en HORIZONTAL y una pestaña
+  nueva «Detalle» (la última) con los cuatro bloques enteros. Pulsar una tarjeta abre «Detalle» con su bloque marcado;
+  pulsarla otra vez vuelve a la carpeta inicial. Ficheros: `FichaDeTrato.tsx` (exporta `FranjaDeBloques`,
+  `ResumenDeBloque`; `Bloque` gana `marcado`), `FichaPropuesta.tsx`, `styles.css` (`.opc-franja`, `.opc-res`,
+  `.opc-carp > nav` en horizontal). `tsc -b` limpio, `npm test` exit 0 (1.114). Puntos de retorno:
+  `refs/respaldo/ajustes-4-antes-de-franja` (bloques enteros en fila) y `refs/respaldo/ajustes-5-franja-h1h2`.
+  Maqueta: `Jarvis/informes/Oravia-maqueta-ficha/bloques-arriba.html`. No visto en navegador por mí: falta su
+  pantallazo. En el correo a Javier, la frase de la ficha debe decir franja + detalle al pulsar.
+  **Corrección de Anthony al verlo (17/11): el menú de las carpetas, en VERTICAL** (a la izquierda, como estaba en
+  producción). Hecho: las reglas `.opc-carp` vuelven a ser las de `24f9a64`; se quedan la franja de arriba y la
+  pestaña «Detalle». Punto de retorno `refs/respaldo/ajustes-6-franja-carpetas-vertical`. Solo CSS; sin commit.
+  **Segunda corrección al verlo (17/11): quería el comportamiento de H1**, no la carpeta «Detalle» con los cuatro
+  bloques: cada tarjeta de la franja despliega SOLO su bloque, flotando encima (se cierra pulsando otra vez, fuera o
+  con Esc). Hecho en las dos fichas: `FranjaDeBloques({ bloques, detalles })` lleva su propio estado; fuera la carpeta
+  «Detalle», `foco` y `marcado`; estilos `.opc-res__w`, `.opc-flota` (el de Proveedores, más ancho). Queda: franja
+  arriba + carpetas con menú vertical, como en producción. `tsc -b` limpio, `npm test` exit 0 (1.114). Punto de
+  retorno `refs/respaldo/ajustes-7-franja-flotante`. Sin commit; falta su pantallazo.
+
+- **17/11, mediodía: «vamos con lo que sí puedes hacer» + «Rehacer la propuesta» dentro de la oportunidad.** Rama
+  `ajustes-cierre`, SIN commit; `tsc -b` limpio, `npm test` exit 0 (1.142 pruebas). Punto de retorno COMPLETO (con
+  ficheros nuevos, hecho con índice temporal porque `git stash create` no guarda los no seguidos):
+  `refs/respaldo/ajustes-8-rehacer-en-la-oportunidad` (16b01ba). API local reiniciada (tarea `b576hrj5k`).
+  1. **Rehacer sin salir de la oportunidad** (Anthony: «no deberíamos irnos de la oportunidad… una sección como ya lo
+     hace Conversación»): `src/components/home/RehacerPanel.tsx`, panel lateral. Campos alumnos/profesores/llegada/
+     salida (o pegar el mensaje del cliente) → «Ver qué cambia» → «Rehacer la propuesta» (crea la versión y su
+     documento, `-vN`) → «Ver el documento» y «Enviar a …». En el menú «Más ⋯» queda una sola entrada, «Rehacer la
+     propuesta» (sustituye a «Ha cambiado algo»); cambiar un hotel o una actividad sigue yendo al cotizador, con un
+     enlace dentro del panel. `ChangePanel.tsx` se queda solo para la pantalla vieja `ProposalDesk`.
+  2. **Las actividades se recalculan al cambiar el grupo**: `src/domain/actividadesAlCambiarElGrupo.ts` (entradas de
+     alumnos, profesores de pago, gratuidad con su regla, descuento por alumno, grupos de N; lo repartido a mano no se
+     toca y se avisa). `server/proposalChanges.ts`: `vista.actividades`, y `applyChange` las guarda.
+  3. **Alojamiento sin enlace al catálogo**: las propuestas viejas perdieron `accommodationId` al republicarse las
+     tarifas y la vista previa decía «ya no hay tarifa». Ahora se reenlaza por nombre (solo si su tarifa da el total
+     de antes) o, si solo cambia el grupo, se recalcula con el propio desglose
+     (`src/domain/alojamientoAlCambiarElGrupo.ts`). Si no se puede, el panel no deja rehacer y manda al cotizador.
+  4. **Aviso interno «pendiente de depósito»**: da el total del viaje (alojamiento + actividades) con su desglose.
+  Probado en local SOLO con la vista previa (no escribe): ORV-2026-0006, 0005 y 0007. No se ha aplicado ni enviado
+  nada. No visto en navegador.
+  **Ojo, dato de local**: el catálogo LOCAL es más viejo que el de producción: 16 tarifas de «Fútbol Salou 2027»
+  (campos, luz, entrenador…) no traen unidad y en local salen por persona; en PRODUCCIÓN sí la traen («por equipo»,
+  «servicio», «por partido»…: comprobado con la búsqueda de actividades, solo lectura), así que allí se cobran por
+  servicio. Las propuestas anteriores al 20/10 guardaron esas actividades por persona (ORV-2026-0007).
+  **Sin resolver / a preguntar**: al rehacer una propuesta YA ACEPTADA y enviar la versión nueva, la lista sigue
+  enseñando la aceptada («la aceptada manda», `entregaPrincipal`) y el envío pone el hito «presupuesto enviado» en el
+  CRM: hay que decidir con Oravia si el cliente vuelve a aceptar. En el cotizador, «rehacer» sigue pidiendo confirmar
+  la petición (no tocado). Idiomas y Cambrils Park, sin empezar. Respuesta a Ruth: texto dado a Anthony en el chat.
+
+- **17/11, tarde: respuestas de Anthony y tres bloques más** (rama `ajustes-cierre`, SIN commit; `tsc -b` limpio,
+  `npm test` exit 0 con 1.160 pruebas; punto de retorno completo `refs/respaldo/ajustes-9-idiomas` 74529fe; API local
+  reiniciada, tarea `bi72nqyx9`).
+  1. **«Si se rehace una propuesta, aunque ya la haya aceptado, tiene que volver a aceptar»** (Anthony). Hecho:
+     `entregaPrincipal` (`src/domain/oportunidadUnificada.ts`): una versión ENVIADA después de la aceptada pasa a ser
+     la vigente (carril «esperando», sin reloj de depósito). `server/proposalDelivery.ts`: `PropuestaSustituida`; ni
+     el enlace público ni «apuntar la opción» dejan aceptar la versión antigua (409). OJO: la fase del CRM NO retrocede
+     sola (`marcarHito` nunca mueve hacia atrás): hay que moverla a mano desde la barra de fases. Sin decidir.
+  2. **Catálogo local = producción** («tiene que ser el mismo»). `sincronizar-local.mts` (scratchpad de la sesión; en
+     seco por defecto, `--aplicar` escribe SOLO en local): 149 actividades / 551 tarifas idénticas (9 precios, 16
+     unidades de tarifa, condiciones), 35 alojamientos / 833 tarifas, fuera la actividad y el documento de PortAventura
+     de septiembre que sobraban. Se comprueba con `comparar-catalogos.mjs`. Tropiezo: emparejé alojamientos solo por
+     nombre y pisé las tarifas suizas de Cambrils Park en local con las generales; corregido emparejando por nombre y
+     documento (esas tres fichas quedan recreadas desde la API, sin «neto azul marino»). NO es una copia exacta de la
+     base: documentos en revisión, propuestas y oportunidades siguen siendo los de local; para eso hace falta un
+     volcado del servidor (Mateo).
+  3. **Idiomas (CAT, ENG, FR)**, lo que faltaba del 23/09. Rótulos fijos traducidos a mano en
+     `src/domain/idiomaDelDocumento.ts` (PDF, página del enlace y correo); lo que cambia en cada propuesta lo traduce
+     `server/traduccionDelDocumento.ts` con el modelo ligero (`TRADUCCION_IA_MODEL`, por defecto `claude-haiku-5-5`),
+     una vez y guardado en `storage/traducciones/<idioma>.json`; solo se acepta una traducción que conserve las cifras
+     (el «1» suelto no cuenta), con un reintento; lo que no se puede, en castellano y apuntado. Si el modelo falla, el
+     documento sale ENTERO en castellano. Los nombres de hoteles y actividades no se traducen; los importes conservan
+     su formato. `buildProposalPdf` acepta `idioma` y `documentoTraducido`; `prepararEntrega`, `composeMessage` y la
+     ruta pública lo usan con `tripRequest.language`. En el cotizador, campo «Idioma del documento» en «Lo que hemos
+     entendido», y `detectLanguage` reconoce ya catalán y francés. Probado de verdad con el modelo sobre ORV-2026-0006
+     en inglés, catalán y francés (58 textos, unos 25 s la primera vez, instantáneo después). No visto en navegador.
+  Pendiente: que Anthony lo vea; Cambrils Park (Javier); cambiar de hotel sin salir de la oportunidad; subir.

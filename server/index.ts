@@ -53,6 +53,8 @@ import {
 import fs from "node:fs";
 import path from "node:path";
 import { applyChange, previewChange, type DatosLeidos } from "./proposalChanges";
+import { idiomaDelAsunto } from "../src/domain/idiomaDelDocumento";
+import { documentoEnIdioma } from "./traduccionDelDocumento";
 import {
   DEPOSIT_PERCENT,
   chooseOption,
@@ -61,6 +63,7 @@ import {
   listDeliveries,
   opcionesDelDocumento,
   prepareDelivery,
+  PropuestaSustituida,
   readPublicProposal,
   sendDelivery,
 } from "./proposalDelivery";
@@ -2804,7 +2807,11 @@ app.get("/api/public/proposals/:token", async (request, response) => {
       activities: actividadesSinAlojamiento(delivery.proposal, request_.participants ?? 0, request_.teachers ?? 0),
       notes: notasGuardadas(delivery.proposal.stayJson),
     });
+    // En el idioma de la solicitud, como el PDF: las traducciones están guardadas desde que se preparó.
+    // El de su correo, no el de la solicitud: lo que salió en castellano se sigue viendo en castellano.
+    const enIdioma = await documentoEnIdioma(documento, idiomaDelAsunto(delivery.subject));
     response.json({
+      idioma: enIdioma.idioma,
       reference: delivery.reference,
       department: delivery.department,
       tripTitle: tituloDelViaje(request_),
@@ -2828,7 +2835,7 @@ app.get("/api/public/proposals/:token", async (request, response) => {
         breakdownList: desgloseEnLista(option.priceBreakdownText, request_.dateFrom),
         conditionsText: option.conditionsText ? textoParaElCliente(option.conditionsText) : option.conditionsText,
       })),
-      documento,
+      documento: enIdioma.documento,
     });
   } catch (error) {
     console.error("Error abriendo la propuesta pública", error);
@@ -2870,6 +2877,10 @@ app.post("/api/deliveries/:id/opcion", requireAuth, async (request, response) =>
       depositDueAt: delivery.depositDueAt,
     });
   } catch (error) {
+    if (error instanceof PropuestaSustituida) {
+      response.status(409).json({ error: error.message });
+      return;
+    }
     console.error("Error apuntando la opción elegida", error);
     response.status(500).json({ error: "No se pudo apuntar la opción." });
   }
@@ -2895,6 +2906,11 @@ app.post("/api/public/proposals/:token/choose", async (request, response) => {
       depositPercent: DEPOSIT_PERCENT,
     });
   } catch (error) {
+    if (error instanceof PropuestaSustituida) {
+      // Al cliente no se le da la referencia interna: se le dice que mire el correo más reciente.
+      response.status(409).json({ error: "Esta propuesta se ha actualizado. Te hemos enviado una versión más reciente: acepta la opción desde ese correo." });
+      return;
+    }
     console.error("Error registrando la opción elegida", error);
     response.status(500).json({ error: "No se pudo registrar la elección." });
   }

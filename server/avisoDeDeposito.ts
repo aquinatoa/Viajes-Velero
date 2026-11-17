@@ -21,6 +21,8 @@
 import { PrismaClient } from "@prisma/client";
 import nodemailer from "nodemailer";
 
+import { totalDeLaOpcion } from "../src/domain/actividadesContratadas";
+import { formatCurrencyExact } from "../src/services/utils";
 import { canSend, loadMailSettings, mailboxFor } from "./mailConfig";
 
 const prisma = new PrismaClient();
@@ -31,7 +33,10 @@ export interface DatosDelAviso {
   centro: string | null;
   opcion: number;
   alojamiento: string | null;
+  /** El total de la opción: el del viaje entero si lleva actividades (17/11/2026). */
   total: string | null;
+  /** De qué está hecho ese total cuando la opción lleva actividades: «alojamiento X + actividades Y». */
+  detalleDelTotal?: string | null;
   /** Hasta cuándo, ya como texto: «15/12/2026». */
   depositoHasta: string;
   enlace: string | null;
@@ -48,7 +53,9 @@ export function componerAvisoDeDeposito(d: DatosDelAviso): { asunto: string; tex
     "",
     `${d.centro ? `${quien} ha elegido` : "Han elegido"} la opción ${d.opcion} de la propuesta ${d.referencia}` +
       `${d.apuntadoPor ? ` (lo ha apuntado ${d.apuntadoPor} desde la app)` : ""}.`,
-    ...(d.alojamiento ? [`Alojamiento: ${d.alojamiento}${d.total ? ` · total ${d.total}` : ""}.`] : []),
+    ...(d.alojamiento
+      ? [`Alojamiento: ${d.alojamiento}${d.total ? ` · total ${d.detalleDelTotal ? "del viaje " : ""}${d.total}${d.detalleDelTotal ? ` (${d.detalleDelTotal})` : ""}` : ""}.`]
+      : []),
     "",
     `La oportunidad pasa a «Pendiente de depósito». El depósito vence el ${d.depositoHasta}.`,
     ...(d.enlace ? ["", `Propuesta: ${d.enlace}`] : []),
@@ -79,6 +86,7 @@ export async function avisarPendienteDeDeposito(
           include: {
             tripRequest: true,
             accommodationOptions: { where: { optionNumber: opcion }, take: 1 },
+            activityOptions: { where: { optionNumber: opcion } },
           },
         },
       },
@@ -99,13 +107,24 @@ export async function avisarPendienteDeDeposito(
     const box = mailboxFor(settings, solicitud.department);
     const hasta = entrega.depositDueAt ?? new Date();
     const alojamiento = entrega.proposal.accommodationOptions[0];
+    // El total de la opción lleva sus actividades, como en el documento del colegio y en el CRM.
+    const cuenta = totalDeLaOpcion(
+      alojamiento?.totalPvpText ?? null,
+      entrega.proposal.activityOptions,
+      solicitud.participants ?? alojamiento?.participants ?? 0,
+      solicitud.teachers ?? alojamiento?.teachers ?? 0,
+    );
+    const conActividades = cuenta.actividades > 0 && cuenta.total !== null;
     const { asunto, texto } = componerAvisoDeDeposito({
       propietario: propietario.name ?? null,
       referencia: entrega.reference,
       centro: solicitud.centreName ?? solicitud.opportunityName ?? null,
       opcion,
       alojamiento: alojamiento?.accommodationNameSnapshot ?? null,
-      total: alojamiento?.totalPvpText ?? null,
+      total: conActividades ? formatCurrencyExact(cuenta.total as number) : (alojamiento?.totalPvpText ?? null),
+      detalleDelTotal: conActividades
+        ? `alojamiento ${alojamiento?.totalPvpText ?? "—"} + actividades ${formatCurrencyExact(cuenta.actividades)}`
+        : null,
       depositoHasta: fechaEnEspanol(hasta),
       enlace: settings.publicBaseUrl ? `${settings.publicBaseUrl}/p/${entrega.publicToken}` : null,
       apuntadoPor,

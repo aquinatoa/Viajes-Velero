@@ -26,7 +26,9 @@ import { importeDe } from "../src/domain/importe";
 import crypto from "node:crypto";
 import { PrismaClient, type DeliveryStatus, type Prisma } from "@prisma/client";
 import nodemailer from "nodemailer";
-import { buildProposalPdf, type PdfActivity, type PdfOption } from "./proposalPdf";
+import { buildProposalPdf, documentoParaElCliente, type PdfActivity, type PdfInput, type PdfOption } from "./proposalPdf";
+import { fechaEnIdioma, idiomaDelDocumento, texto, type IdiomaDelDocumento } from "../src/domain/idiomaDelDocumento";
+import { documentoEnIdioma } from "./traduccionDelDocumento";
 import { canSend, loadMailSettings, mailboxFor, replyToFor } from "./mailConfig";
 import { marcarHito, type Hito } from "./crmPipeline";
 import { contratarEnElCrm } from "./serviciosContratados";
@@ -90,11 +92,6 @@ function newPublicToken(): string {
   return crypto.randomBytes(24).toString("base64url");
 }
 
-function formatDate(value?: Date | null): string {
-  if (!value) return "";
-  return new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "long", year: "numeric" }).format(value);
-}
-
 interface PreparedContent {
   subject: string;
   bodyText: string;
@@ -105,6 +102,8 @@ interface PreparedContent {
  * tiene que dar contexto y decir qué hacer a continuación.
  */
 function composeMessage(input: {
+  /** El idioma del correo: el mismo que el del documento que lleva adjunto. */
+  idioma?: IdiomaDelDocumento;
   reference: string;
   tripTitle: string;
   recipientName?: string | null;
@@ -114,37 +113,37 @@ function composeMessage(input: {
   publicUrl?: string | null;
   signature: string;
 }): PreparedContent {
-  const saludo = input.recipientName ? `Hola ${input.recipientName},` : "Hola,";
-  const fechas = input.dateFrom || input.dateTo
-    ? ` para las fechas del ${formatDate(input.dateFrom)} al ${formatDate(input.dateTo)}`
-    : "";
+  const idioma = input.idioma ?? "es";
+  const T = (clave: Parameters<typeof texto>[1], valores?: Record<string, string | number>) => texto(idioma, clave, valores);
+  const saludo = input.recipientName ? T("correoSaludoCon", { nombre: input.recipientName }) : T("correoSaludo");
+  const fechas =
+    input.dateFrom || input.dateTo
+      ? T("correoFechas", { desde: fechaEnIdioma(input.dateFrom, idioma), hasta: fechaEnIdioma(input.dateTo, idioma) })
+      : "";
+  const viaje = { titulo: input.tripTitle, fechas, n: input.optionCount };
 
   const lineas = [
     saludo,
     "",
-    input.optionCount === 0
-      ? `Os adjuntamos la propuesta de actividades para ${input.tripTitle}${fechas}.`
-      : input.optionCount === 1
-        ? `Os adjuntamos la propuesta para ${input.tripTitle}${fechas}, con una opción de alojamiento.`
-        : `Os adjuntamos la propuesta para ${input.tripTitle}${fechas}, con ${input.optionCount} opciones para que elijáis la que mejor os encaje.`,
+    input.optionCount === 0 ? T("correoSoloActividades", viaje) : input.optionCount === 1 ? T("correoUnaOpcion", viaje) : T("correoVariasOpciones", viaje),
     "",
     // Solo actividades (Ruth, 02/11/2026): no hay entre qué elegir, se acepta o no.
     input.optionCount === 0
       ? input.publicUrl
-        ? `Podéis verla y aceptarla aquí: ${input.publicUrl}`
-        : "Respondiendo a este correo nos decís si os encaja y seguimos adelante."
+        ? T("correoVerYAceptar", { url: input.publicUrl })
+        : T("correoDecidSiEncaja")
       : input.publicUrl
-        ? `Podéis verlas y aceptar la que prefiráis aquí: ${input.publicUrl}`
-        : "Respondiendo a este correo nos decís cuál preferís y seguimos adelante.",
+        ? T("correoVerYElegir", { url: input.publicUrl })
+        : T("correoDecidCual"),
     "",
-    `Cualquier duda, responded a este mismo correo indicando la referencia ${input.reference}.`,
+    T("correoCualquierDuda", { ref: input.reference }),
     "",
-    "Un saludo,",
+    T("correoDespedida"),
     input.signature,
   ];
 
   return {
-    subject: `Propuesta ${input.reference} · ${input.tripTitle}`,
+    subject: T("correoAsunto", { ref: input.reference, titulo: input.tripTitle }),
     bodyText: lineas.join("\n"),
   };
 }
@@ -243,7 +242,7 @@ async function prepararEntrega(input: PrepareDeliveryInput): Promise<DeliveryRes
   // Si el nombre es solo un año («2027»), el del centro: Ruth, 19/10/2026.
   const tripTitle = tituloDelViaje(request);
 
-  const pdfPath = await buildProposalPdf({
+  const entradaDelPdf: PdfInput = {
     reference,
     department: request.department,
     clientName: client.fullName,
@@ -262,9 +261,15 @@ async function prepararEntrega(input: PrepareDeliveryInput): Promise<DeliveryRes
     publicUrl,
     preparedBy: box.displayName,
     notes: notasGuardadas(proposal.stayJson),
-  });
+  };
+  // El documento sale en el idioma en que llegó la solicitud (Oravia, 23/09/2026). Lo que cambia en cada
+  // propuesta lo traduce el servidor una vez y lo guarda; si no se puede, sale entero en castellano.
+  const enIdioma = await documentoEnIdioma(documentoParaElCliente(entradaDelPdf), idiomaDelDocumento(request.language));
+  if (enIdioma.aviso) console.warn(`[idioma] ${reference}: ${enIdioma.aviso}`);
+  const pdfPath = await buildProposalPdf({ ...entradaDelPdf, idioma: enIdioma.idioma, documentoTraducido: enIdioma.documento });
 
   const { subject, bodyText } = composeMessage({
+    idioma: enIdioma.idioma,
     reference,
     tripTitle,
     recipientName: input.recipientName ?? client.firstName,
@@ -585,6 +590,29 @@ export async function readPublicProposal(token: string) {
 }
 
 /**
+ * Una propuesta que ya no se puede aceptar porque después se envió otra versión del mismo viaje
+ * (Anthony, 17/11/2026: la oferta rehecha hay que volver a aceptarla; la anterior deja de valer).
+ */
+export class PropuestaSustituida extends Error {
+  constructor(public readonly referenciaNueva: string) {
+    super(`Esta propuesta se ha sustituido por la ${referenciaNueva}: la opción hay que aceptarla en esa.`);
+    this.name = "PropuestaSustituida";
+  }
+}
+
+/** La referencia de la versión enviada después de esta entrega, si la hay. */
+async function versionEnviadaDespues(delivery: { id: string; proposalId: string; createdAt: Date }): Promise<string | null> {
+  const propuesta = await prisma.tripProposal.findUnique({ where: { id: delivery.proposalId }, select: { tripRequestId: true } });
+  if (!propuesta) return null;
+  const posterior = await prisma.proposalDelivery.findFirst({
+    where: { id: { not: delivery.id }, status: "SENT", createdAt: { gt: delivery.createdAt }, proposal: { tripRequestId: propuesta.tripRequestId } },
+    orderBy: { createdAt: "desc" },
+    select: { reference: true },
+  });
+  return posterior?.reference ?? null;
+}
+
+/**
  * La opción aceptada, apuntada por nosotros.
  *
  * Existe porque hasta ahora la ÚNICA vía para marcarla era el botón de la
@@ -610,6 +638,8 @@ export async function marcarOpcionElegida(
   });
   if (!delivery) return null;
   if (delivery.chosenOptionNumber) return delivery;
+  const sustituta = await versionEnviadaDespues(delivery);
+  if (sustituta) throw new PropuestaSustituida(sustituta);
 
   const chosenAt = new Date();
   const depositDueAt = new Date(chosenAt);
@@ -644,6 +674,8 @@ export async function chooseOption(token: string, optionNumber: number) {
   const delivery = await prisma.proposalDelivery.findUnique({ where: { publicToken: token } });
   if (!delivery) return null;
   if (delivery.chosenOptionNumber) return delivery; // ya eligieron: no se pisa
+  const sustituta = await versionEnviadaDespues(delivery);
+  if (sustituta) throw new PropuestaSustituida(sustituta);
 
   const chosenAt = new Date();
   const depositDueAt = new Date(chosenAt);

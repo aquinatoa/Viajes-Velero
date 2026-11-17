@@ -71,6 +71,8 @@ import {
 import type { ClientSegment } from "../../domain/documentImportTypes";
 import { podio, razonDelPodio } from "../../domain/podio";
 import { algunCampoCoincide } from "../../domain/aliasDeProveedor";
+import { separarPorDestino } from "../../domain/destinoDelAlojamiento";
+import { ORDENES_DE_ACTIVIDADES, ordenarActividades, type OrdenDeActividades } from "../../domain/ordenDeActividades";
 import {
   frasesDeDiscrepancia,
   leerLaSolicitud,
@@ -164,6 +166,7 @@ import {
   type HotelAdHoc,
 } from "../../domain/adHoc";
 import { AltaAdHoc, ListaAdHoc } from "./AltaAdHoc";
+import { idiomaDelDocumento, type IdiomaDelDocumento } from "../../domain/idiomaDelDocumento";
 
 /**
  * El lienzo: pantalla de nueva solicitud.
@@ -535,6 +538,8 @@ export function RequestCanvas({
   // (Javier, 08/10/2026: «sería una lista de 100 o 250 actividades»), lo que
   // hace útil la pantalla es escribir «kayak» y ver tres.
   const [busquedaActividades, setBusquedaActividades] = useState("");
+  /** En qué orden se ven las actividades: el de la búsqueda, o el que elija quien cotiza. */
+  const [ordenActividades, setOrdenActividades] = useState<OrdenDeActividades>("recomendado");
   // El buscador vive detrás de un botón con lupa en la cabecera de la sección
   // (Anthony, 08/10/2026: «en lugar de una franja, un icono amarillo que
   // despliegue el buscador»). Cerrado no ocupa nada; abierto es una píldora.
@@ -543,6 +548,8 @@ export function RequestCanvas({
   // El mismo buscador, en Alojamientos.
   const [busquedaHoteles, setBusquedaHoteles] = useState("");
   const [buscadorHotelesAbierto, setBuscadorHotelesAbierto] = useState(false);
+  /** Enseñar también los alojamientos de los pueblos de al lado, no solo los del destino pedido. */
+  const [verDeCerca, setVerDeCerca] = useState(false);
   const campoBusquedaHoteles = useRef<HTMLInputElement>(null);
   // Las líneas de cada actividad: tarifa × cantidad. «No todos son adultos,
   // no todos son discapacitados» (Anthony, 08/10/2026). Al marcar una
@@ -1232,6 +1239,24 @@ export function RequestCanvas({
       })),
     };
   }, [hotelesConEstancia, entendido?.regimeRequested, tope, extraDelPrograma]);
+
+  // Primero SOLO los del destino pedido; los de cerca, a un clic (Sports,
+  // 16/11/2026: «aunque filtres por Salou o Cambrils salen los mismos»). Lo que
+  // ya está elegido y lo metido a mano no se esconde nunca, y el buscador mira
+  // siempre en todos: quien escribe «Cambrils Park» lo quiere encontrar aunque
+  // la petición diga Salou.
+  const hotelesPorDestino = useMemo(
+    () =>
+      separarPorDestino(hotelesVista?.matches ?? hoteles?.matches ?? [], entendido?.destinationText, (m) => m.accommodation),
+    [hotelesVista, hoteles, entendido?.destinationText],
+  );
+  const hotelesALaVista = useMemo(() => {
+    const todos = hotelesVista?.matches ?? hoteles?.matches ?? [];
+    if (busquedaHoteles.trim()) return todos.filter((m) => coincideHotel(m, busquedaHoteles));
+    if (verDeCerca || hotelesPorDestino.deCerca.length === 0) return todos;
+    const delDestino = new Set(hotelesPorDestino.delDestino.map((m) => m.accommodation.id));
+    return todos.filter((m) => delDestino.has(m.accommodation.id) || m.adHoc || elegidos.includes(m.accommodation.id));
+  }, [hotelesVista, hoteles, busquedaHoteles, verDeCerca, hotelesPorDestino, elegidos]);
 
   /** Pone, cambia o quita el descuento de una actividad. */
   function ponerDescuento(id: string, tipo: "" | "EUR" | "PCT", valor: number | null) {
@@ -2899,8 +2924,23 @@ export function RequestCanvas({
               {selec === "alojamientos" ? (
                 <div className="cv__opsh">
                   <span className="cv__lbl">
-                    {hoteles.matches.length} con tarifa · elige hasta {MAX_OPCIONES}
+                    {hotelesPorDestino.deCerca.length > 0 && !verDeCerca
+                      ? `${hotelesPorDestino.delDestino.length} en ${entendido?.destinationText?.trim() || "el destino"}`
+                      : `${hoteles.matches.length} con tarifa`}{" "}
+                    · elige hasta {MAX_OPCIONES}
                   </span>
+                  {hotelesPorDestino.deCerca.length > 0 ? (
+                    <button
+                      type="button"
+                      className="cv__ghost cv__ghost--sm"
+                      aria-pressed={verDeCerca}
+                      onClick={() => setVerDeCerca((v) => !v)}
+                    >
+                      {verDeCerca
+                        ? `Solo ${entendido?.destinationText?.trim() || "el destino"}`
+                        : `Ver también los de cerca (${hotelesPorDestino.deCerca.length})`}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="cv__ghost cv__ghost--sm ah__abrir"
@@ -2981,6 +3021,22 @@ export function RequestCanvas({
                   >
                     + Fuera del catálogo
                   </button>
+                  {(actividades?.matches.length ?? 0) > 1 ? (
+                    <label className="pm-sort cv__orden">
+                      Ordenar por
+                      <select
+                        value={ordenActividades}
+                        onChange={(e) => setOrdenActividades(e.target.value as OrdenDeActividades)}
+                        aria-label="Ordenar las actividades por"
+                      >
+                        {ORDENES_DE_ACTIVIDADES.map((o) => (
+                          <option key={o.valor} value={o.valor}>
+                            {o.rotulo}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
                   {(actividades?.matches.length ?? 0) > 0 ? (
                     <div className={buscadorAbierto ? "cv__buscar is-open" : "cv__buscar"}>
                       <span className="cv__buscar-pill">
@@ -3096,10 +3152,12 @@ export function RequestCanvas({
             </div>
           ) : vista === "lista" && busquedaHoteles.trim() &&
             !(hotelesVista?.matches ?? hoteles.matches).some((m) => coincideHotel(m, busquedaHoteles)) ? (
-            <div className="cv__slot">Ningún alojamiento coincide con «{busquedaHoteles.trim()}».</div>
+            <div className="cv__slot">
+              Ningún alojamiento con tarifa para esta petición coincide con «{busquedaHoteles.trim()}».
+            </div>
           ) : vista === "lista" ? (
             <ListaOpciones
-              hoteles={(hotelesVista?.matches ?? hoteles.matches).filter((m) => coincideHotel(m, busquedaHoteles))}
+              hoteles={hotelesALaVista}
               elegidos={elegidos}
               noches={noches}
               tope={tope}
@@ -3200,7 +3258,10 @@ export function RequestCanvas({
                 <div className="cv__slot">Ninguna actividad coincide con «{busquedaActividades.trim()}».</div>
               ) : null}
               <ul className="cv__acts">
-                {actividades.matches.filter((item) => coincideActividad(item, busquedaActividades)).map((item) => {
+                {ordenarActividades(
+                  actividades.matches.filter((item) => coincideActividad(item, busquedaActividades)),
+                  ordenActividades,
+                ).map((item) => {
                   const puesta = programaBase.includes(item.activity.id);
                   return (
                     <li key={item.activity.id}>
@@ -4431,6 +4492,26 @@ function CamposEntendido({
             onChange={(v) => setEntendido({ ...entendido, categoryRequested: v })}
             placeholder="3*"
           />
+          {/* El presupuesto sale en el idioma en que llegó la solicitud (Oravia, 23/09/2026). Se lee del
+              mensaje, y aquí se puede corregir antes de preparar el documento (17/11/2026). */}
+          <label className="cv__field">
+            <span>Idioma del documento</span>
+            <select
+              value={idiomaDelDocumento(entendido.language)}
+              onChange={(e) =>
+                setEntendido({
+                  ...entendido,
+                  language: ({ es: "Español", ca: "Catalán", en: "Inglés", fr: "Francés" } as Record<IdiomaDelDocumento, string>)[e.target.value as IdiomaDelDocumento],
+                })
+              }
+            >
+              <option value="es">Castellano</option>
+              <option value="ca">Catalán</option>
+              <option value="en">Inglés</option>
+              <option value="fr">Francés</option>
+            </select>
+            <small>El PDF, la página del enlace y el correo salen en este idioma.</small>
+          </label>
           {/* «Tope por alumno» no se entendia. Es el presupuesto que dice el
               colegio, y solo sirve para marcar en la lista lo que se pasa: no
               descarta nada ni cambia ningun precio. */}

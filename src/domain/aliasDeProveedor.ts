@@ -84,7 +84,53 @@ export function algunCampoCoincide(
   const variantes = variantesDeBusqueda(texto);
   if (variantes.length === 0) return true;
   const normalizados = campos.map(normalizarNombre);
-  return variantes.some((v) => normalizados.some((c) => c.includes(v)));
+  if (variantes.some((v) => normalizados.some((c) => c.includes(v)))) return true;
+
+  // Lo que sigue es para quien escribe el nombre «a su manera» (Sports,
+  // 16/11/2026): «med 1» no encontraba «Mediterrània MED1», «med 3» no
+  // encontraba «MED2/3» y «cambrils par», a medio escribir, no encontraba nada.
+
+  // 1) Lo mismo sin espacios ni signos: «med 1» es «MED1», «med 2» es «MED2/3».
+  const pegado = soloLetrasYCifras(normalizarNombre(texto));
+  if (pegado.length >= 3 && normalizados.some((c) => soloLetrasYCifras(c).includes(pegado))) return true;
+
+  // 2) Palabra a palabra, en cualquier orden, contando con los otros nombres
+  //    del proveedor: «cambrils park med 1» encuentra el MED1 aunque el
+  //    alojamiento no lleve «Cambrils Park» en el nombre. Cada palabra tiene
+  //    que EMPEZAR alguna palabra del alojamiento («par» es «park», no
+  //    «apartamentos»); una cifra suelta vale en cualquier parte («3» en
+  //    «MED2/3»). Con una sola palabra no se amplía nada: ya se buscó arriba.
+  const escritas = normalizarNombre(texto).split(/[^a-z0-9]+/).filter(Boolean);
+  const palabras = escritas.flatMap((p) => p.match(/[a-z]+|[0-9]+/g) ?? []);
+  // «med3» escrito junto también cuenta como dos («med» y «3»), pero «4r» no:
+  // con una sola letra se colaría medio catálogo.
+  const juntaNombreYCifra = escritas.length === 1 && /^[a-z]{3,}[0-9]+$/.test(escritas[0]);
+  if (escritas.length < 2 && !juntaNombreYCifra) return false;
+  const propias = normalizados.flatMap(enPalabras);
+  for (const grupo of GRUPOS_DE_PROVEEDOR) {
+    const nombres = terminosDelGrupo(grupo);
+    const suyos = grupo.propios.map(normalizarNombre);
+    const esDelGrupo = normalizados.some(
+      (c) => Boolean(c) && (nombres.some((n) => c.includes(n)) || suyos.some((s) => c.includes(s))),
+    );
+    if (esDelGrupo) nombres.forEach((n) => propias.push(...enPalabras(n)));
+  }
+  const cifras = propias.join(" ").replace(/[^0-9]+/g, " ");
+  return palabras.every((p) =>
+    /^[0-9]+$/.test(p) ? cifras.includes(p) : propias.some((w) => w.startsWith(p)),
+  );
+}
+
+/** «med2/3» → «med23»: sin espacios ni signos. */
+function soloLetrasYCifras(valor: string): string {
+  return valor.replace(/[^a-z0-9]+/g, "");
+}
+
+/** «Villa Bonita / Aloha» → villa, bonita, aloha. Y «med1» → med1, med, 1. */
+function enPalabras(valor: string): string[] {
+  const palabras = valor.split(/[^a-z0-9]+/).filter(Boolean);
+  const partidas = palabras.flatMap((p) => p.match(/[a-z]+|[0-9]+/g) ?? []);
+  return [...new Set([...palabras, ...partidas])];
 }
 
 /**

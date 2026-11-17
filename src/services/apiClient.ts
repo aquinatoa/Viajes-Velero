@@ -1005,7 +1005,11 @@ export interface FichaPresupuesto {
     condiciones: string | null;
     observaciones: string | null;
     elegida: boolean;
-    actividades: { nombre: string; proveedor: string | null; duracion: string | null; precio: string | null }[];
+    /** El total de la opción con sus actividades sumadas; null si no lleva actividades con precio. */
+    totalConActividades?: string | null;
+    totalAlojamiento?: string | null;
+    totalActividades?: string | null;
+    actividades: { nombre: string; proveedor: string | null; duracion: string | null; precio: string | null; totalText?: string | null }[];
   }[];
   /**
    * Cuándo salió, si la han abierto y cuántas veces.
@@ -1249,11 +1253,24 @@ export interface OpcionRecalculada {
   aviso: string | null;
 }
 
+/** Una actividad de la propuesta con el grupo nuevo (17/11/2026). */
+export interface ActividadRecalculada {
+  id: string;
+  optionNumber: number;
+  nombre: string;
+  totalAntes: number | null;
+  totalAhora: number | null;
+  aviso: string | null;
+  cambia: boolean;
+}
+
 export interface VistaPreviaCambio {
   proposalId: string;
   hayCambios: boolean;
   campos: CampoCambiado[];
   opciones: OpcionRecalculada[];
+  /** Las actividades, cuando cambia el grupo. */
+  actividades?: ActividadRecalculada[];
   avisos: string[];
 }
 

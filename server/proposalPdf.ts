@@ -22,6 +22,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
+import { conVocabularioEnTodo } from "../src/domain/vocabularioDelGrupo";
+import { fechaEnIdioma, texto, type ClaveDeTexto, type IdiomaDelDocumento } from "../src/domain/idiomaDelDocumento";
 
 // Ver `documentStorage.ts`: `ORAVIA_STORAGE_DIR` mueve todo el almacén.
 const STORAGE_ROOT = path.resolve(
@@ -103,6 +105,13 @@ export interface PdfInput {
   preparedBy?: string | null;
   /** Las «Notas» que escribió quien cotiza para el cliente (05/11/2026). */
   notes?: string | null;
+  /** El idioma de los rótulos del documento; sin él, castellano (17/11/2026). */
+  idioma?: IdiomaDelDocumento | null;
+  /**
+   * El documento ya traducido a ese idioma (`server/traduccionDelDocumento.ts`).
+   * Si no se pasa, se monta aquí, en castellano.
+   */
+  documentoTraducido?: DocumentoParaElCliente | null;
 }
 
 /**
@@ -193,9 +202,16 @@ export function textoParaElCliente(texto?: string | null): string {
     .trim();
 }
 
+/**
+ * El idioma del PDF que se está dibujando. Va aquí, y no como parámetro de cada función de dibujo,
+ * porque el dibujo es síncrono de principio a fin: `buildProposalPdf` lo pone antes de la primera
+ * línea y lo devuelve a castellano al cerrar el documento, sin ninguna espera en medio.
+ */
+let idiomaDelPdf: IdiomaDelDocumento = "es";
+const T = (clave: ClaveDeTexto, valores?: Record<string, string | number>) => texto(idiomaDelPdf, clave, valores);
+
 function formatDate(value?: Date | null): string {
-  if (!value) return "";
-  return new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "long", year: "numeric" }).format(value);
+  return fechaEnIdioma(value, idiomaDelPdf);
 }
 
 function departmentLabel(department?: string | null): string {
@@ -215,7 +231,7 @@ function drawHeader(doc: PDFKit.PDFDocument, input: PdfInput): number {
   doc.font("Helvetica-Bold").fontSize(13).fillColor(INK);
   doc.text(departmentLabel(input.department).toUpperCase(), logo ? 104 : 50, 52, { characterSpacing: 1.2 });
   doc.font("Helvetica").fontSize(9).fillColor(MUTED);
-  doc.text("Propuesta de viaje de grupo", logo ? 104 : 50, 70);
+  doc.text(T("subtitulo"), logo ? 104 : 50, 70);
 
   doc.font("Helvetica-Bold").fontSize(9).fillColor(NAVY);
   doc.text(input.reference, 380, 52, { width: 165, align: "right" });
@@ -237,12 +253,12 @@ function drawTripSummary(doc: PDFKit.PDFDocument, input: PdfInput, top: number):
 
   y = doc.y + 12;
   const facts: Array<[string, string]> = [];
-  if (input.destination) facts.push(["Destino", input.destination]);
+  if (input.destination) facts.push([T("destino"), input.destination]);
   if (input.dateFrom || input.dateTo) {
-    facts.push(["Fechas", `${formatDate(input.dateFrom)} - ${formatDate(input.dateTo)}`.replace(/^ - | - $/, "")]);
+    facts.push([T("fechas"), `${formatDate(input.dateFrom)} - ${formatDate(input.dateTo)}`.replace(/^ - | - $/, "")]);
   }
-  if (input.participants) facts.push(["Participantes", String(input.participants)]);
-  if (input.teachers) facts.push(["Profesores", String(input.teachers)]);
+  if (input.participants) facts.push([T("participantes"), String(input.participants)]);
+  if (input.teachers) facts.push([T(input.department === "SPORTS" ? "entrenadores" : "profesores"), String(input.teachers)]);
 
   const columnWidth = 495 / Math.max(facts.length, 1);
   facts.forEach(([label, value], index) => {
@@ -404,8 +420,13 @@ function conSitio(doc: PDFKit.PDFDocument, y: number, alto: number): number {
 export interface OpcionParaElCliente {
   optionNumber: number;
   nombre: string;
-  /** El total de la opción: «23.234,82 €». */
+  /**
+   * El total de la opción: «23.234,82 €». Dentro del documento entero
+   * (`documentoParaElCliente`) es el del VIAJE: alojamiento más actividades.
+   */
   total: string | null;
+  /** «Alojamiento 23.234,82 € + actividades 7.206,40 €», cuando el total suma actividades. */
+  totalDetalle?: string | null;
   /** Pensión, noches, alumnos, profesores, chófer. */
   detalles: string[];
   /** «206,62 € por alumno», en grande. */
@@ -701,14 +722,7 @@ export function resumenParaElCliente(input: PdfInput): ResumenParaElCliente | nu
   );
 
   const filas = input.options.map((option) => {
-    const alojamiento = option.totalAmount ?? 0;
-    // Una actividad se cobra por persona, así que su importe se multiplica por
-    // el grupo entero: alumnos y profesores van a la misma excursión.
-    const actividades =
-      Math.round(
-        (option.activities ?? []).reduce((suma, actividad) => suma + repartoDe(actividad, alumnos, profesores).grupo, 0) * 100,
-      ) / 100;
-    const total = alojamiento + actividades;
+    const { alojamiento, actividades, total } = totalesDeLaOpcion(option, alumnos, profesores);
     return {
       optionNumber: option.optionNumber,
       nombre: option.accommodationName,
@@ -729,10 +743,56 @@ export function resumenParaElCliente(input: PdfInput): ResumenParaElCliente | nu
   };
 }
 
-/** El documento entero, sin dibujar. */
+/**
+ * Lo que cuesta una opción entera: su alojamiento más sus actividades.
+ *
+ * Una actividad con entradas por tarifa trae su total; si no, se cobra por
+ * persona y se multiplica por el grupo entero (alumnos y profesores van a la
+ * misma excursión). Es la misma cuenta para el resumen del viaje y para la
+ * cabecera de cada opción: no pueden decir cifras distintas.
+ */
+export function totalesDeLaOpcion(
+  option: PdfOption,
+  alumnos: number,
+  profesores: number,
+): { alojamiento: number; actividades: number; total: number } {
+  const alojamiento = option.totalAmount ?? 0;
+  const actividades =
+    Math.round(
+      (option.activities ?? []).reduce((suma, actividad) => suma + repartoDe(actividad, alumnos, profesores).grupo, 0) * 100,
+    ) / 100;
+  return { alojamiento, actividades, total: Math.round((alojamiento + actividades) * 100) / 100 };
+}
+
+/**
+ * El documento entero, sin dibujar.
+ *
+ * Para Sports sale con «jugadores» y «entrenadores» (Javier, 16/11/2026). Se
+ * traduce aquí, al final y de una vez, porque de aquí beben el PDF y la página
+ * que abre el cliente; las notas, que las escribe quien cotiza, no se tocan.
+ */
 export function documentoParaElCliente(input: PdfInput): DocumentoParaElCliente {
+  return conVocabularioEnTodo(documentoConPalabrasDeColegio(input), input.department, ["notas"]);
+}
+
+function documentoConPalabrasDeColegio(input: PdfInput): DocumentoParaElCliente {
+  const alumnos = input.participants || grupoDeLasOpciones(input, "participants");
+  const profesores = input.teachers || grupoDeLasOpciones(input, "teachers");
   return {
-    opciones: input.options.map((option) => opcionParaElCliente(option, input.dateFrom ?? null)),
+    // El total de cada opción es el del viaje: su alojamiento MÁS sus
+    // actividades (Oravia, 16/11/2026). Hasta ahora la cabecera de la opción
+    // daba solo el alojamiento y la suma quedaba al final, en el resumen: el
+    // colegio leía dos «totales» distintos para la misma opción.
+    opciones: input.options.map((option) => {
+      const opcion = opcionParaElCliente(option, input.dateFrom ?? null);
+      const { alojamiento, actividades, total } = totalesDeLaOpcion(option, alumnos, profesores);
+      if (!(actividades > 0) || option.totalAmount == null) return opcion;
+      return {
+        ...opcion,
+        total: formatMoney(total),
+        totalDetalle: `Alojamiento ${formatMoney(alojamiento)} + actividades ${formatMoney(actividades)}`,
+      };
+    }),
     actividades: actividadesParaElCliente(input),
     resumen: resumenParaElCliente(input),
     notas: limpiarNotas(input.notes) || null,
@@ -744,7 +804,7 @@ function drawOption(doc: PDFKit.PDFDocument, opcion: OpcionParaElCliente, top: n
   const boxTop = top;
   doc.roundedRect(50, boxTop, 495, 22, 4).fill(NAVY);
   doc.font("Helvetica-Bold").fontSize(10).fillColor("#FFFFFF");
-  doc.text(`OPCIÓN ${opcion.optionNumber}`, 62, boxTop + 6, { characterSpacing: 0.8 });
+  doc.text(T("opcion", { n: opcion.optionNumber }).toUpperCase(), 62, boxTop + 6, { characterSpacing: 0.8 });
   if (opcion.total) {
     doc.font("Helvetica-Bold").fontSize(10).fillColor(AMBER);
     doc.text(opcion.total, 350, boxTop + 6, { width: 183, align: "right" });
@@ -758,6 +818,13 @@ function drawOption(doc: PDFKit.PDFDocument, opcion: OpcionParaElCliente, top: n
   if (opcion.detalles.length) {
     doc.font("Helvetica").fontSize(9.5).fillColor(MUTED);
     doc.text(opcion.detalles.join("  ·  "), 50, y, { width: 495 });
+    y = doc.y + 8;
+  }
+
+  // De qué está hecho el total de la cabecera, cuando suma actividades.
+  if (opcion.totalDetalle) {
+    doc.font("Helvetica").fontSize(9.5).fillColor(INK);
+    doc.text(`${T("totalDeLaOpcion")}: ${opcion.total} · ${opcion.totalDetalle}`, 50, y - 4, { width: 495 });
     y = doc.y + 8;
   }
 
@@ -780,7 +847,7 @@ function drawOption(doc: PDFKit.PDFDocument, opcion: OpcionParaElCliente, top: n
   if (opcion.desglose.length || opcion.desgloseTexto) {
     y = conSitio(doc, y, 34);
     doc.font("Helvetica-Bold").fontSize(7.5).fillColor(MUTED);
-    doc.text("DESGLOSE", 50, y, { characterSpacing: 0.6 });
+    doc.text(T("desglose").toUpperCase(), 50, y, { characterSpacing: 0.6 });
     y = doc.y + 3;
     if (opcion.desgloseTexto) {
       doc.font("Helvetica").fontSize(9.5).fillColor(INK);
@@ -811,15 +878,15 @@ function drawOption(doc: PDFKit.PDFDocument, opcion: OpcionParaElCliente, top: n
     y = conSitio(doc, y, alto);
     doc.roundedRect(50, y, 495, alto, 4).fillAndStroke("#FFF9EC", AMBER);
     doc.font("Helvetica-Bold").fontSize(7.5).fillColor(MUTED);
-    doc.text("GRATUIDADES", 64, y + 8, { characterSpacing: 0.6 });
+    doc.text(T("gratuidades").toUpperCase(), 64, y + 8, { characterSpacing: 0.6 });
     doc.font("Helvetica").fontSize(9.5).fillColor(INK);
     doc.text(opcion.gratuidades, 64, doc.y + 2, { width: 455 });
     y += alto + 8;
   }
 
   for (const [titulo, condiciones] of [
-    ["Qué incluye y condiciones", opcion.condiciones],
-    ["Observaciones", opcion.observaciones],
+    [T("condiciones"), opcion.condiciones],
+    [T("observaciones"), opcion.observaciones],
   ] as Array<[string, Condicion[]]>) {
     if (condiciones.length === 0) continue;
 
@@ -865,7 +932,7 @@ function drawActividades(doc: PDFKit.PDFDocument, actividades: ActividadesParaEl
   let y = top;
 
   doc.font("Helvetica-Bold").fontSize(8).fillColor(MUTED);
-  doc.text(`${numero} · LAS ACTIVIDADES`, 50, y, { characterSpacing: 0.8 });
+  doc.text(`${numero} · ${T("actividades").toUpperCase()}`, 50, y, { characterSpacing: 0.8 });
   y = doc.y + 4;
 
   doc.font("Helvetica").fontSize(9).fillColor(MUTED);
@@ -916,7 +983,7 @@ function drawActividades(doc: PDFKit.PDFDocument, actividades: ActividadesParaEl
   y += 8;
 
   doc.font("Helvetica-Bold").fontSize(10).fillColor(INK);
-  doc.text("Total de las actividades", 50, y, { width: 240 });
+  doc.text(T("totalDeLasActividades"), 50, y, { width: 240 });
   doc.font("Helvetica-Bold").fontSize(10).fillColor(NAVY);
   doc.text(actividades.total, 300, y, { width: 245, align: "right" });
   y = doc.y + 2;
@@ -935,15 +1002,15 @@ function drawResumen(doc: PDFKit.PDFDocument, resumen: ResumenParaElCliente, top
   let y = top;
 
   doc.font("Helvetica-Bold").fontSize(8).fillColor(MUTED);
-  doc.text("3 · RESUMEN DEL VIAJE", 50, y, { characterSpacing: 0.8 });
+  doc.text(`3 · ${T("resumen").toUpperCase()}`, 50, y, { characterSpacing: 0.8 });
   y = doc.y + 8;
 
   // Cabecera de la tabla.
   doc.font("Helvetica-Bold").fontSize(7.5).fillColor(MUTED);
-  doc.text("OPCIÓN", 50, y, { width: 190 });
-  doc.text("ALOJAMIENTO", 240, y, { width: 95, align: "right" });
-  doc.text("ACTIVIDADES", 340, y, { width: 95, align: "right" });
-  doc.text("TOTAL DEL VIAJE", 440, y, { width: 105, align: "right" });
+  doc.text(T("columnaOpcion").toUpperCase(), 50, y, { width: 190 });
+  doc.text(T("columnaAlojamiento").toUpperCase(), 240, y, { width: 95, align: "right" });
+  doc.text(T("columnaActividades").toUpperCase(), 340, y, { width: 95, align: "right" });
+  doc.text(T("columnaTotal").toUpperCase(), 440, y, { width: 105, align: "right" });
   y = doc.y + 4;
   doc.moveTo(50, y).lineTo(545, y).lineWidth(1).strokeColor(HAIRLINE).stroke();
   y += 8;
@@ -992,7 +1059,7 @@ function drawResumen(doc: PDFKit.PDFDocument, resumen: ResumenParaElCliente, top
 function drawNotas(doc: PDFKit.PDFDocument, notas: string, top: number): number {
   let y = top;
   doc.font("Helvetica-Bold").fontSize(8).fillColor(MUTED);
-  doc.text("NOTAS", 50, y, { characterSpacing: 0.8 });
+  doc.text(T("notas").toUpperCase(), 50, y, { characterSpacing: 0.8 });
   y = doc.y + 6;
   doc.font("Helvetica").fontSize(9.5).fillColor(INK);
   doc.text(notas, 50, y, { width: 495, lineGap: 2 });
@@ -1037,7 +1104,7 @@ function drawFooter(doc: PDFKit.PDFDocument, input: PdfInput): void {
 
     doc.font("Helvetica").fontSize(7.5).fillColor(MUTED);
     doc.text(
-      `${departmentLabel(input.department)}  ·  ${input.reference}  ·  Página ${i - range.start + 1} de ${range.count}`,
+      `${departmentLabel(input.department)}  ·  ${input.reference}  ·  ${T("pagina", { i: i - range.start + 1, n: range.count })}`,
       50,
       doc.page.height - 40,
       { width: 495, align: "center", lineBreak: false },
@@ -1061,18 +1128,20 @@ export async function buildProposalPdf(input: PdfInput): Promise<string> {
   const stream = fs.createWriteStream(provisional);
   doc.pipe(stream);
 
+  // El documento, ya traducido si lo trae; y a partir de aquí, los rótulos en su idioma.
+  const documento = input.documentoTraducido ?? documentoParaElCliente(input);
+  idiomaDelPdf = input.idioma ?? "es";
+
   let y = drawHeader(doc, input);
   y = drawTripSummary(doc, input, y);
-
-  const documento = documentoParaElCliente(input);
 
   // Solo actividades: no hay alojamientos que enseñar (Ruth, 02/11/2026).
   if (documento.opciones.length > 0) {
     doc.font("Helvetica-Bold").fontSize(8).fillColor(MUTED);
-    doc.text("1 · LOS ALOJAMIENTOS", 50, y, { characterSpacing: 0.8 });
+    doc.text(`1 · ${T("alojamientos").toUpperCase()}`, 50, y, { characterSpacing: 0.8 });
     y = doc.y + 3;
     doc.font("Helvetica").fontSize(9).fillColor(MUTED);
-    doc.text("Elige una de estas opciones. El precio incluye las noches del grupo completo.", 50, y, {
+    doc.text(T("eligeUna"), 50, y, {
       width: 495,
     });
     y = doc.y + 10;
@@ -1124,12 +1193,12 @@ export async function buildProposalPdf(input: PdfInput): Promise<string> {
     doc.roundedRect(50, y, 495, 54, 6).fillAndStroke("#FFF9EC", AMBER);
     doc.font("Helvetica-Bold").fontSize(10).fillColor(INK);
     const sinAlojamiento = documento.opciones.length === 0;
-    doc.text(sinAlojamiento ? "Para aceptar la propuesta" : "Para aceptar una opción", 64, y + 12);
+    doc.text(sinAlojamiento ? T("paraAceptarLaPropuesta") : T("paraAceptarUnaOpcion"), 64, y + 12);
     doc.font("Helvetica").fontSize(9).fillColor(MUTED);
     doc.text(
       sinAlojamiento
-        ? `Entra en ${input.publicUrl} y pulsa «Aceptar la propuesta».`
-        : `Entra en ${input.publicUrl} y pulsa la que prefieras.`,
+        ? T("entraYAcepta", { url: input.publicUrl })
+        : T("entraYElige", { url: input.publicUrl }),
       64,
       y + 28,
       { width: 460 },
@@ -1139,11 +1208,12 @@ export async function buildProposalPdf(input: PdfInput): Promise<string> {
 
   if (input.preparedBy) {
     doc.font("Helvetica").fontSize(9).fillColor(MUTED);
-    doc.text(`Preparada por ${input.preparedBy}`, 50, y + 4, { width: 495 });
+    doc.text(T("preparadaPor", { quien: input.preparedBy }), 50, y + 4, { width: 495 });
   }
 
   drawFooter(doc, input);
   doc.end();
+  idiomaDelPdf = "es";
 
   try {
     await new Promise<void>((resolve, reject) => {

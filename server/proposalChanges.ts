@@ -18,6 +18,12 @@
  */
 
 import { importeDe } from "../src/domain/importe";
+import { actividadConElGrupoNuevo, type Grupo, type TarifaDeLaLinea } from "../src/domain/actividadesAlCambiarElGrupo";
+import { lineasDeLaActividad } from "../src/domain/actividadesContratadas";
+import { alojamientoConElGrupoNuevo } from "../src/domain/alojamientoAlCambiarElGrupo";
+import { gratuidadDeProfesores } from "../src/domain/gratuidadDeActividad";
+import { MARCA_GRATUIDAD } from "../src/domain/lineasDeActividad";
+import { formatCurrencyExact } from "../src/services/utils";
 import { PrismaClient } from "@prisma/client";
 import { searchAccommodationsDb } from "./searchDb";
 import { estanciaDeHotel, type AcompanantesDelHotel } from "../src/services/estanciaDeHotel";
@@ -47,7 +53,17 @@ export interface OpcionRecalculada {
   costsJsonAhora?: string | null;
   costeAlumnoAhora?: number | null;
   costeProfesorAhora?: number | null;
+  /** El alojamiento del catálogo con el que se ha vuelto a enlazar una opción que lo había perdido. */
+  accommodationIdAhora?: string | null;
 }
+
+const sinAdornos = (s: string | null | undefined) =>
+  (s ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 
 /** Para qué cliente se cotizó, si la propuesta lo guardó. */
 function canalGuardado(stayJson: string | null | undefined): string | undefined {
@@ -103,12 +119,90 @@ export function acompanantesGuardados(stayJson: string | null | undefined, accom
   }
 }
 
+/** Una actividad de la propuesta con el grupo nuevo: lo que costaba, lo que cuesta y lo que se guarda. */
+export interface ActividadRecalculada {
+  /** El id de la actividad en la propuesta de partida. */
+  id: string;
+  optionNumber: number;
+  nombre: string;
+  totalAntes: number | null;
+  totalAhora: number | null;
+  aviso: string | null;
+  /** Si sus entradas cambian y hay que guardarlas en la versión nueva. */
+  cambia: boolean;
+  linesJsonAhora: string | null;
+  amountTotalAhora: number | null;
+  pvpAhora: string | null;
+}
+
 export interface VistaPreviaCambio {
   proposalId: string;
   hayCambios: boolean;
   campos: CampoCambiado[];
   opciones: OpcionRecalculada[];
+  /** Las actividades, cuando cambia el grupo (17/11/2026): antes viajaban a la versión nueva sin recalcular. */
+  actividades: ActividadRecalculada[];
   avisos: string[];
+}
+
+interface ActividadGuardada {
+  id: string;
+  optionNumber: number;
+  activityId: string | null;
+  activityNameSnapshot: string;
+  providerSnapshot: string | null;
+  pvpSnapshot: string | null;
+  linesJson: string | null;
+  amountTotal: unknown;
+  unitCostAmount: unknown;
+}
+
+/**
+ * Las actividades de la propuesta recalculadas para el grupo nuevo. Lee del catálogo lo que
+ * hace falta para saber cómo se cobra cada entrada (por persona, por grupo…) y la gratuidad
+ * de profesores de cada actividad; la cuenta es de `actividadConElGrupoNuevo`.
+ */
+async function actividadesConElGrupoNuevo(guardadas: ActividadGuardada[], antes: Grupo, ahora: Grupo): Promise<ActividadRecalculada[]> {
+  const idsDeTarifa = new Set<string>();
+  for (const a of guardadas) {
+    for (const l of lineasDeLaActividad(a)) {
+      const id = l.rateId.endsWith(MARCA_GRATUIDAD) ? l.rateId.slice(0, -MARCA_GRATUIDAD.length) : l.rateId;
+      if (!id.startsWith("#")) idsDeTarifa.add(id);
+    }
+  }
+  const filas = idsDeTarifa.size
+    ? await prisma.activityRate.findMany({
+        where: { id: { in: [...idsDeTarifa] } },
+        select: { id: true, rateUnit: true, maxPax: true, ageLabel: true, salePvpAmount: true },
+      })
+    : [];
+  const tarifas: Record<string, TarifaDeLaLinea> = Object.fromEntries(
+    filas.map((t) => [t.id, { rateUnit: t.rateUnit, maxPax: t.maxPax, ageLabel: t.ageLabel, salePvpAmount: t.salePvpAmount === null ? null : Number(t.salePvpAmount) }]),
+  );
+  const idsDeActividad = [...new Set(guardadas.map((a) => a.activityId).filter((x): x is string => Boolean(x)))];
+  const condiciones = idsDeActividad.length
+    ? await prisma.activityPolicy.findMany({
+        where: { activityId: { in: idsDeActividad } },
+        select: { activityId: true, policyType: true, policyText: true },
+      })
+    : [];
+
+  return guardadas.map((a) => {
+    const gratuidad = a.activityId ? gratuidadDeProfesores(condiciones.filter((c) => c.activityId === a.activityId)) : null;
+    const r = actividadConElGrupoNuevo(a, antes, ahora, tarifas, gratuidad);
+    return {
+      id: a.id,
+      optionNumber: a.optionNumber,
+      nombre: a.activityNameSnapshot,
+      totalAntes: r.totalAntes,
+      totalAhora: r.totalAhora,
+      aviso: r.aviso,
+      cambia: r.cambia,
+      linesJsonAhora: r.cambia && r.lineas ? JSON.stringify(r.lineas) : null,
+      amountTotalAhora: r.cambia ? r.amountTotal : null,
+      pvpAhora: r.cambia && r.porAlumno !== null ? formatCurrencyExact(r.porAlumno) : null,
+    };
+  });
 }
 
 /** Número que aparece en un texto de importe ("6.528 €" → 6528). */
@@ -149,6 +243,7 @@ export async function previewChange(
     where: { id: proposalId },
     include: {
       accommodationOptions: { orderBy: { optionNumber: "asc" } },
+      activityOptions: { orderBy: [{ optionNumber: "asc" }, { displayOrder: "asc" }] },
       tripRequest: true,
     },
   });
@@ -198,6 +293,7 @@ export async function previewChange(
 
   const avisos: string[] = [];
   const opciones: OpcionRecalculada[] = [];
+  const actividades: ActividadRecalculada[] = [];
 
   if (campos.length > 0) {
     // Se vuelven a consultar las tarifas con los datos nuevos: el precio por
@@ -217,8 +313,13 @@ export async function previewChange(
 
     const nochesNuevas = noches(nuevaDesde, nuevaHasta);
 
+    const grupoDeAntes = { alumnos: solicitud.participants ?? 0, profesores: solicitud.teachers ?? 0 };
+    const grupoDeAhora = { alumnos: nuevoParticipantes ?? 0, profesores: nuevoTeachers ?? 0 };
+    const soloCambiaElGrupo = campos.every((c) => c.campo === "participants" || c.campo === "teachers");
+    const nochesDeAntes = noches(solicitud.dateFrom, solicitud.dateTo);
+
     for (const opcion of proposal.accommodationOptions) {
-      const encontrado = busqueda.matches.find((m) => m.accommodation.id === opcion.accommodationId);
+      let encontrado = busqueda.matches.find((m) => m.accommodation.id === opcion.accommodationId);
       // `totalPvpText` guarda el TOTAL del grupo (precio unitario × alumnos ×
       // noches). El precio por alumno se obtiene dividiendo, no al revés.
       const totalAntes = importeDe(opcion.totalPvpText);
@@ -226,8 +327,45 @@ export async function previewChange(
         totalAntes !== null && opcion.participants
           ? Math.round((totalAntes / opcion.participants) * 100) / 100
           : null;
+      const composicion = composicionGuardada(proposal.stayJson);
+      let enlazadoPorNombre = false;
+
+      // Sin enlace al catálogo (su documento de tarifas se republicó después de hacer la propuesta):
+      // se busca por el nombre, y solo vale si su tarifa da, con el grupo de antes, el total que tenía
+      // la propuesta. Así un hotel cotizado a mano que se llame igual no coge el precio del catálogo.
+      if (!encontrado && !opcion.accommodationId && totalAntes !== null) {
+        const candidato = busqueda.matches.find((m) => sinAdornos(m.accommodation.accommodationName) === sinAdornos(opcion.accommodationNameSnapshot));
+        const comoAntes = candidato
+          ? estanciaDeHotel(candidato, composicion, {
+              fechaEntrada: solicitud.dateFrom ? fechaCorta(solicitud.dateFrom) : "",
+              noches: Math.max(nochesDeAntes, 1),
+              alumnos: grupoDeAntes.alumnos,
+              profesores: grupoDeAntes.profesores,
+            })
+          : null;
+        if (candidato && comoAntes && Math.abs(comoAntes.total - totalAntes) <= 1) {
+          encontrado = candidato;
+          enlazadoPorNombre = true;
+        }
+      }
 
       if (!encontrado) {
+        // No está en el catálogo. Si solo cambia el grupo, la cuenta sale del propio desglose de la
+        // propuesta, con los mismos precios por persona y noche.
+        const aMano = soloCambiaElGrupo ? alojamientoConElGrupoNuevo(opcion.priceBreakdownText, totalAntes, grupoDeAntes, grupoDeAhora) : null;
+        if (aMano) {
+          opciones.push({
+            optionNumber: opcion.optionNumber,
+            accommodationName: opcion.accommodationNameSnapshot ?? "Alojamiento",
+            precioAntes,
+            precioAhora: aMano.porAlumno,
+            totalAntes,
+            totalAhora: aMano.total,
+            aviso: "No está enlazado al catálogo: se recalcula con el mismo precio por persona y noche que tenía la propuesta.",
+            desgloseAhora: aMano.desglose,
+          });
+          continue;
+        }
         opciones.push({
           optionNumber: opcion.optionNumber,
           accommodationName: opcion.accommodationNameSnapshot ?? "Alojamiento",
@@ -235,16 +373,17 @@ export async function previewChange(
           precioAhora: null,
           totalAntes,
           totalAhora: null,
-          aviso: "Ya no hay tarifa para las fechas nuevas: hay que elegir otro hotel.",
+          aviso: opcion.accommodationId
+            ? "No hay tarifa para los datos nuevos: hay que elegir otro alojamiento en el cotizador."
+            : "No está enlazado al catálogo y no se puede recalcular desde aquí: hay que rehacerla en el cotizador.",
         });
-        avisos.push(`${opcion.accommodationNameSnapshot ?? "Una opción"} se queda sin tarifa con los datos nuevos.`);
+        avisos.push(`${opcion.accommodationNameSnapshot ?? "Una opción"} no se puede recalcular con los datos nuevos.`);
         continue;
       }
 
       // La estancia entera (temporadas, pensión por noche, profesores, chófer),
       // como al cotizar. Antes era una tarifa × noches × alumnos: sin profesores
       // ni tramos, y el desglose de la versión nueva no cuadraba con su total.
-      const composicion = composicionGuardada(proposal.stayJson);
       const estancia = estanciaDeHotel(
         encontrado,
         composicion,
@@ -282,7 +421,26 @@ export async function previewChange(
           : null,
         costeAlumnoAhora: estancia?.tramos[0]?.alumno.coste ?? null,
         costeProfesorAhora: estancia?.tramos[0]?.profesor.coste ?? null,
+        accommodationIdAhora: enlazadoPorNombre ? encontrado.accommodation.id : null,
       });
+    }
+
+    // Las actividades siguen al grupo nuevo: sus entradas suman al total de la opción
+    // y pasan a «Servicios Contratados», así que no pueden quedarse con el grupo de antes.
+    if (proposal.activityOptions.length > 0) {
+      const antes = { alumnos: solicitud.participants ?? 0, profesores: solicitud.teachers ?? 0 };
+      const ahora = { alumnos: nuevoParticipantes ?? 0, profesores: nuevoTeachers ?? 0 };
+      if (antes.alumnos !== ahora.alumnos || antes.profesores !== ahora.profesores) {
+        actividades.push(...(await actividadesConElGrupoNuevo(proposal.activityOptions, antes, ahora)));
+        for (const a of actividades) {
+          if (a.aviso) avisos.push(`${a.nombre} (opción ${a.optionNumber}): ${a.aviso}`);
+        }
+      }
+      if (campos.some((c) => c.campo === "dateFrom" || c.campo === "dateTo")) {
+        avisos.push(
+          "Han cambiado las fechas: las actividades conservan su precio y sus días de visita. Si cambian de periodo o de día, hay que rehacerlas en el cotizador.",
+        );
+      }
     }
   }
 
@@ -291,6 +449,7 @@ export async function previewChange(
     hayCambios: campos.length > 0,
     campos,
     opciones,
+    actividades,
     avisos,
   };
 }
@@ -345,6 +504,8 @@ export async function applyChange(
   const versionNumber = (ultima?.versionNumber ?? proposal.versionNumber) + 1;
 
   const participantes = Number(cambio.participants) || proposal.tripRequest.participants;
+  /** Las actividades cuyas entradas cambian con el grupo nuevo, por su id en la propuesta de partida. */
+  const actividadesNuevas = new Map(vista.actividades.filter((a) => a.cambia).map((a) => [a.id, a]));
 
   const nueva = await prisma.tripProposal.create({
     data: {
@@ -358,7 +519,7 @@ export async function applyChange(
         create: proposal.accommodationOptions.map((opcion) => {
           const recalculada = vista.opciones.find((o) => o.optionNumber === opcion.optionNumber);
           return {
-            accommodationId: opcion.accommodationId,
+            accommodationId: opcion.accommodationId ?? recalculada?.accommodationIdAhora ?? null,
             optionNumber: opcion.optionNumber,
             accommodationNameSnapshot: opcion.accommodationNameSnapshot,
             boardType: recalculada?.regimenesAhora ?? opcion.boardType,
@@ -391,14 +552,15 @@ export async function applyChange(
           activityNameSnapshot: actividad.activityNameSnapshot,
           providerSnapshot: actividad.providerSnapshot,
           durationSnapshot: actividad.durationSnapshot,
-          pvpSnapshot: actividad.pvpSnapshot,
+          pvpSnapshot: actividadesNuevas.get(actividad.id)?.pvpAhora ?? actividad.pvpSnapshot,
           descriptionSnapshot: actividad.descriptionSnapshot,
           // Las entradas, el importe del grupo y el coste viajan con la actividad:
           // sin ellos la versión nueva perdía el precio por alumno y por profesor
           // y el coste (hallado el 05/11/2026 al investigar las actividades que
           // no llegaban al CRM).
-          linesJson: actividad.linesJson,
-          amountTotal: actividad.amountTotal,
+          // …y con el grupo nuevo si cambia (17/11/2026): 48 entradas para 46 alumnos no cuadraban.
+          linesJson: actividadesNuevas.get(actividad.id)?.linesJsonAhora ?? actividad.linesJson,
+          amountTotal: actividadesNuevas.get(actividad.id)?.amountTotalAhora ?? actividad.amountTotal,
           unitCostAmount: actividad.unitCostAmount,
           supplierQuoteId: actividad.supplierQuoteId,
           isSelected: actividad.isSelected,

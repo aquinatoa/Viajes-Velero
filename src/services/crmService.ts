@@ -1,4 +1,5 @@
 import { importeDe } from "../domain/importe";
+import { totalDeLaOpcion } from "../domain/actividadesContratadas";
 import type {
   Client,
   CrmPayload,
@@ -227,11 +228,25 @@ export const prepareNewOpportunityPayload = ({
 
   // Importe del trato = total de la opción 1 (la principal/mejor). Solo con
   // actividades, lo que suman para el grupo; si alguna no lo trae, sin importe.
-  const amount = proposal.accommodationOptions.length
-    ? amountFromText(proposal.accommodationOptions[0]?.totalPvpText)
-    : proposal.activityOptions.length && proposal.activityOptions.every((a) => a.amountTotal != null)
-      ? Math.round(proposal.activityOptions.reduce((suma, a) => suma + Number(a.amountTotal), 0) * 100) / 100
-      : null;
+  //
+  // Desde el 16/11/2026 el total de la opción SUMA sus actividades (Oravia):
+  // el importe del trato, y el depósito del 30 % que sale de él, también.
+  const principal = proposal.accommodationOptions[0] ?? null;
+  const actividadesDeLaPrincipal = proposal.activityOptions
+    .filter((a) => !principal || a.optionNumber === principal.optionNumber)
+    .map((a) => ({
+      activityNameSnapshot: a.activityNameSnapshot,
+      pvpSnapshot: a.pvpSnapshot,
+      linesJson: a.lines ?? null,
+      amountTotal: a.amountTotal ?? null,
+    }));
+  const alojamientoDeLaPrincipal = principal ? amountFromText(principal.totalPvpText) : null;
+  const amount =
+    principal && alojamientoDeLaPrincipal === null
+      ? null
+      : !principal && proposal.activityOptions.some((a) => a.amountTotal == null)
+        ? null
+        : totalDeLaOpcion(alojamientoDeLaPrincipal, actividadesDeLaPrincipal, request.participants ?? 0, request.teachers ?? 0).total;
 
   return {
     contact: buildCommonContact(client),
