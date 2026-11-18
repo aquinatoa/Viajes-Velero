@@ -10,6 +10,7 @@ import type {
   WarningItem
 } from "../src/domain/types";
 import { comprobar } from "./encajeConLaPeticion";
+import { afinidadConElCampo, loQuePideElClub } from "../src/domain/campoYBungalow";
 import { deriveSalePrice } from "./pricing";
 import { textoDelPeriodo, valeParaElViaje } from "../src/domain/periodosDeActividad";
 import { precioParaElCliente } from "../src/domain/precioClienteEspecial";
@@ -692,14 +693,21 @@ export async function searchAccommodationsDb(
   // (acompañante)» es más barata y ganaba el empate (verificación del 20/10/2026).
   const esDeAcompanante = (item: AccommodationSearchMatch) =>
     /sin campo|acompa/i.test(item.rate.includedService ?? "");
+  const pideElClub = loQuePideElClub(filters.requisitos);
   const bestByAccommodation = new Map<string, AccommodationSearchMatch>();
   for (const item of candidatas) {
     const current = bestByAccommodation.get(item.accommodation.id);
     const ajuste = (i: AccommodationSearchMatch) => i.score - (filters.department === "SPORTS" && esDeAcompanante(i) ? 1 : 0);
+    // A igualdad, la del campo que pidió el club antes que la más barata: con
+    // «Natural Grass» Villa Bonita salía con campo artificial, 66 € en vez de
+    // 78 € (club suizo, 18/11/2026; ver `campoYBungalow`).
+    const campo = (i: AccommodationSearchMatch) => afinidadConElCampo(i.rate.includedService, pideElClub);
     if (
       !current ||
       ajuste(item) > ajuste(current) ||
+      (ajuste(item) === ajuste(current) && campo(item) > campo(current)) ||
       (ajuste(item) === ajuste(current) &&
+        campo(item) === campo(current) &&
         (item.rate.pvpAmount || item.rate.netSaleAmount) <
           (current.rate.pvpAmount || current.rate.netSaleAmount))
     ) {
@@ -805,9 +813,17 @@ export async function searchAccommodationsDb(
               item.accommodation.observations,
               item.accommodation.freePolicy,
             ],
+            nombre: item.accommodation.accommodationName,
+            tipo: item.accommodation.accommodationType,
+            deSusTarifas: (porAlojamiento.get(item.accommodation.id) ?? [item]).flatMap((o) => [
+              o.rate.includedService,
+              o.rate.occupancyLabel,
+              o.rate.unitName,
+            ]),
           },
           {
             boardType: item.rate.boardType,
+            includedService: item.rate.includedService,
             // El mínimo que exige el hotel en esa pensión: el menor de sus
             // tramos, no el de la tarifa elegida (el 4R tiene precio desde 1 noche).
             minNights: Math.min(

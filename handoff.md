@@ -3190,3 +3190,22 @@ los Excel del 10/11 sustituyen a los de septiembre. Orden de Anthony: «procede 
 - Pendiente: que Anthony lo vea; en producción, borrar los dos documentos pendientes del 10/11 («Alojamiento Cliente
   MSH», «Alojamiento Suizos MSH») con su OK. Ojo: volver a publicar «Fútbol Salou 2027 · venta general / suizo»
   recrearía los nombres viejos (como ya pasaba con la migración del 15/10).
+
+### 18/11/2026, mediodía · SUBIDO Cambrils Park; borrados los Excel del 10/11; césped y bungalow EN LOCAL
+
+- **Producción en `2a1425f`** (rama `cambrils-park` → `main`, orden de Anthony «súbelo»). Despliegue 44271292980 en
+  verde; la migración se aplicó sola. Comprobado por la API en solo lectura: 37 alojamientos, las 8 fichas «Cambrils
+  Park · …» con los mismos precios que antes, ninguna con nombre viejo y el resto del catálogo igual que el 17/11.
+  Vuelta atrás: `refs/respaldo/produccion-antes-de-cambrils-park` (= 4c89bba).
+- **Borrados en producción** («sí» de Anthony) los documentos pendientes «Alojamiento Cliente MSH»
+  (cmwamynij001xfh1dd1w4kswa) y «Alojamiento Suizos MSH» (cmwalqiwl0003fh1dtabw3rgx): solo su revisión (3 + 3
+  candidatos), nada publicado. Quedan 13 documentos.
+- **Césped natural / artificial y bungalows (rama `cesped-y-bungalow`, SIN commit):** `src/domain/campoYBungalow.ts`
+  (+ `tests/campoYBungalow.test.ts`, `npm run test:campo`). La búsqueda (`searchDb.ts`), a igualdad de puntuación,
+  elige en cada hotel la tarifa del campo pedido antes que la más barata. «Lo que pidió el centro»
+  (`encajeConLaPeticion.ts`) da ✓ / ✗ / — para «Césped natural/artificial» (mirando las tarifas, no la prosa) y
+  «Bungalows» (nombre, tipo y tarifas; Villa Bonita / Aloha es bungalow por Javier). Club suizo FC Weinfelden: Villa
+  Bonita pasa de artificial 66 € a natural 78 €; MED 1 92 €, MED 2/3 83 €. `tsc -b` limpio, `npm test` exit 0 (1.185).
+- Local para verlo: web **http://localhost:5180** con API nueva en **:8790** (config de prueba en
+  `node_modules/.vite-5180-api-8788.config.mjs`; el 8788 lo ocupa un workerd de Cloudflare de otro proyecto y el 8787
+  es la API de otra sesión, con el código anterior). Punto de retorno `refs/respaldo/cesped-y-bungalow-local`.

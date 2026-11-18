@@ -23,6 +23,8 @@
  * frecuente y honesto. Lo que no se puede es callarlo.
  */
 
+import { campoDeLaTarifa, campoDelRequisito, esBungalow, esRequisitoDeBungalow } from "../src/domain/campoYBungalow";
+
 export type Estado = "cumple" | "no_cumple" | "no_consta";
 
 export type ClaveDeComprobacion =
@@ -61,11 +63,18 @@ export interface AlojamientoParaComprobar {
   categoryType?: string | null;
   /** Todo lo que sabemos escrito de este alojamiento, junto. */
   textos: (string | null | undefined)[];
+  /** Su nombre y su tipo: «Cambrils Park · Villa Bonita / Aloha» es un bungalow. */
+  nombre?: string | null;
+  tipo?: string | null;
+  /** Lo que llevan TODAS sus tarifas («Campo natural», «1 PAX X BUNG»…), para el campo y el bungalow. */
+  deSusTarifas?: (string | null | undefined)[];
 }
 
 export interface TarifaParaComprobar {
   boardType?: string | null;
   minNights?: number | null;
+  /** «Aloj + Campo Natural / Fútbol Playa (1.30h)»: el campo de la tarifa elegida. */
+  includedService?: string | null;
 }
 
 /** Las estrellas que se piden o que tiene un hotel. */
@@ -251,6 +260,33 @@ export function comprobar(
   // — Lo que el colegio pidió en prosa. Aquí es donde más «no consta» habrá, y
   //   es la información que faltaba: hasta ahora ni se preguntaba.
   for (const req of peticion.requisitos ?? []) {
+    // Césped natural o artificial: se mira en las tarifas, no en la prosa del
+    // hotel (un «parque natural» en sus condiciones no es un campo). Club
+    // suizo del 18/11/2026: ver `campoYBungalow`.
+    const campo = campoDelRequisito(req);
+    if (campo) {
+      const nombreDelCampo = campo === "natural" ? "Césped natural" : "Césped artificial";
+      const elegida = campoDeLaTarifa(tarifa.includedService);
+      const tiene = new Set((alojamiento.deSusTarifas ?? []).map(campoDeLaTarifa));
+      if (elegida === campo) {
+        lista.push({ que: nombreDelCampo, estado: "cumple", detalle: "La tarifa elegida lo incluye" });
+      } else if (tiene.has(campo)) {
+        lista.push({ que: nombreDelCampo, estado: "no_consta", detalle: "Lo tiene, pero la tarifa elegida no: cámbiala en el detalle" });
+      } else if (tiene.has(campo === "natural" ? "artificial" : "natural")) {
+        lista.push({ que: nombreDelCampo, estado: "no_cumple", detalle: `Sus tarifas solo traen campo ${campo === "natural" ? "artificial" : "natural"}` });
+      } else {
+        lista.push({ que: nombreDelCampo, estado: "no_consta", detalle: "Su tarifa no dice nada" });
+      }
+      continue;
+    }
+    if (esRequisitoDeBungalow(req)) {
+      lista.push(
+        esBungalow([alojamiento.nombre, alojamiento.tipo, ...(alojamiento.deSusTarifas ?? [])])
+          ? { que: "Bungalows", estado: "cumple", detalle: "Es un alojamiento en bungalows" }
+          : { que: "Bungalows", estado: "no_consta", detalle: "Su tarifa no dice nada" },
+      );
+      continue;
+    }
     const conocido = REQUISITOS_CONOCIDOS.find((r) => r.clave.test(req));
     if (!conocido) {
       lista.push({ que: req, estado: "no_consta", detalle: "Hay que confirmarlo con el hotel" });
