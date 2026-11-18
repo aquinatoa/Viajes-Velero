@@ -72,6 +72,7 @@ import type { ClientSegment } from "../../domain/documentImportTypes";
 import { podio, razonDelPodio } from "../../domain/podio";
 import { algunCampoCoincide } from "../../domain/aliasDeProveedor";
 import { separarPorDestino } from "../../domain/destinoDelAlojamiento";
+import { agruparPorComplejo } from "../../domain/complejoDeAlojamiento";
 import { ORDENES_DE_ACTIVIDADES, ordenarActividades, type OrdenDeActividades } from "../../domain/ordenDeActividades";
 import {
   frasesDeDiscrepancia,
@@ -6236,6 +6237,98 @@ function ListaOpciones({
   const tres = podio(hoteles);
   const enElPodio = new Set(tres.map((item) => item.accommodation.id));
   const enDetalle = detalle ? hoteles.find((item) => item.accommodation.id === detalle) ?? null : null;
+  // Cambrils Park sale como UNO y dentro sus tipos (Javier, 17/11/2026): ver
+  // `complejoDeAlojamiento`. Cerrado al principio; abierto si ya hay uno elegido.
+  const entradas = agruparPorComplejo(hoteles, (m) => m.accommodation.accommodationName, (m) => m.accommodation.locality);
+  const [complejosAbiertos, setComplejosAbiertos] = useState<Record<string, boolean>>({});
+
+  const filaDeHotel = (item: AccommodationSearchMatch, titulo?: string) => {
+    const puesto = elegidos.includes(item.accommodation.id);
+    const opcion = elegidos.indexOf(item.accommodation.id) + 1;
+    const enOpcion = puesto ? actividadesDe(opcion) : [];
+    const fuera = puesto ? programaBase.filter((id) => !enOpcion.includes(id)) : [];
+    const dentro = puesto ? enOpcion.filter((id) => !programaBase.includes(id)) : [];
+    const precio = puesto
+      ? precioPorAlumno(item, enOpcion.map(matchActividad).filter(Boolean) as ActivitySearchMatch[], noches)
+      : precioPorAlumno(item, programaBase.map(matchActividad).filter(Boolean) as ActivitySearchMatch[], noches);
+    const abierto = detalle === item.accommodation.id;
+
+    return (
+      <li key={item.accommodation.id} className={puesto ? "cv__hotel is-on" : "cv__hotel"}>
+        <button
+          type="button"
+          className="cv__hotelmain"
+          onClick={() => onAlternar(item.accommodation.id)}
+          aria-pressed={puesto}
+        >
+          <span className="cv__hotelchk">{puesto ? opcion : ""}</span>
+          <span className="cv__hotelm">
+            <span className="cv__hotelt">
+              {titulo ?? item.accommodation.accommodationName}
+              {item.adHoc ? <span className="cv__actchip cv__actchip--top">Ad hoc</span> : null}
+              {enElPodio.has(item.accommodation.id) ? (
+                <span className="cv__reco">recomendado</span>
+              ) : null}
+            </span>
+            <span className="cv__hotels2">
+              {[
+                item.accommodation.categoryType,
+                pensionQueSeCobra(item),
+                [item.rate.occupancyLabel, item.rate.includedService].filter(Boolean).join(" · "),
+                item.accommodation.locality,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              {/* Un hotel de otro pueblo de la misma comarca tambien sale, a
+                  proposito: pidiendo Cambrils aparece Salou, que esta a diez
+                  minutos. Lo que faltaba era decirlo. Sin esta marca la
+                  lista parecia ignorar el destino. */}
+              {esDeOtraLocalidad(item.accommodation.locality, destinoPedido) ? (
+                <span className="cv__cerca">cerca</span>
+              ) : null}
+            </span>
+            {/* La tira de ✓ y — va en la fila, no dentro del detalle: con
+                veinte hoteles, abrir veinte fichas para saber cual sirve
+                era justamente la queja. */}
+            <TiraDeEncaje encaje={item.encaje} corta />
+          </span>
+          <span className="cv__hotelp">
+            {euros(precio)}
+            <b>por alumno</b>
+          </span>
+          {tope ? (
+            <span className={precio > tope ? "cv__tope cv__tope--out" : "cv__tope cv__tope--in"}>
+              {precio > tope ? `+${euros(precio - tope)}` : "cabe"}
+            </span>
+          ) : null}
+        </button>
+        <button
+          type="button"
+          className="cv__info"
+          aria-haspopup="dialog"
+          aria-expanded={abierto}
+          onClick={() => onDetalle(item.accommodation.id)}
+        >
+          Ver todo el detalle
+        </button>
+        {puesto && (fuera.length || dentro.length) ? (
+          <p className="cv__delta">
+            <span>Programa base</span>
+            {fuera.map((id) => (
+              <span key={id} className="cv__delta--out">
+                sin {matchActividad(id)?.activity.activityName ?? "una actividad"}
+              </span>
+            ))}
+            {dentro.map((id) => (
+              <span key={id} className="cv__delta--in">
+                + {matchActividad(id)?.activity.activityName ?? "una actividad"}
+              </span>
+            ))}
+          </p>
+        ) : null}
+      </li>
+    );
+  };
 
   return (
     <>
@@ -6271,89 +6364,48 @@ function ListaOpciones({
       ) : null}
 
       <ul className="cv__hotels">
-        {hoteles.slice(0, 20).map((item) => {
-          const puesto = elegidos.includes(item.accommodation.id);
-          const opcion = elegidos.indexOf(item.accommodation.id) + 1;
-          const enOpcion = puesto ? actividadesDe(opcion) : [];
-          const fuera = puesto ? programaBase.filter((id) => !enOpcion.includes(id)) : [];
-          const dentro = puesto ? enOpcion.filter((id) => !programaBase.includes(id)) : [];
-          const precio = puesto
-            ? precioPorAlumno(item, enOpcion.map(matchActividad).filter(Boolean) as ActivitySearchMatch[], noches)
-            : precioPorAlumno(item, programaBase.map(matchActividad).filter(Boolean) as ActivitySearchMatch[], noches);
-          const abierto = detalle === item.accommodation.id;
-
+        {entradas.slice(0, 20).map((entrada) => {
+          if (entrada.clase === "suelto") return filaDeHotel(entrada.item);
+          const ids = entrada.items.map((x) => x.item.accommodation.id);
+          const algunoElegido = ids.some((id) => elegidos.includes(id));
+          const abierto = complejosAbiertos[entrada.clave] ?? algunoElegido;
+          const precios = entrada.items.map((x) =>
+            precioPorAlumno(x.item, programaBase.map(matchActividad).filter(Boolean) as ActivitySearchMatch[], noches),
+          );
+          const desde = Math.min(...precios);
+          const elegidosAqui = entrada.items.filter((x) => elegidos.includes(x.item.accommodation.id));
           return (
-            <li key={item.accommodation.id} className={puesto ? "cv__hotel is-on" : "cv__hotel"}>
+            <li key={`complejo-${entrada.clave}`} className={algunoElegido ? "cv__complejo is-on" : "cv__complejo"}>
               <button
                 type="button"
-                className="cv__hotelmain"
-                onClick={() => onAlternar(item.accommodation.id)}
-                aria-pressed={puesto}
+                className="cv__complejoh"
+                aria-expanded={abierto}
+                onClick={() => setComplejosAbiertos((a) => ({ ...a, [entrada.clave]: !abierto }))}
               >
-                <span className="cv__hotelchk">{puesto ? opcion : ""}</span>
+                <span className="cv__complejoflecha" aria-hidden="true">
+                  {abierto ? "▾" : "▸"}
+                </span>
                 <span className="cv__hotelm">
                   <span className="cv__hotelt">
-                    {item.accommodation.accommodationName}
-                    {item.adHoc ? <span className="cv__actchip cv__actchip--top">Ad hoc</span> : null}
-                    {enElPodio.has(item.accommodation.id) ? (
-                      <span className="cv__reco">recomendado</span>
-                    ) : null}
+                    {entrada.nombre}
+                    <span className="cv__detn">{entrada.items.length} tipos</span>
                   </span>
                   <span className="cv__hotels2">
-                    {[
-                      item.accommodation.categoryType,
-                      pensionQueSeCobra(item),
-                      [item.rate.occupancyLabel, item.rate.includedService].filter(Boolean).join(" · "),
-                      item.accommodation.locality,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                    {/* Un hotel de otro pueblo de la misma comarca tambien sale, a
-                        proposito: pidiendo Cambrils aparece Salou, que esta a diez
-                        minutos. Lo que faltaba era decirlo. Sin esta marca la
-                        lista parecia ignorar el destino. */}
-                    {esDeOtraLocalidad(item.accommodation.locality, destinoPedido) ? (
-                      <span className="cv__cerca">cerca</span>
-                    ) : null}
+                    {entrada.items.map((x) => x.tipo).join(" · ")}
+                    {elegidosAqui.length
+                      ? ` — elegido: ${elegidosAqui
+                          .map((x) => `${x.tipo} (opción ${elegidos.indexOf(x.item.accommodation.id) + 1})`)
+                          .join(", ")}`
+                      : ""}
                   </span>
-                  {/* La tira de ✓ y — va en la fila, no dentro del detalle: con
-                      veinte hoteles, abrir veinte fichas para saber cual sirve
-                      era justamente la queja. */}
-                  <TiraDeEncaje encaje={item.encaje} corta />
                 </span>
                 <span className="cv__hotelp">
-                  {euros(precio)}
+                  {Number.isFinite(desde) ? `desde ${euros(desde)}` : ""}
                   <b>por alumno</b>
                 </span>
-                {tope ? (
-                  <span className={precio > tope ? "cv__tope cv__tope--out" : "cv__tope cv__tope--in"}>
-                    {precio > tope ? `+${euros(precio - tope)}` : "cabe"}
-                  </span>
-                ) : null}
               </button>
-              <button
-                type="button"
-                className="cv__info"
-                aria-haspopup="dialog"
-                aria-expanded={abierto}
-                onClick={() => onDetalle(item.accommodation.id)}
-              >
-                Ver todo el detalle
-              </button>
-              {puesto && (fuera.length || dentro.length) ? (
-                <p className="cv__delta">
-                  <span>Programa base</span>
-                  {fuera.map((id) => (
-                    <span key={id} className="cv__delta--out">
-                      sin {matchActividad(id)?.activity.activityName ?? "una actividad"}
-                    </span>
-                  ))}
-                  {dentro.map((id) => (
-                    <span key={id} className="cv__delta--in">
-                      + {matchActividad(id)?.activity.activityName ?? "una actividad"}
-                    </span>
-                  ))}
-                </p>
+              {abierto ? (
+                <ul className="cv__hotels cv__complejol">{entrada.items.map((x) => filaDeHotel(x.item, x.tipo))}</ul>
               ) : null}
             </li>
           );

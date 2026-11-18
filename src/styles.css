@@ -7120,6 +7120,57 @@ button.cw-ev__more:hover { text-decoration: underline; }
   font-weight: 400;
 }
 
+/* Un complejo con varios tipos (Cambrils Park: MED 1, MED 2, MED 3, Villa
+   Bonita / Aloha) sale como una sola tarjeta; al abrirla, sus tipos van dentro
+   con la fila de siempre (Javier, 17/11/2026). */
+.cv__complejo {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.cv__complejo.is-on {
+  border-color: var(--cv-navy);
+}
+
+.cv__complejoh {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: none;
+  border: 0;
+  text-align: left;
+  border-radius: inherit;
+  cursor: pointer;
+}
+
+.cv__complejoh:hover {
+  background: var(--surface-2);
+}
+
+.cv__complejoh:focus-visible {
+  outline: 2px solid var(--cv-navy);
+  outline-offset: -2px;
+}
+
+.cv__complejoflecha {
+  width: 24px;
+  flex: none;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.cv__complejoh .cv__detn {
+  margin-left: 8px;
+}
+
+.cv__complejol {
+  padding: 0 10px 10px 36px;
+}
+
 /* Diferencias del programa respecto a la base */
 .cv__delta {
   display: flex;

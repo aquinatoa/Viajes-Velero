@@ -3105,3 +3105,88 @@ Correo para Javier: borrador dado en el chat (lo envía Anthony).
      entendido», y `detectLanguage` reconoce ya catalán y francés. Probado de verdad con el modelo sobre ORV-2026-0006
      en inglés, catalán y francés (58 textos, unos 25 s la primera vez, instantáneo después). No visto en navegador.
   Pendiente: que Anthony lo vea; Cambrils Park (Javier); cambiar de hotel sin salir de la oportunidad; subir.
+
+## 17/11/2026 · Ajustes del cierre SUBIDOS a producción (4c89bba) y correo enviado: a la espera de Oravia
+
+**Estado en una línea:** todo lo que pidió Javier el 16/11 y lo que quedaba del correo de Ruth del 02/11 está en
+producción desde el 17/11 a las 10:26 (revisión `4c89bba`, rama `ajustes-cierre` → `main`, un commit, sin
+migraciones). Anthony envió ese mismo día el correo único a Javier y Ruth (hilo «Oravia · App: cierre del proyecto,
+novedades y pendientes (hasta el 26/11)», con Ricard y Cristian en copia). **Se espera su respuesta.**
+
+**Lo que subió** (detalle en el mensaje del commit y en el diario `Jarvis/diario-sesiones/2026-11-16-oravia-correo-crm-y-oportunidades.md`, bloques del 17/11):
+- Ficha de la oportunidad (tratos del CRM y propuestas de la app, las dos iguales): franja de una línea con cliente,
+  viaje, dinero y proveedores; cada tarjeta despliega su bloque flotando; carpetas debajo con el menú en vertical.
+  Decidido por Anthony sobre maqueta (`Jarvis/informes/Oravia-maqueta-ficha/bloques-arriba.html`) tras tres vueltas.
+- «Rehacer la propuesta» en un panel lateral dentro de la oportunidad (`RehacerPanel.tsx`): cambios de alumnos,
+  profesores y fechas, vista previa, versión nueva con su documento y envío. Cambiar de hotel o de actividad sigue
+  yendo al cotizador, con un enlace dentro del panel.
+- Al cambiar el grupo se recalculan también las actividades; los alojamientos sin enlace al catálogo se reconocen
+  por nombre o se recalculan con su propio desglose.
+- Una versión rehecha y enviada sustituye a la aceptada: el cliente tiene que volver a aceptar (decisión de Anthony).
+- Actividades en el total de cada opción (PDF, página, ficha, importe del trato, aviso de depósito) y en «Servicios
+  Contratados» al aceptar (P.Pax o P.Neto según la unidad de la tarifa).
+- Cotizador: alojamientos del destino exacto + botón «de cerca», buscador tolerante («MED 1»), «Ordenar por» en
+  actividades, campo «Idioma del documento».
+- Documento del cliente: «jugadores y entrenadores» en Sports, e idiomas (castellano, catalán, inglés, francés) en
+  PDF, página del enlace y correo. Rótulos a mano; lo demás lo traduce el servidor con el modelo ligero y lo guarda
+  en `storage/traducciones/`.
+
+**Comprobado en producción (solo lectura, sin enlaces públicos):** revisión, catálogo (35 alojamientos, 149
+actividades), ficha con total de actividades, vista previa del cambio de grupo y que la web sirve el JS nuevo.
+
+**Subió SIN probar en producción** (probarlo es escribir en datos reales):
+- [ ] El paso de actividades a «Servicios Contratados» en Zoho. Hace falta un trato de prueba y el «tienes mi
+      permiso» de Anthony. NO usar «TEST»: su contacto es un proveedor real (Granota).
+- [ ] La traducción con el modelo en producción (en local funciona en los tres idiomas; la clave está puesta).
+- [ ] Enviar desde el panel de rehacer y el bloqueo de aceptar una versión ya sustituida.
+
+**Sin decidir:** al enviar una versión rehecha de una propuesta aceptada, la fase del trato en Zoho NO vuelve sola
+a «Presupuesto Enviado» (la app nunca mueve un trato hacia atrás).
+
+**A la espera de Oravia (preguntas del correo del 17/11):**
+- [ ] Javier · Cambrils Park: ¿un solo alojamiento con MED 1, MED 2, MED 3 y Villa Bonita-Aloha?; MED 2 y MED 3
+      tienen el mismo precio; ¿el «Bungalow» de suizos es Villa Bonita/Aloha?; ¿los Excel del 10/11 sustituyen a las
+      tarifas de septiembre? Se les pidió NO publicarlos todavía (saldrían duplicados).
+- [ ] Javier · Transfers: qué esperan exactamente.
+- [ ] Ruth · PVP y comisión de la agencia: ¿precio con la comisión descontada o su neto?
+- [ ] Ruth · Suplemento B2C: ¿sumado al precio o como línea aparte?
+
+**Pendiente nuestro, sin fecha:**
+- [ ] Cambiar de hotel sin salir de la oportunidad (hoy va al cotizador, que vuelve a pedir confirmar la petición).
+- [ ] Propuestas anteriores al 20/10 guardaron las actividades por servicio como si fueran por persona
+      (p. ej. ORV-2026-0007): conviene rehacerlas.
+- [ ] Depósito erróneo de ORV-2026-0007 en el CRM (178.558,20 €): es el 30 % de 595.194, un importe leído sin la coma.
+- [ ] Retirar las pantallas viejas (`ProposalDesk`, `ChangePanel`).
+- [ ] Calendario del hilo del cierre: estado el jueves 19/11, recordatorio el martes 24/11, resumen final el 26/11.
+- [ ] De antes: adenda del correo en el CRM y nota para Cristian (miércoles 18/11 antes de las 16:00, otra sesión).
+
+**Para retomar:** producción y `origin/main` están en `4c89bba`; el worktree de trabajo es `wt-oportunidades`
+(rama `ajustes-cierre`, sin nada pendiente de subir). Vuelta atrás de producción:
+`refs/respaldo/produccion-antes-de-ajustes-cierre` (= `24f9a64`). El catálogo de la base local se igualó con el de
+producción el 17/11 (misma cuenta de alojamientos, actividades y tarifas); no es una copia exacta de la base.
+
+## 18/11/2026 · Cambrils Park como un complejo con cuatro tipos (EN LOCAL, sin commit y sin subir)
+
+Respuesta de Javier (17/11, 16:08): un solo «Cambrils Park» con MED 1, MED 2, MED 3 y Villa Bonita-Aloha; MED 2 y
+MED 3 por separado (2 y 3 habitaciones, mismo precio por pax); el «Bungalow» de suizos es Villa Bonita / Aloha;
+los Excel del 10/11 sustituyen a los de septiembre. Orden de Anthony: «procede a hacerlo en local».
+
+- **Los dos Excel del 10/11 NO traen precios nuevos**: comparados celda a celda con lo publicado (54 tarifas
+  generales y 30 suizas), todos iguales. Su lectura en producción perdió la pensión (AD/MP/PC) en todas las tarifas y
+  dejó 9 del Bungalow sin precio: publicarlos estropearía el catálogo y crearía duplicados («Mediterrània 1»,
+  «Bungalow»). No se publican.
+- **Diseño:** cada tipo sigue siendo su propio alojamiento («Cambrils Park · MED 1»…), para poder ofrecer dos tipos
+  como dos opciones de la misma propuesta y para que la estancia no mezcle precios (con todo en uno, el profesor en
+  individual de un grupo de MED 1 se cobraría al precio de Villa Bonita). La lista del cotizador los agrupa.
+- Migración `20261118100000_cambrils_park_cuatro_tipos` (solo datos, sin columnas nuevas), en los dos canales:
+  MED1 → «Cambrils Park · MED 1»; MED2/3 → «Cambrils Park · MED 2»; copia de MED2/3 con todo lo suyo → «Cambrils
+  Park · MED 3» (id + `_med3`); Villa Bonita → «Cambrils Park · Villa Bonita / Aloha». Mismos ids: las propuestas
+  hechas siguen enlazadas. Aplicada en LOCAL: 35 → 37 alojamientos, precios idénticos a los de antes.
+- `src/domain/complejoDeAlojamiento.ts` (+ `tests/complejoDeAlojamiento.test.ts`, `npm run test:complejo`) y la lista
+  de `RequestCanvas.tsx` (`ListaOpciones`): «Cambrils Park · 4 tipos», cerrado; al abrirlo, cada tipo con su fila de
+  siempre. Estilos `.cv__complejo*` en `styles.css`. `tsc -b` limpio, `npm test` exit 0 (1.171 pruebas).
+- Web local nueva en **http://localhost:5180** (la de :5173 lleva desde el 11/11 y es de otra sesión).
+- Puntos de retorno: `refs/respaldo/antes-de-cambrils-park` (= 4c89bba) y `refs/respaldo/cambrils-park-local`.
+- Pendiente: que Anthony lo vea; en producción, borrar los dos documentos pendientes del 10/11 («Alojamiento Cliente
+  MSH», «Alojamiento Suizos MSH») con su OK. Ojo: volver a publicar «Fútbol Salou 2027 · venta general / suizo»
+  recrearía los nombres viejos (como ya pasaba con la migración del 15/10).
