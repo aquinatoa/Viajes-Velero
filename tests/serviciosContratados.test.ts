@@ -17,9 +17,11 @@ import {
   costeDelPrecio,
   desgloseDeLaOpcion,
   elegirProveedor,
+  elegirProveedorDeActividad,
   filasDeLaOpcion,
   importeDesdeTexto,
   nombreCortoDelHotel,
+  nombreDelProveedorEnElCrm,
   palabrasClave,
   planDelSubformulario,
   regimenEnCrm,
@@ -91,6 +93,30 @@ prueba("el proveedor se elige solo cuando hay uno claro", () => {
   // Varios 4R: ninguno claro.
   assert.equal(elegirProveedor("4R Hotels", c("HOTEL 4R PLAYA PARK", "4R SALOU PARK RESORT I", "4* 4R HOTEL ROULETTE")), null);
   assert.equal(elegirProveedor("Hotel Planas", []), null);
+});
+
+prueba("el proveedor de una actividad: el suyo es el nombre corto (CRM de Oravia, 20/11/2026)", () => {
+  const c = (...nombres: string[]) => nombres.map((n, i) => ({ id: String(i), nombre: n }));
+  const aventura = c("PORT AVENTURA ENTERTAINMENT S.A.U.", "BOSC AVENTURA", "AGROPARK AVENTURA, SL", "ROGLES AVENTURA", "GRANS SPAIS SKI & AVENTURA S.L.", "OCIO AVENTURA SITGES SL");
+  assert.equal(elegirProveedorDeActividad("Bosc Aventura Salou", aventura)?.nombre, "BOSC AVENTURA");
+  assert.equal(elegirProveedorDeActividad("Grup Balfegó", c("BALFEGO"))?.nombre, "BALFEGO");
+  assert.equal(elegirProveedorDeActividad("La Suite Games (Escapépolis)", c("TARRAGONA SUITES", "LA SUITE GAMES"))?.nombre, "LA SUITE GAMES");
+  assert.equal(elegirProveedorDeActividad("UTE Playa (UTE Lot)", c("UTE PISCINAS LLORET", "UTE LOT 28 SALOU", "UTE PLAYA", "PLAYA CAMBRILS"))?.nombre, "UTE PLAYA");
+  // Lo que ya funcionaba sigue igual.
+  assert.equal(elegirProveedorDeActividad("Jungle Trek", c("JUNGLE TREK - FILOCIAN IBERICA SL"))?.nombre, "JUNGLE TREK - FILOCIAN IBERICA SL");
+  // Buscado por «jungle» y por «trek», llega dos veces: es el mismo, no un empate.
+  const repetido = [{ id: "7", nombre: "JUNGLE TREK - FILOCIAN IBERICA SL" }, { id: "7", nombre: "JUNGLE TREK - FILOCIAN IBERICA SL" }];
+  assert.equal(elegirProveedorDeActividad("Jungle Trek", repetido)?.id, "7");
+  // Una palabra suelta en común no basta: «Club Nàutic Salou» no es «CLUB VELA CALAFELL».
+  assert.equal(elegirProveedorDeActividad("Club Nàutic Salou", c("CLUB VELA CALAFELL", "ESCOLA DE VELA CALAFELL")), null);
+  // Dos que encajan: no se adivina.
+  assert.equal(elegirProveedorDeActividad("Bosc Aventura Salou", c("BOSC AVENTURA", "AVENTURA SALOU")), null);
+});
+
+prueba("los proveedores que en su CRM se escriben de otra forma", () => {
+  assert.equal(nombreDelProveedorEnElCrm("PortAventura World"), "PORT AVENTURA ENTERTAINMENT S.A.U.");
+  assert.equal(nombreDelProveedorEnElCrm("Escola de Vela Club Nàutic Comarruga"), "CLUB NAUTIC COMA-RUGA");
+  assert.equal(nombreDelProveedorEnElCrm("Saltapark"), null);
 });
 
 console.log("El desglose");

@@ -282,13 +282,26 @@ async function zohoRequest<T>(path: string, init?: RequestInit, retry = true): P
 
 // ── Productos, proveedores y el subformulario de servicios ───────────────────
 
+/**
+ * Un texto dentro de las comillas simples de una consulta COQL.
+ *
+ * El apóstrofo se dobla (''), como en SQL. Con la barra (\') Zoho contesta
+ * «error occured while parsing the query»: comprobado el 20/11/2026 con
+ * «Excursión en bicicleta por el Delta de l'Ebre», y con '' encuentra el
+ * suyo «Fútbol en Cambrils (Platja de l'Arcadia)». Ese error tiraba entero
+ * el volcado a «Servicios Contratados» de la opción que llevara la actividad.
+ */
+export function literalCoql(texto: string): string {
+  return texto.replace(/'/g, "''");
+}
+
 /** El id de un registro por su nombre exacto, o null. Consulta COQL. */
 export async function buscarIdPorNombre(
   modulo: "Vendors" | "Products",
   campo: "Vendor_Name" | "Product_Name",
   nombre: string,
 ): Promise<string | null> {
-  const escapado = nombre.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const escapado = literalCoql(nombre);
   const result = await zohoRequest<{ data?: Array<{ id: string }> }>("coql", {
     method: "POST",
     body: JSON.stringify({
@@ -304,7 +317,7 @@ export async function buscarPorNombreParecido(
   campo: "Vendor_Name" | "Product_Name",
   fragmento: string,
 ): Promise<Array<{ id: string; nombre: string }>> {
-  const escapado = fragmento.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/%/g, "");
+  const escapado = literalCoql(fragmento.replace(/%/g, ""));
   const result = await zohoRequest<{ data?: Array<{ id: string } & Record<string, unknown>> }>("coql", {
     method: "POST",
     body: JSON.stringify({

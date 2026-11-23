@@ -123,6 +123,56 @@ export function elegirProveedor(
   return mismasPalabras.length === 1 ? mismasPalabras[0] : null;
 }
 
+/**
+ * Proveedores de actividades que en su CRM se escriben de otra forma y que
+ * ninguna regla de palabras reconoce. Nuestro nombre (el del catálogo, sin
+ * tildes ni mayúsculas) → el suyo, exacto. Leído en su CRM el 20/11/2026.
+ */
+export const PROVEEDORES_CON_OTRO_NOMBRE: Record<string, string> = {
+  "portaventura world": "PORT AVENTURA ENTERTAINMENT S.A.U.",
+  "escola de vela club nautic comarruga": "CLUB NAUTIC COMA-RUGA",
+};
+
+/** El nombre del proveedor en su CRM si es uno de los que se escriben distinto. */
+export function nombreDelProveedorEnElCrm(nombre: string): string | null {
+  return PROVEEDORES_CON_OTRO_NOMBRE[normalizado(nombre).replace(/\s+/g, " ").trim()] ?? null;
+}
+
+/** Forma jurídica y palabras que no distinguen a un proveedor de actividades. */
+const SIN_PESO_EN_PROVEEDOR = new Set(["sl", "slu", "sa", "sau", "grup", "grupo"]);
+
+function clavesDeProveedor(nombre: string): string[] {
+  return [...new Set(palabrasClave(nombre).filter((p) => !SIN_PESO_EN_PROVEEDOR.has(p)))];
+}
+
+/**
+ * El proveedor de una ACTIVIDAD entre los candidatos de su CRM.
+ *
+ * Primero, la regla de los hoteles (el suyo contiene todas nuestras palabras).
+ * Si no, la contraria: nuestro nombre del catálogo suele llevar algo de más
+ * («Bosc Aventura Salou», «Grup Balfegó», «La Suite Games (Escapépolis)»,
+ * «UTE Playa (UTE Lot)») y el suyo es el corto («BOSC AVENTURA», «BALFEGO»,
+ * «LA SUITE GAMES», «UTE PLAYA»). Vale el candidato cuyas palabras están
+ * TODAS en el nuestro y cubren al menos la mitad de las nuestras; si hay más
+ * de uno, null: no se adivina.
+ */
+export function elegirProveedorDeActividad(
+  nombre: string,
+  candidatos: Array<{ id: string; nombre: string }>,
+): { id: string; nombre: string } | null {
+  // Se buscan por varias palabras: el mismo puede llegar dos veces y no es un empate.
+  const unicos = [...new Map(candidatos.map((c) => [c.id, c])).values()];
+  const directo = elegirProveedor(nombre, unicos);
+  if (directo) return directo;
+  const nuestras = clavesDeProveedor(nombre);
+  if (nuestras.length === 0) return null;
+  const dentro = unicos.filter((c) => {
+    const suyas = clavesDeProveedor(c.nombre);
+    return suyas.length > 0 && suyas.every((k) => nuestras.includes(k)) && suyas.length * 2 >= nuestras.length;
+  });
+  return dentro.length === 1 ? dentro[0] : null;
+}
+
 const centimos = (n: number) => Math.round(n * 100);
 
 /**
@@ -466,7 +516,7 @@ export async function contratarEnElCrm(deliveryId: string, optionNumber: number)
       if (f.proveedor) {
         suProveedor = proveedoresDeActividad.get(f.proveedor) ?? null;
         if (!suProveedor) {
-          suProveedor = await idDeProveedor(f.proveedor, creados);
+          suProveedor = await idDeProveedorDeActividad(f.proveedor, creados);
           proveedoresDeActividad.set(f.proveedor, suProveedor);
         }
       }
@@ -567,6 +617,35 @@ async function idDeProveedor(nombreCorto: string, creados: string[]): Promise<{ 
   const nombre = nombreCorto.toUpperCase();
   const id = await crearRegistro("Vendors", { Vendor_Name: nombre });
   creados.push(`proveedor «${nombre}»`);
+  return { id, nuevo: true };
+}
+
+/**
+ * El proveedor del CRM para una actividad (20/11/2026). Antes se buscaba como
+ * un hotel y 6 de los 15 proveedores del catálogo no se reconocían: se habrían
+ * creado duplicados («PORTAVENTURA WORLD» junto a su «PORT AVENTURA
+ * ENTERTAINMENT S.A.U.»). Ahora: equivalencia fija, nombre exacto, y si no,
+ * los candidatos de sus tres palabras más largas con `elegirProveedorDeActividad`.
+ * Solo si nada encaja se crea, y la fila lo dice para que lo revisen.
+ */
+async function idDeProveedorDeActividad(nombre: string, creados: string[]): Promise<{ id: string; nuevo: boolean }> {
+  const suNombre = nombreDelProveedorEnElCrm(nombre);
+  if (suNombre) {
+    const id = await buscarIdPorNombre("Vendors", "Vendor_Name", suNombre);
+    if (id) return { id, nuevo: false };
+  }
+  const exacto = await buscarIdPorNombre("Vendors", "Vendor_Name", nombre);
+  if (exacto) return { id: exacto, nuevo: false };
+
+  const claves = [...new Set(palabrasClave(nombre))].sort((a, b) => b.length - a.length).slice(0, 3);
+  const candidatos: Array<{ id: string; nombre: string }> = [];
+  for (const clave of claves) candidatos.push(...(await buscarPorNombreParecido("Vendors", "Vendor_Name", clave)));
+  const elegido = elegirProveedorDeActividad(nombre, candidatos);
+  if (elegido) return { id: elegido.id, nuevo: false };
+
+  const nuevo = nombre.toUpperCase();
+  const id = await crearRegistro("Vendors", { Vendor_Name: nuevo });
+  creados.push(`proveedor «${nuevo}»`);
   return { id, nuevo: true };
 }
 

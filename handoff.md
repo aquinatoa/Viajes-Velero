@@ -3209,3 +3209,38 @@ los Excel del 10/11 sustituyen a los de septiembre. Orden de Anthony: «procede 
 - Local para verlo: web **http://localhost:5180** con API nueva en **:8790** (config de prueba en
   `node_modules/.vite-5180-api-8788.config.mjs`; el 8788 lo ocupa un workerd de Cloudflare de otro proyecto y el 8787
   es la API de otra sesión, con el código anterior). Punto de retorno `refs/respaldo/cesped-y-bungalow-local`.
+
+
+## 20/11/2026 · Actividades en «Servicios Contratados»: prueba real y arreglo (rama `actividades-en-el-crm`, SIN commit)
+
+Pendiente del correo del 17/11 («lo vamos a comprobar con una oportunidad de prueba»). Con el «tienes mi permiso» de
+Anthony. Guiones en `scripts/_tmp_act/sc-*.ts` (sin versionar).
+
+- **Ensayo en seco (solo lectura) contra su CRM:** 0 de las 149 actividades tienen producto con el mismo nombre (los
+  suyos van por periodo y edad: «B: JOVEN/SECUN/UNI - 1 día Ferrari Land - SOLO ENTRADA»); 6 de 15 proveedores no se
+  reconocían y se habrían creado duplicados («PORTAVENTURA WORLD» junto a «PORT AVENTURA ENTERTAINMENT S.A.U.»,
+  «Bosc Aventura Salou» / «BOSC AVENTURA», «Grup Balfegó» / «BALFEGO», «La Suite Games (Escapépolis)» / «LA SUITE
+  GAMES», «UTE Playa (UTE Lot)» / «UTE PLAYA», «Escola de Vela Club Nàutic Comarruga» / «CLUB NAUTIC COMA-RUGA»); y el
+  apóstrofo («Delta de l'Ebre») daba «error occured while parsing the query» y tiraba ENTERO el volcado de la opción.
+  En producción aún no se había aceptado ninguna opción con actividades: nada duplicado.
+- **Arreglo:** `literalCoql` en `server/zoho.ts` (el apóstrofo se dobla: con `'` Zoho no parsea; con `''`
+  encuentra su «Fútbol en Cambrils (Platja de l'Arcadia)»). En `serviciosContratados.ts`: `PROVEEDORES_CON_OTRO_NOMBRE`
+  (2 equivalencias fijas), `elegirProveedorDeActividad` (regla de hoteles y, si no, la inversa: sus palabras todas
+  en las nuestras y al menos la mitad; candidatos sin repetir) e `idDeProveedorDeActividad` (busca por sus 3
+  palabras más largas). Hoteles sin cambios. Cruce de nuevo: los 15 proveedores van a uno suyo. Pruebas en
+  `tests/serviciosContratados.test.ts`. `tsc -b` limpio, `npm test` exit 0.
+- **Prueba real (código arreglado, desde local):** trato «PRUEBA NEOINTEC · Servicios Contratados (borrar)»
+  734060000036607005 + entrega local PRUEBA-NEO-SC-2011 (Hotel Planas de la 0008 + Delta de l'Ebre, Jumping de Bosc
+  Aventura, 3 días PortAventura, Luz Artificial). `marcarOpcionElegida` → 6 filas, cada actividad con su proveedor
+  (DELTAVENTUR, BOSC AVENTURA, PORT AVENTURA ENTERTAINMENT S.A.U., sin proveedor la luz), las 2 sin coste sin validar;
+  su función recalculó el Importe a 9.947,84 (= hotel + las dos con coste); 0 proveedores creados, 4 productos creados.
+  Sin propietario: no salió correo. **Borrados** el trato y los 4 productos; local limpio.
+- **Hallazgo: blueprint «Gestión comercial» en los tratos de Grupos** (30 de 32 en una muestra; Sports fuera). Zoho
+  responde `RECORD_IN_BLUEPRINT` a cualquier cambio de Stage: en Grupos la app NO mueve la fase al enviar, al verse ni
+  al aceptar (lo apunta en el log y sigue), y «Mover de fase» de la ficha falla. Desde «Presupuesto Enviado» sus
+  transiciones son Seguimiento / Perdida / Actualizar fase / Lista de Espera. Preguntado a Oravia.
+- **Coste:** PortAventura 0/386 tarifas con neto; los 12 extras de «Fútbol Salou 2027 · venta general» sin proveedor
+  ni coste. Preguntado.
+- Zoho cortó la renovación del token («Access Denied») tras muchos guiones seguidos; se levanta solo.
+- **Correo a Javier** reescrito en Validación con todo esto y el depósito de la 0007; el correo da el arreglo por
+  subido: subir antes de validar.
