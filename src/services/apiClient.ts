@@ -544,6 +544,26 @@ export function createInventoryDocumentApi(payload: CreateSourceDocumentInput) {
   );
 }
 
+/**
+ * Descarga el archivo original de un documento de tarifas, con su nombre. Con
+ * la sesión en la cabecera, como los adjuntos del trato: el token no va en la URL.
+ */
+export async function descargarArchivoDelDocumento(documentId: string, nombre: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/inventory/documents/${encodeURIComponent(documentId)}/file`, {
+    headers: authHeaders(),
+  });
+  if (!response.ok) await parseErrorResponse(response, "No se pudo descargar el archivo.");
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export async function listInventoryDocumentsApi() {
   const payload = await getJson<SourceDocumentSummary[] | { documents: SourceDocumentSummary[] }>(
     "/api/inventory/documents",

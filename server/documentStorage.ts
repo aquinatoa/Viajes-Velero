@@ -51,3 +51,20 @@ export async function saveInventoryDocumentFile(input: {
     fileHash,
   };
 }
+/**
+ * Dónde está hoy el archivo guardado de un documento. La ruta se guardó
+ * absoluta al subirlo; si el disco se movió (otro despliegue, otra carpeta de
+ * `storage/`), se busca el mismo nombre en la carpeta del documento.
+ */
+export async function rutaDelArchivoGuardado(documentId: string, storedFilePath: string): Promise<string | null> {
+  const candidatas = [storedFilePath, path.join(STORAGE_ROOT, documentId, path.basename(storedFilePath))];
+  for (const ruta of candidatas) {
+    try {
+      const datos = await fs.stat(ruta);
+      if (datos.isFile()) return ruta;
+    } catch {
+      // No está ahí: se prueba la siguiente.
+    }
+  }
+  return null;
+}

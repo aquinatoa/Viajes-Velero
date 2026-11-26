@@ -201,6 +201,7 @@ export const buildProposal = (input: BuildProposalInput): Promise<TripProposal> 
       tope: input.builderState.tope ?? null,
       requisitos: input.builderState.requisitos ?? [],
       descuentos: input.builderState.descuentos ?? {},
+      suplementosB2C: input.builderState.suplementosB2C ?? {},
       preciosFijados: input.builderState.preciosFijados ?? {},
       lineas: input.builderState.lineasSinDescuento ?? {},
       fechasDeVisita: input.builderState.fechasDeVisita ?? {},

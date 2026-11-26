@@ -13526,6 +13526,10 @@ table.rate-mx .rate-mx__grp { border-left: 2px solid var(--border); }
 .cv__desc-r b {
   color: var(--ink);
 }
+/* El suplemento B2C (24/11/2026): en la actividad va en la misma fila que el descuento. */
+.cv__desc .cv__desc--b2c {
+  margin: 0;
+}
 .rv__desc {
   margin: 4px 0 0;
   font-size: 12.5px;

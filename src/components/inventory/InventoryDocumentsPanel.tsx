@@ -16,6 +16,7 @@ import {
   createInventoryDocumentApi,
   deleteInventoryDocumentApi,
   dryRunDeleteInventoryDocumentApi,
+  descargarArchivoDelDocumento,
   listInventoryDocumentsApi,
   updateInventoryDocumentApi,
   uploadInventoryDocumentFileApi,
@@ -45,6 +46,15 @@ const initialForm: CreateSourceDocumentInput = {
   clientSegment: null,
   department: null,
 };
+
+
+/** «21/10/2026», la fecha en que entró en el catálogo. */
+function fechaCorta(iso: string): string {
+  const fecha = new Date(iso);
+  return Number.isNaN(fecha.getTime())
+    ? ""
+    : fecha.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
 
 export function InventoryDocumentsPanel() {
   const clientesEspeciales = useClientesEspeciales();
@@ -705,6 +715,7 @@ export function InventoryDocumentsPanel() {
               <th>Precios</th>
               <th>Temporada</th>
               <th>Estado</th>
+              <th>En el cotizador</th>
               <th>Archivo</th>
               <th aria-label="Acciones" />
             </tr>
@@ -775,6 +786,7 @@ export function InventoryDocumentsPanel() {
                         onClick={() => void handleViewDetail(document.id, "pendientes")}
                       >
                         {pending} por revisar
+                        {(document.yaExistenteCount ?? 0) > 0 ? ` · ${document.yaExistenteCount} ya existentes` : ""}
                       </button>
                     ) : (
                       <span className="doc-cell__sub">
@@ -784,8 +796,39 @@ export function InventoryDocumentsPanel() {
                     )}
                   </td>
 
+                  {/* Si el cotizador usa sus tarifas, y desde cuándo. «Publicado» no
+                      lo dice: un documento sustituido sigue «Publicado» sin aportar
+                      nada (Ruth, 24/11/2026: «no sé qué documento hay publicado»). */}
+                  <td>
+                    {(document.inUseRateCount ?? 0) > 0 ? (
+                      <>
+                        <span className="doc-state doc-state--published">En uso</span>
+                        <span className="doc-cell__sub">
+                          {document.inUseRateCount} tarifa{document.inUseRateCount === 1 ? "" : "s"}
+                          {document.inUseSince ? ` · desde el ${fechaCorta(document.inUseSince)}` : ""}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="doc-cell__sub">No se usa</span>
+                    )}
+                  </td>
+
                   {/* Archivo: un botón de verdad, no el control crudo del navegador. */}
                   <td>
+                    {document.hasFile ? (
+                      <button
+                        type="button"
+                        className="link-action"
+                        title={document.originalFileName ?? ""}
+                        onClick={() =>
+                          void descargarArchivoDelDocumento(document.id, document.originalFileName || document.controlName).catch(
+                            (error: unknown) => setErrorMessage(getErrorMessage(error, "No se pudo descargar el archivo.")),
+                          )
+                        }
+                      >
+                        Descargar original
+                      </button>
+                    ) : null}
                     <div className="filepick">
                       <label className="filepick__choose">
                         {selectedFile ? "Cambiar" : "Elegir archivo"}
@@ -847,7 +890,7 @@ export function InventoryDocumentsPanel() {
 
             {!loading && filteredDocuments.length === 0 && (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={7}>
                   {documents.length === 0
                     ? "Todavía no hay documentos registrados."
                     : "Ningún documento coincide con la búsqueda."}

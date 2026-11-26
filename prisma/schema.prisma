@@ -240,7 +240,7 @@ model ActivityPolicy {
 }
 
 model ActivityRate {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   activityId        String
   year              Int
   ageLabel          String?
@@ -271,7 +271,7 @@ model ActivityRate {
   sourceSheet       String?
   sourceDocumentId  String?
   sourceStagingId   String?
-  activity          Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  activity          Activity  @relation(fields: [activityId], references: [id], onDelete: Cascade)
 
   @@index([sourceDocumentId])
 }
@@ -461,28 +461,28 @@ model SourceDocument {
 /// leyó de caché (que `input_tokens` del proveedor excluye). Con esto el panel
 /// de consumo y la evaluación de lecturas tienen de dónde leer.
 model AiLectura {
-  id                   String   @id @default(cuid())
-  sourceDocumentId     String
-  sourceDocument       SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+  id                  String         @id @default(cuid())
+  sourceDocumentId    String
+  sourceDocument      SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
   /// Proveedor y modelo tal como se llamaron.
-  proveedor            String
-  modelo               String
+  proveedor           String
+  modelo              String
   /// Qué variante de lectura corrió (p. ej. "cita-por-fila"), para comparar.
-  variante             String?
+  variante            String?
   /// OK o FALLIDA. Una fallida también consumió lo que llevaba.
-  resultado            String
+  resultado           String
   /// El motivo que dio el proveedor, literal, cuando falló.
-  error                String?
-  llamadas             Int      @default(0)
-  inputTokens          Int      @default(0)
-  outputTokens         Int      @default(0)
-  cacheCreationTokens  Int      @default(0)
-  cacheReadTokens      Int      @default(0)
+  error               String?
+  llamadas            Int            @default(0)
+  inputTokens         Int            @default(0)
+  outputTokens        Int            @default(0)
+  cacheCreationTokens Int            @default(0)
+  cacheReadTokens     Int            @default(0)
   /// Caracteres de texto devueltos. La diferencia con outputTokens estima
   /// cuánto de la salida fue pensamiento del modelo, que se factura igual.
-  outputChars          Int      @default(0)
-  iniciadaEn           DateTime
-  terminadaEn          DateTime @default(now())
+  outputChars         Int            @default(0)
+  iniciadaEn          DateTime
+  terminadaEn         DateTime       @default(now())
 
   @@index([sourceDocumentId])
   @@index([terminadaEn])
@@ -538,6 +538,8 @@ model StagingAccommodation {
   accommodationType     String?
   confidenceScore       Decimal?
   reviewStatus          String    @default("PENDING")
+  /// Igual que lo ya publicado al crear los candidatos: aprobado solo («ya existente», Ruth 24/11/2026).
+  yaExistente           Boolean   @default(false)
   assignmentConfirmedAt DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
@@ -590,6 +592,8 @@ model StagingAccommodationRate {
   confidenceScore Decimal?
   requiresReview  Boolean  @default(true)
   reviewStatus    String   @default("PENDING")
+  /// Igual que lo ya publicado al crear los candidatos: aprobado solo («ya existente», Ruth 24/11/2026).
+  yaExistente     Boolean  @default(false)
 
   stagingAccommodation StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
 
@@ -618,6 +622,8 @@ model StagingAccommodationAdjustment {
   confidenceScore Decimal?
   requiresReview  Boolean  @default(true)
   reviewStatus    String   @default("PENDING")
+  /// Igual que lo ya publicado al crear los candidatos: aprobado solo («ya existente», Ruth 24/11/2026).
+  yaExistente     Boolean  @default(false)
 
   stagingAccommodation StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
 
@@ -637,6 +643,8 @@ model StagingAccommodationPolicy {
   confidenceScore Decimal?
   requiresReview  Boolean  @default(true)
   reviewStatus    String   @default("PENDING")
+  /// Igual que lo ya publicado al crear los candidatos: aprobado solo («ya existente», Ruth 24/11/2026).
+  yaExistente     Boolean  @default(false)
 
   stagingAccommodation StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
 
@@ -658,6 +666,8 @@ model StagingAccommodationBlackoutDate {
   confidenceScore    Decimal?
   requiresReview     Boolean   @default(true)
   reviewStatus       String    @default("PENDING")
+  /// Igual que lo ya publicado al crear los candidatos: aprobado solo («ya existente», Ruth 24/11/2026).
+  yaExistente        Boolean   @default(false)
 
   stagingAccommodation StagingAccommodation @relation(fields: [stagingAccommodationId], references: [id], onDelete: Cascade)
 
@@ -682,6 +692,8 @@ model StagingActivity {
 
   confidenceScore Decimal?
   reviewStatus    String   @default("PENDING")
+  /// Igual que lo ya publicado al crear los candidatos: aprobado solo («ya existente», Ruth 24/11/2026).
+  yaExistente     Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -724,6 +736,8 @@ model StagingActivityRate {
   confidenceScore Decimal?
   requiresReview  Boolean  @default(true)
   reviewStatus    String   @default("PENDING")
+  /// Igual que lo ya publicado al crear los candidatos: aprobado solo («ya existente», Ruth 24/11/2026).
+  yaExistente     Boolean  @default(false)
 
   stagingActivity StagingActivity @relation(fields: [stagingActivityId], references: [id], onDelete: Cascade)
 
@@ -744,6 +758,8 @@ model StagingActivityPolicy {
   confidenceScore Decimal?
   requiresReview  Boolean  @default(true)
   reviewStatus    String   @default("PENDING")
+  /// Igual que lo ya publicado al crear los candidatos: aprobado solo («ya existente», Ruth 24/11/2026).
+  yaExistente     Boolean  @default(false)
 
   stagingActivity StagingActivity @relation(fields: [stagingActivityId], references: [id], onDelete: Cascade)
 
@@ -1007,14 +1023,14 @@ model CotizacionProveedor {
 }
 
 model CorreoAdjunto {
-  id        String       @id @default(cuid())
+  id        String        @id @default(cuid())
   mensajeId String
   mensaje   CorreoMensaje @relation(fields: [mensajeId], references: [id], onDelete: Cascade)
   nombre    String
   tipo      String
   tamano    Int
   ruta      String
-  createdAt DateTime     @default(now())
+  createdAt DateTime      @default(now())
 
   @@index([mensajeId])
 }
@@ -1048,19 +1064,19 @@ model Oportunidad {
 /// porque la fase vive en Zoho, y no lleva clave ajena para que se pueda anotar
 /// también en oportunidades que la app todavía no ha adoptado.
 model CambioDeFase {
-  id         String   @id @default(cuid())
-  crmDealId  String
-  desde      String?
-  hasta      String
+  id        String   @id @default(cuid())
+  crmDealId String
+  desde     String?
+  hasta     String
   /// Obligatorio al retroceder, dar por perdida o pasar a lista de espera (lo exige quien llama).
-  motivo     String?
+  motivo    String?
   /// MANUAL: una persona. AUTOMATICO: un hecho (enviada, vista, aceptada…).
-  origen     String
+  origen    String
   /// Para los automáticos: el hito que lo provocó.
-  hito       String?
-  porUserId  String?
-  porNombre  String?
-  createdAt  DateTime @default(now())
+  hito      String?
+  porUserId String?
+  porNombre String?
+  createdAt DateTime @default(now())
 
   @@index([crmDealId, createdAt])
 }

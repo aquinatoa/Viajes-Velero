@@ -27,6 +27,7 @@ import { formatCurrencyExact } from "../src/services/utils";
 import { PrismaClient } from "@prisma/client";
 import { searchAccommodationsDb } from "./searchDb";
 import { estanciaDeHotel, type AcompanantesDelHotel } from "../src/services/estanciaDeHotel";
+import { suplementoGuardado } from "../src/domain/suplementoB2C";
 import { COMPOSICION_POR_DEFECTO, costesDelTramo, textoDelDesglose, type ComposicionDeLaEstancia } from "../src/domain/estancia";
 
 const prisma = new PrismaClient();
@@ -341,7 +342,7 @@ export async function previewChange(
               noches: Math.max(nochesDeAntes, 1),
               alumnos: grupoDeAntes.alumnos,
               profesores: grupoDeAntes.profesores,
-            })
+            }, undefined, undefined, suplementoGuardado(proposal.stayJson, candidato.accommodation.id))
           : null;
         if (candidato && comoAntes && Math.abs(comoAntes.total - totalAntes) <= 1) {
           encontrado = candidato;
@@ -395,6 +396,8 @@ export async function previewChange(
         },
         asignacionDeAlumnosGuardada(proposal.stayJson, opcion.accommodationId),
         acompanantesGuardados(proposal.stayJson, opcion.accommodationId),
+        // El suplemento B2C con el que se cotizó: un cambio del grupo no lo quita.
+        suplementoGuardado(proposal.stayJson, opcion.accommodationId ?? encontrado.accommodation.id),
       );
       const unidad = encontrado.rate.pvpAmount || encontrado.rate.netSaleAmount || 0;
       // Con alumnos en otra tarifa, el precio por alumno que se compara con el de antes es

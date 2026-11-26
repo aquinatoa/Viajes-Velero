@@ -2014,8 +2014,11 @@ export function DocumentWorkspace({
                           accommodation.reviewStatus,
                         ).toLowerCase()}`}
                       >
-                        {reviewStatusLabels[String(accommodation.reviewStatus)] ??
-                          String(accommodation.reviewStatus)}
+                        {(accommodation as { yaExistente?: boolean }).yaExistente &&
+                        String(accommodation.reviewStatus) === "APPROVED"
+                          ? "Ya existente, sin cambios"
+                          : reviewStatusLabels[String(accommodation.reviewStatus)] ??
+                            String(accommodation.reviewStatus)}
                       </span>
                     </summary>
 

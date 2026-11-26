@@ -25,6 +25,13 @@ import {
   textoDelDescuento,
   type DescuentoDeActividad,
 } from "../../domain/descuentoDeActividad";
+import {
+  lineasConSuplemento,
+  precioConSuplemento,
+  suplementoValido,
+  textoDelSuplemento,
+  type SuplementoB2C,
+} from "../../domain/suplementoB2C";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   buildProposal,
@@ -574,6 +581,12 @@ export function RequestCanvas({
    */
   const [descuentos, setDescuentos] = useState<Record<string, DescuentoDeActividad>>({});
   /**
+   * El suplemento B2C de cada alojamiento y actividad (Ruth, 24/11/2026: «subir
+   * € o % sobre el neto de B2B»). Va dentro del precio: el colegio no lo ve
+   * como una línea aparte. Ver `domain/suplementoB2C.ts`.
+   */
+  const [suplementosB2C, setSuplementosB2C] = useState<Record<string, SuplementoB2C>>({});
+  /**
    * Cómo es la estancia (Ruth, 19/10/2026): la pensión de cada noche, y la
    * habitación y pensión de profesores y chófer. Cada hotel la calcula con sus
    * tarifas y suplementos.
@@ -781,6 +794,7 @@ export function RequestCanvas({
       setExcepciones(estado.excepciones ?? {});
       setPreciosFijados(estado.preciosFijados ?? {});
       setDescuentos(estado.descuentos ?? {});
+      setSuplementosB2C(estado.suplementosB2C ?? {});
       setLineas(estado.lineas ?? {});
       setComposicion(estado.composicion ?? COMPOSICION_POR_DEFECTO);
       setNotas(estado.notas ?? "");
@@ -915,6 +929,7 @@ export function RequestCanvas({
         excepciones,
         preciosFijados,
         descuentos,
+        suplementosB2C,
         lineas,
         composicion,
         notas,
@@ -953,7 +968,7 @@ export function RequestCanvas({
     return () => {
       if (guardadoRef.current) window.clearTimeout(guardadoRef.current);
     };
-  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, respuestasLibres, fijados, preguntadas, elegidos, programaBase, excepciones, preciosFijados, descuentos, lineas, composicion, notas, alumnosPorTarifa, acompanantesPorHotel, hotelesAdHoc, actividadesAdHoc, fechasDeVisita, modalidades, pedidasHechas, rehaceEntrega, solicitudId, canal, enviada]);
+  }, [mensajes, borrador, form, entendido, tope, requisitos, departamento, conversacion, respuestasLibres, fijados, preguntadas, elegidos, programaBase, excepciones, preciosFijados, descuentos, suplementosB2C, lineas, composicion, notas, alumnosPorTarifa, acompanantesPorHotel, hotelesAdHoc, actividadesAdHoc, fechasDeVisita, modalidades, pedidasHechas, rehaceEntrega, solicitudId, canal, enviada]);
 
   /** Recupera el borrador y vuelve a buscar hoteles: las tarifas pueden haber cambiado. */
   function recuperar() {
@@ -976,6 +991,7 @@ export function RequestCanvas({
     setExcepciones(recuperable.excepciones);
     setPreciosFijados(recuperable.preciosFijados ?? {});
     setDescuentos(recuperable.descuentos ?? {});
+    setSuplementosB2C(recuperable.suplementosB2C ?? {});
     setLineas(recuperable.lineas ?? {});
     setComposicion(recuperable.composicion ?? COMPOSICION_POR_DEFECTO);
     setNotas(recuperable.notas ?? "");
@@ -1035,9 +1051,19 @@ export function RequestCanvas({
     };
     return {
       ...hoteles,
-      matches: hoteles.matches.map((m) => ({ ...m, estancia: estanciaDeHotel(m, composicion, viaje, alumnosPorTarifa[m.accommodation.id], acompanantesPorHotel[m.accommodation.id]) })),
+      matches: hoteles.matches.map((m) => ({
+        ...m,
+        estancia: estanciaDeHotel(
+          m,
+          composicion,
+          viaje,
+          alumnosPorTarifa[m.accommodation.id],
+          acompanantesPorHotel[m.accommodation.id],
+          suplementosB2C[m.accommodation.id],
+        ),
+      })),
     };
-  }, [hoteles, composicion, alumnosPorTarifa, acompanantesPorHotel, entendido?.dateFrom, entendido?.participants, entendido?.teachers, entendido?.ageRangeText, entendido?.averageAgeText, noches]);
+  }, [hoteles, composicion, alumnosPorTarifa, acompanantesPorHotel, suplementosB2C, entendido?.dateFrom, entendido?.participants, entendido?.teachers, entendido?.ageRangeText, entendido?.averageAgeText, noches]);
 
   // La petición tal y como está ahora mismo, con lo que no cabe en el borrador
   // normalizado: el tope y los requisitos. Es lo que mira el chat para decidir
@@ -1198,15 +1224,20 @@ export function RequestCanvas({
         ? encontrada
         : { ...encontrada, rate: { ...encontrada.rate, salePvpAmount: puesto }, precioFijado: puesto };
     // Con líneas, lo que se suma por alumno es el total del grupo repartido.
-    // El descuento va a cada persona: a la tarifa o a cada línea.
+    // El suplemento B2C va primero, dentro del precio de cada entrada; el
+    // descuento, después, a cada persona: a la tarifa o a cada línea.
     const descuento = descuentos[id];
-    const activas = (lineas[id] ?? []).filter((l) => l.cantidad > 0);
+    const suplemento = suplementosB2C[id];
+    const activas = lineasConSuplemento((lineas[id] ?? []).filter((l) => l.cantidad > 0), suplemento);
     if (activas.length === 0) {
-      if (!descuentoValido(descuento)) return base;
-      const antes = base.rate.salePvpAmount;
+      const conSuplemento: ActivitySearchMatch = suplementoValido(suplemento)
+        ? { ...base, rate: { ...base.rate, salePvpAmount: precioConSuplemento(base.rate.salePvpAmount, suplemento) } }
+        : base;
+      if (!descuentoValido(descuento)) return conSuplemento;
+      const antes = conSuplemento.rate.salePvpAmount;
       return {
-        ...base,
-        rate: { ...base.rate, salePvpAmount: precioConDescuento(antes, descuento) },
+        ...conSuplemento,
+        rate: { ...conSuplemento.rate, salePvpAmount: precioConDescuento(antes, descuento) },
         descuento: { ...descuento, antes },
       };
     }
@@ -1265,6 +1296,16 @@ export function RequestCanvas({
       const siguiente = { ...antes };
       if (!tipo) delete siguiente[id];
       else siguiente[id] = { tipo, valor: valor ?? antes[id]?.valor ?? (tipo === "EUR" ? 2 : 10) };
+      return siguiente;
+    });
+  }
+
+  /** Pone, cambia o quita el suplemento B2C de un alojamiento o una actividad. */
+  function ponerSuplemento(id: string, tipo: "" | "EUR" | "PCT", valor: number | null) {
+    setSuplementosB2C((antes) => {
+      const siguiente = { ...antes };
+      if (!tipo) delete siguiente[id];
+      else siguiente[id] = { tipo, valor: valor ?? antes[id]?.valor ?? (tipo === "EUR" ? 5 : 10) };
       return siguiente;
     });
   }
@@ -2388,7 +2429,11 @@ export function RequestCanvas({
           activityLines: Object.fromEntries(
             Object.entries(lineas).map(([id, ls]) => [
               id,
-              lineasConDescuento(ls.filter((l) => l.cantidad > 0), descuentos[id], entendido?.participants ?? 0),
+              lineasConDescuento(
+                lineasConSuplemento(ls.filter((l) => l.cantidad > 0), suplementosB2C[id]),
+                descuentos[id],
+                entendido?.participants ?? 0,
+              ),
             ]),
           ),
           selectedActivityIds: programaBase,
@@ -2400,6 +2445,7 @@ export function RequestCanvas({
           tope,
           requisitos,
           descuentos,
+          suplementosB2C,
           preciosFijados,
           lineasSinDescuento: lineas,
           fechasDeVisita,
@@ -3177,6 +3223,8 @@ export function RequestCanvas({
               onAsignarAlumnos={asignarAlumnos}
               acompanantesPorHotel={acompanantesPorHotel}
               onAcompanantes={cambiarAcompanantes}
+              suplementosB2C={suplementosB2C}
+              onSuplemento={ponerSuplemento}
             />
           ) : (
             <MatrizPrograma
@@ -3349,6 +3397,10 @@ export function RequestCanvas({
                       </button>
                       {puesta ? (
                         <div className="cv__desc">
+                          <SelectorDeSuplemento
+                            suplemento={suplementosB2C[item.activity.id]}
+                            onCambiar={(tipo, valor) => ponerSuplemento(item.activity.id, tipo, valor)}
+                          />
                           <label>
                             <span>Descuento</span>
                             <select
@@ -3383,6 +3435,22 @@ export function RequestCanvas({
                                 {euros(m.descuento.antes)} → <b>{euros(m.rate.salePvpAmount)}</b> por alumno
                               </span>
                             ) : null;
+                          })()}
+                          {(() => {
+                            // PVP, comisión y neto (Ruth, 24/11/2026): PortAventura trae el
+                            // PVP y les da un 20 % de comisión. Por ahora se enseña; lo que
+                            // suma sigue siendo el PVP hasta que confirmen qué paga el colegio.
+                            const m = matchActividad(item.activity.id);
+                            const comision = Number(item.rate.commissionPercent ?? 0);
+                            const pvp = m?.rate.salePvpAmount ?? 0;
+                            if (!(comision > 0) || !(pvp > 0)) return null;
+                            const rebaja = Math.round(pvp * comision) / 100;
+                            return (
+                              <span className="cv__desc-r" title="La comisión que el proveedor os da sobre el PVP">
+                                PVP {euros(pvp)} · comisión {comision} % (−{euros(rebaja)}) · neto{" "}
+                                <b>{euros(Math.round((pvp - rebaja) * 100) / 100)}</b> por alumno
+                              </span>
+                            );
                           })()}
                         </div>
                       ) : null}
@@ -6193,6 +6261,52 @@ function VentanaDeActividad({
   );
 }
 
+/**
+ * El suplemento B2C de un alojamiento o una actividad: «Sin suplemento», € o %.
+ * Lo ve quien cotiza; el colegio ve el precio ya con él (24/11/2026).
+ */
+function SelectorDeSuplemento({
+  suplemento,
+  enAlojamiento = false,
+  onCambiar,
+}: {
+  suplemento?: SuplementoB2C;
+  enAlojamiento?: boolean;
+  onCambiar: (tipo: "" | "EUR" | "PCT", valor: number | null) => void;
+}) {
+  return (
+    <span className="cv__desc cv__desc--b2c">
+      <label>
+        <span>Suplemento B2C</span>
+        <select value={suplemento?.tipo ?? ""} onChange={(e) => onCambiar(e.target.value as "" | "EUR" | "PCT", null)}>
+          <option value="">Sin suplemento</option>
+          <option value="EUR">{enAlojamiento ? "€ por persona y noche" : "€ por persona"}</option>
+          <option value="PCT">%</option>
+        </select>
+      </label>
+      {suplemento ? (
+        <label>
+          <span className="sr-only">Importe del suplemento</span>
+          <input
+            type="number"
+            min="0"
+            step={suplemento.tipo === "EUR" ? "0.5" : "1"}
+            inputMode="decimal"
+            value={suplemento.valor}
+            onChange={(e) => onCambiar(suplemento.tipo, Number(e.target.value))}
+          />
+          <span aria-hidden="true">{suplemento.tipo === "EUR" ? "€" : "%"}</span>
+        </label>
+      ) : null}
+      {suplementoValido(suplemento) ? (
+        <span className="cv__desc-r" title="Va dentro del precio: el colegio no lo ve como una línea aparte">
+          {textoDelSuplemento(suplemento, enAlojamiento)}, ya sumado al precio
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function ListaOpciones({
   hoteles,
   elegidos,
@@ -6213,6 +6327,8 @@ function ListaOpciones({
   onAsignarAlumnos,
   acompanantesPorHotel,
   onAcompanantes,
+  suplementosB2C = {},
+  onSuplemento = () => {},
 }: {
   hoteles: AccommodationSearchMatch[];
   elegidos: string[];
@@ -6233,6 +6349,9 @@ function ListaOpciones({
   onAsignarAlumnos: (hotelId: string, tarifaId: string, cantidad: number) => void;
   acompanantesPorHotel: Record<string, AcompanantesDelHotel>;
   onAcompanantes: (hotelId: string, siguiente: AcompanantesDelHotel) => void;
+  /** El suplemento B2C de cada alojamiento (24/11/2026). */
+  suplementosB2C?: Record<string, SuplementoB2C>;
+  onSuplemento?: (hotelId: string, tipo: "" | "EUR" | "PCT", valor: number | null) => void;
 }) {
   const tres = podio(hoteles);
   const enElPodio = new Set(tres.map((item) => item.accommodation.id));
@@ -6311,6 +6430,13 @@ function ListaOpciones({
         >
           Ver todo el detalle
         </button>
+        {puesto ? (
+          <SelectorDeSuplemento
+            suplemento={suplementosB2C[item.accommodation.id]}
+            enAlojamiento
+            onCambiar={(tipo, valor) => onSuplemento(item.accommodation.id, tipo, valor)}
+          />
+        ) : null}
         {puesto && (fuera.length || dentro.length) ? (
           <p className="cv__delta">
             <span>Programa base</span>

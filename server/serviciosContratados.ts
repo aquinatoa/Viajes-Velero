@@ -131,6 +131,10 @@ export function elegirProveedor(
 export const PROVEEDORES_CON_OTRO_NOMBRE: Record<string, string> = {
   "portaventura world": "PORT AVENTURA ENTERTAINMENT S.A.U.",
   "escola de vela club nautic comarruga": "CLUB NAUTIC COMA-RUGA",
+  // Los extras de fútbol son de MARSOPA, «mismo proveedor que los campos»
+  // (Javier, 24/11/2026). En su CRM no hay ningún «MARSOPA»: los campos están
+  // en «Futbol Salou» (leído el 25/11/2026).
+  marsopa: "Futbol Salou",
 };
 
 /** El nombre del proveedor en su CRM si es uno de los que se escriben distinto. */

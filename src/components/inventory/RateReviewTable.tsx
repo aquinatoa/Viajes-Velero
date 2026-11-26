@@ -260,6 +260,8 @@ export function StagingEditableCard(props: StagingEditableCardProps) {
 interface RateLike {
   id: string;
   reviewStatus: string;
+  /** Igual que lo ya publicado: se aprobó solo al leer el documento. */
+  yaExistente?: boolean | null;
   year?: number | null;
   seasonName?: string | null;
   dateFrom?: string | null;
@@ -549,9 +551,18 @@ export function RateReviewTable(props: RateReviewTableProps) {
                       <td key={column.header}>{column.render(rate)}</td>
                     ))}
                     <td>
-                      <span className={`status-tag status-tag--${status.toLowerCase()}`}>
-                        {stagingReviewStatusLabels[status] ?? status}
-                      </span>
+                      {rate.yaExistente && status === "APPROVED" ? (
+                        <span
+                          className="status-tag status-tag--approved"
+                          title="Igual que lo que ya está publicado: se ha aprobado sola. No hace falta revisarla."
+                        >
+                          Ya existente
+                        </span>
+                      ) : (
+                        <span className={`status-tag status-tag--${status.toLowerCase()}`}>
+                          {stagingReviewStatusLabels[status] ?? status}
+                        </span>
+                      )}
                     </td>
                     <td className="rate-table__actions">
                       {status !== "APPROVED" ? (

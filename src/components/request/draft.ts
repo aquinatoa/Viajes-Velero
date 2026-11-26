@@ -79,6 +79,8 @@ export interface BorradorSolicitud {
   preciosFijados?: Record<string, number>;
   /** El descuento elegido en cada actividad (19/10/2026). */
   descuentos?: Record<string, DescuentoDeActividad>;
+  /** El suplemento B2C de cada alojamiento y actividad (24/11/2026). */
+  suplementosB2C?: Record<string, import("../../domain/suplementoB2C").SuplementoB2C>;
   /**
    * Las entradas de cada actividad (tarifa × cantidad). Sin ellas, al retomar
    * el borrador el Caribe volvía a la tarifa más barata («Pax con

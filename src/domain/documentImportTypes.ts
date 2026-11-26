@@ -186,6 +186,16 @@ export interface SourceDocumentSummary {
   pendingReviewCount?: number;
   /** Candidatos aprobados. */
   approvedCount?: number;
+  /** El archivo que se subió: si está guardado, se puede descargar. */
+  hasFile?: boolean;
+  originalFileName?: string | null;
+  fileSizeBytes?: number | null;
+  /** Tarifas del catálogo (las que usa el cotizador) que salen de este documento. */
+  inUseRateCount?: number;
+  /** Desde cuándo están en el catálogo esas tarifas. */
+  inUseSince?: string | null;
+  /** Filas aprobadas solas por ser iguales a lo ya publicado («ya existente»). */
+  yaExistenteCount?: number;
 }
 
 export interface ImportIssue {
@@ -449,6 +459,8 @@ export interface AiCandidateActivityRate {
   currency?: string | null;
   salePvpAmount?: number | null;
   costNetAmount?: number | null;
+  /** La comisión que el proveedor da sobre el PVP (PortAventura: 20 %). */
+  commissionPercent?: number | null;
   durationText?: string | null;
   /** A quién aplica: categoría, día de la semana, edad… */
   ageLabel?: string | null;

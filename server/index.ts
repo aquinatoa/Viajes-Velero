@@ -98,7 +98,7 @@ import {
   updateStagingEntity,
 } from "./documentImportDb";
 import { toRateKind } from "./pricing";
-import { listarLecturasIa, registrarLecturaIa, updateInventoryDocumentAiUsage } from "./documentImportDb";
+import { archivoDelDocumento, listarLecturasIa, registrarLecturaIa, updateInventoryDocumentAiUsage } from "./documentImportDb";
 import { resumirConsumo } from "./consumoIa";
 import type { AiUsage } from "../src/domain/documentImportTypes";
 import {
@@ -118,7 +118,8 @@ import {
   saveTripRequestDb,
   upsertClientFromIntakeDb,
 } from "./commercialDb";
-import { saveInventoryDocumentFile } from "./documentStorage";
+import { rutaDelArchivoGuardado, saveInventoryDocumentFile } from "./documentStorage";
+import { marcarLoYaExistente } from "./yaExistente";
 import {
   ADMIN_ROLES,
   type AuthedRequest,
@@ -947,6 +948,32 @@ app.patch("/api/inventory/documents/:id", async (request, response) => {
   }
 });
 
+// Descargar el archivo original de un documento, el que se subió, para
+// compararlo con uno nuevo (Ruth, 24/11/2026: «quiero comparar pero no tengo
+// manera de ver el archivo»). Solo lectura.
+app.get("/api/inventory/documents/:id/file", async (request, response) => {
+  try {
+    const documentId = String(request.params.id);
+    const archivo = await archivoDelDocumento(documentId);
+    if (!archivo) {
+      response.status(404).json({ error: "Documento no encontrado." });
+      return;
+    }
+    const ruta = archivo.storedFilePath ? await rutaDelArchivoGuardado(documentId, archivo.storedFilePath) : null;
+    if (!ruta) {
+      response.status(404).json({ error: "Este documento no tiene el archivo guardado en la App." });
+      return;
+    }
+    const nombre = archivo.originalFileName || path.basename(ruta);
+    if (archivo.fileMimeType) response.type(archivo.fileMimeType);
+    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(nombre)}`);
+    response.sendFile(ruta);
+  } catch (error) {
+    console.error("Error downloading inventory document file", error);
+    response.status(500).json({ error: "No se pudo descargar el archivo del documento." });
+  }
+});
+
 // Quitar el archivo asociado al documento (corregir una subida equivocada).
 app.delete("/api/inventory/documents/:id/file", async (request, response) => {
   try {
@@ -1299,6 +1326,23 @@ async function leerDocumentoConIa(documentId: string, regenerando: boolean): Pro
           : "Se crearon candidatos revisables:"
       } ${result.accommodations} alojamiento(s), ${result.rates} tarifa(s), ${result.adjustments} suplemento(s), ${result.policies} política(s), ${result.blackoutDates} fecha(s) especial(es) y ${result.activities} actividad(es) con ${result.activityRates ?? 0} tarifa(s). Pendientes de revisión humana; no se publicó nada.`,
     });
+
+    // Lo que ya está publicado igual no se vuelve a revisar (Ruth, 24/11/2026).
+    try {
+      const ya = await marcarLoYaExistente(documentId);
+      const total = ya.tarifas + ya.suplementos + ya.condiciones + ya.fechas;
+      if (total > 0) {
+        await addInventoryDocumentIssue({
+          sourceDocumentId: documentId,
+          severity: "INFO",
+          issueType: "STAGING_YA_EXISTENTE",
+          message: `Ya existentes (iguales a lo publicado, aprobadas solas): ${ya.tarifas} tarifa(s), ${ya.suplementos} suplemento(s), ${ya.condiciones} condición(es) y ${ya.fechas} fecha(s) especial(es); ${ya.enterosSinCambios} alojamiento(s) o actividad(es) sin ningún cambio. Solo queda por revisar lo nuevo y lo que cambia.`,
+        });
+      }
+    } catch (error) {
+      // Si falla la comparación, todo queda pendiente, como antes: no se pierde nada.
+      console.error(`[ya existente] ${documentId}: no se pudo comparar con lo publicado`, error);
+    }
 
     for (const warning of result.warnings) {
       await addInventoryDocumentIssue({

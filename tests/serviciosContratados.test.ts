@@ -11,6 +11,7 @@
  * No toca Zoho ni la base de datos: son funciones puras.
  */
 import assert from "node:assert/strict";
+import { COMISION_PORTAVENTURA, costeConComision } from "../server/tarifasPortAventura";
 
 import {
   costeDeLaFila,
@@ -117,6 +118,15 @@ prueba("los proveedores que en su CRM se escriben de otra forma", () => {
   assert.equal(nombreDelProveedorEnElCrm("PortAventura World"), "PORT AVENTURA ENTERTAINMENT S.A.U.");
   assert.equal(nombreDelProveedorEnElCrm("Escola de Vela Club Nàutic Comarruga"), "CLUB NAUTIC COMA-RUGA");
   assert.equal(nombreDelProveedorEnElCrm("Saltapark"), null);
+  // Los extras de fútbol (Javier, 24/11/2026): MARSOPA es «Futbol Salou» en su CRM.
+  assert.equal(nombreDelProveedorEnElCrm("MARSOPA"), "Futbol Salou");
+});
+
+prueba("PortAventura: el coste es el PVP menos su 20 % de comisión", () => {
+  assert.equal(COMISION_PORTAVENTURA, 20);
+  assert.equal(costeConComision(50), 40);
+  assert.equal(costeConComision(63), 50.4);
+  assert.equal(costeConComision(47.5), 38);
 });
 
 console.log("El desglose");

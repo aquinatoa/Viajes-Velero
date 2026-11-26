@@ -240,7 +240,7 @@ export async function removeInventoryDocumentFile(documentId: string) {
 }
 
 export async function listInventoryDocuments() {
-  const reviewSelect = { select: { reviewStatus: true } } as const;
+  const reviewSelect = { select: { reviewStatus: true, yaExistente: true } } as const;
   const documents = await prisma.sourceDocument.findMany({
     orderBy: {
       createdAt: "desc",
@@ -264,6 +264,11 @@ export async function listInventoryDocuments() {
       aiConfidence: true,
       createdAt: true,
       updatedAt: true,
+      // Para saber si hay archivo que descargar y cómo se llama (Ruth,
+      // 24/11/2026: «cuando pido ver detalle no veo el archivo»).
+      originalFileName: true,
+      fileSizeBytes: true,
+      storedFilePath: true,
       stagingAccommodations: {
         select: {
           reviewStatus: true,
@@ -283,11 +288,44 @@ export async function listInventoryDocuments() {
     },
   });
 
+  // Qué está EN USO: cuántas tarifas del catálogo que usa el cotizador salen
+  // de cada documento, y desde cuándo. Ruth, 24/11/2026: «hay dos documentos
+  // con el nombre Hoteles Oravia 2027 [...] no sé cuál es el último». El
+  // estado «Publicado» no lo dice: un documento sustituido por otro sigue
+  // «Publicado» aunque ya no aporte nada.
+  // Por el alojamiento o la actividad, que es lo que guarda de qué documento
+  // salió: las tarifas no siempre lo llevan (las de Fútbol Salou no).
+  const [hoteles, actividadesPublicadas] = await Promise.all([
+    prisma.accommodation.findMany({
+      where: { sourceDocumentId: { not: null } },
+      select: { sourceDocumentId: true, createdAt: true, _count: { select: { rates: true } } },
+    }),
+    prisma.activity.findMany({
+      where: { sourceDocumentId: { not: null } },
+      select: { sourceDocumentId: true, createdAt: true, _count: { select: { rates: true } } },
+    }),
+  ]);
+  const enUso = new Map<string, { tarifas: number; desde: Date | null }>();
+  for (const fila of [...hoteles, ...actividadesPublicadas]) {
+    if (!fila.sourceDocumentId) continue;
+    const antes = enUso.get(fila.sourceDocumentId);
+    enUso.set(fila.sourceDocumentId, {
+      tarifas: (antes?.tarifas ?? 0) + fila._count.rates,
+      desde: antes?.desde && antes.desde < fila.createdAt ? antes.desde : fila.createdAt,
+    });
+  }
+
   // Calcula contadores de revisión por documento (para priorizar de un vistazo)
   // y descarta las relaciones del payload de la lista.
   return documents.map((document) => {
     const statuses: string[] = [];
+    // Cuántas filas se aprobaron solas por ser iguales a lo publicado.
+    let yaExistentes = 0;
+    const contarYa = (filas: Array<{ yaExistente: boolean }>) => {
+      yaExistentes += filas.filter((f) => f.yaExistente).length;
+    };
     for (const accommodation of document.stagingAccommodations) {
+      contarYa([...accommodation.rates, ...accommodation.adjustments, ...accommodation.policies, ...accommodation.blackoutDates]);
       statuses.push(accommodation.reviewStatus);
       accommodation.rates.forEach((row) => statuses.push(row.reviewStatus));
       accommodation.adjustments.forEach((row) => statuses.push(row.reviewStatus));
@@ -295,14 +333,20 @@ export async function listInventoryDocuments() {
       accommodation.blackoutDates.forEach((row) => statuses.push(row.reviewStatus));
     }
     for (const activity of document.stagingActivities) {
+      contarYa([...activity.rates, ...activity.policies]);
       statuses.push(activity.reviewStatus);
       activity.rates.forEach((row) => statuses.push(row.reviewStatus));
       activity.policies.forEach((row) => statuses.push(row.reviewStatus));
     }
 
-    const { stagingAccommodations: _a, stagingActivities: _b, ...summary } = document;
+    const { stagingAccommodations: _a, stagingActivities: _b, storedFilePath, ...summary } = document;
+    const uso = enUso.get(document.id);
     return {
       ...summary,
+      // La ruta del disco no sale de aquí: solo si hay archivo.
+      hasFile: Boolean(storedFilePath),
+      inUseRateCount: uso?.tarifas ?? 0,
+      inUseSince: uso?.tarifas ? (uso.desde?.toISOString() ?? null) : null,
       // El margen es Decimal en Prisma; la pantalla espera un número.
       marginPercent: summary.marginPercent === null ? null : Number(summary.marginPercent),
       candidateCount: statuses.length,
@@ -310,6 +354,7 @@ export async function listInventoryDocuments() {
         (status) => status === "PENDING" || status === "NEEDS_CHANGES",
       ).length,
       approvedCount: statuses.filter((status) => status === "APPROVED").length,
+      yaExistenteCount: yaExistentes,
     };
   });
 }
@@ -343,6 +388,14 @@ function decimalsToNumbers<T>(value: T): T {
     return out as unknown as T;
   }
   return value;
+}
+
+/** El archivo guardado de un documento: nombre, ruta y tipo. Para descargarlo. */
+export async function archivoDelDocumento(documentId: string) {
+  return prisma.sourceDocument.findUnique({
+    where: { id: documentId },
+    select: { originalFileName: true, storedFilePath: true, fileMimeType: true },
+  });
 }
 
 export async function getInventoryDocumentDetail(documentId: string) {
@@ -729,6 +782,7 @@ export async function createInventoryDocumentStaging(
     currency: rate.currency ?? "EUR",
     salePvpAmount: rate.salePvpAmount ?? null,
     costNetAmount: rate.costNetAmount ?? null,
+    commissionPercent: rate.commissionPercent ?? null,
     minPax: rate.minPax ?? null,
     maxPax: rate.maxPax ?? null,
     durationText: rate.durationText ?? null,
@@ -2007,6 +2061,50 @@ function countCreatedRates(items: Record<string, unknown>[]): number {
   );
 }
 
+/**
+ * Lo que está SIN DECIDIR (pendiente o «requiere cambios») dentro de un
+ * alojamiento o una actividad aprobados.
+ *
+ * Publicar sustituye entero lo publicado con el mismo nombre: lo aprobado
+ * entra y lo demás desaparece del cotizador. Una tarifa cambiada que se queda
+ * sin revisar dentro de un hotel aprobado se perdía en silencio: su precio
+ * viejo se borraba y el nuevo no entraba. Con «ya existente» (25/11/2026)
+ * quedan tan pocas pendientes que es fácil publicar sin verlas, así que ahora
+ * se para y se dice cuáles son. Lo rechazado no cuenta: eso ya está decidido.
+ */
+export function sinDecidirEnAprobados(plan: {
+  accommodations: Array<{ accommodationName: string; reviewStatus: string; rates: Array<{ reviewStatus: string }>; adjustments: Array<{ reviewStatus: string }>; policies: Array<{ reviewStatus: string }>; blackoutDates: Array<{ reviewStatus: string }> }>;
+  activities: Array<{ activityName: string; reviewStatus: string; rates: Array<{ reviewStatus: string }>; policies: Array<{ reviewStatus: string }> }>;
+}): Array<{ nombre: string; cuantas: number }> {
+  // Una tarifa sin ningún importe no se puede aprobar (se queda pendiente para
+  // siempre) ni publicar: no bloquea, porque no hay precio que perder.
+  const sinImporte = (f: Record<string, unknown>) =>
+    ["pvpAmount", "netAmount", "costAmount", "salePvpAmount", "costNetAmount"].some((k) => k in f) &&
+    ["pvpAmount", "netAmount", "costAmount", "salePvpAmount", "costNetAmount"].every((k) => f[k] === null || f[k] === undefined);
+  const sinDecidir = (filas: Array<{ reviewStatus: string }>) =>
+    filas.filter(
+      (f) => (f.reviewStatus === "PENDING" || f.reviewStatus === "NEEDS_CHANGES") && !sinImporte(f as Record<string, unknown>),
+    ).length;
+  const lista: Array<{ nombre: string; cuantas: number }> = [];
+  for (const a of plan.accommodations) {
+    if (!isApprovedStatus(a.reviewStatus)) continue;
+    const n = sinDecidir([...a.rates, ...a.adjustments, ...a.policies, ...a.blackoutDates]);
+    if (n > 0) lista.push({ nombre: a.accommodationName, cuantas: n });
+  }
+  for (const a of plan.activities) {
+    if (!isApprovedStatus(a.reviewStatus)) continue;
+    const n = sinDecidir([...a.rates, ...a.policies]);
+    if (n > 0) lista.push({ nombre: a.activityName, cuantas: n });
+  }
+  return lista;
+}
+
+function avisoSinDecidir(lista: Array<{ nombre: string; cuantas: number }>): string {
+  const total = lista.reduce((s, l) => s + l.cuantas, 0);
+  const nombres = lista.slice(0, 5).map((l) => `${l.nombre} (${l.cuantas})`).join(", ");
+  return `Hay ${total} fila(s) sin decidir dentro de alojamientos o actividades aprobados: ${nombres}${lista.length > 5 ? "…" : ""}. Si se publica así, desaparecerían del cotizador. Apruébalas o recházalas antes de publicar.`;
+}
+
 export async function publishApprovedInventoryDocument(
   sourceDocumentId: string,
   context: PublishApprovedContext,
@@ -2017,6 +2115,11 @@ export async function publishApprovedInventoryDocument(
     throw new PublishValidationError(
       "No hay candidatos aprobados para publicar (se requiere al menos un alojamiento o actividad aprobado).",
     );
+  }
+
+  const sinDecidir = sinDecidirEnAprobados(plan);
+  if (sinDecidir.length > 0) {
+    throw new PublishValidationError(avisoSinDecidir(sinDecidir));
   }
 
   await prisma.$transaction(async (tx) => {
@@ -2068,6 +2171,8 @@ export async function dryRunPublishApprovedInventoryDocument(
   const plan = await buildPublishPlan(sourceDocumentId, context);
 
   const warnings = [...plan.warnings];
+  const sinDecidir = sinDecidirEnAprobados(plan);
+  if (sinDecidir.length > 0) warnings.unshift(avisoSinDecidir(sinDecidir));
   if (!plan.anyPublishable) {
     warnings.unshift(
       "No hay candidatos aprobados: al publicar no se crearía ningún registro operativo (se requiere al menos un alojamiento o actividad aprobado).",

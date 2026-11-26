@@ -9,6 +9,7 @@ import {
 } from "../domain/estancia";
 import type { AccommodationRate, AccommodationSearchMatch } from "../domain/types";
 import { applyDefaultMarkup } from "./pricing";
+import { precioConSuplemento, type SuplementoB2C } from "../domain/suplementoB2C";
 
 /**
  * La estancia aplicada a un hotel de la búsqueda (ver `domain/estancia.ts`).
@@ -20,7 +21,7 @@ function precioDe(t: Pick<AccommodationRate, "pvpAmount" | "netSaleAmount">): nu
   return t.pvpAmount || (t.netSaleAmount ? applyDefaultMarkup(t.netSaleAmount) : 0);
 }
 
-function comoTarifa(t: AccommodationRate): TarifaDeHotel {
+function comoTarifa(t: AccommodationRate, suplemento?: SuplementoB2C | null): TarifaDeHotel {
   return {
     id: t.id,
     boardType: t.boardType,
@@ -31,7 +32,8 @@ function comoTarifa(t: AccommodationRate): TarifaDeHotel {
     dateFrom: t.dateFrom || null,
     dateTo: t.dateTo || null,
     minNights: t.minNights || null,
-    precio: precioDe(t),
+    // Con el suplemento B2C dentro (24/11/2026): el coste no cambia.
+    precio: precioConSuplemento(precioDe(t), suplemento),
     // El coste es el neto de venta, como en la propuesta (`proposalService`).
     coste: t.netSaleAmount > 0 ? t.netSaleAmount : null,
   };
@@ -61,13 +63,15 @@ export function estanciaDeHotel(
   asignacionDeAlumnos?: Record<string, number>,
   /** Lo mismo para profesores y chófer, y la gratuidad del hotel. */
   acompanantes?: AcompanantesDelHotel,
+  /** El suplemento B2C de este hotel, sumado al precio de cada tarifa (24/11/2026). */
+  suplemento?: SuplementoB2C | null,
 ): EstanciaDeHotel | null {
   if (!viaje.fechaEntrada || viaje.noches <= 0) return null;
   const otras = [
     ...(hotel.singleRate ? [hotel.singleRate] : []),
     ...(hotel.alternativas ?? []),
-  ].map(comoTarifa);
-  const elegida = comoTarifa(hotel.rate);
+  ].map((t) => comoTarifa(t, suplemento));
+  const elegida = comoTarifa(hotel.rate, suplemento);
   const bloques = gruposDeAlumnosPorTarifa([elegida, ...otras], elegida.id, asignacionDeAlumnos ?? {});
   const tarifas = [elegida, ...otras];
   const deProfesores = gruposDeProfesoresPorTarifa(tarifas, acompanantes?.profesores ?? {}, acompanantes?.gratisProfesores ?? 0);

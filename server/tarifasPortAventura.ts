@@ -101,6 +101,15 @@ function entre(texto: string, desde: RegExp, hasta: RegExp): string | null {
   return (j < 0 ? resto : resto.slice(0, j + 1)).replace(/\s+/g, " ").trim();
 }
 
+
+/** La comisión que PortAventura da a Oravia sobre el PVP (Javier, 24/11/2026). */
+export const COMISION_PORTAVENTURA = 20;
+
+/** Lo que le cuesta a Oravia una entrada: el PVP menos su comisión, a céntimos. */
+export function costeConComision(pvp: number, comision = COMISION_PORTAVENTURA): number {
+  return Math.round(pvp * (100 - comision)) / 100;
+}
+
 export async function leerTarifasPortAventura(
   filePath: string | null | undefined,
   controlName: string,
@@ -175,7 +184,11 @@ export async function leerTarifasPortAventura(
         dateTo: null,
         currency: "EUR",
         salePvpAmount: Number(m[1]),
-        costNetAmount: null,
+        // El PDF solo trae el PVP. PortAventura les da un 20 % de comisión, y
+        // eso es lo que les cuesta (Javier, 24/11/2026: «portaventura nos da un
+        // 20% de comisión. La APP debería calcularlo directamente con este dato»).
+        costNetAmount: costeConComision(Number(m[1])),
+        commissionPercent: COMISION_PORTAVENTURA,
         durationText: prod.duracion,
         ageLabel: `${cat.etiqueta} · ${col.modalidad} · Periodo ${col.periodo}`,
         ageMin: cat.min,

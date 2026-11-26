@@ -399,6 +399,8 @@ export interface ProposalBuilderState {
   tope?: number | null;
   requisitos?: string[];
   descuentos?: Record<string, import("./descuentoDeActividad").DescuentoDeActividad>;
+  /** El suplemento B2C de cada alojamiento y actividad, sumado al precio (24/11/2026). */
+  suplementosB2C?: Record<string, import("./suplementoB2C").SuplementoB2C>;
   preciosFijados?: Record<string, number>;
   lineasSinDescuento?: Record<string, LineaDeActividad[]>;
   /** El día de cada actividad y la entrada pedida (26/10/2026). */

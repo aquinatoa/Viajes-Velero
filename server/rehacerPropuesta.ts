@@ -111,6 +111,7 @@ export async function borradorParaRehacer(
   let composicion: ComposicionDeLaEstancia = COMPOSICION_POR_DEFECTO;
   let canal = "GENERIC";
   let descuentos: Record<string, unknown> = {};
+  let suplementosB2C: Record<string, unknown> = {};
   let preciosFijados: Record<string, number> = {};
   let lineas: Record<string, unknown[]> = {};
   let tope: number | null = null;
@@ -129,6 +130,7 @@ export async function borradorParaRehacer(
         if (guardado.composicion) composicion = { ...COMPOSICION_POR_DEFECTO, ...(guardado.composicion as ComposicionDeLaEstancia) };
         if (typeof guardado.canal === "string" && guardado.canal) canal = guardado.canal;
         descuentos = (guardado.descuentos as Record<string, unknown>) ?? {};
+        suplementosB2C = (guardado.suplementosB2C as Record<string, unknown>) ?? {};
         preciosFijados = (guardado.preciosFijados as Record<string, number>) ?? {};
         lineas = (guardado.lineas as Record<string, unknown[]>) ?? {};
         tope = typeof guardado.tope === "number" ? guardado.tope : null;
@@ -209,6 +211,7 @@ export async function borradorParaRehacer(
     excepciones: {},
     preciosFijados,
     descuentos,
+    suplementosB2C,
     lineas,
     composicion,
     hotelesAdHoc,
